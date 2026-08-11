@@ -31,11 +31,11 @@ local Tycoon = {}
 Tycoon.__index = Tycoon
 
 local MISC_SPOTS = {
-	walls     = Vector3.new(-40, 0, 34),
-	batforge  = Vector3.new(-40, 0, 22),
-	batforge2 = Vector3.new(-40, 0, 10),
-	belt1     = Vector3.new(40, 0, 34),
-	roof      = Vector3.new(40, 0, 22),
+	walls     = Vector3.new(-36, 0, 24),
+	batforge  = Vector3.new(-36, 0, 13),
+	batforge2 = Vector3.new(-36, 0, 2),
+	belt1     = Vector3.new(36, 0, 24),
+	roof      = Vector3.new(36, 0, 13),
 }
 
 local COLORS = {
@@ -84,6 +84,7 @@ function Tycoon.new(index: number, parent: Instance)
 	local model, cf = MapBuilder.buildPlotPad(parent, index)
 	self.model = model
 	self.cf = cf
+	self.padPart = model:FindFirstChild("Pad")
 
 	self.machines = Instance.new("Folder")
 	self.machines.Name = "Machines"
@@ -137,6 +138,13 @@ end
 
 function Tycoon:at(x: number, y: number, z: number): CFrame
 	return self.cf * CFrame.new(x, y, z)
+end
+
+--- Where the owner is placed on claim and on every respawn. x = 17 is the
+--- clear lane between the dropper bodies (|x| <= 14.5) and the buy-button
+--- pedestals (|x| >= 20.5).
+function Tycoon:ownerSpawnCFrame(): CFrame
+	return self:at(17, 5, 8) * CFrame.Angles(0, math.rad(90), 0)
 end
 
 -- ── belt ─────────────────────────────────────────────────────────────────────
@@ -209,7 +217,7 @@ function Tycoon:buildCollector()
 	-- IMPORTANT: the vault shell must sit entirely DOWNSTREAM of the sensor.
 	-- If the solid body overlaps the sensor or the run-off ramp it walls the
 	-- belt off and drops can never be collected.
-	local vaultDepth = 12
+	local vaultDepth = 10
 	assert(z - vaultDepth / 2 > L.BeltEndZ + 4,
 		"Collector vault overlaps the belt run-off; raise Layout.CollectorZ")
 
@@ -296,29 +304,57 @@ end
 -- ── claim pad ────────────────────────────────────────────────────────────────
 
 function Tycoon:buildClaimPad()
-	-- Dead centre of the plot frontage. This is safe now that the factory is
-	-- hidden while unclaimed, and centring it is the difference between
-	-- "obvious green pad" and "hunt around the side of a shed".
-	local pad = newPart(self.model, "ClaimPad", Vector3.new(30, 1.2, 18),
-		self:at(0, 0.6, W.PlotSize.Z / 2 - 16), Color3.fromRGB(120, 230, 160), Enum.Material.Neon)
+	local folder = Instance.new("Folder")
+	folder.Name = "Claim"
+	folder.Parent = self.model
+	self.claimFolder = folder
+
+	local frontZ = W.PlotSize.Z / 2 - 14
+
+	-- The pad itself. Safe to centre now that the factory is hidden while
+	-- unclaimed -- there is nothing standing on the frontage to hide behind.
+	local pad = newPart(folder, "ClaimPad", Vector3.new(34, 1.2, 20),
+		self:at(0, 0.6, frontZ), Color3.fromRGB(120, 230, 160), Enum.Material.Neon)
 	pad.CanCollide = false
 	pad:SetAttribute("PlotIndex", self.index)
 	self.claimPad = pad
 
+	-- A beacon, because a flat pad on the floor is invisible from more than a
+	-- few studs away or from any angle that isn't directly above it. THIS is
+	-- the thing you actually navigate by.
+	local beacon = newPart(folder, "ClaimBeacon", Vector3.new(7, 80, 7),
+		self:at(0, 40, frontZ), Color3.fromRGB(120, 255, 170), Enum.Material.Neon, false)
+	beacon.Transparency = 0.55
+	beacon.CanQuery = false
+
+	local halo = newPart(folder, "ClaimHalo", Vector3.new(0.6, 44, 44),
+		self:at(0, 0.35, frontZ) * CFrame.Angles(0, 0, math.pi / 2),
+		Color3.fromRGB(80, 220, 130), Enum.Material.Neon, false)
+	halo.Shape = Enum.PartType.Cylinder
+	halo.Transparency = 0.4
+	halo.CanQuery = false
+
+	-- Sign high up the beacon so it clears the walls of neighbouring plots and
+	-- is readable from the arena.
+	local signAnchor = newPart(folder, "ClaimSign", Vector3.new(1, 1, 1),
+		self:at(0, 62, frontZ), Color3.new(1, 1, 1), nil, false)
+	signAnchor.Transparency = 1
+	signAnchor.CanQuery = false
+
 	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromScale(26, 8)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, 7, 0)
-	billboard.MaxDistance = 400
-	billboard.Parent = pad
+	billboard.Size = UDim2.fromScale(34, 12)
+	billboard.MaxDistance = 1200
+	billboard.AlwaysOnTop = false
+	billboard.Parent = signAnchor
 
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
 	label.Size = UDim2.fromScale(1, 1)
 	label.Font = Enum.Font.FredokaOne
-	label.Text = "STEP HERE TO CLAIM\nPLOT " .. self.index
-	label.TextColor3 = Color3.fromRGB(210, 255, 225)
+	label.Text = "PLOT " .. self.index .. "\nFREE — WALK ON IT"
+	label.TextColor3 = Color3.fromRGB(190, 255, 215)
 	label.TextStrokeTransparency = 0.15
-	label.TextStrokeColor3 = Color3.fromRGB(16, 48, 28)
+	label.TextStrokeColor3 = Color3.fromRGB(12, 46, 26)
 	label.TextScaled = true
 	label.Parent = billboard
 	self.claimLabel = label
@@ -333,12 +369,12 @@ function Tycoon:buildRebirthPad()
 	self.rebirthFolder = folder
 
 	local pad = newPart(folder, "RebirthPad", Vector3.new(12, 1.2, 12),
-		self:at(-30, 0.9, 50), Color3.fromRGB(200, 120, 255), Enum.Material.Neon)
+		self:at(-24, 0.9, 46), Color3.fromRGB(200, 120, 255), Enum.Material.Neon)
 	pad.CanCollide = false
 	self.rebirthPad = pad
 
 	local ring = newPart(folder, "RebirthRing", Vector3.new(0.4, 16, 16),
-		self:at(-30, 0.3, 50) * CFrame.Angles(0, 0, math.pi / 2),
+		self:at(-24, 0.3, 46) * CFrame.Angles(0, 0, math.pi / 2),
 		Color3.fromRGB(120, 60, 200), Enum.Material.Neon, false)
 	ring.Shape = Enum.PartType.Cylinder
 
@@ -956,12 +992,10 @@ function Tycoon:updateSign()
 			and ("SAHUR VAULT  •  %s/sec"):format(Util.abbreviate(self:incomePerSecond()))
 			or "SAHUR VAULT"
 	end
-	if self.claimPad then
-		self.claimPad.Transparency = ownerName and 1 or 0
-		self.claimPad.CanTouch = ownerName == nil
-	end
-	if self.claimLabel then
-		self.claimLabel.Parent.Enabled = ownerName == nil
+	-- the whole claim rig (pad, beacon, halo, sign) appears and disappears
+	-- together, so an owned plot never shows a stray "free" marker
+	if self.claimFolder then
+		self.claimFolder.Parent = (ownerName == nil) and self.model or nil
 	end
 	if self.rebirthLabel and self.owner then
 		self.rebirthLabel.Text = ("SAHUR REBIRTH\n%s"):format(Util.abbreviate(Economy.rebirthCost(self.owner)))

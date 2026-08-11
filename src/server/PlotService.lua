@@ -28,21 +28,42 @@ function PlotService.build(parent: Instance)
 end
 
 function PlotService.hookClaimPad(tycoon)
-	local pad = tycoon.claimPad
-	if not pad then
-		return
-	end
 	local lastTouch = 0
-	pad.Touched:Connect(function(hit)
+	local function onTouch(hit)
+		-- cheapest possible early-out: an owned plot ignores touches entirely
+		if tycoon.owner then
+			return
+		end
 		if os.clock() - lastTouch < 0.5 then
 			return
 		end
 		lastTouch = os.clock()
 		local player = tycoon:playerFromHit(hit)
-		if player then
+		if player and not byOwner[player] then
 			PlotService.claim(player, tycoon.index)
 		end
-	end)
+	end
+
+	-- The marked pad is the affordance, but the ENTIRE plot floor claims an
+	-- unclaimed plot. Hunting for a specific tile to stand on is a bad first
+	-- thirty seconds, and there is no downside: the plot is free either way.
+	for _, part in ipairs({ tycoon.claimPad, tycoon.padPart }) do
+		if part then
+			part.Touched:Connect(onTouch)
+		end
+	end
+end
+
+--- Puts a player on their own plot. Used on claim and on every respawn, so
+--- dying never costs you a walk back across the map.
+function PlotService.teleportToPlot(player: Player): boolean
+	local tycoon = byOwner[player]
+	local character = player.Character
+	if not tycoon or not character or not character.PrimaryPart then
+		return false
+	end
+	character:PivotTo(tycoon:ownerSpawnCFrame())
+	return true
 end
 
 function PlotService.plotOf(player: Player)
@@ -92,14 +113,7 @@ function PlotService.claim(player: Player, index: number): boolean
 	})
 	Economy.push(player)
 
-	-- Put them in the walking aisle beside the belt, facing the machinery.
-	-- x=17 is the clear lane between the dropper bodies (|x| <= 14.5) and the
-	-- buy-button pedestals (|x| >= 20.5); the plot frontage is occupied by
-	-- the vault, so spawning "at the entrance" would be inside a solid part.
-	local character = player.Character
-	if character and character.PrimaryPart then
-		character:PivotTo(tycoon:at(17, 6, 10) * CFrame.Angles(0, math.rad(90), 0))
-	end
+	PlotService.teleportToPlot(player)
 	return true
 end
 

@@ -49,12 +49,13 @@ __MODULES["Config"] = function()
 		-- file, so every player who can join has somewhere to build.
 		MinPlots = 6,
 		MaxPlots = 24,           -- geometry budget ceiling; raise MaxPlayers to match
-		PlotGap = 40,            -- clear studs between neighbouring plot edges
-		MinPlotRadius = 320,
+		PlotGap = 20,            -- clear studs between neighbouring plot edges
+		RingGap = 24,            -- clear studs between concentric plot rings
+		MinPlotRadius = 180,     -- how far the FIRST ring sits from the centre
 
-		PlotSize = Vector3.new(130, 2, 130),
-		BaseplateSize = 2600,
-		ArenaRadius = 110,
+		PlotSize = Vector3.new(96, 2, 112),
+		BaseplateSize = 1800,
+		ArenaRadius = 80,
 		ArenaWallHeight = 22,
 
 		-- Stacked surface heights. Every horizontal surface in the world gets its
@@ -66,10 +67,39 @@ __MODULES["Config"] = function()
 		PlotSurfaceY   = 0.60,   -- plot-local y = 0 lives here, not on the ground
 	}
 
-	--- Smallest ring radius that fits `count` plots without their edges touching.
-	function Config.plotRadiusFor(count: number): number
-		local needed = count * (Config.World.PlotSize.X + Config.World.PlotGap)
-		return math.max(Config.World.MinPlotRadius, needed / (2 * math.pi))
+	--- Where each plot sits: { radius, angle, ring }.
+	---
+	--- A single ring would work, but its radius grows linearly with the plot
+	--- count — 24 plots on one ring puts the far plots 650 studs out, which is a
+	--- 35-second walk. Instead we fill an inner ring first and only start a
+	--- second ring once the first is full, so most players stay close to spawn.
+	function Config.plotPlacements(count: number)
+		local pitch = Config.World.PlotSize.X + Config.World.PlotGap
+		local depth = Config.World.PlotSize.Z + Config.World.RingGap
+
+		local placements = {}
+		local remaining = count
+		local ring = 0
+
+		while remaining > 0 do
+			local radius = Config.World.MinPlotRadius + ring * depth
+			local capacity = math.max(1, math.floor((2 * math.pi * radius) / pitch))
+			local take = math.min(remaining, capacity)
+
+			for i = 1, take do
+				table.insert(placements, {
+					radius = radius,
+					-- stagger alternate rings so plots don't line up radially
+					angle = (i - 1) * (2 * math.pi / take) + ((ring % 2 == 1) and (math.pi / take) or 0),
+					ring = ring + 1,
+				})
+			end
+
+			remaining -= take
+			ring += 1
+		end
+
+		return placements
 	end
 
 	--- How many plots this server should build. Reads the place's player cap so a
@@ -90,16 +120,16 @@ __MODULES["Config"] = function()
 	Config.Layout = {
 		BeltY = 3.0,
 		BeltWidth = 10,
-		BeltStartZ = -50,
-		BeltEndZ = 34,
+		BeltStartZ = -42,
+		BeltEndZ = 24,
 		BeltSpeed = 15,          -- studs/sec, base
 		DropperSideX = 11,
 		ButtonSideX = 24,
-		CollectorZ = 44,
+		CollectorZ = 34,
 		-- z position of dropper slot 1..10
-		DropperZ = { -46, -42, -38, -34, -30, -26, -22, -18, -14, -10 },
-		-- z position of upgrader slot 1..6
-		UpgraderZ = { -2, 4, 10, 16, 22, 28 },
+		DropperZ = { -38, -35, -32, -29, -26, -23, -20, -17, -14, -11 },
+		-- z position of upgrader slot 1..6 (all downstream of every dropper)
+		UpgraderZ = { -5, 0, 5, 10, 15, 20 },
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -412,7 +442,8 @@ __MODULES["Config"] = function()
 
 	-- Resolved once, at require time, so every module sees the same numbers.
 	Config.World.PlotCount = Config.plotCountFor()
-	Config.World.PlotRadius = Config.plotRadiusFor(Config.World.PlotCount)
+	Config.World.PlotPlacements = Config.plotPlacements(Config.World.PlotCount)
+	Config.World.PlotRadius = Config.World.PlotPlacements[1].radius   -- inner ring
 
 	Config.ButtonById = {}
 	for index, def in ipairs(Config.Buttons) do
@@ -2384,10 +2415,11 @@ __MODULES["MapBuilder"] = function()
 	--- Returns the CFrame for plot `index` (1-based). +Z of the CFrame points
 	--- at the arena, matching the plot-local layout in Config.
 	function MapBuilder.plotCFrame(index: number): CFrame
-		local angle = (index - 1) * (math.pi * 2 / W.PlotCount)
+		local placement = W.PlotPlacements[index] or W.PlotPlacements[1]
+		local angle, radius = placement.angle, placement.radius
 		-- y = PlotSurfaceY, so plot-local y=0 is the top of the pad and sits
 		-- clear of the ground plane instead of z-fighting with it
-		local position = Vector3.new(math.sin(angle) * W.PlotRadius, W.PlotSurfaceY, math.cos(angle) * W.PlotRadius)
+		local position = Vector3.new(math.sin(angle) * radius, W.PlotSurfaceY, math.cos(angle) * radius)
 		-- look at the origin, then flip so plot-local +Z faces the arena
 		local look = CFrame.lookAt(position, Vector3.new(0, 0, 0))
 		return look * CFrame.Angles(0, math.pi, 0)
@@ -2427,7 +2459,7 @@ __MODULES["MapBuilder"] = function()
 		-- The statue's feet are 2.85 * scale below its pivot (see TungModels), and
 		-- the infinity variant carries its own 1.5x scale. Stand it ON the dais
 		-- instead of guessing a height and burying its legs in the platform.
-		local statueScale = 6
+		local statueScale = 4.5
 		local footDrop = 2.85 * statueScale * Config.Variants.infinity.scale
 		local statue = TungModels.buildStatue("infinity", statueScale)
 		statue.Name = "ArenaStatue"
@@ -2976,21 +3008,42 @@ __MODULES["PlotService"] = function()
 	end
 
 	function PlotService.hookClaimPad(tycoon)
-		local pad = tycoon.claimPad
-		if not pad then
-			return
-		end
 		local lastTouch = 0
-		pad.Touched:Connect(function(hit)
+		local function onTouch(hit)
+			-- cheapest possible early-out: an owned plot ignores touches entirely
+			if tycoon.owner then
+				return
+			end
 			if os.clock() - lastTouch < 0.5 then
 				return
 			end
 			lastTouch = os.clock()
 			local player = tycoon:playerFromHit(hit)
-			if player then
+			if player and not byOwner[player] then
 				PlotService.claim(player, tycoon.index)
 			end
-		end)
+		end
+
+		-- The marked pad is the affordance, but the ENTIRE plot floor claims an
+		-- unclaimed plot. Hunting for a specific tile to stand on is a bad first
+		-- thirty seconds, and there is no downside: the plot is free either way.
+		for _, part in ipairs({ tycoon.claimPad, tycoon.padPart }) do
+			if part then
+				part.Touched:Connect(onTouch)
+			end
+		end
+	end
+
+	--- Puts a player on their own plot. Used on claim and on every respawn, so
+	--- dying never costs you a walk back across the map.
+	function PlotService.teleportToPlot(player: Player): boolean
+		local tycoon = byOwner[player]
+		local character = player.Character
+		if not tycoon or not character or not character.PrimaryPart then
+			return false
+		end
+		character:PivotTo(tycoon:ownerSpawnCFrame())
+		return true
 	end
 
 	function PlotService.plotOf(player: Player)
@@ -3040,14 +3093,7 @@ __MODULES["PlotService"] = function()
 		})
 		Economy.push(player)
 
-		-- Put them in the walking aisle beside the belt, facing the machinery.
-		-- x=17 is the clear lane between the dropper bodies (|x| <= 14.5) and the
-		-- buy-button pedestals (|x| >= 20.5); the plot frontage is occupied by
-		-- the vault, so spawning "at the entrance" would be inside a solid part.
-		local character = player.Character
-		if character and character.PrimaryPart then
-			character:PivotTo(tycoon:at(17, 6, 10) * CFrame.Angles(0, math.rad(90), 0))
-		end
+		PlotService.teleportToPlot(player)
 		return true
 	end
 
@@ -3169,11 +3215,11 @@ __MODULES["Tycoon"] = function()
 	Tycoon.__index = Tycoon
 
 	local MISC_SPOTS = {
-		walls     = Vector3.new(-40, 0, 34),
-		batforge  = Vector3.new(-40, 0, 22),
-		batforge2 = Vector3.new(-40, 0, 10),
-		belt1     = Vector3.new(40, 0, 34),
-		roof      = Vector3.new(40, 0, 22),
+		walls     = Vector3.new(-36, 0, 24),
+		batforge  = Vector3.new(-36, 0, 13),
+		batforge2 = Vector3.new(-36, 0, 2),
+		belt1     = Vector3.new(36, 0, 24),
+		roof      = Vector3.new(36, 0, 13),
 	}
 
 	local COLORS = {
@@ -3222,6 +3268,7 @@ __MODULES["Tycoon"] = function()
 		local model, cf = MapBuilder.buildPlotPad(parent, index)
 		self.model = model
 		self.cf = cf
+		self.padPart = model:FindFirstChild("Pad")
 
 		self.machines = Instance.new("Folder")
 		self.machines.Name = "Machines"
@@ -3275,6 +3322,13 @@ __MODULES["Tycoon"] = function()
 
 	function Tycoon:at(x: number, y: number, z: number): CFrame
 		return self.cf * CFrame.new(x, y, z)
+	end
+
+	--- Where the owner is placed on claim and on every respawn. x = 17 is the
+	--- clear lane between the dropper bodies (|x| <= 14.5) and the buy-button
+	--- pedestals (|x| >= 20.5).
+	function Tycoon:ownerSpawnCFrame(): CFrame
+		return self:at(17, 5, 8) * CFrame.Angles(0, math.rad(90), 0)
 	end
 
 	-- ── belt ─────────────────────────────────────────────────────────────────────
@@ -3347,7 +3401,7 @@ __MODULES["Tycoon"] = function()
 		-- IMPORTANT: the vault shell must sit entirely DOWNSTREAM of the sensor.
 		-- If the solid body overlaps the sensor or the run-off ramp it walls the
 		-- belt off and drops can never be collected.
-		local vaultDepth = 12
+		local vaultDepth = 10
 		assert(z - vaultDepth / 2 > L.BeltEndZ + 4,
 			"Collector vault overlaps the belt run-off; raise Layout.CollectorZ")
 
@@ -3434,29 +3488,57 @@ __MODULES["Tycoon"] = function()
 	-- ── claim pad ────────────────────────────────────────────────────────────────
 
 	function Tycoon:buildClaimPad()
-		-- Dead centre of the plot frontage. This is safe now that the factory is
-		-- hidden while unclaimed, and centring it is the difference between
-		-- "obvious green pad" and "hunt around the side of a shed".
-		local pad = newPart(self.model, "ClaimPad", Vector3.new(30, 1.2, 18),
-			self:at(0, 0.6, W.PlotSize.Z / 2 - 16), Color3.fromRGB(120, 230, 160), Enum.Material.Neon)
+		local folder = Instance.new("Folder")
+		folder.Name = "Claim"
+		folder.Parent = self.model
+		self.claimFolder = folder
+
+		local frontZ = W.PlotSize.Z / 2 - 14
+
+		-- The pad itself. Safe to centre now that the factory is hidden while
+		-- unclaimed -- there is nothing standing on the frontage to hide behind.
+		local pad = newPart(folder, "ClaimPad", Vector3.new(34, 1.2, 20),
+			self:at(0, 0.6, frontZ), Color3.fromRGB(120, 230, 160), Enum.Material.Neon)
 		pad.CanCollide = false
 		pad:SetAttribute("PlotIndex", self.index)
 		self.claimPad = pad
 
+		-- A beacon, because a flat pad on the floor is invisible from more than a
+		-- few studs away or from any angle that isn't directly above it. THIS is
+		-- the thing you actually navigate by.
+		local beacon = newPart(folder, "ClaimBeacon", Vector3.new(7, 80, 7),
+			self:at(0, 40, frontZ), Color3.fromRGB(120, 255, 170), Enum.Material.Neon, false)
+		beacon.Transparency = 0.55
+		beacon.CanQuery = false
+
+		local halo = newPart(folder, "ClaimHalo", Vector3.new(0.6, 44, 44),
+			self:at(0, 0.35, frontZ) * CFrame.Angles(0, 0, math.pi / 2),
+			Color3.fromRGB(80, 220, 130), Enum.Material.Neon, false)
+		halo.Shape = Enum.PartType.Cylinder
+		halo.Transparency = 0.4
+		halo.CanQuery = false
+
+		-- Sign high up the beacon so it clears the walls of neighbouring plots and
+		-- is readable from the arena.
+		local signAnchor = newPart(folder, "ClaimSign", Vector3.new(1, 1, 1),
+			self:at(0, 62, frontZ), Color3.new(1, 1, 1), nil, false)
+		signAnchor.Transparency = 1
+		signAnchor.CanQuery = false
+
 		local billboard = Instance.new("BillboardGui")
-		billboard.Size = UDim2.fromScale(26, 8)
-		billboard.StudsOffsetWorldSpace = Vector3.new(0, 7, 0)
-		billboard.MaxDistance = 400
-		billboard.Parent = pad
+		billboard.Size = UDim2.fromScale(34, 12)
+		billboard.MaxDistance = 1200
+		billboard.AlwaysOnTop = false
+		billboard.Parent = signAnchor
 
 		local label = Instance.new("TextLabel")
 		label.BackgroundTransparency = 1
 		label.Size = UDim2.fromScale(1, 1)
 		label.Font = Enum.Font.FredokaOne
-		label.Text = "STEP HERE TO CLAIM\nPLOT " .. self.index
-		label.TextColor3 = Color3.fromRGB(210, 255, 225)
+		label.Text = "PLOT " .. self.index .. "\nFREE — WALK ON IT"
+		label.TextColor3 = Color3.fromRGB(190, 255, 215)
 		label.TextStrokeTransparency = 0.15
-		label.TextStrokeColor3 = Color3.fromRGB(16, 48, 28)
+		label.TextStrokeColor3 = Color3.fromRGB(12, 46, 26)
 		label.TextScaled = true
 		label.Parent = billboard
 		self.claimLabel = label
@@ -3471,12 +3553,12 @@ __MODULES["Tycoon"] = function()
 		self.rebirthFolder = folder
 
 		local pad = newPart(folder, "RebirthPad", Vector3.new(12, 1.2, 12),
-			self:at(-30, 0.9, 50), Color3.fromRGB(200, 120, 255), Enum.Material.Neon)
+			self:at(-24, 0.9, 46), Color3.fromRGB(200, 120, 255), Enum.Material.Neon)
 		pad.CanCollide = false
 		self.rebirthPad = pad
 
 		local ring = newPart(folder, "RebirthRing", Vector3.new(0.4, 16, 16),
-			self:at(-30, 0.3, 50) * CFrame.Angles(0, 0, math.pi / 2),
+			self:at(-24, 0.3, 46) * CFrame.Angles(0, 0, math.pi / 2),
 			Color3.fromRGB(120, 60, 200), Enum.Material.Neon, false)
 		ring.Shape = Enum.PartType.Cylinder
 
@@ -4094,12 +4176,10 @@ __MODULES["Tycoon"] = function()
 				and ("SAHUR VAULT  •  %s/sec"):format(Util.abbreviate(self:incomePerSecond()))
 				or "SAHUR VAULT"
 		end
-		if self.claimPad then
-			self.claimPad.Transparency = ownerName and 1 or 0
-			self.claimPad.CanTouch = ownerName == nil
-		end
-		if self.claimLabel then
-			self.claimLabel.Parent.Enabled = ownerName == nil
+		-- the whole claim rig (pad, beacon, halo, sign) appears and disappears
+		-- together, so an owned plot never shows a stray "free" marker
+		if self.claimFolder then
+			self.claimFolder.Parent = (ownerName == nil) and self.model or nil
 		end
 		if self.rebirthLabel and self.owner then
 			self.rebirthLabel.Text = ("SAHUR REBIRTH\n%s"):format(Util.abbreviate(Economy.rebirthCost(self.owner)))
@@ -4266,6 +4346,13 @@ NPCService.start()
 local function onCharacterAdded(player: Player, character: Model)
 	-- keep players from clipping into the belt machinery on spawn
 	character:WaitForChild("HumanoidRootPart", 10)
+
+	-- Respawn on your own plot rather than the arena. Roblox picks the spawn
+	-- before we get here, so this is a reposition, not a SpawnLocation: a
+	-- per-plot SpawnLocation would land in the random-spawn pool and start
+	-- sending other players to your factory.
+	task.defer(PlotService.teleportToPlot, player)
+
 	CombatService.onCharacter(player, character)
 	Economy.push(player)
 end

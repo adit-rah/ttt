@@ -41,6 +41,13 @@ NPCService.start()
 local function onCharacterAdded(player: Player, character: Model)
 	-- keep players from clipping into the belt machinery on spawn
 	character:WaitForChild("HumanoidRootPart", 10)
+
+	-- Respawn on your own plot rather than the arena. Roblox picks the spawn
+	-- before we get here, so this is a reposition, not a SpawnLocation: a
+	-- per-plot SpawnLocation would land in the random-spawn pool and start
+	-- sending other players to your factory.
+	task.defer(PlotService.teleportToPlot, player)
+
 	CombatService.onCharacter(player, character)
 	Economy.push(player)
 end

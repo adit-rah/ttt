@@ -74,10 +74,11 @@ end
 --- Returns the CFrame for plot `index` (1-based). +Z of the CFrame points
 --- at the arena, matching the plot-local layout in Config.
 function MapBuilder.plotCFrame(index: number): CFrame
-	local angle = (index - 1) * (math.pi * 2 / W.PlotCount)
+	local placement = W.PlotPlacements[index] or W.PlotPlacements[1]
+	local angle, radius = placement.angle, placement.radius
 	-- y = PlotSurfaceY, so plot-local y=0 is the top of the pad and sits
 	-- clear of the ground plane instead of z-fighting with it
-	local position = Vector3.new(math.sin(angle) * W.PlotRadius, W.PlotSurfaceY, math.cos(angle) * W.PlotRadius)
+	local position = Vector3.new(math.sin(angle) * radius, W.PlotSurfaceY, math.cos(angle) * radius)
 	-- look at the origin, then flip so plot-local +Z faces the arena
 	local look = CFrame.lookAt(position, Vector3.new(0, 0, 0))
 	return look * CFrame.Angles(0, math.pi, 0)
@@ -117,7 +118,7 @@ local function buildArena(parent: Instance)
 	-- The statue's feet are 2.85 * scale below its pivot (see TungModels), and
 	-- the infinity variant carries its own 1.5x scale. Stand it ON the dais
 	-- instead of guessing a height and burying its legs in the platform.
-	local statueScale = 6
+	local statueScale = 4.5
 	local footDrop = 2.85 * statueScale * Config.Variants.infinity.scale
 	local statue = TungModels.buildStatue("infinity", statueScale)
 	statue.Name = "ArenaStatue"

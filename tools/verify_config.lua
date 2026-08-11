@@ -143,20 +143,42 @@ for slot, z in ipairs(L.UpgraderZ) do
 		:format(slot, z, lastDropperZ))
 end
 
--- Plots must not overlap at ANY supported player count, since the ring radius
--- is derived from the place's MaxPlayers at runtime.
+-- Plots must not overlap at ANY supported player count, since the layout is
+-- derived from the place's MaxPlayers at runtime. Checked pairwise rather
+-- than by formula, so a change to the packing logic can't slip through.
+local MAX_WALK = 420   -- studs from the arena rim to the furthest plot edge
 for count = Config.World.MinPlots, Config.World.MaxPlots do
-	local radius = Config.plotRadiusFor(count)
-	local arc = 2 * math.pi * radius / count
-	check(arc >= Config.World.PlotSize.X + Config.World.PlotGap * 0.9,
-		("%d plots at radius %.0f leaves only %.0f studs of arc per plot (need %.0f)")
-			:format(count, radius, arc, Config.World.PlotSize.X + Config.World.PlotGap * 0.9))
-	-- the whole ring has to fit on the ground plane
-	check((radius + Config.World.PlotSize.X / 2) * 2 < Config.World.BaseplateSize,
+	local placements = Config.plotPlacements(count)
+	check(#placements == count, ("plotPlacements(%d) returned %d entries"):format(count, #placements))
+
+	local farthest = 0
+	for i, a in ipairs(placements) do
+		farthest = math.max(farthest, a.radius + Config.World.PlotSize.Z / 2)
+		for j = i + 1, #placements do
+			local b = placements[j]
+			if a.ring == b.ring then
+				-- chord between two plot centres on the same ring
+				local d = math.sqrt(a.radius ^ 2 + b.radius ^ 2
+					- 2 * a.radius * b.radius * math.cos(a.angle - b.angle))
+				check(d >= Config.World.PlotSize.X,
+					("%d plots: ring %d plots %d and %d are only %.0f studs apart (need %d)")
+						:format(count, a.ring, i, j, d, Config.World.PlotSize.X))
+			else
+				check(math.abs(a.radius - b.radius) >= Config.World.PlotSize.Z,
+					("%d plots: rings %d and %d are only %.0f studs apart radially (need %d)")
+						:format(count, a.ring, b.ring, math.abs(a.radius - b.radius), Config.World.PlotSize.Z))
+			end
+		end
+	end
+
+	check(farthest * 2 < Config.World.BaseplateSize,
 		("%d plots overflow the %d-stud ground plane"):format(count, Config.World.BaseplateSize))
-	-- and must clear the arena
-	check(radius - Config.World.PlotSize.Z / 2 > Config.World.ArenaRadius,
-		("%d plots at radius %.0f overlap the arena"):format(count, radius))
+	check(placements[1].radius - Config.World.PlotSize.Z / 2 > Config.World.ArenaRadius,
+		("%d plots: the inner ring overlaps the arena"):format(count))
+	-- keep the map walkable: nobody should be a marathon from the arena
+	check(farthest - Config.World.ArenaRadius <= MAX_WALK,
+		("%d plots put the furthest plot %.0f studs from the arena rim (limit %d)")
+			:format(count, farthest - Config.World.ArenaRadius, MAX_WALK))
 end
 
 check(Config.plotCountFor(50) == Config.World.MaxPlots, "plot count should clamp up to MaxPlots")

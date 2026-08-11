@@ -49,12 +49,13 @@ __MODULES["Config"] = function()
 		-- file, so every player who can join has somewhere to build.
 		MinPlots = 6,
 		MaxPlots = 24,           -- geometry budget ceiling; raise MaxPlayers to match
-		PlotGap = 40,            -- clear studs between neighbouring plot edges
-		MinPlotRadius = 320,
+		PlotGap = 20,            -- clear studs between neighbouring plot edges
+		RingGap = 24,            -- clear studs between concentric plot rings
+		MinPlotRadius = 180,     -- how far the FIRST ring sits from the centre
 
-		PlotSize = Vector3.new(130, 2, 130),
-		BaseplateSize = 2600,
-		ArenaRadius = 110,
+		PlotSize = Vector3.new(96, 2, 112),
+		BaseplateSize = 1800,
+		ArenaRadius = 80,
 		ArenaWallHeight = 22,
 
 		-- Stacked surface heights. Every horizontal surface in the world gets its
@@ -66,10 +67,39 @@ __MODULES["Config"] = function()
 		PlotSurfaceY   = 0.60,   -- plot-local y = 0 lives here, not on the ground
 	}
 
-	--- Smallest ring radius that fits `count` plots without their edges touching.
-	function Config.plotRadiusFor(count: number): number
-		local needed = count * (Config.World.PlotSize.X + Config.World.PlotGap)
-		return math.max(Config.World.MinPlotRadius, needed / (2 * math.pi))
+	--- Where each plot sits: { radius, angle, ring }.
+	---
+	--- A single ring would work, but its radius grows linearly with the plot
+	--- count — 24 plots on one ring puts the far plots 650 studs out, which is a
+	--- 35-second walk. Instead we fill an inner ring first and only start a
+	--- second ring once the first is full, so most players stay close to spawn.
+	function Config.plotPlacements(count: number)
+		local pitch = Config.World.PlotSize.X + Config.World.PlotGap
+		local depth = Config.World.PlotSize.Z + Config.World.RingGap
+
+		local placements = {}
+		local remaining = count
+		local ring = 0
+
+		while remaining > 0 do
+			local radius = Config.World.MinPlotRadius + ring * depth
+			local capacity = math.max(1, math.floor((2 * math.pi * radius) / pitch))
+			local take = math.min(remaining, capacity)
+
+			for i = 1, take do
+				table.insert(placements, {
+					radius = radius,
+					-- stagger alternate rings so plots don't line up radially
+					angle = (i - 1) * (2 * math.pi / take) + ((ring % 2 == 1) and (math.pi / take) or 0),
+					ring = ring + 1,
+				})
+			end
+
+			remaining -= take
+			ring += 1
+		end
+
+		return placements
 	end
 
 	--- How many plots this server should build. Reads the place's player cap so a
@@ -90,16 +120,16 @@ __MODULES["Config"] = function()
 	Config.Layout = {
 		BeltY = 3.0,
 		BeltWidth = 10,
-		BeltStartZ = -50,
-		BeltEndZ = 34,
+		BeltStartZ = -42,
+		BeltEndZ = 24,
 		BeltSpeed = 15,          -- studs/sec, base
 		DropperSideX = 11,
 		ButtonSideX = 24,
-		CollectorZ = 44,
+		CollectorZ = 34,
 		-- z position of dropper slot 1..10
-		DropperZ = { -46, -42, -38, -34, -30, -26, -22, -18, -14, -10 },
-		-- z position of upgrader slot 1..6
-		UpgraderZ = { -2, 4, 10, 16, 22, 28 },
+		DropperZ = { -38, -35, -32, -29, -26, -23, -20, -17, -14, -11 },
+		-- z position of upgrader slot 1..6 (all downstream of every dropper)
+		UpgraderZ = { -5, 0, 5, 10, 15, 20 },
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -412,7 +442,8 @@ __MODULES["Config"] = function()
 
 	-- Resolved once, at require time, so every module sees the same numbers.
 	Config.World.PlotCount = Config.plotCountFor()
-	Config.World.PlotRadius = Config.plotRadiusFor(Config.World.PlotCount)
+	Config.World.PlotPlacements = Config.plotPlacements(Config.World.PlotCount)
+	Config.World.PlotRadius = Config.World.PlotPlacements[1].radius   -- inner ring
 
 	Config.ButtonById = {}
 	for index, def in ipairs(Config.Buttons) do
