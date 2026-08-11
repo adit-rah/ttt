@@ -75,7 +75,9 @@ end
 --- at the arena, matching the plot-local layout in Config.
 function MapBuilder.plotCFrame(index: number): CFrame
 	local angle = (index - 1) * (math.pi * 2 / W.PlotCount)
-	local position = Vector3.new(math.sin(angle) * W.PlotRadius, 0, math.cos(angle) * W.PlotRadius)
+	-- y = PlotSurfaceY, so plot-local y=0 is the top of the pad and sits
+	-- clear of the ground plane instead of z-fighting with it
+	local position = Vector3.new(math.sin(angle) * W.PlotRadius, W.PlotSurfaceY, math.cos(angle) * W.PlotRadius)
 	-- look at the origin, then flip so plot-local +Z faces the arena
 	local look = CFrame.lookAt(position, Vector3.new(0, 0, 0))
 	return look * CFrame.Angles(0, math.pi, 0)
@@ -86,11 +88,11 @@ local function buildArena(parent: Instance)
 	arena.Name = "Arena"
 	arena.Parent = parent
 
-	local floor = newPart(arena, "ArenaFloor", Vector3.new(W.ArenaRadius * 2, 3, W.ArenaRadius * 2),
-		CFrame.new(0, -1.5, 0), PALETTE.arena, Enum.Material.Pebble)
+	local floorThickness = 3
+	local floorY = W.ArenaFloorTopY - floorThickness / 2
+	local floor = newPart(arena, "ArenaFloor", Vector3.new(floorThickness, W.ArenaRadius * 2, W.ArenaRadius * 2),
+		CFrame.new(0, floorY, 0) * CFrame.Angles(0, 0, math.pi / 2), PALETTE.arena, Enum.Material.Pebble)
 	floor.Shape = Enum.PartType.Cylinder
-	floor.CFrame = CFrame.new(0, -1.5, 0) * CFrame.Angles(0, 0, math.pi / 2)
-	floor.Size = Vector3.new(3, W.ArenaRadius * 2, W.ArenaRadius * 2)
 
 	-- glowing rim segments
 	local segments = 32
@@ -105,13 +107,21 @@ local function buildArena(parent: Instance)
 	-- them would eat the renderer's light budget for nothing)
 
 	-- centre platform + big statue
-	local dais = newPart(arena, "Dais", Vector3.new(6, 34, 34), CFrame.new(0, 1.5, 0) * CFrame.Angles(0, 0, math.pi / 2),
+	local daisHeight = 6
+	local daisTopY = W.ArenaFloorTopY + daisHeight
+	local dais = newPart(arena, "Dais", Vector3.new(daisHeight, 34, 34),
+		CFrame.new(0, daisTopY - daisHeight / 2, 0) * CFrame.Angles(0, 0, math.pi / 2),
 		PALETTE.pad, Enum.Material.Slate)
 	dais.Shape = Enum.PartType.Cylinder
 
-	local statue = TungModels.buildStatue("infinity", 6)
+	-- The statue's feet are 2.85 * scale below its pivot (see TungModels), and
+	-- the infinity variant carries its own 1.5x scale. Stand it ON the dais
+	-- instead of guessing a height and burying its legs in the platform.
+	local statueScale = 6
+	local footDrop = 2.85 * statueScale * Config.Variants.infinity.scale
+	local statue = TungModels.buildStatue("infinity", statueScale)
 	statue.Name = "ArenaStatue"
-	statue:PivotTo(CFrame.new(0, 26, 0))
+	statue:PivotTo(CFrame.new(0, daisTopY + footDrop, 0))
 	statue.Parent = arena
 
 	-- floating title
@@ -173,8 +183,10 @@ end
 local function buildSpawn(parent: Instance)
 	local spawnPad = Instance.new("SpawnLocation")
 	spawnPad.Name = "TungSpawn"
-	spawnPad.Size = Vector3.new(30, 2, 30)
-	spawnPad.CFrame = CFrame.new(0, W.SpawnHeight, 0)
+	spawnPad.Size = Vector3.new(36, 1.5, 24)
+	-- in FRONT of the dais, not on top of it: spawning at the origin puts
+	-- players inside the statue's legs
+	spawnPad.CFrame = CFrame.new(0, W.ArenaFloorTopY + 0.75, 52)
 	spawnPad.Anchored = true
 	spawnPad.CanCollide = true
 	spawnPad.Color = Color3.fromRGB(150, 103, 60)
@@ -202,17 +214,23 @@ function MapBuilder.build(): Folder
 	world.Name = "TungWorld"
 	world.Parent = workspace
 
-	local ground = newPart(world, "Ground", Vector3.new(W.BaseplateSize, 6, W.BaseplateSize),
-		CFrame.new(0, -3, 0), PALETTE.ground, Enum.Material.Grass)
+	local groundThickness = 12
+	local ground = newPart(world, "Ground", Vector3.new(W.BaseplateSize, groundThickness, W.BaseplateSize),
+		CFrame.new(0, W.GroundTopY - groundThickness / 2, 0), PALETTE.ground, Enum.Material.Grass)
 	ground.Anchored = true
 
-	-- decorative ring path between arena and plots
-	for i = 1, 64 do
-		local a = (i / 64) * math.pi * 2
-		local r = (W.ArenaRadius + W.PlotRadius) * 0.5
-		local pos = Vector3.new(math.sin(a) * r, 0.15, math.cos(a) * r)
-		local tile = newPart(world, "Path" .. i, Vector3.new(26, 0.4, 22),
-			CFrame.lookAt(pos, Vector3.new(0, 0.15, 0)), PALETTE.path, Enum.Material.Sand)
+	-- Decorative ring path between arena and plots. Tile width is derived from
+	-- the spacing: a fixed width overlaps its neighbours once the ring radius
+	-- changes, and overlapping coplanar tops are the classic tearing artefact.
+	local pathTiles = 72
+	local pathRadius = (W.ArenaRadius + W.PlotRadius) * 0.5
+	local tileWidth = (2 * math.pi * pathRadius / pathTiles) * 0.92
+	local tileThickness = 0.5
+	for i = 1, pathTiles do
+		local a = (i / pathTiles) * math.pi * 2
+		local pos = Vector3.new(math.sin(a) * pathRadius, W.PathTopY - tileThickness / 2, math.cos(a) * pathRadius)
+		local tile = newPart(world, "Path" .. i, Vector3.new(tileWidth, tileThickness, 24),
+			CFrame.lookAt(pos, Vector3.new(pos.X * 0.001, pos.Y, pos.Z * 0.001)), PALETTE.path, Enum.Material.Sand)
 		tile.CanCollide = false
 	end
 
@@ -253,8 +271,9 @@ function MapBuilder.buildPlotPad(parent: Instance, index: number): (Model, CFram
 		e.CanCollide = false
 	end
 
-	-- claim totem at the front of the plot
-	local totemCF = cf * CFrame.new(0, 6, half - 8)
+	-- Claim totem, parked in the front-left corner. It used to stand at x = 0,
+	-- which is directly on top of the pad you are meant to step on.
+	local totemCF = cf * CFrame.new(-half + 12, 6, half - 8)
 	local totem = newPart(model, "Totem", Vector3.new(4, 12, 4), totemCF, Color3.fromRGB(70, 52, 40), Enum.Material.Wood)
 	totem:SetAttribute("PlotIndex", index)
 

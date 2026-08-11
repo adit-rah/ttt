@@ -101,10 +101,38 @@ function Tycoon.new(index: number, parent: Instance)
 	self:buildCollector()
 	self:buildRebirthPad()
 	self:buildClaimPad()
-	self:buildButtons()
-	self:refreshButtons()
+
+	-- An unclaimed plot shows a bare pad and a claim marker, nothing else.
+	-- Leaving the vault and belt standing on an empty plot is what makes it
+	-- look like there's a big block parked in front of the thing you're
+	-- meant to walk onto.
+	self:setFactoryVisible(false)
+	self:updateSign()
 
 	return self
+end
+
+--- Buy buttons are built on first claim, not at server start: 24 plots x 21
+--- buttons is a lot of instances to create just to immediately hide them.
+function Tycoon:ensureButtons()
+	if self.buttonsBuilt then
+		return
+	end
+	self.buttonsBuilt = true
+	self:buildButtons()
+end
+
+--- Shows/hides the whole factory. Machinery lives in folders so this is a
+--- reparent rather than a rebuild.
+function Tycoon:setFactoryVisible(visible: boolean)
+	local target = visible and self.model or nil
+	local folders = { self.beltFolder, self.collectorFolder, self.rebirthFolder, self.machines }
+	for i = 1, 4 do
+		local folder = folders[i]
+		if folder then
+			folder.Parent = target
+		end
+	end
 end
 
 function Tycoon:at(x: number, y: number, z: number): CFrame
@@ -174,6 +202,7 @@ function Tycoon:buildCollector()
 	local folder = Instance.new("Folder")
 	folder.Name = "Collector"
 	folder.Parent = self.model
+	self.collectorFolder = folder
 
 	local z = L.CollectorZ
 
@@ -267,27 +296,29 @@ end
 -- ── claim pad ────────────────────────────────────────────────────────────────
 
 function Tycoon:buildClaimPad()
-	-- offset to the right of the totem: the vault occupies the centre of the
-	-- plot frontage, so a centred pad would sit inside it
-	local pad = newPart(self.model, "ClaimPad", Vector3.new(16, 1.4, 10),
-		self:at(22, 0.7, W.PlotSize.Z / 2 - 7), Color3.fromRGB(120, 230, 160), Enum.Material.Neon)
+	-- Dead centre of the plot frontage. This is safe now that the factory is
+	-- hidden while unclaimed, and centring it is the difference between
+	-- "obvious green pad" and "hunt around the side of a shed".
+	local pad = newPart(self.model, "ClaimPad", Vector3.new(30, 1.2, 18),
+		self:at(0, 0.6, W.PlotSize.Z / 2 - 16), Color3.fromRGB(120, 230, 160), Enum.Material.Neon)
 	pad.CanCollide = false
 	pad:SetAttribute("PlotIndex", self.index)
 	self.claimPad = pad
 
 	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromScale(16, 5)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, 4, 0)
-	billboard.MaxDistance = 180
+	billboard.Size = UDim2.fromScale(26, 8)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, 7, 0)
+	billboard.MaxDistance = 400
 	billboard.Parent = pad
 
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
 	label.Size = UDim2.fromScale(1, 1)
 	label.Font = Enum.Font.FredokaOne
-	label.Text = "CLAIM PLOT"
-	label.TextColor3 = Color3.fromRGB(190, 255, 210)
-	label.TextStrokeTransparency = 0.2
+	label.Text = "STEP HERE TO CLAIM\nPLOT " .. self.index
+	label.TextColor3 = Color3.fromRGB(210, 255, 225)
+	label.TextStrokeTransparency = 0.15
+	label.TextStrokeColor3 = Color3.fromRGB(16, 48, 28)
 	label.TextScaled = true
 	label.Parent = billboard
 	self.claimLabel = label
@@ -296,16 +327,20 @@ end
 -- ── rebirth pad ──────────────────────────────────────────────────────────────
 
 function Tycoon:buildRebirthPad()
-	local pad = newPart(self.model, "RebirthPad", Vector3.new(12, 1.2, 12),
-		self:at(-26, 0.6, 48), Color3.fromRGB(200, 120, 255), Enum.Material.Neon)
+	local folder = Instance.new("Folder")
+	folder.Name = "Rebirth"
+	folder.Parent = self.model
+	self.rebirthFolder = folder
+
+	local pad = newPart(folder, "RebirthPad", Vector3.new(12, 1.2, 12),
+		self:at(-30, 0.9, 50), Color3.fromRGB(200, 120, 255), Enum.Material.Neon)
 	pad.CanCollide = false
 	self.rebirthPad = pad
 
-	local ring = newPart(self.model, "RebirthRing", Vector3.new(16, 0.4, 16),
-		self:at(-26, 0.25, 48), Color3.fromRGB(120, 60, 200), Enum.Material.Neon, false)
+	local ring = newPart(folder, "RebirthRing", Vector3.new(0.4, 16, 16),
+		self:at(-30, 0.3, 50) * CFrame.Angles(0, 0, math.pi / 2),
+		Color3.fromRGB(120, 60, 200), Enum.Material.Neon, false)
 	ring.Shape = Enum.PartType.Cylinder
-	ring.CFrame = self:at(-26, 0.25, 48) * CFrame.Angles(0, 0, math.pi / 2)
-	ring.Size = Vector3.new(0.4, 16, 16)
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Size = UDim2.fromScale(16, 6)
@@ -752,13 +787,21 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 
 	if def.structure == "walls" then
 		local h = 16
+		-- The gateway sits over the walking aisle (x ~ 17), NOT at x = 0:
+		-- the collector vault stands dead centre, so a centred gate opens
+		-- straight onto a wall.
+		local gateCentre, gateWidth = 18, 16
+		local gateLeft = gateCentre - gateWidth / 2
+		local gateRight = gateCentre + gateWidth / 2
+		local leftSpan = gateLeft + halfX
+		local rightSpan = halfX - gateRight
 		local specs = {
 			{ Vector3.new(W.PlotSize.X, h, 2), CFrame.new(0, h / 2, -halfZ) },
 			{ Vector3.new(2, h, W.PlotSize.Z), CFrame.new(halfX, h / 2, 0) },
 			{ Vector3.new(2, h, W.PlotSize.Z), CFrame.new(-halfX, h / 2, 0) },
-			-- front wall in two pieces, leaving a gateway
-			{ Vector3.new(W.PlotSize.X / 2 - 8, h, 2), CFrame.new(-(W.PlotSize.X / 4 + 4), h / 2, halfZ) },
-			{ Vector3.new(W.PlotSize.X / 2 - 8, h, 2), CFrame.new(W.PlotSize.X / 4 + 4, h / 2, halfZ) },
+			-- front wall in two pieces, leaving the gateway over the aisle
+			{ Vector3.new(leftSpan, h, 2), CFrame.new(gateLeft - leftSpan / 2, h / 2, halfZ) },
+			{ Vector3.new(rightSpan, h, 2), CFrame.new(gateRight + rightSpan / 2, h / 2, halfZ) },
 		}
 		for i, spec in ipairs(specs) do
 			newPart(model, "Wall" .. i, spec[1], self.cf * spec[2], Color3.fromRGB(150, 111, 74), Enum.Material.WoodPlanks)
@@ -933,6 +976,8 @@ function Tycoon:assign(player: Player)
 	end
 	self.owner = player
 	self.generation += 1
+	self:ensureButtons()
+	self:setFactoryVisible(true)
 
 	local profile = DataService.get(player)
 	if profile then
@@ -970,6 +1015,7 @@ function Tycoon:release()
 	end
 	self.machines:ClearAllChildren()
 	self:clearDrops()
+	self:setFactoryVisible(false)
 
 	if self.beltSurface then
 		self.beltSurface.Color = COLORS.belt

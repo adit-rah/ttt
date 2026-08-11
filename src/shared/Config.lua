@@ -13,14 +13,45 @@ local Config = {}
 -- ─────────────────────────────────────────────────────────────────────────────
 
 Config.World = {
-	PlotCount = 6,
-	PlotRadius = 320,        -- plots ring the arena at this distance
+	-- Plot count is derived from the place's player cap at the bottom of this
+	-- file, so every player who can join has somewhere to build.
+	MinPlots = 6,
+	MaxPlots = 24,           -- geometry budget ceiling; raise MaxPlayers to match
+	PlotGap = 40,            -- clear studs between neighbouring plot edges
+	MinPlotRadius = 320,
+
 	PlotSize = Vector3.new(130, 2, 130),
-	BaseplateSize = 2400,
+	BaseplateSize = 2600,
 	ArenaRadius = 110,
 	ArenaWallHeight = 22,
-	SpawnHeight = 4,
+
+	-- Stacked surface heights. Every horizontal surface in the world gets its
+	-- OWN height: two coplanar faces at the same Y is exactly what produces
+	-- the shimmering/tearing you see when the camera moves.
+	GroundTopY     = 0,
+	PathTopY       = 0.15,
+	ArenaFloorTopY = 0.30,
+	PlotSurfaceY   = 0.60,   -- plot-local y = 0 lives here, not on the ground
 }
+
+--- Smallest ring radius that fits `count` plots without their edges touching.
+function Config.plotRadiusFor(count: number): number
+	local needed = count * (Config.World.PlotSize.X + Config.World.PlotGap)
+	return math.max(Config.World.MinPlotRadius, needed / (2 * math.pi))
+end
+
+--- How many plots this server should build. Reads the place's player cap so a
+--- 12-player server gets 12 factories, clamped to the geometry budget.
+function Config.plotCountFor(playerCap: number?): number
+	local cap = playerCap
+	if not cap then
+		local ok, maxPlayers = pcall(function()
+			return game:GetService("Players").MaxPlayers
+		end)
+		cap = (ok and type(maxPlayers) == "number" and maxPlayers > 0) and maxPlayers or Config.World.MinPlots
+	end
+	return math.clamp(math.floor(cap), Config.World.MinPlots, Config.World.MaxPlots)
+end
 
 -- Plot-local layout. Plot origin = centre of the pad, floor top at y = 0.
 -- +Z is "front" (faces the arena), -Z is the back where droppers live.
@@ -346,6 +377,10 @@ Config.Waves = {
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Derived lookups (built once at require time)
 -- ─────────────────────────────────────────────────────────────────────────────
+
+-- Resolved once, at require time, so every module sees the same numbers.
+Config.World.PlotCount = Config.plotCountFor()
+Config.World.PlotRadius = Config.plotRadiusFor(Config.World.PlotCount)
 
 Config.ButtonById = {}
 for index, def in ipairs(Config.Buttons) do

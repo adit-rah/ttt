@@ -143,10 +143,46 @@ for slot, z in ipairs(L.UpgraderZ) do
 		:format(slot, z, lastDropperZ))
 end
 
--- plots must not overlap on the ring
-local circumference = 2 * math.pi * Config.World.PlotRadius
-check(circumference / Config.World.PlotCount > Config.World.PlotSize.X * 1.15,
-	"plots overlap: increase World.PlotRadius or shrink PlotSize")
+-- Plots must not overlap at ANY supported player count, since the ring radius
+-- is derived from the place's MaxPlayers at runtime.
+for count = Config.World.MinPlots, Config.World.MaxPlots do
+	local radius = Config.plotRadiusFor(count)
+	local arc = 2 * math.pi * radius / count
+	check(arc >= Config.World.PlotSize.X + Config.World.PlotGap * 0.9,
+		("%d plots at radius %.0f leaves only %.0f studs of arc per plot (need %.0f)")
+			:format(count, radius, arc, Config.World.PlotSize.X + Config.World.PlotGap * 0.9))
+	-- the whole ring has to fit on the ground plane
+	check((radius + Config.World.PlotSize.X / 2) * 2 < Config.World.BaseplateSize,
+		("%d plots overflow the %d-stud ground plane"):format(count, Config.World.BaseplateSize))
+	-- and must clear the arena
+	check(radius - Config.World.PlotSize.Z / 2 > Config.World.ArenaRadius,
+		("%d plots at radius %.0f overlap the arena"):format(count, radius))
+end
+
+check(Config.plotCountFor(50) == Config.World.MaxPlots, "plot count should clamp up to MaxPlots")
+check(Config.plotCountFor(2) == Config.World.MinPlots, "plot count should clamp down to MinPlots")
+check(Config.plotCountFor(12) == 12, "plot count should track MaxPlayers in range")
+
+-- Every horizontal surface needs its own Y. Two coplanar faces at the same
+-- height is what produces the shimmering/tearing artefact, and it is very easy
+-- to reintroduce by hand-placing one more slab.
+local surfaces = {
+	GroundTopY = Config.World.GroundTopY,
+	PathTopY = Config.World.PathTopY,
+	ArenaFloorTopY = Config.World.ArenaFloorTopY,
+	PlotSurfaceY = Config.World.PlotSurfaceY,
+}
+local seenHeights = {}
+for name, y in pairs(surfaces) do
+	check(type(y) == "number", ("World.%s must be a number"):format(name))
+	local clash = seenHeights[y]
+	check(clash == nil,
+		("World.%s and World.%s are both at y=%s — coplanar faces will z-fight")
+			:format(name, tostring(clash), tostring(y)))
+	seenHeights[y] = name
+end
+check(Config.World.PlotSurfaceY > Config.World.GroundTopY,
+	"plot pads must sit above the ground plane, not level with it")
 
 -- ── progression simulation ──────────────────────────────────────────────────
 -- Walks the real purchase order and works out how long each buy takes at the
