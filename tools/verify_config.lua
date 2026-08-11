@@ -158,6 +158,28 @@ end
 checkSpacing("DropperDist", L.DropperDist, leg1)
 checkSpacing("UpgraderDist", L.UpgraderDist, leg2)
 
+-- THROUGHPUT: the belt has to physically fit the drops it carries. If the
+-- peak spawn rate times the transit time exceeds the drop cap, the belt runs
+-- bumper-to-bumper, drops shove each other, and the cap silently eats income.
+local peakRate = 0
+for _, def in ipairs(Config.Buttons) do
+	if def.kind == "Dropper" then
+		peakRate += 1 / def.dropRate
+	end
+end
+local runOffLen = len(sub(L.CollectorAt, L.BeltEnd))
+local beltLength = leg1 + leg2 + runOffLen
+local transit = beltLength / L.BeltSpeed
+local inFlight = peakRate * transit
+local DROP_LENGTH = 1.5   -- longest variant, standing upright
+
+check(inFlight <= Config.Economy.MaxDropsPerPlot,
+	("belt carries %.0f drops at peak but MaxDropsPerPlot is %d — the cap would silently eat income; raise BeltSpeed")
+		:format(inFlight, Config.Economy.MaxDropsPerPlot))
+check(inFlight * DROP_LENGTH <= beltLength * 0.75,
+	("belt would run at %.0f%% occupancy at peak — drops will jam into each other; raise Layout.BeltSpeed")
+		:format(inFlight * DROP_LENGTH / beltLength * 100))
+
 -- everything the belt places has to stay inside the plot
 local halfX, halfZ = Config.World.PlotSize.X / 2, Config.World.PlotSize.Z / 2
 local function inPlot(label, point, margin)
@@ -319,6 +341,8 @@ print(("buttons:           %d  (%d dropper slots, %d upgrader slots)")
 print(("upgrader stack:    x%.1f"):format(upgradeMult))
 print(("endgame income:    %.3g Tung/sec"):format(endgameIncome))
 print(("full build:        %.0f min"):format(elapsed / 60))
+print(("belt:              %.0f studs, %.1fs transit, %.0f drops in flight at peak (%.0f%% full)")
+	:format(beltLength, transit, inFlight, inFlight * DROP_LENGTH / beltLength * 100))
 print(("first rebirth:     %.3g  (+%.0f min after full build)"):format(Config.Rebirth.BaseCost, rebirthMinutes))
 print(("rebirth pacing:    each one takes %.2fx as long as the last"):format(costRatio))
 print("\nprogression curve (minutes of grind per purchase):")

@@ -140,7 +140,10 @@ __MODULES["Config"] = function()
 
 		BeltY = 1.4,             -- TOP of the belt surface; low enough to step onto
 		BeltWidth = 8,
-		BeltSpeed = 14,          -- studs/sec, base
+		-- Fast enough that the belt never runs bumper-to-bumper. At 14 the peak
+		-- spawn rate put ~80 drops in flight against a 70 cap: the belt was over
+		-- capacity and jammed on its own. verify_config models this.
+		BeltSpeed = 22,          -- studs/sec, base
 
 		MachineOffset = 7,       -- droppers/upgraders sit this far OUTBOARD of the belt
 		ButtonOffset = 9,        -- buy buttons sit this far INBOARD, facing the floor

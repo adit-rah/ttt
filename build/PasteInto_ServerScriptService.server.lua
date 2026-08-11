@@ -140,7 +140,10 @@ __MODULES["Config"] = function()
 
 		BeltY = 1.4,             -- TOP of the belt surface; low enough to step onto
 		BeltWidth = 8,
-		BeltSpeed = 14,          -- studs/sec, base
+		-- Fast enough that the belt never runs bumper-to-bumper. At 14 the peak
+		-- spawn rate put ~80 drops in flight against a 70 cap: the belt was over
+		-- capacity and jammed on its own. verify_config models this.
+		BeltSpeed = 22,          -- studs/sec, base
 
 		MachineOffset = 7,       -- droppers/upgraders sit this far OUTBOARD of the belt
 		ButtonOffset = 9,        -- buy buttons sit this far INBOARD, facing the floor
@@ -3327,20 +3330,38 @@ __MODULES["Tycoon"] = function()
 		self.beltFolder = folder
 
 		local width = L.BeltWidth
+		local half = width / 2
 		local surfaceY = L.BeltY
 
-		local function buildLeg(index)
-			local _, _, _, length = self:leg(index)
-			local mid = length / 2
+		local _, _, _, leg1Len = self:leg(1)
+		local _, _, _, leg2Len = self:leg(2)
 
-			-- support box: floor up to just under the running surface
-			newPart(folder, "BeltBase" .. index, Vector3.new(width + 1.6, surfaceY - 0.2, length),
+		--[[
+			SEAMLESS CORNER, AND NOTHING SOLID NEAR THE BELT.
+
+			The drops are driven by a LinearVelocity in Plane mode, which pins
+			their lateral velocity to exactly zero — they physically cannot drift
+			sideways off the belt. Side rails were therefore never load-bearing,
+			and because each leg's rails ran its FULL length, leg 2's inboard rail
+			crossed leg 1's path and vice versa: two solid walls straight across
+			the conveyor, plus an 11x11 corner block sitting on the bend. That is
+			what the drops were piling up against.
+
+			So: the running surface is the only collidable thing here. The edge
+			trim is decoration with CanCollide off, and leg 1's surface runs
+			THROUGH the corner square so there is no separate plate to seam
+			against — leg 2 simply starts a little way inside it.
+		]]
+		local function buildRun(index, fromDist, toDist)
+			local length = toDist - fromDist
+			local mid = (fromDist + toDist) / 2
+
+			newPart(folder, "BeltBase" .. index, Vector3.new(width + 1.2, surfaceY - 0.2, length),
 				self:segmentCF(index, mid, 0, (surfaceY - 0.2) / 2), COLORS.frame, Enum.Material.DiamondPlate)
 
-			-- running surface, low friction so the LinearVelocity constraint rules
 			local surface = newPart(folder, "BeltSurface" .. index, Vector3.new(width, 0.4, length),
 				self:segmentCF(index, mid, 0, surfaceY - 0.2), COLORS.belt, Enum.Material.SmoothPlastic)
-			surface.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
+			surface.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.02, 0.05, 1, 1)
 
 			local texture = Instance.new("Texture")
 			texture.Face = Enum.NormalId.Top
@@ -3351,50 +3372,38 @@ __MODULES["Tycoon"] = function()
 			texture.Color3 = COLORS.beltLine
 			texture.Parent = surface
 
-			-- short side rails: tall enough to hold drops in, low enough to see over
-			for _, side in ipairs({ -1, 1 }) do
-				local rail = newPart(folder, "Rail", Vector3.new(0.7, 1.6, length),
-					self:segmentCF(index, mid, side * (width / 2 + 0.35), surfaceY + 0.6),
-					COLORS.metal, Enum.Material.Metal)
-				rail.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
-			end
+			-- Decorative edge trim ONLY on the outer side of the L, and never
+			-- collidable. The inner side is left completely open so the two legs
+			-- flow into each other.
+			local trim = newPart(folder, "Trim" .. index, Vector3.new(0.5, 0.5, length),
+				self:segmentCF(index, mid, half + 0.25, surfaceY + 0.15),
+				COLORS.beltLine, Enum.Material.Neon, false)
+			trim.CanQuery = false
 
 			return surface
 		end
 
-		self.beltSurfaces = { buildLeg(1), buildLeg(2) }
-		self.beltSurface = self.beltSurfaces[1]
+		-- leg 1 owns the corner square: it runs half a belt-width past the bend
+		local surface1 = buildRun(1, -1, leg1Len + half)
+		-- leg 2 starts just inside that square, overlapping slightly so the two
+		-- surfaces share a face rather than meeting at a hairline seam
+		local surface2 = buildRun(2, half - 0.6, leg2Len)
+		self.beltSurfaces = { surface1, surface2 }
+		self.beltSurface = surface1
 
-		-- corner plate where leg 1 hands off to leg 2
-		newPart(folder, "CornerBase", Vector3.new(width + 1.6, surfaceY - 0.2, width + 1.6),
-			self.cf * CFrame.new(L.BeltCorner + Vector3.new(0, (surfaceY - 0.2) / 2, 0)),
-			COLORS.frame, Enum.Material.DiamondPlate)
-		local cornerTop = newPart(folder, "CornerSurface", Vector3.new(width, 0.4, width),
-			self.cf * CFrame.new(L.BeltCorner + Vector3.new(0, surfaceY - 0.2, 0)),
-			COLORS.belt, Enum.Material.SmoothPlastic)
-		cornerTop.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
+		-- Visual end cap behind the first dropper. Non-collidable: nothing should
+		-- ever reach it, and if something does we want it to slide off, not wedge.
+		local cap = newPart(folder, "BeltCap", Vector3.new(width + 1.2, 1.6, 0.6),
+			self:segmentCF(1, -1.2, 0, surfaceY + 0.8), COLORS.metal, Enum.Material.Metal, false)
+		cap.CanQuery = false
 
-		local _, _, dir1, _, normal1 = self:leg(1)
-		local _, _, _, _, normal2 = self:leg(2)
-
-		-- outer corner wall, or drops sail straight off the bend
-		newPart(folder, "CornerWall", Vector3.new(width + 3, 1.6, width + 3),
-			self.cf * CFrame.new(L.BeltCorner + (normal1 + normal2) * (width / 2 + 0.4)
-				+ Vector3.new(0, surfaceY + 0.6, 0)),
-			COLORS.metal, Enum.Material.Metal)
-
-		-- end stop behind the first dropper
-		newPart(folder, "BeltStop", Vector3.new(width + 1.6, 2, 0.8),
-			self:segmentCF(1, -0.4, 0, surfaceY + 0.8), COLORS.metal, Enum.Material.Metal)
-
-		-- The turn: a trigger at the corner that hands a drop from leg 1's
-		-- direction to leg 2's. Far cheaper than steering every drop from a
-		-- per-frame loop, and it keeps the constraint-driven conveyor.
-		local turnAt = L.BeltCorner + dir1 * (width / 2 - 1) + Vector3.new(0, surfaceY + 2.5, 0)
-		local turn = newPart(folder, "TurnSensor", Vector3.new(width, 5, 2.5),
-			self.cf * CFrame.lookAt(turnAt, turnAt + dir1),
+		-- The bend: a trigger spanning the belt at the corner that hands a drop
+		-- from leg 1's direction to leg 2's. No geometry, just a retarget.
+		local turn = newPart(folder, "TurnSensor", Vector3.new(width + 1, 6, 2.5),
+			self:segmentCF(1, leg1Len, 0, surfaceY + 3),
 			Color3.new(1, 1, 1), Enum.Material.Neon, false)
 		turn.Transparency = 1
+		turn.CanQuery = false
 		turn.CanTouch = true
 		turn.Touched:Connect(function(hit)
 			self:onTurn(hit)
@@ -3959,15 +3968,17 @@ __MODULES["Tycoon"] = function()
 
 		-- arm reaching inboard over the belt
 		local reach = L.MachineOffset
+		-- non-collidable: it hangs directly over the running surface, and a tall
+		-- drop must be able to pass under it without ever touching anything
 		newPart(model, "Arm", Vector3.new(reach, 1, 1.4),
-			self:segmentCF(legIndex, distance, reach / 2, L.BeltY + 4.4), COLORS.metal, Enum.Material.Metal)
+			self:segmentCF(legIndex, distance, reach / 2, L.BeltY + 5), COLORS.metal, Enum.Material.Metal, false)
 
 		local spout = newPart(model, "Spout", Vector3.new(2.4, 1.8, 2.4),
-			self:segmentCF(legIndex, distance, 0, L.BeltY + 3.6), COLORS.metal, Enum.Material.Metal)
+			self:segmentCF(legIndex, distance, 0, L.BeltY + 4.2), COLORS.metal, Enum.Material.Metal)
 		spout.CanCollide = false
 
 		local nozzle = newPart(model, "Nozzle", Vector3.new(1.8, 0.5, 1.8),
-			self:segmentCF(legIndex, distance, 0, L.BeltY + 2.6),
+			self:segmentCF(legIndex, distance, 0, L.BeltY + 3.2),
 			variant.light and variant.light.color or variant.wood, Enum.Material.Neon)
 		nozzle.CanCollide = false
 
@@ -4019,7 +4030,7 @@ __MODULES["Tycoon"] = function()
 		local reach = L.MachineOffset + L.BeltWidth / 2
 		local beam = newPart(model, "Beam", Vector3.new(reach, 1.5, 2.2),
 			self:segmentCF(legIndex, distance, (L.MachineOffset - L.BeltWidth / 2) / 2, L.BeltY + 4.6),
-			variant.wood, variant.material)
+			variant.wood, variant.material, false)
 		Fx.applyVariant(beam, variant)
 
 		local scanner = newPart(model, "Scanner", Vector3.new(L.BeltWidth, 3.6, 1),
@@ -4210,7 +4221,7 @@ __MODULES["Tycoon"] = function()
 		-- rotation outright. The upright orientation has to be baked into the
 		-- target CFrame or every drop spawns lying on its side.
 		local upright = TungModels.dropOrientation(direction)
-		local spawnPosition = nozzle.Position + across * jitter - Vector3.new(0, 1.2, 0)
+		local spawnPosition = nozzle.Position + across * jitter - Vector3.new(0, 1.6, 0)
 		drop:PivotTo(CFrame.new(spawnPosition) * upright)
 
 		local attachment = Instance.new("Attachment")
