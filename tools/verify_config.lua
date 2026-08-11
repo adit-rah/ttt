@@ -69,7 +69,7 @@ for index, def in ipairs(Config.Buttons) do
 
 	if def.kind == "Dropper" then
 		check(type(def.slot) == "number", where .. ": dropper needs a slot")
-		check(Config.Layout.DropperZ[def.slot] ~= nil, where .. ": dropper slot " .. tostring(def.slot) .. " has no Layout.DropperZ entry")
+		check(Config.Layout.DropperDist[def.slot] ~= nil, where .. ": dropper slot " .. tostring(def.slot) .. " has no Layout.DropperDist entry")
 		check(not dropperSlots[def.slot], where .. ": dropper slot " .. tostring(def.slot) .. " already used")
 		dropperSlots[def.slot] = true
 		check(type(def.dropValue) == "number" and def.dropValue > 0, where .. ": bad dropValue")
@@ -79,7 +79,7 @@ for index, def in ipairs(Config.Buttons) do
 		check(def.price / def.dropValue > 0, where .. ": bad payback")
 	elseif def.kind == "Upgrader" then
 		check(type(def.slot) == "number", where .. ": upgrader needs a slot")
-		check(Config.Layout.UpgraderZ[def.slot] ~= nil, where .. ": upgrader slot " .. tostring(def.slot) .. " has no Layout.UpgraderZ entry")
+		check(Config.Layout.UpgraderDist[def.slot] ~= nil, where .. ": upgrader slot " .. tostring(def.slot) .. " has no Layout.UpgraderDist entry")
 		check(not upgraderSlots[def.slot], where .. ": upgrader slot " .. tostring(def.slot) .. " already used")
 		upgraderSlots[def.slot] = true
 		check(type(def.multiplier) == "number" and def.multiplier > 1, where .. ": multiplier must be > 1")
@@ -123,25 +123,67 @@ for tier, bat in ipairs(Config.Bats) do
 	end
 end
 
--- layout sanity
+-- ── belt layout ─────────────────────────────────────────────────────────────
+-- The belt is an L: leg 1 (BeltStart -> BeltCorner) carries the droppers,
+-- leg 2 (BeltCorner -> BeltEnd) carries the upgraders.
 local L = Config.Layout
-check(L.BeltEndZ > L.BeltStartZ, "belt runs backwards")
-check(L.CollectorZ > L.BeltEndZ, "collector is not past the end of the belt")
-local halfZ = Config.World.PlotSize.Z / 2
-for slot, z in ipairs(L.DropperZ) do
-	check(math.abs(z) < halfZ, ("DropperZ[%d]=%d is off the plot"):format(slot, z))
-	check(z >= L.BeltStartZ and z <= L.BeltEndZ, ("DropperZ[%d]=%d is not over the belt"):format(slot, z))
+
+local function sub(a, b) return Vector3.new(a.X - b.X, a.Y - b.Y, a.Z - b.Z) end
+local function len(v) return math.sqrt(v.X ^ 2 + v.Y ^ 2 + v.Z ^ 2) end
+
+local leg1 = len(sub(L.BeltCorner, L.BeltStart))
+local leg2 = len(sub(L.BeltEnd, L.BeltCorner))
+check(leg1 > 0 and leg2 > 0, "belt legs must have non-zero length")
+
+-- ergonomics: you should be able to run over a buy button, not jump onto it.
+-- A Roblox humanoid steps over about 2 studs unaided.
+check(L.ButtonHeight <= 2,
+	("Layout.ButtonHeight is %.1f — over 2 studs means players have to jump onto buy buttons"):format(L.ButtonHeight))
+check(L.BeltY <= 2.5,
+	("Layout.BeltY is %.1f — the belt should be low enough to see over and step onto"):format(L.BeltY))
+
+-- machines must not overlap their neighbours along the belt
+local function checkSpacing(name, distances, legLength)
+	for i, d in ipairs(distances) do
+		check(d >= 0 and d <= legLength,
+			("%s[%d] = %.1f is off the end of its leg (length %.1f)"):format(name, i, d, legLength))
+		if i > 1 then
+			local gap = d - distances[i - 1]
+			check(gap >= L.MachineFootprint,
+				("%s[%d] is only %.1f studs from its neighbour; machines are %.1f deep and would overlap")
+					:format(name, i, gap, L.MachineFootprint))
+		end
+	end
 end
-for slot, z in ipairs(L.UpgraderZ) do
-	check(math.abs(z) < halfZ, ("UpgraderZ[%d]=%d is off the plot"):format(slot, z))
-	check(z >= L.BeltStartZ and z <= L.BeltEndZ, ("UpgraderZ[%d]=%d is not over the belt"):format(slot, z))
+checkSpacing("DropperDist", L.DropperDist, leg1)
+checkSpacing("UpgraderDist", L.UpgraderDist, leg2)
+
+-- everything the belt places has to stay inside the plot
+local halfX, halfZ = Config.World.PlotSize.X / 2, Config.World.PlotSize.Z / 2
+local function inPlot(label, point, margin)
+	check(math.abs(point.X) <= halfX - (margin or 0),
+		("%s sits at x=%.1f, outside the plot (half-width %.1f)"):format(label, point.X, halfX))
+	check(math.abs(point.Z) <= halfZ - (margin or 0),
+		("%s sits at z=%.1f, outside the plot (half-depth %.1f)"):format(label, point.Z, halfZ))
 end
--- every upgrader must sit downstream of every dropper, or late droppers skip it
-local lastDropperZ = L.DropperZ[#L.DropperZ]
-for slot, z in ipairs(L.UpgraderZ) do
-	check(z > lastDropperZ, ("UpgraderZ[%d]=%d is upstream of the last dropper (%d) — its drops would skip this upgrader")
-		:format(slot, z, lastDropperZ))
-end
+inPlot("BeltStart", L.BeltStart, L.BeltWidth / 2)
+inPlot("BeltCorner", L.BeltCorner, L.BeltWidth / 2)
+inPlot("BeltEnd", L.BeltEnd, L.BeltWidth / 2)
+inPlot("CollectorAt", L.CollectorAt, 6)
+
+-- droppers sit outboard of leg 1 (toward -Z), upgraders outboard of leg 2 (-X)
+inPlot("furthest dropper machine",
+	Vector3.new(L.BeltCorner.X, 0, L.BeltStart.Z - L.MachineOffset), L.MachineFootprint / 2)
+inPlot("furthest upgrader machine",
+	Vector3.new(L.BeltCorner.X - L.MachineOffset, 0, L.BeltEnd.Z), L.MachineFootprint / 2)
+
+-- the vault must clear the end of the belt or it walls the conveyor off
+local runOff = len(sub(L.CollectorAt, L.BeltEnd))
+check(runOff > 8, ("collector is only %.1f studs past the belt end; the vault would block it"):format(runOff))
+
+-- every upgrader is downstream of every dropper by construction (leg 2 comes
+-- after leg 1), which is what makes the upgrade stack apply to all droppers
+check(#L.UpgraderDist >= 1 and #L.DropperDist >= 1, "need at least one dropper and one upgrader slot")
 
 -- Plots must not overlap at ANY supported player count, since the layout is
 -- derived from the place's MaxPlayers at runtime. Checked pairwise rather
@@ -273,7 +315,7 @@ check(costRatio > 1 and costRatio < 2,
 -- ── report ──────────────────────────────────────────────────────────────────
 print(("checks run:        %d"):format(checks))
 print(("buttons:           %d  (%d dropper slots, %d upgrader slots)")
-	:format(#Config.Buttons, #Config.Layout.DropperZ, #Config.Layout.UpgraderZ))
+	:format(#Config.Buttons, #Config.Layout.DropperDist, #Config.Layout.UpgraderDist))
 print(("upgrader stack:    x%.1f"):format(upgradeMult))
 print(("endgame income:    %.3g Tung/sec"):format(endgameIncome))
 print(("full build:        %.0f min"):format(elapsed / 60))

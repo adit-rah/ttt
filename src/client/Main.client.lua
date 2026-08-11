@@ -5,13 +5,8 @@ local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShare
 local HUD = Req("HUD")
 local CombatClient = Req("CombatClient")
 
-local StarterGui = game:GetService("StarterGui")
-
--- the default backpack UI fights with the auto-equip, and we never need it
-pcall(function()
-	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
-end)
-
+-- The default Backpack CoreGui stays ON: the bat is an ordinary Tool, so
+-- Roblox's own hotbar and inventory handle equipping it.
 HUD.start()
 CombatClient.start()
 

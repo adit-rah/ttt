@@ -22,7 +22,6 @@ local PALETTE = {
 	padEdge  = Color3.fromRGB(255, 176, 60),   -- warm marker stripe
 	arena    = Color3.fromRGB(178, 172, 160),
 	arenaLip = Color3.fromRGB(255, 140, 40),
-	path     = Color3.fromRGB(222, 205, 170),  -- sandy walkway
 	wood     = Color3.fromRGB(150, 103, 60),
 }
 
@@ -84,33 +83,30 @@ function MapBuilder.plotCFrame(index: number): CFrame
 	return look * CFrame.Angles(0, math.pi, 0)
 end
 
+-- MVP arena: a floor, a low plinth, the statue and a sign. The torches, the
+-- 32-segment glowing rim and the 72-tile ring path were all decoration with
+-- no gameplay attached, so they are gone.
 local function buildArena(parent: Instance)
 	local arena = Instance.new("Model")
 	arena.Name = "Arena"
 	arena.Parent = parent
 
 	local floorThickness = 3
-	local floorY = W.ArenaFloorTopY - floorThickness / 2
 	local floor = newPart(arena, "ArenaFloor", Vector3.new(floorThickness, W.ArenaRadius * 2, W.ArenaRadius * 2),
-		CFrame.new(0, floorY, 0) * CFrame.Angles(0, 0, math.pi / 2), PALETTE.arena, Enum.Material.Pebble)
+		CFrame.new(0, W.ArenaFloorTopY - floorThickness / 2, 0) * CFrame.Angles(0, 0, math.pi / 2),
+		PALETTE.arena, Enum.Material.Pebble)
 	floor.Shape = Enum.PartType.Cylinder
 
-	-- glowing rim segments
-	local segments = 32
-	for i = 1, segments do
-		local a = (i / segments) * math.pi * 2
-		local pos = Vector3.new(math.sin(a) * W.ArenaRadius, 1.4, math.cos(a) * W.ArenaRadius)
-		local seg = newPart(arena, "Rim" .. i, Vector3.new(3.6, 2.8, 22),
-			CFrame.lookAt(pos, Vector3.new(0, 1.4, 0)), PALETTE.arenaLip, Enum.Material.Neon)
-		seg.CanCollide = false
-	end
-	-- (no PointLights on the rim: in daylight they are invisible and 32 of
-	-- them would eat the renderer's light budget for nothing)
+	-- single ring border instead of 32 separate segments
+	local rim = newPart(arena, "Rim", Vector3.new(1.2, W.ArenaRadius * 2 + 6, W.ArenaRadius * 2 + 6),
+		CFrame.new(0, W.ArenaFloorTopY - 0.4, 0) * CFrame.Angles(0, 0, math.pi / 2),
+		PALETTE.arenaLip, Enum.Material.Neon)
+	rim.Shape = Enum.PartType.Cylinder
+	rim.CanCollide = false
 
-	-- centre platform + big statue
-	local daisHeight = 6
+	local daisHeight = 4
 	local daisTopY = W.ArenaFloorTopY + daisHeight
-	local dais = newPart(arena, "Dais", Vector3.new(daisHeight, 34, 34),
+	local dais = newPart(arena, "Dais", Vector3.new(daisHeight, 26, 26),
 		CFrame.new(0, daisTopY - daisHeight / 2, 0) * CFrame.Angles(0, 0, math.pi / 2),
 		PALETTE.pad, Enum.Material.Slate)
 	dais.Shape = Enum.PartType.Cylinder
@@ -118,21 +114,19 @@ local function buildArena(parent: Instance)
 	-- The statue's feet are 2.85 * scale below its pivot (see TungModels), and
 	-- the infinity variant carries its own 1.5x scale. Stand it ON the dais
 	-- instead of guessing a height and burying its legs in the platform.
-	local statueScale = 4.5
+	local statueScale = 3.5
 	local footDrop = 2.85 * statueScale * Config.Variants.infinity.scale
 	local statue = TungModels.buildStatue("infinity", statueScale)
 	statue.Name = "ArenaStatue"
 	statue:PivotTo(CFrame.new(0, daisTopY + footDrop, 0))
 	statue.Parent = arena
 
-	-- floating title
-	local sign = newPart(arena, "TitleAnchor", Vector3.new(1, 1, 1), CFrame.new(0, 56, 0), PALETTE.pad)
+	local sign = newPart(arena, "TitleAnchor", Vector3.new(1, 1, 1), CFrame.new(0, 34, 0), PALETTE.pad)
 	sign.Transparency = 1
 	sign.CanCollide = false
 
 	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromScale(70, 16)
-	billboard.AlwaysOnTop = false
+	billboard.Size = UDim2.fromScale(56, 14)
 	billboard.MaxDistance = 900
 	billboard.Parent = sign
 
@@ -152,31 +146,12 @@ local function buildArena(parent: Instance)
 	subtitle.Position = UDim2.fromScale(0, 0.62)
 	subtitle.Size = UDim2.fromScale(1, 0.34)
 	subtitle.Font = Enum.Font.GothamMedium
-	subtitle.Text = "sahur arena  •  pvp enabled inside the ring"
+	subtitle.Text = "pvp enabled inside the ring"
 	subtitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 	subtitle.TextStrokeColor3 = Color3.fromRGB(46, 32, 16)
 	subtitle.TextStrokeTransparency = 0.4
 	subtitle.TextScaled = true
 	subtitle.Parent = billboard
-
-	-- torches around the ring
-	for i = 1, 8 do
-		local a = (i / 8) * math.pi * 2
-		local pos = Vector3.new(math.sin(a) * (W.ArenaRadius - 12), 0, math.cos(a) * (W.ArenaRadius - 12))
-		local pole = newPart(arena, "Torch" .. i, Vector3.new(1.2, 16, 1.2), CFrame.new(pos + Vector3.new(0, 8, 0)),
-			Color3.fromRGB(70, 52, 40), Enum.Material.Wood)
-		local flame = newPart(arena, "Flame" .. i, Vector3.new(2.4, 2.4, 2.4), CFrame.new(pos + Vector3.new(0, 17, 0)),
-			Color3.fromRGB(255, 170, 60), Enum.Material.Neon)
-		flame.Shape = Enum.PartType.Ball
-		flame.CanCollide = false
-		local fire = Instance.new("Fire")
-		fire.Heat = 12
-		fire.Size = 8
-		fire.Color = Color3.fromRGB(255, 180, 70)
-		fire.SecondaryColor = Color3.fromRGB(255, 90, 30)
-		fire.Parent = flame
-		pole.Name = "TorchPole" .. i
-	end
 
 	return arena
 end
@@ -219,21 +194,6 @@ function MapBuilder.build(): Folder
 	local ground = newPart(world, "Ground", Vector3.new(W.BaseplateSize, groundThickness, W.BaseplateSize),
 		CFrame.new(0, W.GroundTopY - groundThickness / 2, 0), PALETTE.ground, Enum.Material.Grass)
 	ground.Anchored = true
-
-	-- Decorative ring path between arena and plots. Tile width is derived from
-	-- the spacing: a fixed width overlaps its neighbours once the ring radius
-	-- changes, and overlapping coplanar tops are the classic tearing artefact.
-	local pathTiles = 72
-	local pathRadius = (W.ArenaRadius + W.PlotRadius) * 0.5
-	local tileWidth = (2 * math.pi * pathRadius / pathTiles) * 0.92
-	local tileThickness = 0.5
-	for i = 1, pathTiles do
-		local a = (i / pathTiles) * math.pi * 2
-		local pos = Vector3.new(math.sin(a) * pathRadius, W.PathTopY - tileThickness / 2, math.cos(a) * pathRadius)
-		local tile = newPart(world, "Path" .. i, Vector3.new(tileWidth, tileThickness, 24),
-			CFrame.lookAt(pos, Vector3.new(pos.X * 0.001, pos.Y, pos.Z * 0.001)), PALETTE.path, Enum.Material.Sand)
-		tile.CanCollide = false
-	end
 
 	buildArena(world)
 	buildSpawn(world)

@@ -53,16 +53,15 @@ __MODULES["Config"] = function()
 		RingGap = 24,            -- clear studs between concentric plot rings
 		MinPlotRadius = 180,     -- how far the FIRST ring sits from the centre
 
-		PlotSize = Vector3.new(96, 2, 112),
+		PlotSize = Vector3.new(88, 2, 104),
 		BaseplateSize = 1800,
-		ArenaRadius = 80,
+		ArenaRadius = 70,
 		ArenaWallHeight = 22,
 
 		-- Stacked surface heights. Every horizontal surface in the world gets its
 		-- OWN height: two coplanar faces at the same Y is exactly what produces
 		-- the shimmering/tearing you see when the camera moves.
 		GroundTopY     = 0,
-		PathTopY       = 0.15,
 		ArenaFloorTopY = 0.30,
 		PlotSurfaceY   = 0.60,   -- plot-local y = 0 lives here, not on the ground
 	}
@@ -117,19 +116,41 @@ __MODULES["Config"] = function()
 
 	-- Plot-local layout. Plot origin = centre of the pad, floor top at y = 0.
 	-- +Z is "front" (faces the arena), -Z is the back where droppers live.
+	-- The belt runs as an L around the back and left edges of the plot rather than
+	-- straight through the middle. That keeps the centre of the plot as open floor,
+	-- puts every machine against a wall, and lines the buy buttons up along the
+	-- inside of the run where you actually walk.
+	--
+	--        back edge
+	--    +---------------+
+	--    |=====<=========|  <- leg 1: droppers
+	--    |v              |
+	--    |v              |     (open floor)
+	--    |v              |
+	--    |v  leg 2:      |
+	--    |v  upgraders   |
+	--    |[VAULT]        |
+	--    +---------------+
+	--        front edge (faces the arena)
 	Config.Layout = {
-		BeltY = 3.0,
-		BeltWidth = 10,
-		BeltStartZ = -42,
-		BeltEndZ = 24,
-		BeltSpeed = 15,          -- studs/sec, base
-		DropperSideX = 11,
-		ButtonSideX = 24,
-		CollectorZ = 34,
-		-- z position of dropper slot 1..10
-		DropperZ = { -38, -35, -32, -29, -26, -23, -20, -17, -14, -11 },
-		-- z position of upgrader slot 1..6 (all downstream of every dropper)
-		UpgraderZ = { -5, 0, 5, 10, 15, 20 },
+		BeltStart  = Vector3.new( 32, 0, -40),   -- back-right corner
+		BeltCorner = Vector3.new(-30, 0, -40),   -- back-left corner
+		BeltEnd    = Vector3.new(-30, 0,  30),   -- front-left
+		CollectorAt = Vector3.new(-30, 0, 40),
+
+		BeltY = 1.4,             -- TOP of the belt surface; low enough to step onto
+		BeltWidth = 8,
+		BeltSpeed = 14,          -- studs/sec, base
+
+		MachineOffset = 7,       -- droppers/upgraders sit this far OUTBOARD of the belt
+		ButtonOffset = 9,        -- buy buttons sit this far INBOARD, facing the floor
+		ButtonHeight = 1.4,      -- total button height; must be low enough to run over
+		MachineFootprint = 5,    -- machines are this deep along the belt
+
+		-- distance along leg 1 (back edge) for dropper slot 1..10
+		DropperDist  = { 4, 10, 16, 22, 28, 34, 40, 46, 52, 58 },
+		-- distance along leg 2 (left edge) for upgrader slot 1..6
+		UpgraderDist = { 10, 21, 32, 43, 54, 65 },
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -1567,18 +1588,17 @@ end
 
 __MODULES["CombatClient"] = function()
 	--[[
-		CombatClient.lua — local feel for combat: hitmarkers, camera shake and a
-		mobile/console-friendly swing button. Damage itself is entirely server-side.
+		CombatClient.lua — local feel for combat: hitmarkers, camera shake and
+		knockback. Damage itself is entirely server-side, and equipping is handled
+		by Roblox's built-in Backpack.
 	]]
 
 	local Req = __Req
-	local Util = Req("Util")
 	local Net = Req("Net")
 	local HUD = Req("HUD")
 
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
-	local UserInputService = game:GetService("UserInputService")
 
 	local player = Players.LocalPlayer
 
@@ -1671,65 +1691,9 @@ __MODULES["CombatClient"] = function()
 			end
 		end)
 
-		-- touch-friendly swing button
-		if UserInputService.TouchEnabled and not UserInputService.MouseEnabled then
-			local swing = Instance.new("TextButton")
-			swing.Name = "SwingButton"
-			swing.AnchorPoint = Vector2.new(1, 1)
-			swing.Position = UDim2.new(1, -18, 1, -140)
-			swing.Size = UDim2.fromOffset(110, 110)
-			swing.BackgroundColor3 = Color3.fromRGB(210, 140, 255)
-			swing.BackgroundTransparency = 0.15
-			swing.Font = Enum.Font.FredokaOne
-			swing.Text = "SWING"
-			swing.TextColor3 = Color3.fromRGB(24, 18, 32)
-			swing.TextScaled = true
-			swing.Parent = gui
-			Util.roundedFrame(swing, 55)
-
-			swing.Activated:Connect(function()
-				local character = player.Character
-				local tool = character and character:FindFirstChildOfClass("Tool")
-				if tool then
-					tool:Activate()
-				end
-			end)
-		end
-
-		-- keep the bat equipped; nobody wants to open the backpack in a tycoon
-		local function autoEquip(character: Model)
-			task.wait(0.6)
-			local humanoid = character:FindFirstChildOfClass("Humanoid")
-			local backpack = player:FindFirstChildOfClass("Backpack")
-			if not humanoid or not backpack then
-				return
-			end
-			if character:FindFirstChildOfClass("Tool") then
-				return
-			end
-			local tool = backpack:FindFirstChildOfClass("Tool")
-			if tool then
-				humanoid:EquipTool(tool)
-			end
-		end
-
-		player.CharacterAdded:Connect(function(character)
-			task.spawn(autoEquip, character)
-		end)
-		if player.Character then
-			task.spawn(autoEquip, player.Character)
-		end
-
-		local backpack = player:WaitForChild("Backpack")
-		backpack.ChildAdded:Connect(function(child)
-			if child:IsA("Tool") and player.Character then
-				task.wait(0.2)
-				local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-				if humanoid and not player.Character:FindFirstChildOfClass("Tool") then
-					humanoid:EquipTool(child)
-				end
-			end
-		end)
+		-- No custom swing button and no auto-equip: the bat is a plain Tool, so
+		-- Roblox's built-in hotbar equips it and its built-in activation (click,
+		-- tap, or the mobile fire button) triggers Tool.Activated for us.
 	end
 
 	return CombatClient
@@ -2254,13 +2218,8 @@ local Req = __Req
 local HUD = Req("HUD")
 local CombatClient = Req("CombatClient")
 
-local StarterGui = game:GetService("StarterGui")
-
--- the default backpack UI fights with the auto-equip, and we never need it
-pcall(function()
-	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
-end)
-
+-- The default Backpack CoreGui stays ON: the bat is an ordinary Tool, so
+-- Roblox's own hotbar and inventory handle equipping it.
 HUD.start()
 CombatClient.start()
 

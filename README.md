@@ -60,16 +60,18 @@ source of truth and re-run the packer after any change.
 
 - Step on a plot pad to claim a factory (you also get auto-assigned on join).
 - Green buttons are affordable, red ones aren't. Walk into one to buy it.
-- Droppers spit out Tung guys → the conveyor carries them → **upgrader arches
-  multiply their value** → the vault pays you.
-- Later droppers sit further down the belt, so buying upgraders early is
-  always worth it.
+- Droppers spit out Tung guys → the conveyor carries them around the back and
+  down the left edge → **upgraders multiply their value** → the vault pays you.
+- The belt hugs the plot border, so the middle of your plot stays open floor.
+  Every upgrader is downstream of every dropper, so the upgrade stack always
+  applies to everything.
 - **PvP is geographic.** You can only hit another player when you are *both*
   inside the arena ring. Your plot is a safe zone.
 - Every 3½ minutes a **Sahur Raid** spawns at the arena. Raiders chase players,
   chip your bank on every hit, and pay out well when you knock them down. Every
   5th wave brings a boss.
-- The **Bat Forge** buttons upgrade your weapon: Sahur Bat → Oak → Void.
+- The **Bat Forge** buttons upgrade your weapon: Sahur Bat → Oak → Void. Bats
+  are ordinary Roblox `Tool`s, so the built-in hotbar and backpack equip them.
 - The rebirth pad wipes your factory for a compounding payout multiplier.
 
 Roughly **88 minutes** to a full factory, first rebirth around 98 minutes.
@@ -131,16 +133,16 @@ dropper.** Add a row to `Config.Buttons`:
 },
 ```
 
-…then add a `z` entry to `Config.Layout.DropperZ` for slot 11. That's the whole
-change. The button, the machine, the drop loop, the save key, the unlock
+…then add a distance to `Config.Layout.DropperDist` for slot 11 (how far along
+the belt's back leg it sits). That's the whole change. The button, the machine, the drop loop, the save key, the unlock
 dependency and the HUD hint all follow automatically.
 
 Supported `kind` values and what each needs:
 
 | kind | fields | what it builds |
 | --- | --- | --- |
-| `Dropper` | `slot`, `variant`, `dropValue`, `dropRate` | machine + spout + drop loop |
-| `Upgrader` | `slot`, `variant`, `multiplier` | arch over the belt that multiplies passing drops |
+| `Dropper` | `slot`, `variant`, `dropValue`, `dropRate` | machine + spout + drop loop on belt leg 1 |
+| `Upgrader` | `slot`, `variant`, `multiplier` | scanner over belt leg 2 that multiplies passing drops |
 | `Belt` | `speedBonus` | speeds up the conveyor |
 | `Structure` | `structure` (`"walls"` / `"roof"`) | plot buildout |
 | `Gear` | `grants` (a `Config.Bats` id) | anvil display + weapon upgrade |
@@ -201,7 +203,9 @@ Everything below lives in `Config.lua`.
 | Turn raids off entirely | `Waves.Enabled = false` |
 | Allow PvP everywhere | `Combat.ArenaPvP = false` |
 | Change how hard bats hit | `Config.Bats[n].damage / cooldown / crit` |
-| More or fewer plots | `World.PlotCount` (raise `World.PlotRadius` too — the verifier will tell you if they'd overlap) |
+| More or fewer plots | set MaxPlayers in Game Settings — the ring sizes itself |
+| Move the conveyor | `Layout.BeltStart` / `BeltCorner` / `BeltEnd`; machines and buttons follow |
+| Button / belt height | `Layout.ButtonHeight`, `Layout.BeltY` (verifier rejects anything you'd have to jump onto) |
 | Change rebirth pacing | `Rebirth.BaseCost`, `Rebirth.CostGrowth`, `Rebirth.MultiplierPerRebirth` |
 
 ---
@@ -213,7 +217,12 @@ A few decisions in here are load-bearing and look arbitrary until they bite:
 - **Drops move via a `LinearVelocity` constraint, not a script loop.** Hundreds
   of drops with a per-frame Heartbeat update would be the first thing to melt
   the server. An `AlignOrientation` keeps each one upright and facing back down
-  the belt so you see a queue of angry faces instead of rolling logs.
+  the belt so you see a queue of angry faces instead of rolling logs. The bend
+  between the two belt legs is a single trigger part that retargets the
+  constraint — still no per-frame work.
+- **The bat swings via `Tool.Grip`, not an animation.** Grip is the offset of
+  the built-in RightGrip weld, so tweening it moves the bat inside the hand and
+  leaves the character's arm entirely alone.
 - **The vault shell must sit downstream of the collector sensor.** `Tycoon.lua`
   asserts this at build time — if the solid body overlaps the belt run-off it
   walls the conveyor off and nothing can ever be collected.

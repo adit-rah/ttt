@@ -21,16 +21,15 @@ Config.World = {
 	RingGap = 24,            -- clear studs between concentric plot rings
 	MinPlotRadius = 180,     -- how far the FIRST ring sits from the centre
 
-	PlotSize = Vector3.new(96, 2, 112),
+	PlotSize = Vector3.new(88, 2, 104),
 	BaseplateSize = 1800,
-	ArenaRadius = 80,
+	ArenaRadius = 70,
 	ArenaWallHeight = 22,
 
 	-- Stacked surface heights. Every horizontal surface in the world gets its
 	-- OWN height: two coplanar faces at the same Y is exactly what produces
 	-- the shimmering/tearing you see when the camera moves.
 	GroundTopY     = 0,
-	PathTopY       = 0.15,
 	ArenaFloorTopY = 0.30,
 	PlotSurfaceY   = 0.60,   -- plot-local y = 0 lives here, not on the ground
 }
@@ -85,19 +84,41 @@ end
 
 -- Plot-local layout. Plot origin = centre of the pad, floor top at y = 0.
 -- +Z is "front" (faces the arena), -Z is the back where droppers live.
+-- The belt runs as an L around the back and left edges of the plot rather than
+-- straight through the middle. That keeps the centre of the plot as open floor,
+-- puts every machine against a wall, and lines the buy buttons up along the
+-- inside of the run where you actually walk.
+--
+--        back edge
+--    +---------------+
+--    |=====<=========|  <- leg 1: droppers
+--    |v              |
+--    |v              |     (open floor)
+--    |v              |
+--    |v  leg 2:      |
+--    |v  upgraders   |
+--    |[VAULT]        |
+--    +---------------+
+--        front edge (faces the arena)
 Config.Layout = {
-	BeltY = 3.0,
-	BeltWidth = 10,
-	BeltStartZ = -42,
-	BeltEndZ = 24,
-	BeltSpeed = 15,          -- studs/sec, base
-	DropperSideX = 11,
-	ButtonSideX = 24,
-	CollectorZ = 34,
-	-- z position of dropper slot 1..10
-	DropperZ = { -38, -35, -32, -29, -26, -23, -20, -17, -14, -11 },
-	-- z position of upgrader slot 1..6 (all downstream of every dropper)
-	UpgraderZ = { -5, 0, 5, 10, 15, 20 },
+	BeltStart  = Vector3.new( 32, 0, -40),   -- back-right corner
+	BeltCorner = Vector3.new(-30, 0, -40),   -- back-left corner
+	BeltEnd    = Vector3.new(-30, 0,  30),   -- front-left
+	CollectorAt = Vector3.new(-30, 0, 40),
+
+	BeltY = 1.4,             -- TOP of the belt surface; low enough to step onto
+	BeltWidth = 8,
+	BeltSpeed = 14,          -- studs/sec, base
+
+	MachineOffset = 7,       -- droppers/upgraders sit this far OUTBOARD of the belt
+	ButtonOffset = 9,        -- buy buttons sit this far INBOARD, facing the floor
+	ButtonHeight = 1.4,      -- total button height; must be low enough to run over
+	MachineFootprint = 5,    -- machines are this deep along the belt
+
+	-- distance along leg 1 (back edge) for dropper slot 1..10
+	DropperDist  = { 4, 10, 16, 22, 28, 34, 40, 46, 52, 58 },
+	-- distance along leg 2 (left edge) for upgrader slot 1..6
+	UpgraderDist = { 10, 21, 32, 43, 54, 65 },
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────

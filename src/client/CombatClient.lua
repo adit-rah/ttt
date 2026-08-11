@@ -1,16 +1,15 @@
 --[[
-	CombatClient.lua — local feel for combat: hitmarkers, camera shake and a
-	mobile/console-friendly swing button. Damage itself is entirely server-side.
+	CombatClient.lua — local feel for combat: hitmarkers, camera shake and
+	knockback. Damage itself is entirely server-side, and equipping is handled
+	by Roblox's built-in Backpack.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
-local Util = Req("Util")
 local Net = Req("Net")
 local HUD = Req("HUD")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 
@@ -103,65 +102,9 @@ function CombatClient.start()
 		end
 	end)
 
-	-- touch-friendly swing button
-	if UserInputService.TouchEnabled and not UserInputService.MouseEnabled then
-		local swing = Instance.new("TextButton")
-		swing.Name = "SwingButton"
-		swing.AnchorPoint = Vector2.new(1, 1)
-		swing.Position = UDim2.new(1, -18, 1, -140)
-		swing.Size = UDim2.fromOffset(110, 110)
-		swing.BackgroundColor3 = Color3.fromRGB(210, 140, 255)
-		swing.BackgroundTransparency = 0.15
-		swing.Font = Enum.Font.FredokaOne
-		swing.Text = "SWING"
-		swing.TextColor3 = Color3.fromRGB(24, 18, 32)
-		swing.TextScaled = true
-		swing.Parent = gui
-		Util.roundedFrame(swing, 55)
-
-		swing.Activated:Connect(function()
-			local character = player.Character
-			local tool = character and character:FindFirstChildOfClass("Tool")
-			if tool then
-				tool:Activate()
-			end
-		end)
-	end
-
-	-- keep the bat equipped; nobody wants to open the backpack in a tycoon
-	local function autoEquip(character: Model)
-		task.wait(0.6)
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		local backpack = player:FindFirstChildOfClass("Backpack")
-		if not humanoid or not backpack then
-			return
-		end
-		if character:FindFirstChildOfClass("Tool") then
-			return
-		end
-		local tool = backpack:FindFirstChildOfClass("Tool")
-		if tool then
-			humanoid:EquipTool(tool)
-		end
-	end
-
-	player.CharacterAdded:Connect(function(character)
-		task.spawn(autoEquip, character)
-	end)
-	if player.Character then
-		task.spawn(autoEquip, player.Character)
-	end
-
-	local backpack = player:WaitForChild("Backpack")
-	backpack.ChildAdded:Connect(function(child)
-		if child:IsA("Tool") and player.Character then
-			task.wait(0.2)
-			local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-			if humanoid and not player.Character:FindFirstChildOfClass("Tool") then
-				humanoid:EquipTool(child)
-			end
-		end
-	end)
+	-- No custom swing button and no auto-equip: the bat is a plain Tool, so
+	-- Roblox's built-in hotbar equips it and its built-in activation (click,
+	-- tap, or the mobile fire button) triggers Tool.Activated for us.
 end
 
 return CombatClient

@@ -30,12 +30,14 @@ local W = Config.World
 local Tycoon = {}
 Tycoon.__index = Tycoon
 
+-- Buttons that aren't attached to a belt machine sit in a row on the open
+-- floor, spaced further apart than a button is wide.
 local MISC_SPOTS = {
-	walls     = Vector3.new(-36, 0, 24),
-	batforge  = Vector3.new(-36, 0, 13),
-	batforge2 = Vector3.new(-36, 0, 2),
-	belt1     = Vector3.new(36, 0, 24),
-	roof      = Vector3.new(36, 0, 13),
+	walls     = Vector3.new(4, 0, -28),
+	batforge  = Vector3.new(4, 0, -18),
+	batforge2 = Vector3.new(4, 0, -8),
+	belt1     = Vector3.new(4, 0, 2),
+	roof      = Vector3.new(4, 0, 12),
 }
 
 local COLORS = {
@@ -144,7 +146,8 @@ end
 --- clear lane between the dropper bodies (|x| <= 14.5) and the buy-button
 --- pedestals (|x| >= 20.5).
 function Tycoon:ownerSpawnCFrame(): CFrame
-	return self:at(17, 5, 8) * CFrame.Angles(0, math.rad(90), 0)
+	-- middle of the open floor, facing the machines
+	return self:at(12, 5, 6) * CFrame.Angles(0, math.rad(90), 0)
 end
 
 -- ── belt ─────────────────────────────────────────────────────────────────────
@@ -155,53 +158,165 @@ function Tycoon:buildBelt()
 	folder.Parent = self.model
 	self.beltFolder = folder
 
-	local length = L.BeltEndZ - L.BeltStartZ
-	local midZ = (L.BeltStartZ + L.BeltEndZ) / 2
+	local width = L.BeltWidth
+	local surfaceY = L.BeltY
 
-	-- support frame
-	newPart(folder, "BeltBase", Vector3.new(L.BeltWidth + 2.4, L.BeltY, length + 2),
-		self:at(0, L.BeltY / 2, midZ), COLORS.frame, Enum.Material.DiamondPlate)
+	local function buildLeg(index)
+		local _, _, _, length = self:leg(index)
+		local mid = length / 2
 
-	-- running surface, low friction so the LinearVelocity constraint rules
-	local surface = newPart(folder, "BeltSurface", Vector3.new(L.BeltWidth, 0.4, length),
-		self:at(0, L.BeltY + 0.2, midZ), COLORS.belt, Enum.Material.SmoothPlastic)
-	surface.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
-	self.beltSurface = surface
+		-- support box: floor up to just under the running surface
+		newPart(folder, "BeltBase" .. index, Vector3.new(width + 1.6, surfaceY - 0.2, length),
+			self:segmentCF(index, mid, 0, (surfaceY - 0.2) / 2), COLORS.frame, Enum.Material.DiamondPlate)
 
-	-- animated chevrons
-	local texture = Instance.new("Texture")
-	texture.Face = Enum.NormalId.Top
-	texture.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	texture.Transparency = 0.75
-	texture.StudsPerTileU = 6
-	texture.StudsPerTileV = 6
-	texture.Color3 = COLORS.beltLine
-	texture.Parent = surface
+		-- running surface, low friction so the LinearVelocity constraint rules
+		local surface = newPart(folder, "BeltSurface" .. index, Vector3.new(width, 0.4, length),
+			self:segmentCF(index, mid, 0, surfaceY - 0.2), COLORS.belt, Enum.Material.SmoothPlastic)
+		surface.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
 
-	-- rails
-	for _, sign in ipairs({ -1, 1 }) do
-		local rail = newPart(folder, "Rail", Vector3.new(0.8, 2.4, length),
-			self:at(sign * (L.BeltWidth / 2 + 0.4), L.BeltY + 1.4, midZ), COLORS.metal, Enum.Material.Metal)
-		rail.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
+		local texture = Instance.new("Texture")
+		texture.Face = Enum.NormalId.Top
+		texture.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		texture.Transparency = 0.75
+		texture.StudsPerTileU = 5
+		texture.StudsPerTileV = 5
+		texture.Color3 = COLORS.beltLine
+		texture.Parent = surface
+
+		-- short side rails: tall enough to hold drops in, low enough to see over
+		for _, side in ipairs({ -1, 1 }) do
+			local rail = newPart(folder, "Rail", Vector3.new(0.7, 1.6, length),
+				self:segmentCF(index, mid, side * (width / 2 + 0.35), surfaceY + 0.6),
+				COLORS.metal, Enum.Material.Metal)
+			rail.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
+		end
+
+		return surface
 	end
 
-	-- back wall so nothing escapes upstream
-	newPart(folder, "BeltStop", Vector3.new(L.BeltWidth + 2, 3, 0.8),
-		self:at(0, L.BeltY + 1.6, L.BeltStartZ - 0.5), COLORS.metal, Enum.Material.Metal)
+	self.beltSurfaces = { buildLeg(1), buildLeg(2) }
+	self.beltSurface = self.beltSurfaces[1]
 
-	-- under-glow
-	local glow = newPart(folder, "BeltGlow", Vector3.new(L.BeltWidth - 1, 0.3, length),
-		self:at(0, 0.4, midZ), COLORS.beltLine, Enum.Material.Neon, false)
-	glow.Transparency = 0.3
+	-- corner plate where leg 1 hands off to leg 2
+	newPart(folder, "CornerBase", Vector3.new(width + 1.6, surfaceY - 0.2, width + 1.6),
+		self.cf * CFrame.new(L.BeltCorner + Vector3.new(0, (surfaceY - 0.2) / 2, 0)),
+		COLORS.frame, Enum.Material.DiamondPlate)
+	local cornerTop = newPart(folder, "CornerSurface", Vector3.new(width, 0.4, width),
+		self.cf * CFrame.new(L.BeltCorner + Vector3.new(0, surfaceY - 0.2, 0)),
+		COLORS.belt, Enum.Material.SmoothPlastic)
+	cornerTop.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
+
+	local _, _, dir1, _, normal1 = self:leg(1)
+	local _, _, _, _, normal2 = self:leg(2)
+
+	-- outer corner wall, or drops sail straight off the bend
+	newPart(folder, "CornerWall", Vector3.new(width + 3, 1.6, width + 3),
+		self.cf * CFrame.new(L.BeltCorner + (normal1 + normal2) * (width / 2 + 0.4)
+			+ Vector3.new(0, surfaceY + 0.6, 0)),
+		COLORS.metal, Enum.Material.Metal)
+
+	-- end stop behind the first dropper
+	newPart(folder, "BeltStop", Vector3.new(width + 1.6, 2, 0.8),
+		self:segmentCF(1, -0.4, 0, surfaceY + 0.8), COLORS.metal, Enum.Material.Metal)
+
+	-- The turn: a trigger at the corner that hands a drop from leg 1's
+	-- direction to leg 2's. Far cheaper than steering every drop from a
+	-- per-frame loop, and it keeps the constraint-driven conveyor.
+	local turnAt = L.BeltCorner + dir1 * (width / 2 - 1) + Vector3.new(0, surfaceY + 2.5, 0)
+	local turn = newPart(folder, "TurnSensor", Vector3.new(width, 5, 2.5),
+		self.cf * CFrame.lookAt(turnAt, turnAt + dir1),
+		Color3.new(1, 1, 1), Enum.Material.Neon, false)
+	turn.Transparency = 1
+	turn.CanTouch = true
+	turn.Touched:Connect(function(hit)
+		self:onTurn(hit)
+	end)
 end
 
---- The belt direction in world space (plot-local +Z).
-function Tycoon:beltDirection(): Vector3
-	return (self.cf.ZVector).Unit
+--- Hands a drop from leg 1 onto leg 2 at the corner.
+function Tycoon:onTurn(hit: BasePart)
+	local drop = hit.Parent
+	if not drop or not drop:IsA("Model") then
+		return
+	end
+	if drop:GetAttribute("PlotIndex") ~= self.index or drop:GetAttribute("Leg") ~= 1 then
+		return
+	end
+	drop:SetAttribute("Leg", 2)
+
+	local body = drop.PrimaryPart
+	if not body then
+		return
+	end
+	local mover = body:FindFirstChild("BeltMover")
+	local upkeep = body:FindFirstChild("StayUpright")
+	local direction = self:legDirectionWorld(2)
+
+	if mover and mover:IsA("LinearVelocity") then
+		mover.PrimaryTangentAxis = direction
+		mover.SecondaryTangentAxis = self:legNormalWorld(2)
+		mover.PlaneVelocity = Vector2.new(self.beltSpeed, 0)
+	end
+	if upkeep and upkeep:IsA("AlignOrientation") then
+		upkeep.CFrame = TungModels.dropOrientation(direction)
+	end
 end
 
-function Tycoon:beltRight(): Vector3
-	return (self.cf.XVector).Unit
+-- ── belt geometry ────────────────────────────────────────────────────────────
+-- The run is an L: leg 1 along the back edge, leg 2 along the left edge.
+-- Everything (machines, buttons, rails, the corner) is derived from these two
+-- segments, so moving the belt is a Config edit.
+
+--- start, finish, unit direction, length and the outboard normal of a leg,
+--- all in PLOT-LOCAL space.
+function Tycoon:leg(index: number)
+	local a = (index == 1) and L.BeltStart or L.BeltCorner
+	local b = (index == 1) and L.BeltCorner or L.BeltEnd
+	local delta = b - a
+	local length = delta.Magnitude
+	local dir = delta.Unit
+
+	-- horizontal perpendicular, flipped to point AWAY from the plot centre
+	local normal = Vector3.new(-dir.Z, 0, dir.X)
+	local midpoint = (a + b) * 0.5
+	if normal:Dot(midpoint) < 0 then
+		normal = -normal
+	end
+
+	return a, b, dir, length, normal
+end
+
+--- A point `distance` along a leg, offset sideways. Positive offset is
+--- outboard (toward the plot edge), negative is inboard (toward the floor).
+function Tycoon:pointOnLeg(index: number, distance: number, offset: number): Vector3
+	local a, _, dir, _, normal = self:leg(index)
+	return a + dir * distance + normal * (offset or 0)
+end
+
+function Tycoon:legDirectionWorld(index: number): Vector3
+	local _, _, dir = self:leg(index)
+	return self.cf:VectorToWorldSpace(dir).Unit
+end
+
+function Tycoon:legNormalWorld(index: number): Vector3
+	local _, _, _, _, normal = self:leg(index)
+	return self.cf:VectorToWorldSpace(normal).Unit
+end
+
+--- Which leg a machine slot lives on: droppers on the back edge, upgraders
+--- on the left edge.
+function Tycoon:legOf(def): (number, number)
+	if def.kind == "Dropper" then
+		return 1, L.DropperDist[def.slot]
+	end
+	return 2, L.UpgraderDist[def.slot]
+end
+
+--- World CFrame of a box lying along a leg.
+function Tycoon:segmentCF(index: number, distance: number, offset: number, y: number): CFrame
+	local _, _, dir = self:leg(index)
+	local point = self:pointOnLeg(index, distance, offset) + Vector3.new(0, y, 0)
+	return self.cf * CFrame.lookAt(point, point + dir)
 end
 
 -- ── collector ────────────────────────────────────────────────────────────────
@@ -212,35 +327,45 @@ function Tycoon:buildCollector()
 	folder.Parent = self.model
 	self.collectorFolder = folder
 
-	local z = L.CollectorZ
-
-	-- IMPORTANT: the vault shell must sit entirely DOWNSTREAM of the sensor.
-	-- If the solid body overlaps the sensor or the run-off ramp it walls the
-	-- belt off and drops can never be collected.
+	-- The vault sits past the end of leg 2. Its shell must stay entirely
+	-- DOWNSTREAM of the sensor: a solid body overlapping the run-off walls
+	-- the belt off and nothing can ever be collected.
+	local _, beltEnd, dir2 = self:leg(2)
 	local vaultDepth = 10
-	assert(z - vaultDepth / 2 > L.BeltEndZ + 4,
-		"Collector vault overlaps the belt run-off; raise Layout.CollectorZ")
+	local vaultCentre = L.CollectorAt
+	local runOff = (vaultCentre - beltEnd).Magnitude
+	assert(runOff > vaultDepth / 2 + 3,
+		"Collector vault overlaps the belt run-off; move Layout.CollectorAt further out")
 
-	newPart(folder, "VaultBase", Vector3.new(20, 10, vaultDepth), self:at(0, 5, z), COLORS.vault, Enum.Material.WoodPlanks)
-	newPart(folder, "VaultTrim", Vector3.new(21, 1.2, vaultDepth + 1), self:at(0, 10.4, z), COLORS.gold, Enum.Material.Metal)
+	local function alongExit(distance, y, lateral)
+		local point = beltEnd + dir2 * distance + Vector3.new(0, y, 0)
+			+ Vector3.new(-dir2.Z, 0, dir2.X) * (lateral or 0)
+		return self.cf * CFrame.lookAt(point, point + dir2)
+	end
 
-	-- funnel mouth facing the belt
-	local mouth = newPart(folder, "Mouth", Vector3.new(14, 8, 2), self:at(0, L.BeltY + 4, z - vaultDepth / 2 - 0.5),
-		Color3.fromRGB(20, 16, 28), Enum.Material.Neon, false)
-	mouth.Transparency = 0.55
+	newPart(folder, "VaultBase", Vector3.new(18, 9, vaultDepth), alongExit(runOff, 4.5, 0),
+		COLORS.vault, Enum.Material.WoodPlanks)
+	newPart(folder, "VaultTrim", Vector3.new(19, 1.2, vaultDepth + 1), alongExit(runOff, 9.4, 0),
+		COLORS.gold, Enum.Material.Metal)
+
+	-- funnel mouth facing back down the belt
+	local mouth = newPart(folder, "Mouth", Vector3.new(12, 6, 1.5),
+		alongExit(runOff - vaultDepth / 2 - 0.5, L.BeltY + 3, 0),
+		Color3.fromRGB(30, 24, 40), Enum.Material.Neon, false)
+	mouth.Transparency = 0.5
 
 	-- run-off ramp carrying drops off the end of the belt into the sensor
-	local ramp = newPart(folder, "Ramp", Vector3.new(L.BeltWidth, 0.6, 6),
-		self:at(0, L.BeltY + 0.1, L.BeltEndZ + 3), COLORS.belt, Enum.Material.SmoothPlastic)
+	local ramp = newPart(folder, "Ramp", Vector3.new(L.BeltWidth, 0.6, 5), alongExit(2.4, L.BeltY - 0.2, 0),
+		COLORS.belt, Enum.Material.SmoothPlastic)
 	ramp.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
 
-	local sensor = newPart(folder, "Sensor", Vector3.new(L.BeltWidth + 4, 10, 3),
-		self:at(0, L.BeltY + 4, L.BeltEndZ + 2), Color3.fromRGB(255, 255, 255), Enum.Material.Neon, false)
+	local sensor = newPart(folder, "Sensor", Vector3.new(L.BeltWidth + 3, 7, 2.5), alongExit(2, L.BeltY + 3, 0),
+		Color3.fromRGB(255, 255, 255), Enum.Material.Neon, false)
 	sensor.Transparency = 1
 	sensor.CanTouch = true
 
 	-- sign
-	local signAnchor = newPart(folder, "SignAnchor", Vector3.new(1, 1, 1), self:at(0, 13, z), COLORS.vault, nil, false)
+	local signAnchor = newPart(folder, "SignAnchor", Vector3.new(1, 1, 1), alongExit(runOff, 12, 0), COLORS.vault, nil, false)
 	signAnchor.Transparency = 1
 
 	local billboard = Instance.new("BillboardGui")
@@ -261,7 +386,7 @@ function Tycoon:buildCollector()
 	self.vaultLabel = label
 
 	local statue = TungModels.buildStatue("classic", 1.6)
-	statue:PivotTo(self:at(0, 15.5, z) * CFrame.Angles(0, math.pi, 0))
+	statue:PivotTo(alongExit(runOff, 13.5, 0) * CFrame.Angles(0, math.pi, 0))
 	statue.Parent = folder
 	self.vaultStatue = statue
 
@@ -309,12 +434,12 @@ function Tycoon:buildClaimPad()
 	folder.Parent = self.model
 	self.claimFolder = folder
 
-	local frontZ = W.PlotSize.Z / 2 - 14
+	local frontX, frontZ = 12, W.PlotSize.Z / 2 - 12
 
 	-- The pad itself. Safe to centre now that the factory is hidden while
 	-- unclaimed -- there is nothing standing on the frontage to hide behind.
 	local pad = newPart(folder, "ClaimPad", Vector3.new(34, 1.2, 20),
-		self:at(0, 0.6, frontZ), Color3.fromRGB(120, 230, 160), Enum.Material.Neon)
+		self:at(frontX, 0.6, frontZ), Color3.fromRGB(120, 230, 160), Enum.Material.Neon)
 	pad.CanCollide = false
 	pad:SetAttribute("PlotIndex", self.index)
 	self.claimPad = pad
@@ -323,12 +448,12 @@ function Tycoon:buildClaimPad()
 	-- few studs away or from any angle that isn't directly above it. THIS is
 	-- the thing you actually navigate by.
 	local beacon = newPart(folder, "ClaimBeacon", Vector3.new(7, 80, 7),
-		self:at(0, 40, frontZ), Color3.fromRGB(120, 255, 170), Enum.Material.Neon, false)
+		self:at(frontX, 40, frontZ), Color3.fromRGB(120, 255, 170), Enum.Material.Neon, false)
 	beacon.Transparency = 0.55
 	beacon.CanQuery = false
 
 	local halo = newPart(folder, "ClaimHalo", Vector3.new(0.6, 44, 44),
-		self:at(0, 0.35, frontZ) * CFrame.Angles(0, 0, math.pi / 2),
+		self:at(frontX, 0.35, frontZ) * CFrame.Angles(0, 0, math.pi / 2),
 		Color3.fromRGB(80, 220, 130), Enum.Material.Neon, false)
 	halo.Shape = Enum.PartType.Cylinder
 	halo.Transparency = 0.4
@@ -337,7 +462,7 @@ function Tycoon:buildClaimPad()
 	-- Sign high up the beacon so it clears the walls of neighbouring plots and
 	-- is readable from the arena.
 	local signAnchor = newPart(folder, "ClaimSign", Vector3.new(1, 1, 1),
-		self:at(0, 62, frontZ), Color3.new(1, 1, 1), nil, false)
+		self:at(frontX, 62, frontZ), Color3.new(1, 1, 1), nil, false)
 	signAnchor.Transparency = 1
 	signAnchor.CanQuery = false
 
@@ -369,12 +494,12 @@ function Tycoon:buildRebirthPad()
 	self.rebirthFolder = folder
 
 	local pad = newPart(folder, "RebirthPad", Vector3.new(12, 1.2, 12),
-		self:at(-24, 0.9, 46), Color3.fromRGB(200, 120, 255), Enum.Material.Neon)
+		self:at(32, 0.9, 26), Color3.fromRGB(200, 120, 255), Enum.Material.Neon)
 	pad.CanCollide = false
 	self.rebirthPad = pad
 
 	local ring = newPart(folder, "RebirthRing", Vector3.new(0.4, 16, 16),
-		self:at(-24, 0.3, 46) * CFrame.Angles(0, 0, math.pi / 2),
+		self:at(32, 0.3, 26) * CFrame.Angles(0, 0, math.pi / 2),
 		Color3.fromRGB(120, 60, 200), Enum.Material.Neon, false)
 	ring.Shape = Enum.PartType.Cylinder
 
@@ -419,13 +544,12 @@ end
 
 -- ── buttons ──────────────────────────────────────────────────────────────────
 
+--- Buy buttons line the INBOARD side of the belt, next to the machine they
+--- build, so the row you walk along is the row you buy from.
 function Tycoon:buttonPosition(def): Vector3
-	if def.kind == "Dropper" then
-		local sign = (def.slot % 2 == 1) and -1 or 1
-		return Vector3.new(sign * L.ButtonSideX, 0, L.DropperZ[def.slot])
-	elseif def.kind == "Upgrader" then
-		local sign = (def.slot % 2 == 1) and 1 or -1
-		return Vector3.new(sign * L.ButtonSideX, 0, L.UpgraderZ[def.slot])
+	if def.kind == "Dropper" or def.kind == "Upgrader" then
+		local legIndex, distance = self:legOf(def)
+		return self:pointOnLeg(legIndex, distance, -L.ButtonOffset)
 	end
 	return MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
 end
@@ -439,24 +563,29 @@ function Tycoon:buildButtons()
 		holder.Name = "Btn_" .. def.id
 		holder.Parent = self.buttonsFolder
 
-		newPart(holder, "Pedestal", Vector3.new(7, 3, 7), base * CFrame.new(0, 1.5, 0), COLORS.frame, Enum.Material.DiamondPlate)
+		-- Total height is Layout.ButtonHeight (1.4 studs). A Roblox humanoid
+		-- steps over ~2 studs without jumping, so you can run straight across
+		-- these instead of having to hop onto each one.
+		local plinth = L.ButtonHeight * 0.55
+		newPart(holder, "Pedestal", Vector3.new(5, plinth, 5), base * CFrame.new(0, plinth / 2, 0),
+			COLORS.frame, Enum.Material.DiamondPlate)
 
-		local pad = newPart(holder, "Pad", Vector3.new(6, 1, 6), base * CFrame.new(0, 3.4, 0),
-			COLORS.buttonOn, Enum.Material.Neon)
+		local pad = newPart(holder, "Pad", Vector3.new(4.6, L.ButtonHeight - plinth, 4.6),
+			base * CFrame.new(0, (L.ButtonHeight + plinth) / 2, 0), COLORS.buttonOn, Enum.Material.Neon)
 		pad.CanCollide = false
 		pad:SetAttribute("ButtonId", def.id)
 
 		local light = Instance.new("PointLight")
 		light.Color = COLORS.buttonOn
-		light.Range = 14
-		light.Brightness = 1.6
+		light.Range = 11
+		light.Brightness = 1.4
 		light.Shadows = false
 		light.Parent = pad
 
 		local billboard = Instance.new("BillboardGui")
 		billboard.Name = "Info"
 		billboard.Size = UDim2.fromScale(15, 7)
-		billboard.StudsOffsetWorldSpace = Vector3.new(0, 6.5, 0)
+		billboard.StudsOffsetWorldSpace = Vector3.new(0, 5.5, 0)
 		billboard.MaxDistance = 190
 		billboard.Parent = pad
 
@@ -643,37 +772,41 @@ end
 Tycoon.INSTALLERS = {}
 
 Tycoon.INSTALLERS.Dropper = function(self, def, silent)
-	local sign = (def.slot % 2 == 1) and -1 or 1
-	local z = L.DropperZ[def.slot]
-	local x = sign * L.DropperSideX
+	local legIndex, distance = self:legOf(def)
 	local variant = Config.Variants[def.variant] or Config.Variants.classic
 
 	local model = Instance.new("Model")
 	model.Name = "Dropper_" .. def.id
 	model.Parent = self.machines
 
-	-- machine body
-	newPart(model, "Base", Vector3.new(7, 7, 7), self:at(x, 3.5, z), COLORS.frame, Enum.Material.DiamondPlate)
-	local core = newPart(model, "Core", Vector3.new(5, 3.4, 5), self:at(x, 8.4, z), variant.wood, variant.material)
+	-- Machine body, outboard of the belt against the plot edge. Sized to
+	-- Layout.MachineFootprint so neighbouring droppers can never overlap.
+	local depth = L.MachineFootprint
+	newPart(model, "Base", Vector3.new(depth, 3.6, depth),
+		self:segmentCF(legIndex, distance, L.MachineOffset, 1.8), COLORS.frame, Enum.Material.DiamondPlate)
+
+	local core = newPart(model, "Core", Vector3.new(depth - 1.4, 2.2, depth - 1.4),
+		self:segmentCF(legIndex, distance, L.MachineOffset, 4.7), variant.wood, variant.material)
 	Fx.applyVariant(core, variant)
 
-	-- arm reaching over the belt
-	local armLength = math.abs(x) + 1
-	newPart(model, "Arm", Vector3.new(armLength, 1.2, 1.6), self:at(x - sign * armLength / 2, L.BeltY + 9.4, z),
-		COLORS.metal, Enum.Material.Metal)
+	-- arm reaching inboard over the belt
+	local reach = L.MachineOffset
+	newPart(model, "Arm", Vector3.new(reach, 1, 1.4),
+		self:segmentCF(legIndex, distance, reach / 2, L.BeltY + 4.4), COLORS.metal, Enum.Material.Metal)
 
-	local spout = newPart(model, "Spout", Vector3.new(3, 2.4, 3), self:at(0, L.BeltY + 8, z), COLORS.metal, Enum.Material.Metal)
+	local spout = newPart(model, "Spout", Vector3.new(2.4, 1.8, 2.4),
+		self:segmentCF(legIndex, distance, 0, L.BeltY + 3.6), COLORS.metal, Enum.Material.Metal)
 	spout.CanCollide = false
 
-	local nozzle = newPart(model, "Nozzle", Vector3.new(2.2, 0.6, 2.2), self:at(0, L.BeltY + 6.6, z),
+	local nozzle = newPart(model, "Nozzle", Vector3.new(1.8, 0.5, 1.8),
+		self:segmentCF(legIndex, distance, 0, L.BeltY + 2.6),
 		variant.light and variant.light.color or variant.wood, Enum.Material.Neon)
 	nozzle.CanCollide = false
 
-	-- label
 	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromScale(10, 3)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, 5, 0)
-	billboard.MaxDistance = 150
+	billboard.Size = UDim2.fromScale(9, 2.6)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, 3.4, 0)
+	billboard.MaxDistance = 130
 	billboard.Parent = core
 
 	local label = Instance.new("TextLabel")
@@ -681,7 +814,7 @@ Tycoon.INSTALLERS.Dropper = function(self, def, silent)
 	label.Size = UDim2.fromScale(1, 1)
 	label.Font = Enum.Font.GothamBold
 	label.Text = def.name .. "  •  $" .. Util.abbreviate(def.dropValue)
-	label.TextColor3 = Color3.fromRGB(235, 225, 255)
+	label.TextColor3 = Color3.fromRGB(255, 250, 235)
 	label.TextStrokeTransparency = 0.35
 	label.TextScaled = true
 	label.Parent = billboard
@@ -691,44 +824,46 @@ Tycoon.INSTALLERS.Dropper = function(self, def, silent)
 		entry.machine = model
 	end
 
-	-- drop loop
 	local generation = self.generation
 	task.spawn(function()
 		-- stagger so ten droppers don't fire on the same frame
 		task.wait(math.random() * def.dropRate)
 		while self.generation == generation and self.owned[def.id] and model.Parent do
-			self:spawnDrop(def, nozzle)
+			self:spawnDrop(def, nozzle, legIndex)
 			task.wait(def.dropRate)
 		end
 	end)
 end
 
 Tycoon.INSTALLERS.Upgrader = function(self, def, silent)
-	local z = L.UpgraderZ[def.slot]
+	local legIndex, distance = self:legOf(def)
 	local variant = Config.Variants[def.variant] or Config.Variants.classic
-	local halfW = L.BeltWidth / 2 + 1.2
 
 	local model = Instance.new("Model")
 	model.Name = "Upgrader_" .. def.id
 	model.Parent = self.machines
 
-	for _, sign in ipairs({ -1, 1 }) do
-		newPart(model, "Pillar", Vector3.new(2, 11, 3), self:at(sign * halfW, L.BeltY + 5.5, z),
-			COLORS.metal, Enum.Material.Metal)
-	end
-	local beam = newPart(model, "Beam", Vector3.new(halfW * 2 + 2, 2.4, 3.4), self:at(0, L.BeltY + 12, z),
+	-- Single post on the OUTBOARD side with a cantilevered beam, rather than
+	-- an arch straddling the belt: keeps the inboard walkway completely clear.
+	newPart(model, "Post", Vector3.new(1.8, 6, 1.8),
+		self:segmentCF(legIndex, distance, L.MachineOffset, 3), COLORS.metal, Enum.Material.Metal)
+
+	local reach = L.MachineOffset + L.BeltWidth / 2
+	local beam = newPart(model, "Beam", Vector3.new(reach, 1.5, 2.2),
+		self:segmentCF(legIndex, distance, (L.MachineOffset - L.BeltWidth / 2) / 2, L.BeltY + 4.6),
 		variant.wood, variant.material)
 	Fx.applyVariant(beam, variant)
 
-	local scanner = newPart(model, "Scanner", Vector3.new(L.BeltWidth, 8, 1.2), self:at(0, L.BeltY + 4.4, z),
+	local scanner = newPart(model, "Scanner", Vector3.new(L.BeltWidth, 3.6, 1),
+		self:segmentCF(legIndex, distance, 0, L.BeltY + 1.8),
 		variant.light and variant.light.color or variant.wood, Enum.Material.Neon, false)
 	scanner.Transparency = 0.55
 	scanner.CanTouch = true
 
 	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromScale(12, 3.4)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, 4, 0)
-	billboard.MaxDistance = 160
+	billboard.Size = UDim2.fromScale(11, 3)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, 3, 0)
+	billboard.MaxDistance = 140
 	billboard.Parent = beam
 
 	local label = Instance.new("TextLabel")
@@ -761,7 +896,7 @@ Tycoon.INSTALLERS.Upgrader = function(self, def, silent)
 		if body and body:IsA("BasePart") then
 			body.Color = Util.lerpColor(body.Color, variant.wood, 0.55)
 			body.Material = variant.material
-			Fx.burst(body.Position, variant.wood, 5, self.model)
+			Fx.burst(body.Position, variant.wood, 4, self.model)
 			Fx.tung(body, 1.15 + math.random() * 0.2, 0.12)
 		end
 	end)
@@ -774,8 +909,8 @@ end
 
 Tycoon.INSTALLERS.Belt = function(self, def, silent)
 	self.beltSpeed += def.speedBonus
-	if self.beltSurface then
-		self.beltSurface.Color = Color3.fromRGB(92, 70, 40)
+	for _, surface in ipairs(self.beltSurfaces or {}) do
+		surface.Color = Color3.fromRGB(92, 70, 40)
 	end
 	-- retro-apply to drops already rolling
 	for _, drop in ipairs(self.drops:GetChildren()) do
@@ -822,11 +957,11 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 	local halfZ = W.PlotSize.Z / 2 - 1
 
 	if def.structure == "walls" then
-		local h = 16
-		-- The gateway sits over the walking aisle (x ~ 17), NOT at x = 0:
-		-- the collector vault stands dead centre, so a centred gate opens
-		-- straight onto a wall.
-		local gateCentre, gateWidth = 18, 16
+		local h = 13
+		-- The gateway sits over the open floor on the right, NOT at x = 0:
+		-- the belt and vault occupy the left half, so a centred gate would
+		-- open onto machinery.
+		local gateCentre, gateWidth = 14, 18
 		local gateLeft = gateCentre - gateWidth / 2
 		local gateRight = gateCentre + gateWidth / 2
 		local leftSpan = gateLeft + halfX
@@ -845,17 +980,17 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 				self.cf * spec[2] * CFrame.new(0, h / 2, 0), COLORS.beltLine, Enum.Material.Neon, false)
 		end
 	elseif def.structure == "roof" then
-		local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, 1.6, W.PlotSize.Z),
-			self:at(0, 26, 0), Color3.fromRGB(138, 88, 58), Enum.Material.WoodPlanks)
+		local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, 1.4, W.PlotSize.Z),
+			self:at(0, 20, 0), Color3.fromRGB(138, 88, 58), Enum.Material.WoodPlanks)
 		roof.CanCollide = true
 		for _, sign in ipairs({ -1, 1 }) do
 			for _, signZ in ipairs({ -1, 1 }) do
-				newPart(model, "Column", Vector3.new(3, 26, 3),
-					self:at(sign * (halfX - 4), 13, signZ * (halfZ - 4)), Color3.fromRGB(150, 111, 74), Enum.Material.Wood)
+				newPart(model, "Column", Vector3.new(2.4, 20, 2.4),
+					self:at(sign * (halfX - 3), 10, signZ * (halfZ - 3)), Color3.fromRGB(150, 111, 74), Enum.Material.Wood)
 			end
 		end
 
-		local signAnchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1), self:at(0, 33, 0), COLORS.frame, nil, false)
+		local signAnchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1), self:at(0, 27, 0), COLORS.frame, nil, false)
 		signAnchor.Transparency = 1
 		local billboard = Instance.new("BillboardGui")
 		billboard.Size = UDim2.fromScale(46, 12)
@@ -882,7 +1017,7 @@ end
 
 -- ── drops ────────────────────────────────────────────────────────────────────
 
-function Tycoon:spawnDrop(def, nozzle: BasePart)
+function Tycoon:spawnDrop(def, nozzle: BasePart, legIndex: number)
 	if not self.owner then
 		return
 	end
@@ -896,14 +1031,18 @@ function Tycoon:spawnDrop(def, nozzle: BasePart)
 	drop:SetAttribute("PlotIndex", self.index)
 	drop:SetAttribute("Variant", def.variant)
 
+	drop:SetAttribute("Leg", legIndex)
+
 	local body = drop.PrimaryPart :: BasePart
-	local jitter = (math.random() - 0.5) * (L.BeltWidth * 0.4)
+	local direction = self:legDirectionWorld(legIndex)
+	local across = self:legNormalWorld(legIndex)
+	local jitter = (math.random() - 0.5) * (L.BeltWidth * 0.35)
 
 	-- NOTE: the model's pivot is the body, so PivotTo overwrites the body's
 	-- rotation outright. The upright orientation has to be baked into the
 	-- target CFrame or every drop spawns lying on its side.
-	local upright = TungModels.dropOrientation(self:beltDirection())
-	local spawnPosition = nozzle.Position + self:beltRight() * jitter - Vector3.new(0, 1.5, 0)
+	local upright = TungModels.dropOrientation(direction)
+	local spawnPosition = nozzle.Position + across * jitter - Vector3.new(0, 1.2, 0)
 	drop:PivotTo(CFrame.new(spawnPosition) * upright)
 
 	local attachment = Instance.new("Attachment")
@@ -916,8 +1055,8 @@ function Tycoon:spawnDrop(def, nozzle: BasePart)
 	mover.Attachment0 = attachment
 	mover.RelativeTo = Enum.ActuatorRelativeTo.World
 	mover.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
-	mover.PrimaryTangentAxis = self:beltDirection()
-	mover.SecondaryTangentAxis = self:beltRight()
+	mover.PrimaryTangentAxis = direction
+	mover.SecondaryTangentAxis = across
 	mover.PlaneVelocity = Vector2.new(self.beltSpeed, 0)
 	mover.MaxForce = 120000
 	mover.Parent = body
@@ -1051,8 +1190,8 @@ function Tycoon:release()
 	self:clearDrops()
 	self:setFactoryVisible(false)
 
-	if self.beltSurface then
-		self.beltSurface.Color = COLORS.belt
+	for _, surface in ipairs(self.beltSurfaces or {}) do
+		surface.Color = COLORS.belt
 	end
 	self.roofSign = nil
 

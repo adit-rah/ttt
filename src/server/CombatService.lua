@@ -103,6 +103,8 @@ function CombatService.equipCurrentBat(player: Player)
 	removeBats(player.Character)
 
 	local tool = TungModels.buildBatTool(def)
+	-- straight into the Backpack: Roblox's own inventory + hotbar handles
+	-- equipping, dropping and slot assignment, so we don't reimplement any of it
 	tool.Parent = player:FindFirstChildOfClass("Backpack")
 
 	CombatService.bind(player, tool)
@@ -131,26 +133,27 @@ end
 -- swinging
 -- ─────────────────────────────────────────────────────────────────────────────
 
-local function animateSwing(character: Model, duration: number)
-	local arm = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightHand")
-	local grip = arm and arm:FindFirstChild("RightGrip")
-	if not grip or not grip:IsA("Weld") then
-		return
-	end
-	local base = grip:GetAttribute("BaseC0")
-	if not base then
-		grip:SetAttribute("BaseC0", grip.C0)
-		base = grip.C0
+--- Swings the BAT and nothing else.
+---
+--- Tool.Grip is the offset of the built-in RightGrip weld between the hand and
+--- the Handle, so tweening it moves the bat within the hand. The character's
+--- arm keeps whatever pose Roblox's own Animate script gives it — we never
+--- touch the rig, play an animation, or override a limb.
+local function animateSwing(tool: Tool, duration: number)
+	local base = tool:GetAttribute("BaseGrip")
+	if typeof(base) ~= "CFrame" then
+		base = tool.Grip
+		tool:SetAttribute("BaseGrip", base)
 	end
 
-	local windUp = TweenService:Create(grip, TweenInfo.new(duration * 0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		C0 = base * CFrame.Angles(math.rad(70), 0, math.rad(-25)),
+	local windUp = TweenService:Create(tool, TweenInfo.new(duration * 0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Grip = base * CFrame.Angles(math.rad(-55), 0, 0),
 	})
-	local strike = TweenService:Create(grip, TweenInfo.new(duration * 0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-		C0 = base * CFrame.Angles(math.rad(-95), 0, math.rad(35)),
+	local strike = TweenService:Create(tool, TweenInfo.new(duration * 0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+		Grip = base * CFrame.Angles(math.rad(95), 0, math.rad(20)),
 	})
-	local reset = TweenService:Create(grip, TweenInfo.new(duration * 0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		C0 = base,
+	local reset = TweenService:Create(tool, TweenInfo.new(duration * 0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Grip = base,
 	})
 
 	windUp:Play()
@@ -271,7 +274,7 @@ function CombatService.swing(player: Player, tool: Tool)
 	end
 	s.comboAt = now
 
-	animateSwing(character, cooldown)
+	animateSwing(tool, cooldown)
 
 	local handle = tool:FindFirstChild("Handle") :: BasePart
 	local trail = handle and handle:FindFirstChild("SwingTrail") :: Trail
