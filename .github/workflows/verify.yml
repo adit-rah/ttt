@@ -1,0 +1,41 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the Luau toolchain
+        run: |
+          curl -sSL -o /tmp/luau.zip \
+            https://github.com/luau-lang/luau/releases/latest/download/luau-ubuntu.zip
+          unzip -q /tmp/luau.zip -d "$HOME/.luau"
+          chmod +x "$HOME"/.luau/*
+          echo "$HOME/.luau" >> "$GITHUB_PATH"
+
+      # syntax, static analysis, 372 config assertions, and the economy
+      # simulation (fails on an unbuyable first dropper, a >15min mid-game
+      # wall, or a total build outside 45-150 minutes)
+      - name: Verify
+        run: python3 tools/verify.py
+
+      # verify.py regenerates build/ as its last step, so a diff here means
+      # someone edited src/ without re-running tools/pack.py
+      - name: Packed build is up to date
+        run: |
+          if ! git diff --quiet -- build/; then
+            echo "::error::build/ is stale. Run 'python3 tools/pack.py' and commit the result."
+            git diff --stat -- build/
+            exit 1
+          fi
