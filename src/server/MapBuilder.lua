@@ -1,0 +1,296 @@
+--[[
+	MapBuilder.lua — generates the whole world at runtime.
+
+	Layout: a central open-air arena (PvP + raid target) ringed by
+	Config.World.PlotCount tycoon plots, each rotated to face inward.
+]]
+
+local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
+local Config = Req("Config")
+local Util = Req("Util")
+local TungModels = Req("TungModels")
+
+local Lighting = game:GetService("Lighting")
+
+local MapBuilder = {}
+
+local W = Config.World
+
+local PALETTE = {
+	ground   = Color3.fromRGB(106, 168, 79),   -- grass
+	pad      = Color3.fromRGB(199, 195, 185),  -- light concrete
+	padEdge  = Color3.fromRGB(255, 176, 60),   -- warm marker stripe
+	arena    = Color3.fromRGB(178, 172, 160),
+	arenaLip = Color3.fromRGB(255, 140, 40),
+	path     = Color3.fromRGB(222, 205, 170),  -- sandy walkway
+	wood     = Color3.fromRGB(150, 103, 60),
+}
+
+local function newPart(parent, name, size, cf, color, material)
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	p.Anchored = true
+	p.CanCollide = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = parent
+	return p
+end
+
+--- Stock Roblox daylight. Deliberately plain: bright, neutral and readable.
+function MapBuilder.applyLighting()
+	-- Lighting.Technology is not script-writable at runtime; it is set in
+	-- default.project.json instead. Guarded so a manual/paste-in install
+	-- doesn't take the whole boot sequence down with it.
+	pcall(function()
+		Lighting.Technology = Enum.Technology.ShadowMap
+	end)
+	Lighting.Ambient = Color3.fromRGB(0, 0, 0)
+	Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+	Lighting.Brightness = 3
+	Lighting.ClockTime = 14.5
+	Lighting.GeographicLatitude = 41.733
+	Lighting.ExposureCompensation = 0
+	Lighting.EnvironmentDiffuseScale = 1
+	Lighting.EnvironmentSpecularScale = 1
+	Lighting.FogColor = Color3.fromRGB(192, 192, 192)
+	Lighting.FogStart = 0
+	Lighting.FogEnd = 100000
+	Lighting.GlobalShadows = true
+
+	-- strip anything a previous (darker) build left behind, so re-running
+	-- doesn't stack post-effects
+	for _, existing in ipairs(Lighting:GetChildren()) do
+		if existing:IsA("Atmosphere") or existing:IsA("PostEffect") then
+			existing:Destroy()
+		end
+	end
+end
+
+--- Returns the CFrame for plot `index` (1-based). +Z of the CFrame points
+--- at the arena, matching the plot-local layout in Config.
+function MapBuilder.plotCFrame(index: number): CFrame
+	local angle = (index - 1) * (math.pi * 2 / W.PlotCount)
+	local position = Vector3.new(math.sin(angle) * W.PlotRadius, 0, math.cos(angle) * W.PlotRadius)
+	-- look at the origin, then flip so plot-local +Z faces the arena
+	local look = CFrame.lookAt(position, Vector3.new(0, 0, 0))
+	return look * CFrame.Angles(0, math.pi, 0)
+end
+
+local function buildArena(parent: Instance)
+	local arena = Instance.new("Model")
+	arena.Name = "Arena"
+	arena.Parent = parent
+
+	local floor = newPart(arena, "ArenaFloor", Vector3.new(W.ArenaRadius * 2, 3, W.ArenaRadius * 2),
+		CFrame.new(0, -1.5, 0), PALETTE.arena, Enum.Material.Pebble)
+	floor.Shape = Enum.PartType.Cylinder
+	floor.CFrame = CFrame.new(0, -1.5, 0) * CFrame.Angles(0, 0, math.pi / 2)
+	floor.Size = Vector3.new(3, W.ArenaRadius * 2, W.ArenaRadius * 2)
+
+	-- glowing rim segments
+	local segments = 32
+	for i = 1, segments do
+		local a = (i / segments) * math.pi * 2
+		local pos = Vector3.new(math.sin(a) * W.ArenaRadius, 1.4, math.cos(a) * W.ArenaRadius)
+		local seg = newPart(arena, "Rim" .. i, Vector3.new(3.6, 2.8, 22),
+			CFrame.lookAt(pos, Vector3.new(0, 1.4, 0)), PALETTE.arenaLip, Enum.Material.Neon)
+		seg.CanCollide = false
+	end
+	-- (no PointLights on the rim: in daylight they are invisible and 32 of
+	-- them would eat the renderer's light budget for nothing)
+
+	-- centre platform + big statue
+	local dais = newPart(arena, "Dais", Vector3.new(6, 34, 34), CFrame.new(0, 1.5, 0) * CFrame.Angles(0, 0, math.pi / 2),
+		PALETTE.pad, Enum.Material.Slate)
+	dais.Shape = Enum.PartType.Cylinder
+
+	local statue = TungModels.buildStatue("infinity", 6)
+	statue.Name = "ArenaStatue"
+	statue:PivotTo(CFrame.new(0, 26, 0))
+	statue.Parent = arena
+
+	-- floating title
+	local sign = newPart(arena, "TitleAnchor", Vector3.new(1, 1, 1), CFrame.new(0, 56, 0), PALETTE.pad)
+	sign.Transparency = 1
+	sign.CanCollide = false
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.fromScale(70, 16)
+	billboard.AlwaysOnTop = false
+	billboard.MaxDistance = 900
+	billboard.Parent = sign
+
+	local title = Instance.new("TextLabel")
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.fromScale(1, 0.62)
+	title.Font = Enum.Font.FredokaOne
+	title.Text = "TUNG TUNG TYCOON"
+	title.TextColor3 = Color3.fromRGB(255, 214, 90)
+	title.TextStrokeColor3 = Color3.fromRGB(46, 32, 16)
+	title.TextStrokeTransparency = 0.1
+	title.TextScaled = true
+	title.Parent = billboard
+
+	local subtitle = Instance.new("TextLabel")
+	subtitle.BackgroundTransparency = 1
+	subtitle.Position = UDim2.fromScale(0, 0.62)
+	subtitle.Size = UDim2.fromScale(1, 0.34)
+	subtitle.Font = Enum.Font.GothamMedium
+	subtitle.Text = "sahur arena  •  pvp enabled inside the ring"
+	subtitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+	subtitle.TextStrokeColor3 = Color3.fromRGB(46, 32, 16)
+	subtitle.TextStrokeTransparency = 0.4
+	subtitle.TextScaled = true
+	subtitle.Parent = billboard
+
+	-- torches around the ring
+	for i = 1, 8 do
+		local a = (i / 8) * math.pi * 2
+		local pos = Vector3.new(math.sin(a) * (W.ArenaRadius - 12), 0, math.cos(a) * (W.ArenaRadius - 12))
+		local pole = newPart(arena, "Torch" .. i, Vector3.new(1.2, 16, 1.2), CFrame.new(pos + Vector3.new(0, 8, 0)),
+			Color3.fromRGB(70, 52, 40), Enum.Material.Wood)
+		local flame = newPart(arena, "Flame" .. i, Vector3.new(2.4, 2.4, 2.4), CFrame.new(pos + Vector3.new(0, 17, 0)),
+			Color3.fromRGB(255, 170, 60), Enum.Material.Neon)
+		flame.Shape = Enum.PartType.Ball
+		flame.CanCollide = false
+		local fire = Instance.new("Fire")
+		fire.Heat = 12
+		fire.Size = 8
+		fire.Color = Color3.fromRGB(255, 180, 70)
+		fire.SecondaryColor = Color3.fromRGB(255, 90, 30)
+		fire.Parent = flame
+		pole.Name = "TorchPole" .. i
+	end
+
+	return arena
+end
+
+local function buildSpawn(parent: Instance)
+	local spawnPad = Instance.new("SpawnLocation")
+	spawnPad.Name = "TungSpawn"
+	spawnPad.Size = Vector3.new(30, 2, 30)
+	spawnPad.CFrame = CFrame.new(0, W.SpawnHeight, 0)
+	spawnPad.Anchored = true
+	spawnPad.CanCollide = true
+	spawnPad.Color = Color3.fromRGB(150, 103, 60)
+	spawnPad.Material = Enum.Material.WoodPlanks
+	spawnPad.TopSurface = Enum.SurfaceType.Smooth
+	spawnPad.Duration = 0
+	spawnPad.Neutral = true
+	spawnPad.Parent = parent
+	return spawnPad
+end
+
+function MapBuilder.build(): Folder
+	local existing = workspace:FindFirstChild("TungWorld")
+	if existing then
+		existing:Destroy()
+	end
+
+	-- clear the default baseplate if the place still has one
+	local defaultBase = workspace:FindFirstChild("Baseplate")
+	if defaultBase then
+		defaultBase:Destroy()
+	end
+
+	local world = Instance.new("Folder")
+	world.Name = "TungWorld"
+	world.Parent = workspace
+
+	local ground = newPart(world, "Ground", Vector3.new(W.BaseplateSize, 6, W.BaseplateSize),
+		CFrame.new(0, -3, 0), PALETTE.ground, Enum.Material.Grass)
+	ground.Anchored = true
+
+	-- decorative ring path between arena and plots
+	for i = 1, 64 do
+		local a = (i / 64) * math.pi * 2
+		local r = (W.ArenaRadius + W.PlotRadius) * 0.5
+		local pos = Vector3.new(math.sin(a) * r, 0.15, math.cos(a) * r)
+		local tile = newPart(world, "Path" .. i, Vector3.new(26, 0.4, 22),
+			CFrame.lookAt(pos, Vector3.new(0, 0.15, 0)), PALETTE.path, Enum.Material.Sand)
+		tile.CanCollide = false
+	end
+
+	buildArena(world)
+	buildSpawn(world)
+
+	local plots = Instance.new("Folder")
+	plots.Name = "Plots"
+	plots.Parent = world
+
+	MapBuilder.applyLighting()
+
+	return world
+end
+
+--- Builds the flat pad + signage for one plot. The tycoon machinery is added
+--- later by Tycoon.lua; this is just the real estate.
+function MapBuilder.buildPlotPad(parent: Instance, index: number): (Model, CFrame)
+	local cf = MapBuilder.plotCFrame(index)
+
+	local model = Instance.new("Model")
+	model.Name = "Plot" .. index
+	model.Parent = parent
+
+	local pad = newPart(model, "Pad", W.PlotSize, cf * CFrame.new(0, -W.PlotSize.Y / 2, 0), PALETTE.pad, Enum.Material.Concrete)
+	pad:SetAttribute("PlotIndex", index)
+
+	-- glowing border
+	local half = W.PlotSize.X / 2
+	local edges = {
+		{ Vector3.new(W.PlotSize.X, 1, 2), CFrame.new(0, 0.2, half) },
+		{ Vector3.new(W.PlotSize.X, 1, 2), CFrame.new(0, 0.2, -half) },
+		{ Vector3.new(2, 1, W.PlotSize.Z), CFrame.new(half, 0.2, 0) },
+		{ Vector3.new(2, 1, W.PlotSize.Z), CFrame.new(-half, 0.2, 0) },
+	}
+	for i, edge in ipairs(edges) do
+		local e = newPart(model, "Edge" .. i, edge[1], cf * edge[2], PALETTE.padEdge, Enum.Material.Neon)
+		e.CanCollide = false
+	end
+
+	-- claim totem at the front of the plot
+	local totemCF = cf * CFrame.new(0, 6, half - 8)
+	local totem = newPart(model, "Totem", Vector3.new(4, 12, 4), totemCF, Color3.fromRGB(70, 52, 40), Enum.Material.Wood)
+	totem:SetAttribute("PlotIndex", index)
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "Sign"
+	billboard.Size = UDim2.fromScale(26, 9)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, 9, 0)
+	billboard.MaxDistance = 500
+	billboard.AlwaysOnTop = false
+	billboard.Parent = totem
+
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.fromScale(1, 1)
+	frame.BackgroundColor3 = Color3.fromRGB(24, 18, 34)
+	frame.BackgroundTransparency = 0.25
+	frame.BorderSizePixel = 0
+	frame.Parent = billboard
+	Util.roundedFrame(frame, 12)
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = PALETTE.padEdge
+	stroke.Thickness = 3
+	stroke.Parent = frame
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Owner"
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.fromScale(0.92, 0.9)
+	label.Position = UDim2.fromScale(0.04, 0.05)
+	label.Font = Enum.Font.FredokaOne
+	label.Text = "UNCLAIMED PLOT " .. index .. "\nstep on the pad to claim"
+	label.TextColor3 = Color3.fromRGB(255, 236, 180)
+	label.TextScaled = true
+	label.Parent = frame
+
+	return model, cf
+end
+
+return MapBuilder

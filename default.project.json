@@ -1,0 +1,65 @@
+{
+  "name": "TungTungTycoon",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "TungShared": {
+        "$className": "Folder",
+        "$path": "src/shared"
+      }
+    },
+
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "TungServer": {
+        "$className": "Folder",
+        "$path": "src/server"
+      }
+    },
+
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "TungClient": {
+          "$className": "Folder",
+          "$path": "src/client"
+        }
+      }
+    },
+
+    "Workspace": {
+      "$className": "Workspace",
+      "$properties": {
+        "FilteringEnabled": true
+      }
+    },
+
+    "Lighting": {
+      "$className": "Lighting",
+      "$properties": {
+        "Technology": "ShadowMap",
+        "Ambient": [0, 0, 0],
+        "OutdoorAmbient": [0.5, 0.5, 0.5],
+        "Brightness": 3,
+        "ClockTime": 14.5,
+        "GeographicLatitude": 41.733,
+        "ExposureCompensation": 0,
+        "EnvironmentDiffuseScale": 1,
+        "EnvironmentSpecularScale": 1,
+        "FogColor": [0.75, 0.75, 0.75],
+        "FogEnd": 100000,
+        "FogStart": 0
+      }
+    },
+
+    "SoundService": {
+      "$className": "SoundService",
+      "$properties": {
+        "RespectFilteringEnabled": true
+      }
+    }
+  }
+}

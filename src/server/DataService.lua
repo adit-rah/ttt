@@ -1,0 +1,206 @@
+--[[
+	DataService.lua — DataStore persistence with retries, autosave and a
+	safe shutdown flush. Falls back to in-memory only if DataStores are
+	unavailable (Studio without API access), so the game still runs.
+]]
+
+local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
+local Config = Req("Config")
+
+local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local DataService = {}
+
+local STORE_NAME = "TungTungTycoon_v1"
+local AUTOSAVE_SECONDS = 90
+
+local store: DataStore? = nil
+local dataStoresUsable = true
+
+do
+	local ok, result = pcall(function()
+		return DataStoreService:GetDataStore(STORE_NAME)
+	end)
+	if ok then
+		store = result
+	else
+		dataStoresUsable = false
+		warn("[Tung] DataStores unavailable, running in memory-only mode: " .. tostring(result))
+	end
+end
+
+local function defaultProfile()
+	return {
+		cash = Config.Economy.StartingCash,
+		owned = {},        -- { [buttonId] = true }
+		rebirths = 0,
+		batTier = 1,
+		kills = 0,
+		playtime = 0,
+		version = 1,
+	}
+end
+
+local profiles: { [number]: any } = {}
+local loading: { [number]: boolean } = {}
+
+local function key(userId: number): string
+	return "player_" .. userId
+end
+
+local function retry(fn, attempts: number)
+	local lastErr
+	for i = 1, attempts do
+		local ok, result = pcall(fn)
+		if ok then
+			return true, result
+		end
+		lastErr = result
+		task.wait(0.6 * i)
+	end
+	return false, lastErr
+end
+
+--- Merges saved fields onto a fresh default so schema additions are safe.
+local function reconcile(saved)
+	local profile = defaultProfile()
+	if type(saved) ~= "table" then
+		return profile
+	end
+	for k, v in pairs(profile) do
+		if saved[k] ~= nil and type(saved[k]) == type(v) then
+			profile[k] = saved[k]
+		end
+	end
+	-- prune ids that no longer exist in Config
+	local cleanOwned = {}
+	if type(profile.owned) == "table" then
+		for id, value in pairs(profile.owned) do
+			if value and Config.ButtonById[id] then
+				cleanOwned[id] = true
+			end
+		end
+	end
+	profile.owned = cleanOwned
+	profile.cash = math.max(0, tonumber(profile.cash) or 0)
+	profile.rebirths = math.clamp(math.floor(tonumber(profile.rebirths) or 0), 0, Config.Rebirth.MaxRebirths)
+	profile.batTier = math.clamp(math.floor(tonumber(profile.batTier) or 1), 1, #Config.Bats)
+	return profile
+end
+
+function DataService.load(player: Player)
+	local userId = player.UserId
+	if profiles[userId] then
+		return profiles[userId]
+	end
+	loading[userId] = true
+
+	local profile
+	if store and dataStoresUsable then
+		local ok, saved = retry(function()
+			return (store :: DataStore):GetAsync(key(userId))
+		end, 4)
+		if ok then
+			profile = reconcile(saved)
+		else
+			warn(("[Tung] load failed for %s: %s"):format(player.Name, tostring(saved)))
+			profile = reconcile(nil)
+			profile.__loadFailed = true   -- never overwrite good data with a failed read
+		end
+	else
+		profile = reconcile(nil)
+		profile.__loadFailed = not dataStoresUsable
+	end
+
+	profiles[userId] = profile
+	loading[userId] = nil
+	return profile
+end
+
+function DataService.get(player: Player)
+	return profiles[player.UserId]
+end
+
+function DataService.save(player: Player, release: boolean?)
+	local userId = player.UserId
+	local profile = profiles[userId]
+	if not profile then
+		return false
+	end
+	if profile.__loadFailed then
+		-- data never loaded cleanly; refuse to clobber the real save
+		if release then
+			profiles[userId] = nil
+		end
+		return false
+	end
+
+	local payload = {
+		cash = profile.cash,
+		owned = profile.owned,
+		rebirths = profile.rebirths,
+		batTier = profile.batTier,
+		kills = profile.kills,
+		playtime = profile.playtime,
+		version = profile.version,
+	}
+
+	local saved = false
+	if store and dataStoresUsable then
+		local ok, err = retry(function()
+			return (store :: DataStore):UpdateAsync(key(userId), function()
+				return payload
+			end)
+		end, 4)
+		saved = ok
+		if not ok then
+			warn(("[Tung] save failed for %s: %s"):format(player.Name, tostring(err)))
+		end
+	end
+
+	if release then
+		profiles[userId] = nil
+	end
+	return saved
+end
+
+function DataService.start()
+	Players.PlayerRemoving:Connect(function(player)
+		DataService.save(player, true)
+	end)
+
+	task.spawn(function()
+		while true do
+			task.wait(AUTOSAVE_SECONDS)
+			for _, player in ipairs(Players:GetPlayers()) do
+				local profile = profiles[player.UserId]
+				if profile then
+					profile.playtime += AUTOSAVE_SECONDS
+					task.spawn(DataService.save, player, false)
+				end
+			end
+		end
+	end)
+
+	game:BindToClose(function()
+		if RunService:IsStudio() then
+			return
+		end
+		local remaining = 0
+		for _, player in ipairs(Players:GetPlayers()) do
+			remaining += 1
+			task.spawn(function()
+				DataService.save(player, true)
+				remaining -= 1
+			end)
+		end
+		local deadline = os.clock() + 25
+		while remaining > 0 and os.clock() < deadline do
+			task.wait(0.1)
+		end
+	end)
+end
+
+return DataService
