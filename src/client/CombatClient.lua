@@ -19,7 +19,15 @@ local CombatClient = {}
 
 local shake = 0
 
-local function buildHitmarker(gui: ScreenGui)
+--- The crosshair flash on a landed hit.
+---
+--- It goes in HUD.root(), not in the ScreenGui itself. Parenting straight to the
+--- ScreenGui puts it outside the UIScale AND outside the safe-area padding — the
+--- exact failure the one-ScreenGui lint exists to prevent, reached through a
+--- different door, because nothing had to make a second ScreenGui to get there.
+--- A 44x44 marker at MinScale would have drawn 44 physical pixels on a phone
+--- while every other 44 in the game drew 27.
+local function buildHitmarker(root: Instance)
 	local marker = Instance.new("Frame")
 	marker.Name = "Hitmarker"
 	marker.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -27,7 +35,7 @@ local function buildHitmarker(gui: ScreenGui)
 	marker.Size = UDim2.fromOffset(44, 44)
 	marker.BackgroundTransparency = 1
 	marker.Visible = false
-	marker.Parent = gui
+	marker.Parent = root
 
 	for i, rot in ipairs({ 45, -45 }) do
 		for j, offset in ipairs({ -1, 1 }) do
@@ -124,12 +132,12 @@ local function watchBats()
 end
 
 function CombatClient.start()
-	local gui = HUD.screenGui()
-	if not gui then
+	local root = HUD.root()
+	if not root then
 		return
 	end
 
-	local marker = buildHitmarker(gui)
+	local marker = buildHitmarker(root)
 	local hideAt = 0
 
 	Net.event("HitFeedback").OnClientEvent:Connect(function(payload)

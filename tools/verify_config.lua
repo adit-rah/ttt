@@ -2237,9 +2237,13 @@ for index, entry in ipairs(column) do
 		("panel %d of the left column is %d wide but the column is %d; a column of three widths is three panels")
 			:format(index, entry.Width, UI.ColumnWidth))
 end
-check(UI.SessionPanel.TallHeight >= UI.SessionPanel.Height
-		and UI.SessionPanel.Height >= UI.SessionPanel.CompactHeight,
-	"the session panel's three heights are out of order")
+-- Two heights now, not three. CompactHeight was the Prototypes.Sessions-off
+-- layout; the flag graduated in #50 and nothing has been able to select that
+-- height since, so it is gone rather than sitting here being ordered.
+check(UI.SessionPanel.TallHeight >= UI.SessionPanel.Height,
+	"the session panel's tall height is shorter than its ordinary one")
+check(UI.SessionPanel.CompactHeight == nil,
+	"UI.SessionPanel.CompactHeight is back — nothing can select it, so it is a layout that reads as supported and is not")
 check(UI.ColumnBottom + UI.Margin <= UI.ReferenceHeight,
 	("the left column ends at y=%d, past the bottom of a %d-tall reference screen")
 		:format(UI.ColumnBottom, UI.ReferenceHeight))

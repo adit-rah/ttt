@@ -20,6 +20,7 @@
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
+local Config = Req("Config")
 local Style = Req("Style")
 local Util = Req("Util")
 local Net = Req("Net")
@@ -569,11 +570,9 @@ local function render()
 			Util.abbreviate(payload.offline.earned), describe(payload.offline.seconds))
 		offlineRow.sub.TextColor3 = PALETTE.gold
 		offlineRow.action.Visible = true
-		panel.Size = UDim2.fromOffset(PANEL_W,
-			compact and UI.SessionPanel.CompactHeight or UI.SessionPanel.TallHeight)
+		panel.Size = UDim2.fromOffset(PANEL_W, UI.SessionPanel.TallHeight)
 	else
 		offlineRow.row.Visible = false
-		panel.Visible = not compact
 		panel.Size = UDim2.fromOffset(PANEL_W, UI.SessionPanel.Height)
 	end
 

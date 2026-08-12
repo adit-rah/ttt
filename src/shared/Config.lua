@@ -569,9 +569,16 @@ Config.UI = {
 	-- this, so this is the only number that changes.
 	CashPanel    = { Width = 280, Height = 126 },
 	NextPanel    = { Width = 280, Height = 74 },
-	-- Height is the ordinary panel, TallHeight adds the pending-offline row and
-	-- CompactHeight is the offline-only build that collapses to just that row.
-	SessionPanel = { Width = 280, Height = 216, TallHeight = 258, CompactHeight = 88 },
+	-- Height is the ordinary panel; TallHeight adds the pending-offline row.
+	--
+	-- There used to be a third, CompactHeight = 88: the panel a build with
+	-- Prototypes.Sessions OFF collapsed to, showing the offline row alone. That
+	-- flag graduated in #50 and the local that chose between the two heights was
+	-- deleted with it — but both READS of that local were left behind, in a file
+	-- that had also lost its `Req("Config")`. The number outlived the only state
+	-- that could select it, so it is gone: a height nothing can reach is a
+	-- height that reads as a supported layout and is not one.
+	SessionPanel = { Width = 280, Height = 216, TallHeight = 258 },
 
 	-- THE UPGRADE SHOP IS A SECOND COLUMN, not the bottom of the first. It is
 	-- bottom-anchored and proportionally tall, so on a short screen it grows
