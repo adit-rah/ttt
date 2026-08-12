@@ -1,0 +1,215 @@
+--[[
+	playtime_spec.lua — the session ladder pays for PLAYING, not for being
+	connected.
+
+	The distinction is the entire feature. A playtime reward gated on the wall
+	clock prices itself against nothing: the optimal play is to join, alt-tab,
+	and come back an hour later for the money. That is not a session loop, it is
+	a tax on the players who are actually there. So `sampleActivity` gates the
+	ladder on two signals and accrues `activeSeconds` only when one of them
+	fires, and the first spec below is the one that matters — an idle player with
+	a fully spawned character, ten minutes of real clock, and a rung that is
+	still locked.
+
+	The two signals are tested SEPARATELY because each covers a hole in the
+	other, and a regression that deletes one of them leaves the other passing:
+
+	  * position delta misses someone holding W into a wall;
+	  * MoveDirection misses someone carried by a conveyor or a knockback.
+
+	Assert them together and either one alone is green.
+
+	The last spec pins a KNOWN FARM rather than a defect: `claimedPlaytime` lives
+	on the per-session Live entry and is never written to the profile, so leaving
+	and rejoining re-opens the whole ladder. It is asserted as TRUE because that
+	is what ships today; see the comment on it before "fixing" the spec.
+]]
+
+return function(T)
+
+T.family("playtime", "the ladder accrues on activity, and resets when the session does")
+
+--- Push a claim through the real remote. The 0.5s nudge clears the 0.25s
+--- per-player flood guard, which reads 0 on both sides on a brand new world.
+local function claim(w, player, payload)
+	local folder = w.replicatedStorage:FindFirstChild("TungNet")
+	local remote = folder and folder:FindFirstChild("RequestClaim")
+	assert(remote, "harness: no RequestClaim remote in TungNet")
+	w.clock:advance(0.5)
+	remote.OnServerEvent:Fire(player, payload)
+end
+
+local function playtimeState(w, player)
+	local state = w.req("SessionService").stateFor(player)
+	return state and state.playtime
+end
+
+--- A running server, one player, a profile, a live session and a spawned rig.
+local function seated(w, name: string, userId: number?)
+	local Data = w.req("DataService")
+	local Session = w.req("SessionService")
+	local player = w.join(name, userId)
+	local profile = Data.load(player)
+	Session.onPlayer(player)
+	w.spawnCharacter(player)
+	return player, profile
+end
+
+T.spec("an idle player with a character accrues nothing and stays locked", function(t)
+	-- The whole reason the ladder is gated on activity instead of on the clock.
+	local w = T.retention()
+	local Economy = w.req("Economy")
+	w.req("SessionService").start()
+	local player = seated(w, "afk")
+
+	w.clock:advance(600)       -- ten minutes of wall clock, nobody at the keyboard
+
+	local state = playtimeState(w, player)
+	t:eq(state.activeSeconds, 0,
+		"an idle player accrued playtime — the ladder is gated on the wall clock, not on activity")
+	t:eq(state.rungs[1].status, "locked",
+		"the five-minute rung unlocked itself for a player who never moved")
+
+	local before = Economy.get(player)
+	claim(w, player, { kind = "playtime", index = 1 })
+	t:eq(Economy.get(player) - before, 0,
+		"the server paid a playtime rung the player had not earned")
+end)
+
+T.spec("a moving player reaches rung one at 300 active seconds and is paid once", function(t)
+	local w = T.retention()
+	local Economy = w.req("Economy")
+	local Config = w.config
+	w.req("SessionService").start()
+	local player = seated(w, "walker")
+	w.walk(player, true)
+
+	t:eq(Config.Sessions.PlaytimeMinutes[1], 5, "the first rung is no longer five minutes")
+	t:eq(math.floor(Config.Sessions.PlaytimeRewardBase
+		* (Config.Sessions.PlaytimeRewardGrowth ^ 0)), 1200, "the first rung's payout has moved")
+
+	w.clock:advance(299)
+	t:eq(playtimeState(w, player).rungs[1].status, "locked",
+		"the five-minute rung unlocked one second early")
+
+	w.clock:advance(1)
+	local state = playtimeState(w, player)
+	t:eq(state.activeSeconds, 300, "an actively moving player is not accruing one second per second")
+	t:eq(state.rungs[1].status, "ready", "300 active seconds did not unlock the five-minute rung")
+
+	local before = Economy.get(player)
+	claim(w, player, { kind = "playtime", index = 1 })
+	t:eq(Economy.get(player) - before, 1200, "the five-minute rung paid the wrong amount")
+	t:eq(playtimeState(w, player).rungs[1].status, "claimed", "a paid rung is not being marked claimed")
+
+	before = Economy.get(player)
+	claim(w, player, { kind = "playtime", index = 1 })
+	t:eq(Economy.get(player) - before, 0, "a claimed rung paid out a second time")
+end)
+
+T.spec("a rung the player has not reached pays nothing however loudly it is asked for", function(t)
+	local w = T.retention()
+	local Economy = w.req("Economy")
+	w.req("SessionService").start()
+	local player = seated(w, "eager")
+	w.walk(player, true)
+
+	w.clock:advance(300)       -- rung 1 earned, rung 2 (10 minutes) is not
+	t:eq(playtimeState(w, player).rungs[2].status, "locked", "the fixture already earned rung two")
+
+	local before = Economy.get(player)
+	claim(w, player, { kind = "playtime", index = 2 })
+	t:eq(Economy.get(player) - before, 0,
+		"the client asked early and the server paid — the ladder is client-authoritative")
+	t:eq(playtimeState(w, player).rungs[2].status, "locked",
+		"an early claim marked an unearned rung as claimed")
+end)
+
+T.spec("position delta alone counts as activity, with MoveDirection flat zero", function(t)
+	-- The conveyor / knockback case: carried across the map without touching a
+	-- key. Driven a step at a time rather than through the session loop so the
+	-- rig can be moved BETWEEN samples.
+	local w = T.retention()
+	local Session = w.req("SessionService")
+	local player = seated(w, "carried")
+
+	Session.step(player, 1)
+	t:eq(playtimeState(w, player).activeSeconds, 0,
+		"the first sample counted as activity before there was anything to compare against")
+
+	w.move(player, 3, 0)
+	Session.step(player, 1)
+	t:eq(playtimeState(w, player).activeSeconds, 1,
+		"a three-stud move with no MoveDirection read as idle — a carried player is not being credited")
+
+	w.move(player, 1, 0)
+	Session.step(player, 1)
+	t:eq(playtimeState(w, player).activeSeconds, 1,
+		"a one-stud drift counted as activity — the two-stud gate is not being applied")
+end)
+
+T.spec("MoveDirection alone counts as activity, with the position pinned", function(t)
+	-- The holding-W-into-a-wall case: every key held, nothing moves.
+	local w = T.retention()
+	local Session = w.req("SessionService")
+	local player = seated(w, "pusher")
+
+	Session.step(player, 1)
+	Session.step(player, 1)
+	t:eq(playtimeState(w, player).activeSeconds, 0, "a stationary player accrued playtime")
+
+	w.walk(player, true)
+	Session.step(player, 1)
+	t:eq(playtimeState(w, player).activeSeconds, 1,
+		"a player holding a direction into a wall read as idle — MoveDirection is not being sampled")
+end)
+
+T.spec("the ladder resets across a rejoin, because claimedPlaytime is never saved", function(t)
+	-- KNOWN FARM, asserted as it ships. `claimedPlaytime` lives on the Live
+	-- entry, which is per-session state and is deliberately never persisted, so
+	-- leave/rejoin re-opens every rung: five minutes of walking is worth 1200
+	-- tung as many times as you care to reconnect.
+	--
+	-- This is pinned rather than reported as a defect because "the ladder resets
+	-- when you leave" is what the claim notification itself says, and the fix is
+	-- a design decision (persist per-day, or shrink the rewards) rather than a
+	-- correctness one. If that decision is ever made, this spec is the one that
+	-- has to change, and it should change LOUDLY.
+	local w = T.retention()
+	local Data = w.req("DataService")
+	local Session = w.req("SessionService")
+	local Economy = w.req("Economy")
+	Data.start()
+	Session.start()
+
+	local player = seated(w, "farmer")
+	w.walk(player, true)
+	w.clock:advance(300)
+
+	local before = Economy.get(player)
+	claim(w, player, { kind = "playtime", index = 1 })
+	t:eq(Economy.get(player) - before, 1200, "the fixture never earned the first rung")
+
+	local userId = player.UserId
+	w.leave(player)
+
+	local stored = w.store():raw("player_" .. userId)
+	t:notNil(stored, "the leave did not save, so the rejoin below reads nothing")
+	t:isNil(stored.claimedPlaytime, "claimedPlaytime reached the top level of the save")
+	t:isNil(stored.sessions.claimedPlaytime,
+		"claimedPlaytime is now persisted — the rejoin assertion below is testing the wrong thing")
+
+	local rejoined = seated(w, "farmer", userId)
+	t:eq(playtimeState(w, rejoined).rungs[1].status, "locked",
+		"the ladder carried across a rejoin; the spec below no longer describes the code")
+
+	w.walk(rejoined, true)
+	w.clock:advance(300)
+
+	before = Economy.get(rejoined)
+	claim(w, rejoined, { kind = "playtime", index = 1 })
+	t:eq(Economy.get(rejoined) - before, 1200,
+		"the rejoin farm has been closed — update this spec rather than deleting it")
+end)
+
+end
