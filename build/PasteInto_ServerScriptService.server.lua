@@ -741,6 +741,42 @@ __MODULES["Config"] = function()
 		AttackCooldown = 1.35,
 		AttackKnockback = 28,
 		BossWindUpScale = 1.35,     -- bosses telegraph LONGER; they hit much harder
+
+		-- RAIDER AI. Every raider used to call nearestPlayer(position, 500) every
+		-- 0.6 seconds — a radius bigger than the whole map — so all 26 of them
+		-- beelined the same player from anywhere, forever, with no wander, no
+		-- aggro range and no way to break contact. They now spawn on the rim, walk
+		-- in to a home patch in the arena, mill around it, and only commit to a
+		-- player who comes close enough.
+		--
+		-- The whole design rests on the raiders being SLOWER than the players
+		-- (13-17 against 22). Without that gap, de-aggro is unreachable and the
+		-- leash is the only thing that ever fires. The verifier asserts it.
+		AggroRadius = 55,           -- a raider notices you across its own patch...
+		DeAggroRadius = 85,         -- ...and needs a real run to lose you again
+		-- Measured from the raider's HOME PATCH, not from where it spawned and not
+		-- from the world origin. Home patches are scattered within HomeSpread of
+		-- the arena centre, so the furthest a leashed raider can ever swing at
+		-- something is HomeSpread + LeashRadius + AttackRange = 124 studs — against
+		-- a nearest plot EDGE of 140 (MinPlotRadius 210 less half a plot depth).
+		-- That 16-stud clearance is what makes plots provably safe, and it is
+		-- asserted rather than commented.
+		LeashRadius = 72,
+		HomeSpread = 44,            -- home patches fill the arena, clear of the wall
+		WanderRadius = 18,          -- 44 + 18 = 62 < ArenaRadius 70
+		WanderDwellMin = 2.5,
+		WanderDwellMax = 5.0,
+		WanderSpeedScale = 0.55,    -- idling is visibly slower; that reads the flip
+		ReturnSpeedScale = 1.2,     -- and going home is brisk, so the arena refills
+		HomeArrive = 8,
+		-- A returning raider must get most of the way back before it can bite
+		-- again, or a player parked on the leash line yo-yos it forever.
+		ReAggroFrac = 0.6,
+		RepathChase = 0.35,         -- a 22 studs/s player covers 7.7 studs; at 0.6 it was 13
+		RepathWander = 1.2,
+		RepathReturn = 0.8,
+		AggroCheck = 0.25,          -- how often an idling raider looks around
+		SnapshotInterval = 0.1,     -- how often the shared player snapshot rebuilds
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -4857,19 +4893,70 @@ __MODULES["NPCService"] = function()
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	local function nearestPlayer(position: Vector3, maxDistance: number): (Player?, Model?, number)
-		local bestPlayer, bestChar, bestDistance = nil, nil, maxDistance
+	--- ONE snapshot of every live player, rebuilt at most every SnapshotInterval
+	--- and read by every raider.
+	---
+	--- This used to be a scan per raider per repath, at four instance reads per
+	--- player: 26 raiders x 10 players x ~1.7 Hz was about 1,700 property reads a
+	--- second, and the tighter chase repath below would have made that worse
+	--- rather than better. Rebuilding once a frame-ish makes it flat at ~400
+	--- regardless of how many raiders are alive, and turns the per-raider work
+	--- into float maths over a ten-entry array.
+	---
+	--- It is also the one place that decides what counts as a target, which is
+	--- exactly the seam the `decoy` utility prototype needs — see the TODO in
+	--- UpgradeService.
+	local snapshot: { any } = {}
+	local snapshotAt = 0
+
+	local function refreshSnapshot(now: number)
+		if now < snapshotAt then
+			return
+		end
+		snapshotAt = now + WV.SnapshotInterval
+		table.clear(snapshot)
 		for _, player in ipairs(Players:GetPlayers()) do
 			local character = player.Character
 			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-			if character and humanoid and humanoid.Health > 0 then
-				local distance = (character:GetPivot().Position - position).Magnitude
-				if distance < bestDistance then
-					bestPlayer, bestChar, bestDistance = player, character, distance
-				end
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if humanoid and root and humanoid.Health > 0 then
+				table.insert(snapshot, {
+					player = player,
+					character = character,
+					root = root,
+					position = root.Position,
+				})
 			end
 		end
-		return bestPlayer, bestChar, bestDistance
+	end
+
+	--- Nearest live player to `position` within `maxDistance`, from the snapshot.
+	--- Squared distances: nothing here needs the actual magnitude.
+	local function nearestPlayer(position: Vector3, maxDistance: number): (Player?, Model?, number)
+		local bestPlayer, bestChar, best = nil, nil, maxDistance * maxDistance
+		for _, entry in ipairs(snapshot) do
+			local offset = entry.position - position
+			local d2 = offset.X * offset.X + offset.Y * offset.Y + offset.Z * offset.Z
+			if d2 < best then
+				bestPlayer, bestChar, best = entry.player, entry.character, d2
+			end
+		end
+		return bestPlayer, bestChar, math.sqrt(best)
+	end
+
+	--- Flat XZ distance. Every AI radius here is a ground distance — a raider on a
+	--- ramp is not further away for being higher up.
+	local function flatDistance(a: Vector3, b: Vector3): number
+		local dx, dz = a.X - b.X, a.Z - b.Z
+		return math.sqrt(dx * dx + dz * dz)
+	end
+
+	--- A point inside a disc of `radius` around `centre`. sqrt() on the random so
+	--- points spread evenly over the area instead of clustering at the middle.
+	local function pointInDisc(centre: Vector3, radius: number): Vector3
+		local angle = math.random() * math.pi * 2
+		local r = radius * math.sqrt(math.random())
+		return Vector3.new(centre.X + math.sin(angle) * r, centre.Y, centre.Z + math.cos(angle) * r)
 	end
 
 	local function killReward(wave: number, boss: boolean): number
@@ -4982,6 +5069,17 @@ __MODULES["NPCService"] = function()
 			despawnAt = os.clock() + WV.MaxWaveTime + WV.StragglerGrace,
 			boss = boss,
 			damage = damage,
+			-- AI state. NOT `entry.phase` — that name is already the waddle's sine
+			-- phase a few lines down, and reusing it would desync the walk cycle
+			-- every time the raider changed its mind.
+			ai = "wander",
+			-- The patch this raider calls home. Scattered around the ARENA CENTRE
+			-- rather than sitting at the spawn point: raiders land on the rim and
+			-- then walk inward to mill about, which is what makes them read as
+			-- gathering in the middle rather than as a ring closing in.
+			home = pointInDisc(Vector3.zero, WV.HomeSpread),
+			wanderUntil = 0,
+			nextAggroCheck = 0,
 			nextAttack = 0,
 			nextRepath = 0,
 			sway = torso and torso:FindFirstChild("TungSway"),
@@ -5029,6 +5127,7 @@ __MODULES["NPCService"] = function()
 
 	local function tick(dt: number)
 		local now = os.clock()
+		refreshSnapshot(now)
 		for npc, entry in pairs(active) do
 			if not npc.Parent or entry.dead then
 				continue
@@ -5078,27 +5177,108 @@ __MODULES["NPCService"] = function()
 				entry.arm.C0 = entry.armBase * (basis:Inverse() * CFrame.Angles(math.rad(pitch), 0, 0) * basis)
 			end
 
-			if now >= entry.nextRepath and now >= entry.rootedUntil then
-				entry.nextRepath = now + 0.6
-				local _, targetChar = nearestPlayer(root.Position, 500)
-				if targetChar then
-					entry.target = targetChar
-					humanoid:MoveTo(targetChar:GetPivot().Position)
-				else
-					entry.target = nil
-					humanoid:MoveTo(Vector3.new(math.random(-60, 60), 0, math.random(-60, 60)))
+			-- ── AI: wander / chase / return ──────────────────────────────────────
+			--
+			-- Evaluated only when the raider is free to move. The telegraph above
+			-- runs regardless of state ON PURPOSE: gating it on "chase" would
+			-- freeze a raider mid-swing with its bat overhead the instant it
+			-- de-aggroed.
+			if now >= entry.rootedUntil and not entry.swingAt then
+				local homeDistance = flatDistance(root.Position, entry.home)
+
+				if entry.ai == "chase" then
+					local target = entry.target
+					local targetRootPart = target and target.Parent
+						and target:FindFirstChild("HumanoidRootPart")
+					local targetHumanoid = target and target.Parent
+						and target:FindFirstChildOfClass("Humanoid")
+					local lost = not targetRootPart
+						or not targetHumanoid
+						or targetHumanoid.Health <= 0
+						or flatDistance(targetRootPart.Position, root.Position) > WV.DeAggroRadius
+						or homeDistance > WV.LeashRadius
+
+					if lost then
+						entry.ai = "return"
+						entry.target = nil
+						entry.nextRepath = 0
+					end
+				elseif entry.ai == "return" then
+					if homeDistance <= WV.HomeArrive then
+						entry.ai = "wander"
+						entry.wanderUntil = 0
+					end
 				end
-				-- unstick
-				if entry.lastPosition and (root.Position - entry.lastPosition).Magnitude < 1.5 then
-					humanoid.Jump = true
+
+				-- Only a raider that is NOT already committed goes looking, and a
+				-- returning one may not bite again until it is most of the way
+				-- home — otherwise a player parked on the leash line yo-yos it.
+				if entry.ai ~= "chase" and now >= entry.nextAggroCheck then
+					entry.nextAggroCheck = now + WV.AggroCheck
+					local mayAggro = entry.ai == "wander"
+						or homeDistance <= WV.LeashRadius * WV.ReAggroFrac
+					if mayAggro then
+						local _, found = nearestPlayer(root.Position, WV.AggroRadius)
+						if found then
+							entry.ai = "chase"
+							entry.target = found
+							entry.nextRepath = 0
+						end
+					end
 				end
-				entry.lastPosition = root.Position
+
+				local interval = (entry.ai == "chase" and WV.RepathChase)
+					or (entry.ai == "return" and WV.RepathReturn)
+					or WV.RepathWander
+
+				if now >= entry.nextRepath then
+					entry.nextRepath = now + interval
+
+					if entry.ai == "chase" then
+						local targetRootPart = entry.target and entry.target.Parent
+							and entry.target:FindFirstChild("HumanoidRootPart")
+						if targetRootPart then
+							humanoid:MoveTo(targetRootPart.Position)
+						end
+					elseif entry.ai == "return" then
+						humanoid:MoveTo(entry.home)
+					else
+						-- Drift around the home patch. The old idle target was a
+						-- hardcoded +/-60 world-space box unrelated to the arena,
+						-- so idling raiders wandered off it.
+						if now >= entry.wanderUntil then
+							entry.wanderUntil = now
+								+ WV.WanderDwellMin
+								+ math.random() * (WV.WanderDwellMax - WV.WanderDwellMin)
+							entry.wanderTarget = pointInDisc(entry.home, WV.WanderRadius)
+						end
+						humanoid:MoveTo(entry.wanderTarget or entry.home)
+					end
+
+					-- unstick
+					if entry.lastPosition and (root.Position - entry.lastPosition).Magnitude < 1.5 then
+						humanoid.Jump = true
+					end
+					entry.lastPosition = root.Position
+				end
 			end
 
 			-- Rooted while winding up and recovering. This is the window a player
 			-- punishes: before, the raider closed and dealt damage on the same
 			-- tick, so being hit was pure proximity and there was nothing to read.
-			humanoid.WalkSpeed = (now < entry.rootedUntil) and 0 or entry.walkSpeed
+			--
+			-- Still written EVERY frame, and still hard-zeroed while rooted. The
+			-- per-state scale MULTIPLIES the captured entry.walkSpeed rather than
+			-- replacing it, so each raider keeps the jitter buildNPC gave it.
+			-- (UpgradeService's freeze verb anchors the assembly specifically
+			-- because this write exists every frame — see the note there.)
+			local speedScale = 1
+			if entry.ai == "wander" then
+				speedScale = WV.WanderSpeedScale
+			elseif entry.ai == "return" then
+				speedScale = WV.ReturnSpeedScale
+			end
+			humanoid.WalkSpeed = (now < entry.rootedUntil) and 0 or (entry.walkSpeed * speedScale)
 
 			local target = entry.target
 			local targetRoot = target and target.Parent and target:FindFirstChild("HumanoidRootPart")

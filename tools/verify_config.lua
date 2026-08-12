@@ -450,6 +450,70 @@ check(WV.EmptyResetAfter > 0, "EmptyResetAfter must be positive")
 check(WV.Interval == nil,
 	"Waves.Interval is gone — waves are paced by RestTime from the previous clear, not by a wall clock")
 
+-- ── raider aggro and leash ──────────────────────────────────────────────────
+
+-- The whole chase-then-give-up design assumes a player can outrun a raider.
+-- Without the speed gap, de-aggro is unreachable, only the leash ever fires,
+-- and the feature silently becomes "raiders follow you until they hit a wall".
+-- Raider speed is WalkSpeed plus up to 4 of per-raider jitter (see buildNPC).
+check(WV.WalkSpeed + 4 < Config.Combat.WalkSpeed,
+	("raiders top out at %.0f studs/s against a player's %d — with no speed gap a player can never break contact and the de-aggro rule is decoration")
+		:format(WV.WalkSpeed + 4, Config.Combat.WalkSpeed))
+
+check(WV.AggroRadius < WV.DeAggroRadius,
+	("aggro %.0f / de-aggro %.0f: without hysteresis a raider on the boundary flips between chasing and going home every tick")
+		:format(WV.AggroRadius, WV.DeAggroRadius))
+check(WV.DeAggroRadius >= WV.AggroRadius * 1.4,
+	("de-aggro is only %.0f%% of the aggro radius; that band is too narrow to survive a player strafing")
+		:format(WV.DeAggroRadius / WV.AggroRadius * 100))
+
+check(WV.HomeSpread + WV.WanderRadius < Config.World.ArenaRadius,
+	("idle raiders wander out to %.0f studs but the arena wall is at %d — they would mill into it")
+		:format(WV.HomeSpread + WV.WanderRadius, Config.World.ArenaRadius))
+
+-- THE geometric one, and the reason the leash is measured from a home patch
+-- rather than from the world origin or the spawn ring.
+--
+-- Looped over the supported player range rather than reading
+-- Config.World.PlotRadius, which is resolved once for whatever plot count THIS
+-- server happens to have. The ring is clamped to MinPlotRadius for 4-7 plots
+-- and only grows past it at 8+, so the tightest case is not the configured one.
+-- And it is the plot EDGE that matters, not the centre: half a plot depth is
+-- 70 studs of difference and reading the wrong one puts raiders inside
+-- somebody's factory.
+local tightestPlotEdge = math.huge
+for count = Config.World.MinPlots, Config.World.MaxPlots do
+	local placements = Config.plotPlacements(count)
+	tightestPlotEdge = math.min(tightestPlotEdge, placements[1].radius - Config.World.PlotSize.Z / 2)
+end
+local raiderReach = WV.HomeSpread + WV.LeashRadius + WV.AttackRange
+check(raiderReach < tightestPlotEdge,
+	("a leashed raider can swing %.0f studs from the arena centre but the nearest plot EDGE is at %.0f — raiders could be dragged onto someone's factory")
+		:format(raiderReach, tightestPlotEdge))
+
+check(WV.ReAggroFrac > 0 and WV.ReAggroFrac < 1,
+	("ReAggroFrac is %.2f; a returning raider has to get meaningfully closer to home before it can bite again or it yo-yos on the leash line")
+		:format(WV.ReAggroFrac))
+check(WV.RepathChase * Config.Combat.WalkSpeed < WV.DeAggroRadius - WV.AggroRadius,
+	("a chase repath every %.2fs lets a sprinting player cover %.0f studs between updates, more than the %.0f studs of aggro hysteresis")
+		:format(WV.RepathChase, WV.RepathChase * Config.Combat.WalkSpeed, WV.DeAggroRadius - WV.AggroRadius))
+check(WV.RepathWander > WV.RepathChase,
+	"an idling raider should repath less often than a chasing one, not more")
+check(WV.WanderDwellMax > WV.WanderDwellMin and WV.WanderDwellMin > 0,
+	"wander dwell needs a real range, or every raider picks a new idle target on the same tick")
+check(WV.WanderSpeedScale > 0 and WV.WanderSpeedScale < 1,
+	("WanderSpeedScale is %.2f; idling has to be visibly slower than chasing or the aggro flip does not read")
+		:format(WV.WanderSpeedScale))
+check(WV.HomeArrive > 0 and WV.HomeArrive < WV.WanderRadius * 2,
+	("HomeArrive is %.0f studs against a %.0f-stud wander radius; a returning raider would never register as home")
+		:format(WV.HomeArrive, WV.WanderRadius))
+check(WV.SnapshotInterval > 0 and WV.SnapshotInterval <= 0.5,
+	("SnapshotInterval is %.2fs; past ~0.5s raiders chase where you were, not where you are")
+		:format(WV.SnapshotInterval))
+check(WV.AggroCheck > 0 and WV.AggroCheck <= 1,
+	("AggroCheck is %.2fs; past a second a player can walk through a raider's aggro radius unnoticed")
+		:format(WV.AggroCheck))
+
 -- ── raider telegraph ────────────────────────────────────────────────────────
 
 -- The wind-up is the only warning a player gets. Below human reaction time it
