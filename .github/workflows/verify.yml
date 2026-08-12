@@ -16,10 +16,22 @@ jobs:
         with:
           python-version: "3.11"
 
+      # --retry, and a check that the download is actually a zip.
+      #
+      # This fetch fails transiently often enough to matter: it took out four
+      # PRs in one afternoon during the round-6 merge, and it does it in under
+      # ten seconds with `unzip: cannot find zipfile directory`, which reads
+      # like a corrupt release artifact rather than a network blip. Every one of
+      # those cost somebody a diff review before they thought to look at the log.
+      #
+      # `unzip -t` fails loudly on a truncated or HTML-error-page download, so a
+      # bad fetch says so here rather than three steps later as a missing tool.
       - name: Install the Luau toolchain
         run: |
-          curl -sSL -o /tmp/luau.zip \
+          curl -sSL --retry 5 --retry-delay 3 --retry-all-errors --fail \
+            -o /tmp/luau.zip \
             https://github.com/luau-lang/luau/releases/latest/download/luau-ubuntu.zip
+          unzip -tq /tmp/luau.zip
           unzip -q /tmp/luau.zip -d "$HOME/.luau"
           chmod +x "$HOME"/.luau/*
           echo "$HOME/.luau" >> "$GITHUB_PATH"
