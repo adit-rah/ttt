@@ -297,11 +297,13 @@ end
 function Tycoon:refreshBeltSpeed()
 	self.beltSpeed = (L.BeltSpeed + self.beltBonus) * self.powerFactor
 
-	-- THE CHECK THAT WOULD HAVE CAUGHT THE GENERATOR, and it has to live here
-	-- rather than in verify_config.lua: the defect was a field in this file
-	-- that nothing assigned, and the verifier reads Config.lua and nothing
-	-- else. Every config-level assertion about the power ladder passed while
-	-- the belt ran at stock speed for two rounds.
+	-- THE CHECK THAT WOULD HAVE CAUGHT THE GENERATOR, and it has to live beside
+	-- the read rather than in verify_config.lua: the defect was a field declared
+	-- in tycoon/Class.lua and assigned nowhere, and the verifier reads Config.lua
+	-- and nothing else. Every config-level assertion about the power ladder
+	-- passed while the belt ran at stock speed for two rounds. The field is now
+	-- written in tycoon/Installers.lua and read here — two files, which is MORE
+	-- reason for this assert rather than less.
 	--
 	-- Recomputed from `owned` and compared against the two cached inputs, so it
 	-- fires on a powerFactor that was never set (the shipped bug, 37 instead of

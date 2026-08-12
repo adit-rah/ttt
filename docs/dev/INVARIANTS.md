@@ -697,9 +697,9 @@ defects in the same file.
   column.** `[spec]` `vault_spec.lua`.
 ## 9. Tooling & the harness
 
-`tools/verify.py` runs **nine** passes: syntax and static analysis over `src/` *and*
-`tools/testing/`, style ownership, prototype flags, ui geometry, one screengui, the config
-suite, the runtime specs, and the packed build. Its boundaries have not moved:
+`tools/verify.py` runs **eleven** passes: syntax and static analysis over `src/` *and*
+`tools/testing/`, style ownership, prototype flags, config paths, mixin folders, ui geometry,
+one screengui, the config suite, the runtime specs, and the packed build. Its boundaries have not moved:
 `verify_config.lua` sees `src/shared/Config.lua` and nothing else, and it cannot reach frame
 ordering, AI behaviour, or how anything looks. `NPCService` and `PlotService` still cannot be
 specced — they need `Touched` and a physics step.
@@ -751,9 +751,14 @@ specced — they need `Touched` and a physics step.
   drives os.time, and os.date reads the fake epoch", `weekend_spec.lua` "Monday does not".
 - **`_G` is readonly under the `luau` CLI**, so harness globals are assigned directly.
   `[nothing]`
-- **The nine-pass list in `verify.py`'s docstring must stay in step with `main()`.** It has
-  said five, seven and eight while `main()` ran nine, and a pass count nobody can trust is a
-  pass somebody can quietly delete. `[nothing]`
+- **The pass list in `verify.py`'s docstring must stay in step with `main()`.** It has said
+  five, seven and eight while `main()` ran nine, and a pass count nobody can trust is a pass
+  somebody can quietly delete. `[nothing]`
+- **A mixin folder's aggregator must require every file in it.** `src/server/tycoon/` is one
+  class across twelve files; the aggregator's `Req("Belt")` lines are code, not imports, and
+  deleting one removes a dozen methods with every pass still green — the undeclared-global
+  pass cannot see it, because the name that goes missing is a method on a table. `[lint]`
+  pass 6, "is in the folder but Tycoon.lua does not require it".
 
 ---
 

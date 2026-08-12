@@ -215,7 +215,7 @@ python3 tools/verify.py
 ```
 
 Needs the [Luau CLI](https://github.com/luau-lang/luau/releases) on your PATH
-(`luau`, `luau-compile`, `luau-analyze`). It runs nine passes:
+(`luau`, `luau-compile`, `luau-analyze`). It runs eleven passes:
 
 1. **Syntax** — compiles every file in `src/` and `tools/testing/`
 2. **Static analysis** — `luau-analyze`, with the Roblox globals *named* in a
@@ -226,15 +226,20 @@ Needs the [Luau CLI](https://github.com/luau-lang/luau/releases) on your PATH
    outline or a view distance
 4. **Prototype flags** — every `Config.Prototypes` flag read is one that exists
    (a graduated flag is deleted, so a leftover guard reads `nil` forever)
-5. **UI geometry** — no card-scale literal in `src/client`; it comes from `Config.UI`
-6. **One ScreenGui** — `HUD.lua` owns it, so there is exactly one `UIScale`
-7. **Config integrity** — 2300+ assertions: duplicate ids, dangling `requires`,
+5. **Config paths** — every `Config.<path>` read in `src/` names a key that
+   exists, resolved through local aliases (`local L = Config.Layout`)
+6. **Mixin folders** — a split class's aggregator requires every file in its
+   folder, because those requires are code and deleting one silently removes a
+   dozen methods
+7. **UI geometry** — no card-scale literal in `src/client`; it comes from `Config.UI`
+8. **One ScreenGui** — `HUD.lua` owns it, so there is exactly one `UIScale`
+9. **Config integrity** — 2300+ assertions: duplicate ids, dangling `requires`,
    slot collisions, upgraders placed upstream of droppers, plots that would
    overlap on the ring, bats that aren't stronger than the tier below…
-8. **Runtime specs** — `tools/test.py` runs the game headless under `luau`
-9. **Packed build** — regenerates the paste-in scripts and compiles those too
+10. **Runtime specs** — `tools/test.py` runs the game headless under `luau`
+11. **Packed build** — regenerates the paste-in scripts and compiles those too
 
-Pass 7 also *simulates the whole economy*, purchase by purchase, and fails the
+Pass 9 also *simulates the whole economy*, purchase by purchase, and fails the
 build if the curve breaks — a first dropper you can't afford, a mid-game wall
 over 15 minutes, or a total build outside 45–150 minutes. It prints the curve:
 

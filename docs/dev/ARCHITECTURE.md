@@ -585,16 +585,17 @@ docstring list, `main()`'s `results` list and this table in step.
 | 3 | style ownership | nothing outside `src/shared/Style.lua` names `Enum.Font.*`, sets `TextStrokeTransparency` or sets `MaxDistance`. `src/` only — `tools/` is not shipped. |
 | 4 | prototype flags | every `Config.Prototypes.X` read is a flag that still exists, resolved through locals actually bound to `Config.Prototypes` |
 | 5 | config paths | every `Config.<path>` read anywhere in `src/` names a key that exists. It indexes `Config.lua` into `known` paths and the subset that is `closed` (a table literal with named keys only, never written by a computed key) and only reports a missing child against a closed table — so arrays (`Config.Bats`), loop-built tables (`Config.ButtonById`) and non-literal values are skipped. Follows local aliases (`local L = Config.Layout`) on both sides. |
-| 6 | ui geometry | no `UDim2.fromOffset(w, h)` / `Vector2.new(w, h)` with `w ≥ 300 and h ≥ 200` in `src/client` unless the line goes through `Config.UI.` |
-| 7 | one screengui | only `src/client/HUD.lua` calls `Instance.new("ScreenGui")`, so there is one `UIScale` |
-| 8 | config integrity | `tools/verify_config.lua`, with `src/shared/Config.lua` spliced in at `--@INJECT`. Reads **that one file**. |
-| 9 | runtime specs | `tools/test.py` — executes game code |
-| 10 | packed build | regenerates `build/` and syntax-checks the output |
+| 6 | mixin folders | the file list of `src/server/tycoon/` equals the aggregator's require list. Those requires attach methods to the shared class table, so deleting one removes a dozen methods with every other pass green — and pass 2 cannot see it, because the name that goes missing is a method on a table, not a local. |
+| 7 | ui geometry | no `UDim2.fromOffset(w, h)` / `Vector2.new(w, h)` with `w ≥ 300 and h ≥ 200` in `src/client` unless the line goes through `Config.UI.` |
+| 8 | one screengui | only `src/client/HUD.lua` calls `Instance.new("ScreenGui")`, so there is one `UIScale` |
+| 9 | config integrity | `tools/verify_config.lua`, with `src/shared/Config.lua` spliced in at `--@INJECT`. Reads **that one file**. |
+| 10 | runtime specs | `tools/test.py` — executes game code |
+| 11 | packed build | regenerates `build/` and syntax-checks the output |
 
-Pass 8 runs before pass 9 deliberately: a broken `Config` makes every spec fail
+Pass 9 runs before pass 10 deliberately: a broken `Config` makes every spec fail
 confusingly, and the useful error is the upstream one.
 
-Passes 3–7 are the ownership lints. Each one exists because the state it
+Passes 3–8 are the ownership lints. Each one exists because the state it
 prevents already shipped once; the comment above each in `verify.py` names the
 incident.
 
@@ -662,8 +663,9 @@ listed so the next reader does not trust the wrong sentence.
    completed it. It remains a one-line-per-file index with no dependency
    information; that is this document's job, not its own.
 2. **`HANDOFF_v6.md:534`** says `verify.py` "runs eight passes now". It runs
-   ten. (Its own docstring notes the count "has said five, seven and eight while
-   `main()` ran nine" — the config-paths lint made it ten in this round.)
+   eleven. (Its own docstring notes the count "has said five, seven and eight
+   while `main()` ran nine" — the config-paths and mixin-folder lints made it
+   eleven in this round.)
 3. **`HANDOFF_v6.md:545-549`** lists `VaultService` among the modules that
    "now execute outside Roblox". **It does not** — it is not in
    `SERVER_MODULES`. The same passage says only `NPCService` and `PlotService`
