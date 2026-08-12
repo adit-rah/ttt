@@ -1,16 +1,34 @@
 # docs/
 
+## Start here
+
+Two documents, and neither of them is a handoff.
+
+| File | What it is |
+| --- | --- |
+| `../CLAUDE.md` | the operating manual: the commands, the conventions, and where to change what |
+| `dev/ARCHITECTURE.md` | the module map — every file in `src/`, who requires it, and the four ownership boundaries |
+| `dev/INVARIANTS.md` | **the live contract.** Every load-bearing rule in the project, grouped by subsystem, each one naming what enforces it |
+
+`INVARIANTS.md` exists because the rules used to live in six handoff §-sections
+and you had to read all six, in reverse, resolving supersessions by hand, to
+learn what you must not break. For *current* truth it supersedes those sections.
+The handoffs below remain the historical record of how each rule was arrived at,
+which is often the part that makes it make sense.
+
 ## `dev/` — the handoff chain
 
-Read these in reverse order; each supersedes the one before it on the subjects
-it covers, and each says explicitly what it does *not* supersede.
+History, newest first. Each round's document says what it changed and why, what
+it could not prove, and what only Studio can tell you.
 
-| File | Still the reference for |
+| File | The round it records |
 | --- | --- |
-| `dev/HANDOFF_v5.md` | the second floor, world text, the belt's triggers, the generator, the verifier |
-| `dev/HANDOFF_v4.md` | progression tracks, raider AI, and the persistence landmines |
-| `dev/HANDOFF_v3.md` | procedural animation — read §2 before touching `SwingAnim.lua` |
-| `dev/HANDOFF_v2.md` | plot geometry, the prototypes, and the parts of the open list v4 does not restate |
+| `dev/HANDOFF_v6.md` | two rounds in one file: mid-game pacing, the mezzanine ladder, the generator yard and admin commands (§1–§6), then retention, session locking, mobile UI, analytics and the shared boss (§G1–§G6) |
+| `dev/RECONCILE_v6.md` | how those two parallel rounds divided the files, and where they touched |
+| `dev/HANDOFF_v5.md` | the second floor becomes a purchase, world text, the belt's triggers, the generator yard |
+| `dev/HANDOFF_v4.md` | progression splits into tracks; raider AI; the persistence landmines |
+| `dev/HANDOFF_v3.md` | procedural animation — still the only correct account; read §2 before touching `SwingAnim.lua` |
+| `dev/HANDOFF_v2.md` | plot geometry and the prototypes |
 | `dev/HANDOFF.md` | the base game, and the original landmine list |
 
 ## `ideas/` — not tracked
@@ -31,12 +49,16 @@ less useful record, not a more accurate one.
 
 ## The work lists, at the repo root
 
+`docs/` is history and reference; a root work list is what is being built now.
 Each is the plain version of one `ideas/` document — same list, none of the
-sourcing or arithmetic. `docs/` is history and reference; these are what is being
-built now.
+sourcing or arithmetic — except `TODO.md`, which has always been written
+directly.
 
-| File | Plain version of |
-| --- | --- |
-| `TODO.md` | *(standalone — the round that produced `HANDOFF_v4.md`)* |
-| `GROWTH-TODO.md` | `ideas/GROWTH.md` |
-| `NEW_TODO.md` | `ideas/EXPANSION.md` |
+| File | Plain version of | State |
+| --- | --- | --- |
+| `TODO.md` | *(standalone)* | **live** — rewritten each round; the current one is round 7 |
+| `GROWTH-TODO.md` | `ideas/GROWTH.md` | spent — worked by round 6's growth half, recorded in `HANDOFF_v6.md` §G1 |
+| `NEW_TODO.md` | `ideas/EXPANSION.md` | spent — the mezzanine, the cabinets and the generator yard all landed |
+
+A spent list is kept until the round that supersedes it has been read, then
+deleted: it is a brief, not a record, and the record is the handoff.

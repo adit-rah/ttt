@@ -1,6 +1,6 @@
 --[[
 	UpgradeUI.lua — PROTOTYPE. The shop panel for Config.PlayerUpgrades and the
-	utility slot for Config.Utilities.
+	utility slot for Config.ShopMath.
 
 	It draws into HUD's own layers (HUD.root()) rather than making a second
 	ScreenGui, so the two share a z-order, a UIScale and one ResetOnSpawn.
@@ -22,7 +22,7 @@ local Style = Req("Style")
 local Util = Req("Util")
 local Net = Req("Net")
 local UiKit = Req("UiKit")
-local Utilities = Req("Utilities")
+local ShopMath = Req("ShopMath")
 
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -195,10 +195,10 @@ local function refreshUpgrades()
 				title = ("%s  <font color=\"#8f86a8\">Lv %d/%d</font>"):format(def.name, level, def.levels),
 				-- the CURRENT effect, then what the next level moves it to: a
 				-- price with no delta doesn't tell you whether to buy
-				blurb = maxed and Utilities.describe(def, level)
+				blurb = maxed and ShopMath.describe(def, level)
 					or ("%s  →  %s"):format(
-						Utilities.describe(def, level),
-						Utilities.formatValue(Utilities.valueAt(def, level + 1))),
+						ShopMath.describe(def, level),
+						ShopMath.formatValue(ShopMath.valueAt(def, level + 1))),
 				pillText = maxed and "MAX" or Util.abbreviate(cost or 0),
 				pillColor = maxed and PALETTE.accent or (affordable and PALETTE.good or PALETTE.dead),
 				pillTextColor = (not maxed and not affordable) and PALETTE.muted or nil,
@@ -234,7 +234,7 @@ local function refreshUtilities()
 
 			paint(entry, {
 				title = ("%s  <font color=\"#8f86a8\">%ds cd</font>"):format(def.name, def.cooldown),
-				blurb = lockedBy and ("Needs %s."):format(lockedBy) or Utilities.verbBlurb(def),
+				blurb = lockedBy and ("Needs %s."):format(lockedBy) or ShopMath.verbBlurb(def),
 				pillText = pillText,
 				pillColor = pillColor,
 				pillTextColor = dim and PALETTE.muted or nil,
@@ -265,7 +265,7 @@ local function refreshChip()
 	end
 	chipButton.Visible = true
 
-	local def = Utilities.UtilityById[state.equipped]
+	local def = ShopMath.UtilityById[state.equipped]
 	local remaining = math.max(0, state.readyAt - os.clock())
 	if os.clock() < flashUntil then
 		-- a mistimed press reads as "not yet" rather than as a dropped input

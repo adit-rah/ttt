@@ -1,6 +1,63 @@
 --[[
 	Economy.lua — the single place cash is created, spent and replicated.
-	Everything else asks this module; nothing else touches profile.cash.
+
+	IT OWNS profile.cash, the leaderstats folder, and the Stats payload the HUD
+	draws itself from. Everything else asks: add, spend, steal, get.
+
+	THERE IS EXACTLY ONE OTHER WRITER, and it is deliberate rather than a leak.
+	Tycoon:rebirth resets profile.cash to Config.Economy.StartingCash as part of
+	wiping the factory, because the reset and the wipe have to be one act;
+	applyRebirthGrants below then tops that up to the rebirth's starting-cash
+	grant. Any THIRD writer is a bug — the point of the rule is that "where did
+	this money come from" has one answer per source.
+
+	push AND markDirty ARE NOT INTERCHANGEABLE. add() and steal() only mark the
+	player dirty and replicate on the 0.1s beat in start(), because droppers pay
+	out several times a second and a remote per drop is a remote per drop. spend()
+	and applyRebirthGrants() push synchronously, because a purchase that takes a
+	tenth of a second to show up reads as a purchase that did not happen. A
+	one-off grant therefore has to push for itself; AdminService does, and says
+	why.
+
+	THE MULTIPLIER HOOKS MULTIPLY, THEY DO NOT REPLACE. Three names are live:
+	"friends" (SocialService), "sessions" (SessionService — the boost and the
+	weekend bonus), and "upgrades" (UpgradeService, prototype). The registry is
+	keyed so they compose instead of clobbering each other, and
+	tools/testing/specs/weekend_spec.lua pins that: a boost on a Saturday must
+	come out as x4, because a 3 means someone added them and a 2 means one is
+	being silently dropped. Registration is inverted on purpose — the hooks
+	register themselves at boot and Economy stays ignorant of what they are —
+	because they all depend on Economy and Req refuses a circular require.
+
+	SO A HOOK MUST BE AN O(1) TABLE READ. multiplier() runs on every add(), up to
+	~10 times a second per plot at endgame, and every one of those calls walks the
+	whole registry. Never a web call, never a DataStore read; SocialService
+	resolves friendship on its own timer and the hook reads the result.
+
+	DO NOT PASS applyMultiplier = true FOR A NUMBER THAT ALREADY CARRIES IT.
+	SessionService's offline grant is computed from a per-second rate that already
+	includes the rebirth multiplier, and AdminService's `$1000` is meant to be
+	1000; both pass false, and both would be silently wrong the other way.
+
+	setupLeaderstats SILENTLY DOES NOTHING WITHOUT A LOADED PROFILE — it returns
+	on a nil profile rather than yielding — which is the whole reason
+	Main.server.lua boots DataService before Economy and calls DataService.load
+	before setupLeaderstats. Reordering those lines produces a server with no
+	leaderstats and no error.
+
+	BEFORE YOU CHANGE THE CURVE: MultiplierPerRebirth is compounded, not added
+	(see multiplier below). tools/verify_config.lua asserts that
+	Config.Economy.StartingCash covers the cheapest requirement-free button — a
+	fresh player with no dropper has no income and deadlocks — that no other
+	track's first rung is affordable from it, and that CostGrowth over
+	MultiplierPerRebirth keeps the prestige ladder solvable. Run the verifier
+	before you playtest a number in Config.Rebirth or Config.Economy; the curve
+	checks are the slowest thing to rediscover by hand.
+
+	This module also runs headless — it is in tools/test.py's SERVER_MODULES, and
+	boost_spec, weekend_spec and playtime_spec all observe the game through
+	Economy.multiplier and Economy.get. Keep it free of Touched handlers and of
+	anything that needs a physics step, or those specs stop being runnable.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))

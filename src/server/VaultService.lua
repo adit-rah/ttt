@@ -46,6 +46,37 @@
 	through a ProximityPrompt — a server-side signal with no payload, which
 	satisfies "the client sends an intent, never an amount" more strictly than a
 	remote can, because there is nothing to validate.
+
+	WHAT IT OWNS: the text and the fill on every plot's vault. It is the only
+	caller of Tycoon:setVaultGauge outside Tycoon:release, and it owns `wired` (one
+	connection per Tycoon for the life of the server, not one per claim) and
+	`draining` (the guard that stops a 5s beat snapping the column back to full
+	underneath the payout animation).
+
+	WHAT IT MUST NOT DO: hold or recompute the offline number. SessionService owns
+	pendingOffline, vaultProjectionFor and claimOfflineFor, including the
+	double-fire guard that clears entry.offline BEFORE paying — this file reads a
+	projection and animates it, and the moment it starts keeping its own copy the
+	sign and the wallet can disagree. It also must not create a remote; see above.
+
+	READ THE PROTOTYPE-FLAG LINT IN tools/verify.py BEFORE ANYTHING ELSE. It exists
+	because of this file: offline earnings graduated, graduating deletes the flag,
+	and the three `not P.Offline` guards left behind read as `not nil` and returned
+	out of start() forever. The gauge was dead on main with a green build — no
+	check, no spec, no warning. The comment on `local O = Config.Offline` below is
+	the full story.
+
+	AND KNOW WHAT IS NOT VERIFIED. VaultService is not in tools/test.py's
+	SERVER_MODULES: vault_spec.lua covers the projection (SessionService) and the
+	gauge geometry (Tycoon), not the wiring in this file. Two things about it have
+	only ever been reasoned about, per HANDOFF_v6 §G5 — which lateral face of the
+	vault the gauge landed on, since that is derived from the belt's exitDir and a
+	gauge facing a wall makes the whole feature invisible; and whether the column
+	reads as a vault filling rather than as a bar stuck on a crate. Check the face
+	first: it is cheap and it is total. Note also that the gauge is built inside
+	Tycoon:buildCollector, which carries a runtime assert that the collector shell
+	stays downstream of the belt run-off, so anything that moves the vault body has
+	to clear it.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))

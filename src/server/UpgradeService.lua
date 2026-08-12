@@ -20,6 +20,41 @@
 	do mid-swing. So: Q on desktop, an on-screen chip on touch, both routed
 	through the UseUtility remote, and the equipped utility is chosen in the
 	shop panel rather than by which Tool is in your hand.
+
+	IT OWNS profile.upgrades AND profile.utilityEquipped and is their only writer.
+	Both must appear in DataService twice over — in defaultProfile() and in the
+	explicit save() payload — because reconcile() iterates the DEFAULT's keys and
+	save() builds its own table; a field present in only one of the two is
+	invisible in a way nothing reports. See the `profile state` banner below for
+	why utilityEquipped defaults to "" and not nil.
+
+	THE FREEZE VERB DEPENDS ON A CONTRACT IN ANOTHER FILE. NPCService's tick writes
+	humanoid.WalkSpeed on EVERY Heartbeat, so an external WalkSpeed = 0 survives
+	less than a frame; freezeRaider anchors the root assembly instead, precisely
+	because that write exists. If NPCService ever moves its WalkSpeed write into a
+	branch, this file is what breaks, and it breaks by a raider walking calmly out
+	of a freeze rather than by an error.
+
+	AND applySpeed RACES CombatService. Both write the player's WalkSpeed on
+	respawn and nothing orders them but Main.server.lua's call sequence, which is
+	why onCharacter re-applies a beat later. Do not "clean up" that second call.
+
+	THREE READ APIS HAVE NO CONSUMER YET — magnetRadius, autoCollects and the
+	`decoy` verb. Each carries a TODO naming the exact site that should read it
+	(Tycoon's collector sweep, Tycoon's vault loop, NPCService's target snapshot),
+	and each is deliberately left unconsumed rather than faked here: a decoy that
+	teleports raiders would look right for one wave and fight the AI forever.
+
+	WHAT TO READ FIRST. ShopMath owns the level/cost/describe arithmetic and
+	the UpgradeById / UtilityById lookups; this file owns persistence,
+	authorisation and the verbs. Config.PlayerUpgrades and Config.Utilities sit
+	under the PROTOTYPES banner in Config.lua, and tools/verify_config.lua already
+	asserts that every utility `requires` a real button, that its duration is
+	shorter than its cooldown, and that it has a radius — so a Config edit is
+	cheaper to check than to playtest. Nothing in this file is exercised by
+	tools/test.py (it is not in SERVER_MODULES) and nothing in it runs in a
+	shipping build, so treat both features as unproven at runtime whatever the
+	line count suggests.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
@@ -27,7 +62,7 @@ local Config = Req("Config")
 local Util = Req("Util")
 local Fx = Req("Fx")
 local Net = Req("Net")
-local Utilities = Req("Utilities")
+local ShopMath = Req("ShopMath")
 local DataService = Req("DataService")
 local Economy = Req("Economy")
 local CombatService = Req("CombatService")
@@ -45,11 +80,11 @@ local ENABLED = SHOP_ON or UTILITY_ON
 -- "how far does the shove reach" is a property of the shove: the moment they
 -- are shared constants the next utility has to fight them.
 local function reachOf(id: string, fallback: number): number
-	local def = Config.Utilities and Utilities.UtilityById[id]
+	local def = Config.Utilities and ShopMath.UtilityById[id]
 	return (def and def.radius) or fallback
 end
 local function forceOf(id: string, fallback: number): number
-	local def = Config.Utilities and Utilities.UtilityById[id]
+	local def = Config.Utilities and ShopMath.UtilityById[id]
 	return (def and def.force) or fallback
 end
 
@@ -99,8 +134,8 @@ local function ensure(player: Player)
 	-- or an id that no longer exists. Sanitising on read means every consumer
 	-- below can trust the number.
 	for id, level in pairs(profile.upgrades) do
-		local def = Utilities.UpgradeById[id]
-		local utility = Utilities.UtilityById[id]
+		local def = ShopMath.UpgradeById[id]
+		local utility = ShopMath.UtilityById[id]
 		if def then
 			profile.upgrades[id] = math.clamp(math.floor(tonumber(level) or 0), 0, def.levels)
 		elseif utility then
@@ -134,14 +169,14 @@ end
 --- radius in studs, payout as a multiplier…). Level 0 returns the def's base,
 --- so this is safe to call for a player who has bought nothing.
 function UpgradeService.valueOf(player: Player, id: string): number
-	local def = Utilities.UpgradeById[id]
+	local def = ShopMath.UpgradeById[id]
 	if not def then
 		return 0
 	end
 	if not SHOP_ON then
 		return def.base
 	end
-	return Utilities.valueAt(def, UpgradeService.levelOf(player, id))
+	return ShopMath.valueAt(def, UpgradeService.levelOf(player, id))
 end
 
 --- Cash multiplier from the `payout` track. 1.0 when the prototype is off.
@@ -225,7 +260,7 @@ function UpgradeService.push(player: Player)
 			local level = tonumber(profile.upgrades[def.id]) or 0
 			levels[def.id] = level
 			-- nil cost means maxed out; the client draws that as "MAX"
-			costs[def.id] = Utilities.costAt(def, level)
+			costs[def.id] = ShopMath.costAt(def, level)
 		end
 	end
 
@@ -234,7 +269,7 @@ function UpgradeService.push(player: Player)
 		for _, def in ipairs(Config.Utilities) do
 			local level = tonumber(profile.upgrades[def.id]) or 0
 			levels[def.id] = level
-			costs[def.id] = Utilities.utilityCostAt(def, level)
+			costs[def.id] = ShopMath.utilityCostAt(def, level)
 			if level < 1 and def.requires and not (profile.owned and profile.owned[def.requires]) then
 				local button = Config.ButtonById[def.requires]
 				locked[def.id] = button and button.name or def.requires
@@ -245,7 +280,7 @@ function UpgradeService.push(player: Player)
 
 	local cooldown, cooldownTotal = 0, 0
 	if equipped ~= "" then
-		local def = Utilities.UtilityById[equipped]
+		local def = ShopMath.UtilityById[equipped]
 		cooldown = cooldownRemaining(player, equipped)
 		cooldownTotal = def and def.cooldown or 0
 	end
@@ -510,7 +545,7 @@ function UpgradeService.useUtility(player: Player): boolean
 	if not id then
 		return false
 	end
-	local def = Utilities.UtilityById[id]
+	local def = ShopMath.UtilityById[id]
 	if not def or UpgradeService.levelOf(player, id) < 1 then
 		return false
 	end
@@ -555,7 +590,7 @@ end
 
 local function buyUpgrade(player: Player, profile, def): boolean
 	local level = tonumber(profile.upgrades[def.id]) or 0
-	local cost = Utilities.costAt(def, level)
+	local cost = ShopMath.costAt(def, level)
 	if not cost then
 		return false
 	end
@@ -574,7 +609,7 @@ local function buyUpgrade(player: Player, profile, def): boolean
 	Economy.notify(player, {
 		kind = "buy",
 		title = ("%s  Lv %d"):format(def.name, level + 1),
-		body = Utilities.describe(def, level + 1),
+		body = ShopMath.describe(def, level + 1),
 	})
 	local _, root = Util.getRig(player.Character)
 	if root then
@@ -642,8 +677,8 @@ function UpgradeService.request(player: Player, id: string)
 		return
 	end
 
-	local upgrade = SHOP_ON and Utilities.UpgradeById[id]
-	local utility = UTILITY_ON and Utilities.UtilityById[id]
+	local upgrade = SHOP_ON and ShopMath.UpgradeById[id]
+	local utility = UTILITY_ON and ShopMath.UtilityById[id]
 	if upgrade then
 		buyUpgrade(player, profile, upgrade)
 	elseif utility then

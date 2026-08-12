@@ -36,6 +36,112 @@ __MODULES["Config"] = function()
 		The tycoon is DATA DRIVEN. To add content you add a table entry below;
 		you should never need to touch the tycoon runtime to add a dropper,
 		an upgrader, or a new tier. That is the "standardized tycoon system".
+
+		IT IS 2400 LINES AND IT IS DELIBERATELY NOT SPLIT. tools/verify_config.lua
+		inlines this exact file at its `--@INJECT src/shared/Config.lua` marker and
+		every one of its several hundred assertions evaluates that single chunk — a
+		split would either have to be re-stitched before injection or the checks would
+		quietly stop seeing half the numbers. So the answer to the length is the table
+		of contents below: grep to one banner, read that section, leave the rest alone.
+
+		DECLARATION ORDER IS LOAD-BEARING, from the button tables (~line 920) all the
+		way down to the analytics field values (~line 2300). This file does real work
+		at require time. The `Derived lookups` section merges the four track tables
+		into Config.Buttons and Config.ButtonById — deriving each row's `requires`,
+		`order` and `trackOrder` as it goes — builds TrackRank, TrackLabel, BatById and
+		ArmorById, and assigns Config.Rebirth.BaseCost from the spine's prices; then the
+		ANALYTICS section fills Analytics.Fields.buttonId.values from
+		Config.Tracks.factory and .milestone.values from Config.Buttons. Every one of
+		those reads a table declared ABOVE it, and Lua will not complain if it is not:
+		moving an assignment below its consumer yields an empty field set or a nil
+		price, not an error. Do not renumber or reorder sections. Append.
+
+		Two things the whole file obeys, both because the verifier has to be able to
+		require it: PLAIN NUMBERS AND THE THREE STUBBED TYPES ONLY (verify_config stubs
+		Color3, Vector3 and Enum — a UDim2 or a Vector2 in any table here takes every
+		config check down at require time), and NO VECTOR ARITHMETIC AT REQUIRE TIME
+		(the Vector3 stub is a plain table with no operators, which is why the helpers
+		at the bottom do component arithmetic instead).
+
+		── CONTENTS, in file order. Grep the banner text; line numbers rot. ─────────
+
+		  WORLD                Config.World — plot count, plot size, the ring the
+		                       plots stand on, the arena. plotPlacements() solves the
+		                       ring radius from the plot count; plotCountFor() reads
+		                       Players.MaxPlayers, which is a Studio setting nothing
+		                       here can enforce.
+		  (no banner)          Config.Layout — plot-LOCAL coordinates for everything a
+		                       Tycoon builds: belt corners, machine slots, buy-button
+		                       spine, roof, Layout.Vault, Layout.Yard, Layout.Tracks.
+		                       The ASCII plot map just above it is the fastest way in.
+		  WORLD TEXT           Config.Style — the fonts, outlines and view distances
+		                       every in-world label uses. They live here so the
+		                       verifier can see them; Style.lua is the only file
+		                       allowed to turn them into instances.
+		  SCREEN UI            Config.UI — the reference canvas, the one UIScale
+		                       formula the client mounts, and every panel and card
+		                       size that used to be a literal in src/client.
+		  ECONOMY              Config.Economy (currency, StartingCash, drop caps,
+		                       OfflineGraceSeconds), Config.Admin (who gets the chat
+		                       commands, and why it is not a prototype flag),
+		                       Config.Rebirth (PriceRung, CostGrowth,
+		                       MultiplierPerRebirth — BaseCost is derived far below).
+		  PERSISTENCE          Config.Persistence — the retry, lock and autosave
+		                       timings DataService's session lock runs on.
+		  SOCIAL               Config.Social — the friend bonus, its cap, and the
+		                       kill switch (BonusPerFriend = 0, which the verifier
+		                       refuses to let you commit).
+		  TUNG VARIANTS        Config.Variants — the visual and audio recipe shared by
+		                       a dropper's spout and the bat-guy it drops.
+		  THE BUTTON TABLES    Config.FactoryButtons — the spine, and the field
+		                       reference for every track table. READ THIS BANNER
+		                       BEFORE EDITING ANY TRACK: `requires` is derived from
+		                       the row above, so table order IS dependency order.
+		  COMBAT               Config.Bats and nothing else. Index is the tier and
+		                       profile.batTier stores that index, so inserting a tier
+		                       renumbers live saves; appending is free.
+		  THE WEAPONS CABINET  Config.WeaponButtons — track 2, priced against the
+		                       detour the verifier measures, not against the factory.
+		  THE ARMOUR CABINET   Config.Armor (tiers, granting MaxHealth only) and
+		                       Config.ArmorButtons — track 3.
+		  THE GENERATOR YARD   Config.Power, Config.PowerButtons, powerFactor() —
+		                       track 4 — AND THEN, sharing this section with no banner
+		                       of their own, Config.Combat (swing timing, combo,
+		                       walkspeed) and Config.Waves (raid pacing, the boss, and
+		                       bossHealthFactor / bossRewardFactor / bossShare). If you
+		                       are hunting a combat number, it is here, not under the
+		                       COMBAT banner above.
+		  BELT PATHS AND FLOORS
+		                       Config.BeltPaths (the ground floor, derived from Layout
+		                       so the two cannot drift), Config.Floors (the mezzanine)
+		                       and floorBeltPath().
+		  PROTOTYPES, and the graduates that used to be here
+		                       Config.Prototypes — every flag ships false, and
+		                       graduating a feature DELETES its flag rather than
+		                       flipping it. Then three sub-banners of prototype data:
+		                       `player upgrades` (Config.PlayerUpgrades), `the utility
+		                       slot` (Config.Utilities), `rebirth perks`
+		                       (Config.RebirthPerks).
+		  SHIPPED: offline earnings and the session loops
+		                       Sub-banners `offline earnings` (Config.Offline, whose
+		                       Vault sub-table drives the gauge on the plot), `session
+		                       loops` (Config.Sessions — streak, playtime ladder,
+		                       boost, weekend) and `sound` (Config.Sound).
+		  Derived lookups      THE CODE THAT RUNS AT REQUIRE TIME, and the reason
+		                       order matters: World.PlotCount and the placements;
+		                       TrackOrder, Tracks, TrackInfo, TrackRank, TrackLabel,
+		                       TrackUnlock and trackUnlocked(); the merge into
+		                       Config.Buttons and Config.ButtonById;
+		                       spinePricesDescending() and Rebirth.BaseCost; BatById
+		                       and ArmorById.
+		  ANALYTICS            Config.Analytics (the four silent platform limits and
+		                       the kill switch), .Fields (closed value sets — buttonId
+		                       and milestone are FILLED from Config.Tracks.factory and
+		                       Config.Buttons in the loops just below), .Events (the
+		                       seven), and analyticsCombinations(), which prices the
+		                       whole schema against the 8,000-combination budget.
+		  (no banner, at EOF)  trackButtonPosition(), trackCabinet(),
+		                       trackShelfPosition(), requirementsOf().
 	]]
 
 	local Config = {}
@@ -2893,6 +2999,122 @@ __MODULES["Net"] = function()
 end
 
 
+__MODULES["ShopMath"] = function()
+	--[[
+		ShopMath.lua — shared maths and lookups for the two player-progression
+		prototypes: the upgrade shop (Config.PlayerUpgrades) and the utility slot
+		(Config.Utilities).
+
+		IT WAS CALLED Utilities.lua, next to Util.lua, and the two are unrelated:
+		Util is number formatting and welding, this is price curves. Two modules a
+		letter apart, neither named after what it does, is a wrong guess every time
+		somebody new opens the tree — and this one is reached from exactly two files
+		while Util is reached from fifteen. Renamed for the reader, not for tidiness.
+
+		Why one module for both: the server prices a purchase and the client draws
+		the price, and if those two ever disagree the shop shows a number you can't
+		actually buy at. Every formula the UI needs lives here so there is exactly
+		one copy of it, and the server treats its own result as the authority.
+
+		Pure data + maths only — no Instances, no remotes, so it is safe on both
+		sides of the wire.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+
+	local ShopMath = {}
+
+	export type UpgradeDef = {
+		id: string, name: string, stat: string, levels: number,
+		base: number, perLevel: number, cost: number, costGrowth: number,
+		blurb: string,
+	}
+
+	export type UtilityDef = {
+		id: string, name: string, verb: string,
+		duration: number, cooldown: number, price: number, requires: string,
+	}
+
+	-- Config ships the two tables as arrays; index them once here rather than
+	-- looping over four entries on every remote call.
+	ShopMath.UpgradeById = {} :: { [string]: UpgradeDef }
+	for _, def in ipairs(Config.PlayerUpgrades) do
+		ShopMath.UpgradeById[def.id] = def
+	end
+
+	ShopMath.UtilityById = {} :: { [string]: UtilityDef }
+	for _, def in ipairs(Config.Utilities) do
+		ShopMath.UtilityById[def.id] = def
+	end
+
+	--- The value of an upgrade's stat at `level` (level 0 = unpurchased).
+	function ShopMath.valueAt(def, level: number): number
+		return def.base + def.perLevel * math.clamp(level, 0, def.levels)
+	end
+
+	--- What the NEXT level costs, or nil at max. Geometric, per IDEAS.md §7:
+	--- x4–6 per tier for a ~7-level premium stat.
+	function ShopMath.costAt(def, level: number): number?
+		if level >= def.levels then
+			return nil
+		end
+		return math.floor(def.cost * (def.costGrowth ^ level))
+	end
+
+	--- Trims trailing zeros so "23.10 studs/sec" reads as "23.1 studs/sec" without
+	--- turning the payout multiplier into a bare "x1".
+	function ShopMath.formatValue(value: number): string
+		if value == math.floor(value) then
+			return tostring(math.floor(value))
+		end
+		local s = ("%.2f"):format(value)
+		s = s:gsub("0$", "")
+		return s
+	end
+
+	--- The blurb with the current stat value substituted in. Some blurbs (the
+	--- autocollect toggle) have no placeholder, hence the find().
+	function ShopMath.describe(def, level: number): string
+		if not def.blurb:find("%%s") then
+			return def.blurb
+		end
+		return def.blurb:format(ShopMath.formatValue(ShopMath.valueAt(def, level)))
+	end
+
+	--- What each verb actually does, for the shop row. Config.Utilities carries a
+	--- verb and a duration but no player-facing description, and the wording has
+	--- to match what UpgradeService's implementation really does — so it lives
+	--- next to the maths rather than in the UI, where it would be one more thing
+	--- that can quietly stop being true.
+	local VERB_BLURB = {
+		freeze = "Roots nearby raiders for %ds. They can still swing.",
+		shove = "Heavy knockback on everything nearby. No damage.",
+		decoy = "Drops a decoy for %ds. PROTOTYPE: raiders ignore it.",
+	}
+
+	function ShopMath.verbBlurb(def): string
+		local blurb = VERB_BLURB[def.verb] or ("%s nearby."):format(def.verb)
+		if blurb:find("%%d") then
+			return blurb:format(def.duration)
+		end
+		return blurb
+	end
+
+	--- Utilities are one-shot purchases, so their "level" is 0 or 1 and their cost
+	--- is flat. Expressed through the same two functions as the upgrades so the
+	--- shop UI can draw both kinds of row with one code path.
+	function ShopMath.utilityCostAt(def, level: number): number?
+		if level >= 1 then
+			return nil
+		end
+		return def.price
+	end
+
+	return ShopMath
+end
+
+
 __MODULES["Sound"] = function()
 	--[[
 		Sound.lua — the whole audio layer, built on sounds that ship INSIDE the
@@ -4335,7 +4557,48 @@ end
 
 
 __MODULES["Util"] = function()
-	--[[ Util.lua — small helpers shared by client and server. ]]
+	--[[
+		Util.lua — the leaf. Thirteen small helpers, required by fifteen files
+		across both sides of the game.
+
+		IT REQUIRES NOTHING, and that is a contract rather than an accident. There is
+		no `Req` line and no service lookup anywhere below, so any module can require
+		Util without thinking about the require graph, and the spec harness can load it
+		with no mock standing behind it. Adding `Req("Config")` here would hand all
+		fifteen of those files a new edge, and Req refuses a circular require at
+		RUNTIME — a cycle introduced here does not fail the build, it fails the boot.
+
+		IT IS COMPILED INTO BOTH PASTE BUILDS. tools/pack.py builds the server script
+		from [src/shared, src/server] and the client one from [src/shared, src/client],
+		so everything in src/shared ships to both. Nothing that only one side is
+		allowed to do belongs here — src/client/UiKit.lua lives on the client for
+		precisely this reason, and its header explains the failure.
+
+		WHAT IS LOAD-BEARING, out of the thirteen:
+
+		  abbreviate    the game's money formatter — fifty-odd call sites, and
+		                Economy.format is an alias for it. Its trailing-zero trim is
+		                gated on the text containing a decimal point: an
+		                unconditional trim turned "320" into "32", so 320K rendered
+		                as 32K. That guard is the whole function's history.
+		  platformFrom  every string it can return must also appear in
+		                Config.Analytics.Fields.platform.values. It cannot read
+		                Config to check (see above), so analytics_spec.lua checks it
+		                instead, through the Analytics.platformFrom re-export — which
+		                is why that alias exists and must not be deleted as
+		                redundant. The ORDER of the tests inside it is the function.
+		  getRig        the sanctioned way to read a character's Humanoid and root.
+		                Twelve call sites, every one of which relies on the nil, nil
+		                return rather than on a pcall.
+
+		shallowCopy IS SHALLOW, and its one caller makes that matter: Tycoon:rebirth
+		copies the kept-buttons set with it. A Config.ButtonById def is one table
+		shared by every plot on the server, so copying a def rather than a set of ids
+		would hand you nested tables that are still shared with every other plot.
+
+		comma, count, hash, newPart, setCollision and weldModel have no caller in src/
+		today. They are available; they are not proven.
+	]]
 
 	local Util = {}
 
@@ -4517,116 +4780,6 @@ __MODULES["Util"] = function()
 end
 
 
-__MODULES["Utilities"] = function()
-	--[[
-		Utilities.lua — shared maths and lookups for the two player-progression
-		prototypes: the upgrade shop (Config.PlayerUpgrades) and the utility slot
-		(Config.Utilities).
-
-		Why one module for both: the server prices a purchase and the client draws
-		the price, and if those two ever disagree the shop shows a number you can't
-		actually buy at. Every formula the UI needs lives here so there is exactly
-		one copy of it, and the server treats its own result as the authority.
-
-		Pure data + maths only — no Instances, no remotes, so it is safe on both
-		sides of the wire.
-	]]
-
-	local Req = __Req
-	local Config = Req("Config")
-
-	local Utilities = {}
-
-	export type UpgradeDef = {
-		id: string, name: string, stat: string, levels: number,
-		base: number, perLevel: number, cost: number, costGrowth: number,
-		blurb: string,
-	}
-
-	export type UtilityDef = {
-		id: string, name: string, verb: string,
-		duration: number, cooldown: number, price: number, requires: string,
-	}
-
-	-- Config ships the two tables as arrays; index them once here rather than
-	-- looping over four entries on every remote call.
-	Utilities.UpgradeById = {} :: { [string]: UpgradeDef }
-	for _, def in ipairs(Config.PlayerUpgrades) do
-		Utilities.UpgradeById[def.id] = def
-	end
-
-	Utilities.UtilityById = {} :: { [string]: UtilityDef }
-	for _, def in ipairs(Config.Utilities) do
-		Utilities.UtilityById[def.id] = def
-	end
-
-	--- The value of an upgrade's stat at `level` (level 0 = unpurchased).
-	function Utilities.valueAt(def, level: number): number
-		return def.base + def.perLevel * math.clamp(level, 0, def.levels)
-	end
-
-	--- What the NEXT level costs, or nil at max. Geometric, per IDEAS.md §7:
-	--- x4–6 per tier for a ~7-level premium stat.
-	function Utilities.costAt(def, level: number): number?
-		if level >= def.levels then
-			return nil
-		end
-		return math.floor(def.cost * (def.costGrowth ^ level))
-	end
-
-	--- Trims trailing zeros so "23.10 studs/sec" reads as "23.1 studs/sec" without
-	--- turning the payout multiplier into a bare "x1".
-	function Utilities.formatValue(value: number): string
-		if value == math.floor(value) then
-			return tostring(math.floor(value))
-		end
-		local s = ("%.2f"):format(value)
-		s = s:gsub("0$", "")
-		return s
-	end
-
-	--- The blurb with the current stat value substituted in. Some blurbs (the
-	--- autocollect toggle) have no placeholder, hence the find().
-	function Utilities.describe(def, level: number): string
-		if not def.blurb:find("%%s") then
-			return def.blurb
-		end
-		return def.blurb:format(Utilities.formatValue(Utilities.valueAt(def, level)))
-	end
-
-	--- What each verb actually does, for the shop row. Config.Utilities carries a
-	--- verb and a duration but no player-facing description, and the wording has
-	--- to match what UpgradeService's implementation really does — so it lives
-	--- next to the maths rather than in the UI, where it would be one more thing
-	--- that can quietly stop being true.
-	local VERB_BLURB = {
-		freeze = "Roots nearby raiders for %ds. They can still swing.",
-		shove = "Heavy knockback on everything nearby. No damage.",
-		decoy = "Drops a decoy for %ds. PROTOTYPE: raiders ignore it.",
-	}
-
-	function Utilities.verbBlurb(def): string
-		local blurb = VERB_BLURB[def.verb] or ("%s nearby."):format(def.verb)
-		if blurb:find("%%d") then
-			return blurb:format(def.duration)
-		end
-		return blurb
-	end
-
-	--- Utilities are one-shot purchases, so their "level" is 0 or 1 and their cost
-	--- is flat. Expressed through the same two functions as the upgrades so the
-	--- shop UI can draw both kinds of row with one code path.
-	function Utilities.utilityCostAt(def, level: number): number?
-		if level >= 1 then
-			return nil
-		end
-		return def.price
-	end
-
-	return Utilities
-end
-
-
 __MODULES["AdminService"] = function()
 	--[[
 		AdminService.lua — chat commands, for testing what the verifier cannot see.
@@ -4651,6 +4804,29 @@ __MODULES["AdminService"] = function()
 		COMMANDS GO THROUGH THE NORMAL PATHS. `!give` calls Tycoon:install, `!wave`
 		drives the wave state machine, cash goes through Economy. A command that
 		takes a shortcut tests the shortcut.
+
+		IT OWNS NO STATE AND NO CONFIG. Everything it can do, some other service can
+		already do; this file is a parser, an authorisation check, and a list of verbs.
+		It writes profile.owned in exactly one place (`give`, mirroring tryPurchase)
+		and otherwise only calls Economy, PlotService, Tycoon and NPCService.
+
+		Config.Admin IS NOT A Config.Prototypes FLAG AND MUST NOT BECOME ONE.
+		tools/verify_config.lua asserts every prototype flag ships false, so a
+		prototype flag is one you cannot turn on — the opposite of what this needs.
+		This feature is finished, is meant to be on, and is gated on WHO is asking.
+
+		IT STARTS AFTER NPCService, in Main.server.lua, because `!wave` and `!clear`
+		drive that service's schedule and forceWave/forceClear are meaningless before
+		it has one. `hook` also runs over Players:GetPlayers() as well as PlayerAdded,
+		because in Studio the one player who matters is always already there.
+
+		WHAT TO READ FIRST. The load-window guard in AdminService.handle is the
+		non-obvious part of this file and it explains itself at length: every command
+		ends in a write that needs a loaded profile, DataService.get returns nil rather
+		than yielding, and Economy.add fails silently on a nil profile — so without
+		the guard a grant reported success and did nothing. That window is now up to
+		~32 seconds wide on a contended session lock. Nothing here is covered by
+		tools/test.py; the commands are the testing instrument, not the thing tested.
 	]]
 
 	local Req = __Req
@@ -6575,7 +6751,64 @@ end
 __MODULES["Economy"] = function()
 	--[[
 		Economy.lua — the single place cash is created, spent and replicated.
-		Everything else asks this module; nothing else touches profile.cash.
+
+		IT OWNS profile.cash, the leaderstats folder, and the Stats payload the HUD
+		draws itself from. Everything else asks: add, spend, steal, get.
+
+		THERE IS EXACTLY ONE OTHER WRITER, and it is deliberate rather than a leak.
+		Tycoon:rebirth resets profile.cash to Config.Economy.StartingCash as part of
+		wiping the factory, because the reset and the wipe have to be one act;
+		applyRebirthGrants below then tops that up to the rebirth's starting-cash
+		grant. Any THIRD writer is a bug — the point of the rule is that "where did
+		this money come from" has one answer per source.
+
+		push AND markDirty ARE NOT INTERCHANGEABLE. add() and steal() only mark the
+		player dirty and replicate on the 0.1s beat in start(), because droppers pay
+		out several times a second and a remote per drop is a remote per drop. spend()
+		and applyRebirthGrants() push synchronously, because a purchase that takes a
+		tenth of a second to show up reads as a purchase that did not happen. A
+		one-off grant therefore has to push for itself; AdminService does, and says
+		why.
+
+		THE MULTIPLIER HOOKS MULTIPLY, THEY DO NOT REPLACE. Three names are live:
+		"friends" (SocialService), "sessions" (SessionService — the boost and the
+		weekend bonus), and "upgrades" (UpgradeService, prototype). The registry is
+		keyed so they compose instead of clobbering each other, and
+		tools/testing/specs/weekend_spec.lua pins that: a boost on a Saturday must
+		come out as x4, because a 3 means someone added them and a 2 means one is
+		being silently dropped. Registration is inverted on purpose — the hooks
+		register themselves at boot and Economy stays ignorant of what they are —
+		because they all depend on Economy and Req refuses a circular require.
+
+		SO A HOOK MUST BE AN O(1) TABLE READ. multiplier() runs on every add(), up to
+		~10 times a second per plot at endgame, and every one of those calls walks the
+		whole registry. Never a web call, never a DataStore read; SocialService
+		resolves friendship on its own timer and the hook reads the result.
+
+		DO NOT PASS applyMultiplier = true FOR A NUMBER THAT ALREADY CARRIES IT.
+		SessionService's offline grant is computed from a per-second rate that already
+		includes the rebirth multiplier, and AdminService's `$1000` is meant to be
+		1000; both pass false, and both would be silently wrong the other way.
+
+		setupLeaderstats SILENTLY DOES NOTHING WITHOUT A LOADED PROFILE — it returns
+		on a nil profile rather than yielding — which is the whole reason
+		Main.server.lua boots DataService before Economy and calls DataService.load
+		before setupLeaderstats. Reordering those lines produces a server with no
+		leaderstats and no error.
+
+		BEFORE YOU CHANGE THE CURVE: MultiplierPerRebirth is compounded, not added
+		(see multiplier below). tools/verify_config.lua asserts that
+		Config.Economy.StartingCash covers the cheapest requirement-free button — a
+		fresh player with no dropper has no income and deadlocks — that no other
+		track's first rung is affordable from it, and that CostGrowth over
+		MultiplierPerRebirth keeps the prestige ladder solvable. Run the verifier
+		before you playtest a number in Config.Rebirth or Config.Economy; the curve
+		checks are the slowest thing to rediscover by hand.
+
+		This module also runs headless — it is in tools/test.py's SERVER_MODULES, and
+		boost_spec, weekend_spec and playtime_spec all observe the game through
+		Economy.multiplier and Economy.get. Keep it free of Touched handlers and of
+		anything that needs a physics step, or those specs stop being runnable.
 	]]
 
 	local Req = __Req
@@ -8477,7 +8710,69 @@ end
 
 __MODULES["PlotService"] = function()
 	--[[
-		PlotService.lua — owns the Tycoon instances and who is standing on what.
+		PlotService.lua — who owns which factory, and the only door in or out of one.
+
+		IT OWNS THREE PIECES OF STATE. `plots`, the Config.World.PlotCount Tycoons
+		built once by build(); `byOwner`, which is the server's answer to "whose plot
+		is this" — AdminService and Main.server.lua both ask through plotOf() and
+		nothing else keeps a copy; and `reserved`, the short hold that survives a
+		disconnect.
+
+		IT IS ALSO THE ONLY CALLER OF Tycoon:assign AND Tycoon:release in src/, and
+		that is the interesting half of the contract. assign() replays the owner's
+		saved purchases onto whatever plot they landed on and release() tears the
+		factory back down to bare ground, so "claim" and "release" are the two points
+		at which a plot's contents change wholesale. Anything that wants to react to
+		that listens on Tycoon:onOwnedChanged (FloorService and VaultService do)
+		rather than hooking claim from out here.
+
+		A CLAIM DOES NOT WAIT FOR THE PROFILE, and this is the sharp edge.
+		Tycoon:assign replays profile.owned only `if profile`, and DataService.get
+		returns nil until the load finishes rather than yielding. So a claim that
+		lands inside the load window builds a BARE plot for a player who owns twenty
+		buttons, and nothing re-runs the replay afterwards. The only thing standing
+		between the two is the task.delay(1.5) around autoAssign in Main.server.lua —
+		and a contended DataStore load can now take ~32 seconds, because DataService
+		retries against a held session lock. Widening that gap is the fix; do not
+		shorten the delay.
+
+		THE RESERVATION IS PROCESS-LOCAL AND LAZY. release(player, true) — which is
+		what PlayerRemoving does — parks { userId, until_ } under the plot index for
+		Config.Economy.OfflineGraceSeconds, and isReservedForSomeoneElse expires it on
+		read rather than on a timer. It is measured with os.clock(), i.e. server
+		uptime, deliberately: a hold that outlived the server it was made on would be
+		meaningless, and this is the opposite of the os.time() rule offline earnings
+		follow. RequestReset releases WITHOUT a hold, because that is a player
+		deliberately giving the plot up.
+
+		AND YOU USUALLY DO NOT GET YOUR OWN PLOT BACK. Three minutes is short, so a
+		returning player normally lands on a different plot and has their factory
+		replayed onto it. VaultService's header depends on that being true — it is why
+		the vault gauge is honest about being a projection rather than a thing that
+		fills while you are away.
+
+		TWO ROBLOX TRAPS THAT ARE ALREADY PAID FOR:
+
+		  NO PER-PLOT SpawnLocation. It would join the random-spawn pool and start
+		  sending other players to your factory. Respawn placement is a reposition —
+		  Main.server.lua defers teleportToPlot on CharacterAdded — not a spawn.
+
+		  Players.MaxPlayers IS NOT SCRIPTABLE. The plot count follows
+		  Config.World.MaxPlots and the place's cap has to be set by hand in Studio to
+		  match. When it is not, this file simply leaves late joiners plotless until
+		  someone disconnects; that is the designed behaviour, not a bug to fix here.
+
+		build() FALLS BACK RATHER THAN FAILING: with no "Plots" child under the world
+		it parents every Tycoon straight into `parent`. Rename that folder in
+		MapBuilder and the plots still appear, in the wrong place, with nothing said.
+
+		NOTHING HERE IS COVERED BY tools/test.py. PlotService is outside its
+		SERVER_MODULES list because claiming runs through Touched and needs a physics
+		step, and widening that list is its own piece of work. The verifier will only
+		tell you this file parses and type-checks — every behaviour above has to be
+		confirmed in Studio, which is what AdminService's `!give` is for: it builds a
+		full factory in two lines, so "rejoin and check the replay" costs a minute
+		instead of a grind.
 	]]
 
 	local Req = __Req
@@ -12583,6 +12878,41 @@ __MODULES["UpgradeService"] = function()
 		do mid-swing. So: Q on desktop, an on-screen chip on touch, both routed
 		through the UseUtility remote, and the equipped utility is chosen in the
 		shop panel rather than by which Tool is in your hand.
+
+		IT OWNS profile.upgrades AND profile.utilityEquipped and is their only writer.
+		Both must appear in DataService twice over — in defaultProfile() and in the
+		explicit save() payload — because reconcile() iterates the DEFAULT's keys and
+		save() builds its own table; a field present in only one of the two is
+		invisible in a way nothing reports. See the `profile state` banner below for
+		why utilityEquipped defaults to "" and not nil.
+
+		THE FREEZE VERB DEPENDS ON A CONTRACT IN ANOTHER FILE. NPCService's tick writes
+		humanoid.WalkSpeed on EVERY Heartbeat, so an external WalkSpeed = 0 survives
+		less than a frame; freezeRaider anchors the root assembly instead, precisely
+		because that write exists. If NPCService ever moves its WalkSpeed write into a
+		branch, this file is what breaks, and it breaks by a raider walking calmly out
+		of a freeze rather than by an error.
+
+		AND applySpeed RACES CombatService. Both write the player's WalkSpeed on
+		respawn and nothing orders them but Main.server.lua's call sequence, which is
+		why onCharacter re-applies a beat later. Do not "clean up" that second call.
+
+		THREE READ APIS HAVE NO CONSUMER YET — magnetRadius, autoCollects and the
+		`decoy` verb. Each carries a TODO naming the exact site that should read it
+		(Tycoon's collector sweep, Tycoon's vault loop, NPCService's target snapshot),
+		and each is deliberately left unconsumed rather than faked here: a decoy that
+		teleports raiders would look right for one wave and fight the AI forever.
+
+		WHAT TO READ FIRST. ShopMath owns the level/cost/describe arithmetic and
+		the UpgradeById / UtilityById lookups; this file owns persistence,
+		authorisation and the verbs. Config.PlayerUpgrades and Config.Utilities sit
+		under the PROTOTYPES banner in Config.lua, and tools/verify_config.lua already
+		asserts that every utility `requires` a real button, that its duration is
+		shorter than its cooldown, and that it has a radius — so a Config edit is
+		cheaper to check than to playtest. Nothing in this file is exercised by
+		tools/test.py (it is not in SERVER_MODULES) and nothing in it runs in a
+		shipping build, so treat both features as unproven at runtime whatever the
+		line count suggests.
 	]]
 
 	local Req = __Req
@@ -12590,7 +12920,7 @@ __MODULES["UpgradeService"] = function()
 	local Util = Req("Util")
 	local Fx = Req("Fx")
 	local Net = Req("Net")
-	local Utilities = Req("Utilities")
+	local ShopMath = Req("ShopMath")
 	local DataService = Req("DataService")
 	local Economy = Req("Economy")
 	local CombatService = Req("CombatService")
@@ -12608,11 +12938,11 @@ __MODULES["UpgradeService"] = function()
 	-- "how far does the shove reach" is a property of the shove: the moment they
 	-- are shared constants the next utility has to fight them.
 	local function reachOf(id: string, fallback: number): number
-		local def = Config.Utilities and Utilities.UtilityById[id]
+		local def = Config.Utilities and ShopMath.UtilityById[id]
 		return (def and def.radius) or fallback
 	end
 	local function forceOf(id: string, fallback: number): number
-		local def = Config.Utilities and Utilities.UtilityById[id]
+		local def = Config.Utilities and ShopMath.UtilityById[id]
 		return (def and def.force) or fallback
 	end
 
@@ -12662,8 +12992,8 @@ __MODULES["UpgradeService"] = function()
 		-- or an id that no longer exists. Sanitising on read means every consumer
 		-- below can trust the number.
 		for id, level in pairs(profile.upgrades) do
-			local def = Utilities.UpgradeById[id]
-			local utility = Utilities.UtilityById[id]
+			local def = ShopMath.UpgradeById[id]
+			local utility = ShopMath.UtilityById[id]
 			if def then
 				profile.upgrades[id] = math.clamp(math.floor(tonumber(level) or 0), 0, def.levels)
 			elseif utility then
@@ -12697,14 +13027,14 @@ __MODULES["UpgradeService"] = function()
 	--- radius in studs, payout as a multiplier…). Level 0 returns the def's base,
 	--- so this is safe to call for a player who has bought nothing.
 	function UpgradeService.valueOf(player: Player, id: string): number
-		local def = Utilities.UpgradeById[id]
+		local def = ShopMath.UpgradeById[id]
 		if not def then
 			return 0
 		end
 		if not SHOP_ON then
 			return def.base
 		end
-		return Utilities.valueAt(def, UpgradeService.levelOf(player, id))
+		return ShopMath.valueAt(def, UpgradeService.levelOf(player, id))
 	end
 
 	--- Cash multiplier from the `payout` track. 1.0 when the prototype is off.
@@ -12788,7 +13118,7 @@ __MODULES["UpgradeService"] = function()
 				local level = tonumber(profile.upgrades[def.id]) or 0
 				levels[def.id] = level
 				-- nil cost means maxed out; the client draws that as "MAX"
-				costs[def.id] = Utilities.costAt(def, level)
+				costs[def.id] = ShopMath.costAt(def, level)
 			end
 		end
 
@@ -12797,7 +13127,7 @@ __MODULES["UpgradeService"] = function()
 			for _, def in ipairs(Config.Utilities) do
 				local level = tonumber(profile.upgrades[def.id]) or 0
 				levels[def.id] = level
-				costs[def.id] = Utilities.utilityCostAt(def, level)
+				costs[def.id] = ShopMath.utilityCostAt(def, level)
 				if level < 1 and def.requires and not (profile.owned and profile.owned[def.requires]) then
 					local button = Config.ButtonById[def.requires]
 					locked[def.id] = button and button.name or def.requires
@@ -12808,7 +13138,7 @@ __MODULES["UpgradeService"] = function()
 
 		local cooldown, cooldownTotal = 0, 0
 		if equipped ~= "" then
-			local def = Utilities.UtilityById[equipped]
+			local def = ShopMath.UtilityById[equipped]
 			cooldown = cooldownRemaining(player, equipped)
 			cooldownTotal = def and def.cooldown or 0
 		end
@@ -13073,7 +13403,7 @@ __MODULES["UpgradeService"] = function()
 		if not id then
 			return false
 		end
-		local def = Utilities.UtilityById[id]
+		local def = ShopMath.UtilityById[id]
 		if not def or UpgradeService.levelOf(player, id) < 1 then
 			return false
 		end
@@ -13118,7 +13448,7 @@ __MODULES["UpgradeService"] = function()
 
 	local function buyUpgrade(player: Player, profile, def): boolean
 		local level = tonumber(profile.upgrades[def.id]) or 0
-		local cost = Utilities.costAt(def, level)
+		local cost = ShopMath.costAt(def, level)
 		if not cost then
 			return false
 		end
@@ -13137,7 +13467,7 @@ __MODULES["UpgradeService"] = function()
 		Economy.notify(player, {
 			kind = "buy",
 			title = ("%s  Lv %d"):format(def.name, level + 1),
-			body = Utilities.describe(def, level + 1),
+			body = ShopMath.describe(def, level + 1),
 		})
 		local _, root = Util.getRig(player.Character)
 		if root then
@@ -13205,8 +13535,8 @@ __MODULES["UpgradeService"] = function()
 			return
 		end
 
-		local upgrade = SHOP_ON and Utilities.UpgradeById[id]
-		local utility = UTILITY_ON and Utilities.UtilityById[id]
+		local upgrade = SHOP_ON and ShopMath.UpgradeById[id]
+		local utility = UTILITY_ON and ShopMath.UtilityById[id]
 		if upgrade then
 			buyUpgrade(player, profile, upgrade)
 		elseif utility then
@@ -13347,6 +13677,37 @@ __MODULES["VaultService"] = function()
 		through a ProximityPrompt — a server-side signal with no payload, which
 		satisfies "the client sends an intent, never an amount" more strictly than a
 		remote can, because there is nothing to validate.
+
+		WHAT IT OWNS: the text and the fill on every plot's vault. It is the only
+		caller of Tycoon:setVaultGauge outside Tycoon:release, and it owns `wired` (one
+		connection per Tycoon for the life of the server, not one per claim) and
+		`draining` (the guard that stops a 5s beat snapping the column back to full
+		underneath the payout animation).
+
+		WHAT IT MUST NOT DO: hold or recompute the offline number. SessionService owns
+		pendingOffline, vaultProjectionFor and claimOfflineFor, including the
+		double-fire guard that clears entry.offline BEFORE paying — this file reads a
+		projection and animates it, and the moment it starts keeping its own copy the
+		sign and the wallet can disagree. It also must not create a remote; see above.
+
+		READ THE PROTOTYPE-FLAG LINT IN tools/verify.py BEFORE ANYTHING ELSE. It exists
+		because of this file: offline earnings graduated, graduating deletes the flag,
+		and the three `not P.Offline` guards left behind read as `not nil` and returned
+		out of start() forever. The gauge was dead on main with a green build — no
+		check, no spec, no warning. The comment on `local O = Config.Offline` below is
+		the full story.
+
+		AND KNOW WHAT IS NOT VERIFIED. VaultService is not in tools/test.py's
+		SERVER_MODULES: vault_spec.lua covers the projection (SessionService) and the
+		gauge geometry (Tycoon), not the wiring in this file. Two things about it have
+		only ever been reasoned about, per HANDOFF_v6 §G5 — which lateral face of the
+		vault the gauge landed on, since that is derived from the belt's exitDir and a
+		gauge facing a wall makes the whole feature invisible; and whether the column
+		reads as a vault filling rather than as a bar stuck on a crate. Check the face
+		first: it is cheap and it is total. Note also that the gauge is built inside
+		Tycoon:buildCollector, which carries a runtime assert that the collector shell
+		stays downstream of the belt run-off, so anything that moves the vault body has
+		to clear it.
 	]]
 
 	local Req = __Req
