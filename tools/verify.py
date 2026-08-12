@@ -218,6 +218,73 @@ def check_single_screengui(files):
     return True
 
 
+# A GRADUATED FEATURE'S FLAG IS DELETED, NOT SET FALSE — see FloorService.lua and
+# verify_config.lua's "prototypes ship off" family. That is the right convention
+# and it has one sharp edge: every `if not P.Whatever` guard left behind reads as
+# nil, so `not nil` is true and the guard fires FOREVER.
+#
+# That is not hypothetical. Offline earnings graduated and VaultService kept three
+# P.Offline guards, so VaultService.start() returned before wiring anything and the
+# vault gauge was dead on main with a green build. SessionUI had the same defect and
+# only survived because its file happened to conflict during the merge and a human
+# read it. The two branches never conflicted with the graduation, because they
+# touched different files — which is exactly why prose could not catch this.
+PROTO_OWNER = "src/shared/Config.lua"
+PROTO_TABLE = re.compile(r"Config\.Prototypes\s*=\s*\{(.*?)\n\}", re.S)
+PROTO_KEY = re.compile(r"^\s*(\w+)\s*=", re.M)
+PROTO_BIND = re.compile(r"^local\s+(\w+)\s*=\s*Config\.Prototypes\s*$", re.M)
+
+
+def check_prototypes(files):
+    step("prototype flags")
+    source = (ROOT / PROTO_OWNER).read_text(encoding="utf-8")
+    table = PROTO_TABLE.search(source)
+    if not table:
+        print(f"  {RED}FAIL{RESET} could not find Config.Prototypes in {PROTO_OWNER}")
+        return False
+    declared = set(PROTO_KEY.findall(table.group(1)))
+
+    findings = []
+    for path in files:
+        rel = path.relative_to(ROOT).as_posix()
+        if rel == PROTO_OWNER:
+            continue
+        text = path.read_text(encoding="utf-8")
+        # Only a local actually bound to Config.Prototypes counts. DataService
+        # binds `local P = Config.Persistence`, and P.AutosaveSeconds is fine.
+        aliases = set(PROTO_BIND.findall(text)) | {"Config.Prototypes"}
+        pattern = re.compile(
+            r"\b(?:" + "|".join(re.escape(a) for a in aliases) + r")\.(\w+)")
+        # Block comments matter here: every file that graduated a flag explains
+        # itself in a --[[ ]] header that names the flag it deleted.
+        in_block = False
+        for number, line in enumerate(text.splitlines(), 1):
+            stripped = line.lstrip()
+            if in_block:
+                if "]]" in line:
+                    in_block = False
+                continue
+            if stripped.startswith("--[["):
+                if "]]" not in stripped[4:]:
+                    in_block = True
+                continue
+            if stripped.startswith("--"):
+                continue
+            for name in pattern.findall(line.split("--")[0]):
+                if name not in declared:
+                    findings.append((rel, number, name, line.strip()))
+
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for rel, number, name, text in findings:
+            print(f"    {rel}:{number} reads Prototypes.{name}, which no longer exists —")
+            print(f"      a graduated flag is nil, so this guard fires forever")
+            print(f"      {DIM}{text}{RESET}")
+        return False
+    print(f"  {GREEN}ok{RESET}  every prototype flag read is a flag that exists")
+    return True
+
+
 def check_config(luau):
     step("config integrity")
     harness = (ROOT / "tools" / "verify_config.lua").read_text(encoding="utf-8")
@@ -290,6 +357,7 @@ def main():
         check_analysis(args.analyze, files + harness),
         # style ownership is about the SHIPPED game; tools/ is not shipped
         check_style(files),
+        check_prototypes(files),
         check_ui_geometry(files),
         check_single_screengui(files),
         check_config(args.luau),
