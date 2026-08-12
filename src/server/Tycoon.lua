@@ -236,7 +236,7 @@ function Tycoon.new(index: number, parent: Instance)
 	self:buildCollector(1, nil, true)
 	self:buildRebirthPad()
 	self:buildClaimPad()
-	self:buildCabinets()
+	self:ensureCabinets()
 
 	-- An unclaimed plot shows a bare pad and a claim marker, nothing else.
 	-- Leaving the vault and belt standing on an empty plot is what makes it
@@ -808,11 +808,32 @@ end
 --- still occupy a slot), so a cabinet announces itself with a sign instead —
 --- which is better anyway, because a sign can say what it is and a glow
 --- cannot.
-function Tycoon:buildCabinets()
-	self.cabinetSigns = {}
+--- Builds the cabinets a plot has earned, and takes down the ones it has not.
+---
+--- Called from the constructor and again on every ownership change, because a
+--- cabinet is no longer permanent plot furniture: it arrives with the second
+--- floor, it goes when the plot is released, and it survives a rebirth on the
+--- strength of the tiers you keep. Idempotent, so calling it on every purchase
+--- costs a table walk and nothing else.
+function Tycoon:ensureCabinets()
+	self.cabinetSigns = self.cabinetSigns or {}
 
 	for _, track in ipairs(Config.TrackOrder) do
 		if track ~= "factory" and Config.Layout.Tracks[track] then
+			local existing = self.props:FindFirstChild("Cabinet_" .. track)
+			local wanted = Config.trackUnlocked(track, self.owned)
+
+			if not wanted then
+				if existing then
+					existing:Destroy()
+					self.cabinetSigns[track] = nil
+				end
+				continue
+			end
+			if existing then
+				continue
+			end
+
 			local centre, size = Config.trackCabinet(track)
 			local model = Instance.new("Model")
 			model.Name = "Cabinet_" .. track
@@ -847,6 +868,11 @@ function Tycoon:updateCabinetSigns()
 		return
 	end
 	for track, label in pairs(self.cabinetSigns) do
+		-- a cabinet that has been taken down leaves its sign behind in this map
+		if not label.Parent then
+			self.cabinetSigns[track] = nil
+			continue
+		end
 		local defs = Config.Tracks[track]
 		local owned = 0
 		for _, def in ipairs(defs) do
@@ -1095,6 +1121,11 @@ function Tycoon:requirementsMet(id: string): boolean
 	if not def then
 		return false
 	end
+	-- ANDed in here rather than only in refreshButtons, so a stale Touched on a
+	-- pad that is about to be hidden cannot buy through the gate.
+	if not Config.trackUnlocked(def.track, self.owned) then
+		return false
+	end
 	for _, req in ipairs(Config.requirementsOf(def)) do
 		if not self.owned[req] then
 			return false
@@ -1214,7 +1245,12 @@ function Tycoon:refreshButtons()
 	for id, entry in pairs(self.objects) do
 		local def = entry.def
 		local owned = self.owned[id] == true
-		local standing = self:floorBuiltFor(def)
+		-- A gated track is HIDDEN, not previewed, and it takes no ghost: the
+		-- point of gating the cabinets is that the right half of the plot is
+		-- empty ground until you have earned it, and nine dimmed pads with
+		-- ghost bats standing on them is the same wall of labels with the
+		-- brightness turned down.
+		local standing = self:floorBuiltFor(def) and Config.trackUnlocked(def.track, self.owned)
 		local available = (not owned) and standing and self:requirementsMet(id)
 		local preview = (not owned) and (not available) and standing
 			and (def.trackOrder <= frontier[def.track] + (TRACK_PREVIEW[def.track] or 3))
@@ -1305,6 +1341,12 @@ function Tycoon:refreshButtons()
 	end
 
 	self:pointAt(target)
+	-- Here rather than as a second ownedChanged listener: refreshButtons
+	-- already runs on install, assign, release and rebirth — every event that
+	-- can open or close a track — and updateCabinetSigns has always lived on
+	-- the end of it. ensureCabinets is idempotent, so the periodic refresh
+	-- costs a FindFirstChild per track.
+	self:ensureCabinets()
 	self:updateCabinetSigns()
 end
 
@@ -1989,14 +2031,13 @@ function Tycoon:release()
 		end
 	end
 	self.machines:ClearAllChildren()
-	-- The cabinet BODIES are permanent plot furniture; only the shelves a
-	-- previous owner filled come down. A new owner arrives with their own
-	-- tiers, and assign() replays them.
-	for _, child in ipairs(self.props:GetChildren()) do
-		if child.Name:match("^Shelf_") then
-			child:Destroy()
-		end
-	end
+	-- Cabinet bodies USED to be permanent plot furniture and only the shelves
+	-- came down. They are earned now, so they go with everything else: a fresh
+	-- plot has to read as bare ground on the right-hand side, which is the
+	-- entire point of gating them. assign() rebuilds whatever the next owner
+	-- has earned, and ensureCabinets is idempotent.
+	self.props:ClearAllChildren()
+	self.cabinetSigns = {}
 	self:clearDrops()
 	self:setFactoryVisible(false)
 
