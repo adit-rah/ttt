@@ -1229,7 +1229,16 @@ __MODULES["Config"] = function()
 				side = 12,
 				front = 14,
 				collectorRun = 16,   -- run-off between the belt's end and the hopper
-				padClearance = 12,   -- keep the hopper this clear of the teleport pad
+				-- WHERE THE HOPPER STANDS, stated rather than derived.
+				--
+				-- This was `pads.up.X - padClearance`: the collector's position was
+				-- worked out backwards from a teleport pad. The pads are gone and
+				-- the number they produced (40 - 12) is kept exactly, because the
+				-- belt geometry was right and only its justification was borrowed.
+				-- A collector that moves because a piece of furniture moved is a
+				-- coupling nobody asked for.
+				collectorX = 28,
+				ladderClearance = 10,   -- keep the hopper this clear of the landing
 				outboard = { 1, 1, 1 },
 			},
 
@@ -1242,24 +1251,46 @@ __MODULES["Config"] = function()
 			-- upgrader slots 2 and 3 at z = -26 and z = -10.
 			pillar = { size = 2.4, insetSide = 4, insetBack = 4, insetFront = 8 },
 
-			-- TELEPORT PADS. Shipped elevators in this genre are pad pairs, not
-			-- moving platforms: TweenService lifts jitter and slide players off.
+			-- A LADDER, WHERE THE TELEPORT PADS WERE.
 			--
-			-- `down` and `up` used to share coordinates, which reads as a lift
-			-- shaft and is the nicer arrangement — but the ground end at (40, -14)
-			-- interpenetrated the armour cabinet's slot-2 pedestal by three studs
-			-- by one, and there is no clean 9x9 anywhere on that side: the weapons
-			-- and armour columns at x = 30 and 44 on a 14-stud pitch cap the best
-			-- achievable clearance at exactly zero. So the ground end moves to the
-			-- aisle side, where it has 3.5 studs of room. They do not have to line
-			-- up, and FloorService never assumed they did.
-			pads = {
-				size = Vector3.new(9, 1, 9),
-				groundTop = 1.1,     -- its own Y: claim pad tops out at 1.2, rebirth at 1.5
-				stand = 3.5,         -- pivot height above the pad you land on
-				cooldown = 1.5,
-				down = Vector3.new(10, 0, -20),
-				up   = Vector3.new(40, 0, -14),
+			-- The pads were a 9x9 pair with a cooldown, an arrival lock and a
+			-- TouchEnded sweep to stop a character resting on one from bouncing off
+			-- its own physics jitter — about a hundred lines to walk up a flight of
+			-- stairs. They also could not be made to line up: the ground end at
+			-- (40, -14) interpenetrated the armour cabinet's slot-2 pedestal, and
+			-- with the weapons and armour columns at x = 30 and 44 on a 14-stud
+			-- pitch there is no clean 9x9 anywhere on that side. It moved to the
+			-- aisle, 54 studs from the end it was paired with, and HANDOFF_v5 §5
+			-- left "does that still read as a lift or now as a teleport" as an open
+			-- question nobody answered.
+			--
+			-- A TrussPart answers it by not asking. Roblox humanoids climb truss
+			-- natively, in both directions, with no script at all — no cooldown, no
+			-- arrival lock, no per-frame work, and you can see where it goes from
+			-- the bottom of it.
+			--
+			-- WHERE IT STANDS is the tight part. The deck's front edge is at
+			-- z = -8, and the ladder has to be in front of it rather than under it:
+			-- coming up THROUGH the deck needs a hatch in the slab and a hole in
+			-- the guard. Along that edge x is nearly all spoken for —
+			--
+			--    x  5.5..10.5   belt1's misc pedestal at MiscButtons.belt1
+			--    x 18  ..22     the weapons cabinet body (Tracks.weapons.cabinetX)
+			--    x 27.5..32.5   the weapons button column, slot 3 at z = -6
+			--    x 41.5..46.5   the armour button column, slot 3 at z = -6
+			--
+			-- — and x = 14 is the gap. It is also Layout.GateCentre and the x of
+			-- OwnerSpawnAt, so the ladder stands directly ahead of the gateway you
+			-- walk in through: not beside the main entrance, but in line with it.
+			-- It clears belt1 by 2.5 studs and the weapons cabinet by 3.
+			ladder = {
+				at = Vector3.new(14, 0, -6.6),  -- centre of the column, just proud of the deck
+				width = 2,                       -- a TrussPart's cross-section is 2x2
+				rise = 1.5,                      -- overshoot above the deck, to step off onto
+				-- The front guard is built in two pieces with this much of a gap at
+				-- `at.X`, because a ladder that arrives at a railing is a ladder to
+				-- nowhere. The visible bar is cut with it.
+				gate = 7,
 			},
 		},
 	}
@@ -1289,7 +1320,7 @@ __MODULES["Config"] = function()
 		local frontZ = floor.deckAt.Z + halfZ - b.front
 		local rightX = floor.deckAt.X + halfX - b.side
 		local leftX = floor.deckAt.X - halfX + b.side
-		local collectorX = floor.pads.up.X - b.padClearance
+		local collectorX = b.collectorX
 
 		return {
 			id = floor.id,
