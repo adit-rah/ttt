@@ -123,6 +123,123 @@ for tier, bat in ipairs(Config.Bats) do
 	end
 end
 
+-- ── prototypes ──────────────────────────────────────────────────────────────
+-- Unshipped, but the data still has to be coherent — a prototype that only
+-- fails once you flip its flag is a prototype nobody flips.
+
+-- Every flag must exist and be a boolean, and a shipping build has them all
+-- off. If one gets left on, this is the check that says so.
+for name, on in pairs(Config.Prototypes) do
+	check(type(on) == "boolean", ("Prototypes.%s is not a boolean"):format(name))
+	check(on == false, ("Prototypes.%s is ON — prototypes ship off"):format(name))
+end
+
+-- A belt path is a polyline with one outboard side per leg. One short entry and
+-- the last leg silently falls back to +1, which is the bug the explicit table
+-- was added to prevent.
+for _, path in ipairs(Config.BeltPaths) do
+	check(type(path.id) == "string", "a BeltPath is missing its id")
+	check(#path.points >= 2, ("BeltPaths.%s needs at least two points"):format(path.id))
+	check(#path.outboard == #path.points - 1,
+		("BeltPaths.%s has %d points but %d outboard signs (need %d)")
+			:format(path.id, #path.points, #path.outboard, #path.points - 1))
+	for i, sign in ipairs(path.outboard) do
+		check(sign == 1 or sign == -1,
+			("BeltPaths.%s leg %d has outboard %s; it must be 1 or -1"):format(path.id, i, tostring(sign)))
+	end
+end
+
+-- Floors. The deck must clear everything the ground floor stands up, and the
+-- unlock must be a real button — a floor gated on a typo never opens.
+local plotHalfX, plotHalfZ = Config.World.PlotSize.X / 2, Config.World.PlotSize.Z / 2
+for _, floor in ipairs(Config.Floors) do
+	check(Config.ButtonById[floor.requires] ~= nil,
+		("Floors.%s requires %q, which is not a button"):format(floor.id, tostring(floor.requires)))
+	-- unlocking a floor before the ground floor is finished is the single most
+	-- complained-about thing in multi-floor tycoons
+	check(Config.ButtonById[floor.requires].order >= #Config.Buttons - 1,
+		("Floors.%s unlocks at step %d of %d — finish the ground floor first")
+			:format(floor.id, Config.ButtonById[floor.requires].order, #Config.Buttons))
+	-- headroom over the tallest thing the ground floor stands up (the vault
+	-- statue, ~13.5) plus a player
+	check(floor.height >= 18,
+		("Floors.%s sits at y=%.0f; the ground floor needs ~18 studs of headroom"):format(floor.id, floor.height))
+	check(math.abs(floor.deckAt.X) + floor.deckSize.X / 2 <= plotHalfX,
+		("Floors.%s deck overhangs the plot on X"):format(floor.id))
+	check(math.abs(floor.deckAt.Z) + floor.deckSize.Z / 2 <= plotHalfZ,
+		("Floors.%s deck overhangs the plot on Z"):format(floor.id))
+	check(floor.railHeight >= 4,
+		("Floors.%s rail is %.0f studs; a humanoid steps over that"):format(floor.id, floor.railHeight))
+end
+
+-- Player upgrades: geometric costs, and a cap that doesn't break the world.
+for _, def in ipairs(Config.PlayerUpgrades) do
+	check(def.levels >= 1, ("PlayerUpgrades.%s has no levels"):format(def.id))
+	check(def.cost > 0 and def.costGrowth >= 1,
+		("PlayerUpgrades.%s has a non-growing cost curve"):format(def.id))
+	if def.stat == "WalkSpeed" then
+		-- above ~32 a humanoid starts clipping through 4-stud walls
+		local top = def.base + def.perLevel * def.levels
+		check(top <= 32, ("PlayerUpgrades.%s tops out at %.1f WalkSpeed; walls stop working above ~32")
+			:format(def.id, top))
+	end
+end
+
+-- Utilities: a real unlock, and a cooldown longer than the effect or you can
+-- hold the effect up permanently.
+for _, def in ipairs(Config.Utilities) do
+	check(Config.ButtonById[def.requires] ~= nil,
+		("Utilities.%s requires %q, which is not a button"):format(def.id, tostring(def.requires)))
+	check(def.cooldown > def.duration,
+		("Utilities.%s lasts %.1fs on a %.1fs cooldown — it would never drop")
+			:format(def.id, def.duration, def.cooldown))
+	check(def.radius and def.radius > 0, ("Utilities.%s has no radius"):format(def.id))
+end
+
+-- Offline earnings. The cap ladder has to be monotonic in both directions or
+-- there is a tier you pay more for and get less from.
+do
+	local O = Config.Offline
+	check(O.Rate > 0 and O.Rate <= 1, ("Offline.Rate is %.2f; it is a fraction"):format(O.Rate))
+	check(#O.CapUpgradeHours == #O.CapUpgradeCost, "Offline cap upgrade hours and costs disagree in length")
+	local previousHours, previousCost = O.CapHours, 0
+	for i, hours in ipairs(O.CapUpgradeHours) do
+		check(hours > previousHours, ("Offline cap tier %d does not extend the one before it"):format(i))
+		check(O.CapUpgradeCost[i] > previousCost, ("Offline cap tier %d is not dearer than the one before it"):format(i))
+		previousHours, previousCost = hours, O.CapUpgradeCost[i]
+	end
+end
+
+-- Session loops.
+do
+	local S = Config.Sessions
+	check(#S.DailyRewards == 7, "DailyRewards should be a 7-day loop")
+	for i = 2, #S.DailyRewards do
+		check(S.DailyRewards[i] > S.DailyRewards[i - 1], ("DailyRewards day %d is not better than day %d"):format(i, i - 1))
+	end
+	check(S.DailyGraceHours >= 24, "a daily streak needs at least a day of grace or one missed evening kills it")
+	for i = 2, #S.PlaytimeMinutes do
+		check(S.PlaytimeMinutes[i] > S.PlaytimeMinutes[i - 1], "PlaytimeMinutes must be increasing")
+	end
+	check(S.BoostCooldown > S.BoostSeconds,
+		"the boost lasts longer than its cooldown, so it would never be off")
+end
+
+-- Sound. Everything must be an engine asset: an rbxassetid:// here is an upload,
+-- and an upload is a thing that can be moderated away.
+for name, id in pairs(Config.Sound.Library) do
+	check(id:sub(1, 11) == "rbxasset://",
+		("Sound.Library.%s is %q — only engine assets, never uploads"):format(name, id))
+end
+check(Config.Sound.PoolSize >= 1, "Sound.PoolSize must be at least 1")
+local soundCount = 0
+for _ in pairs(Config.Sound.Library) do
+	soundCount += 1
+end
+check(Config.Sound.PoolSize * soundCount <= 200,
+	("the sound pools would allocate %d instances; ~400 live Sounds is where A/V desync starts")
+		:format(Config.Sound.PoolSize * soundCount))
+
 -- ── swing timing ────────────────────────────────────────────────────────────
 -- Damage lands on the strike frame rather than on the click, so these numbers
 -- are now gameplay, not decoration: get them wrong and the bat either hits

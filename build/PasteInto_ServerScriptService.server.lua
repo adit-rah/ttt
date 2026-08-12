@@ -566,6 +566,212 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
+	-- PROTOTYPES
+	--
+	-- Everything below this line is unshipped. Each block is gated by a flag in
+	-- Config.Prototypes and every one of them defaults to OFF, so a build with all
+	-- the flags false is byte-for-byte the game that ships today. That is the whole
+	-- contract: a prototype you cannot turn off is not a prototype, it is a
+	-- half-finished feature you have to finish before you can ship anything else.
+	--
+	-- The rationale for each of these — what shipped where, and what players said
+	-- about it — is in IDEAS.md. Numbers here are first drafts, not balance.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.Prototypes = {
+		Floors = false,        -- a second storey with its own dropper -> belt -> vault loop
+		PlayerUpgrades = false,-- walkspeed / magnet / cash multiplier shop
+		Utilities = false,     -- a second weapon slot holding a verb, not a stat
+		RebirthPerks = false,  -- rebirth grants four things instead of one number
+		Offline = false,       -- offline earnings and the welcome-back panel
+		Sessions = false,      -- daily streak, playtime ladder, boost cooldown
+		Sound = false,         -- the engine-asset sound layer
+	}
+
+	-- ── multi-leg belt and floors ────────────────────────────────────────────────
+	--
+	-- The shipped belt is hardcoded as an L: two legs, one turn sensor, a 1->2
+	-- transition written into onTurn. A path is just a list of corners, and every
+	-- piece of belt geometry already derives from leg(i) — so generalising is
+	-- mostly deleting the assumption that i is 1 or 2.
+	--
+	-- Ground floor path is derived from the shipped Layout keys rather than
+	-- duplicated, so the two cannot drift.
+	--- `outboard` carries which SIDE of each leg the machines stand on, +1 or -1.
+	--- It used to be inferred, by taking the perpendicular that points away from
+	--- the plot origin — which works only while every leg hugs an outer edge. An
+	--- upper floor's return leg runs back across the middle of its own deck, where
+	--- the inferred side flips and puts the machines over the walkway and the buy
+	--- buttons out in space. One entry per leg, so one fewer than `points`.
+	Config.BeltPaths = {
+		{
+			id = "ground",
+			y = 0,
+			points = { Config.Layout.BeltStart, Config.Layout.BeltCorner, Config.Layout.BeltEnd },
+			outboard = { 1, 1 },
+			collectorAt = Config.Layout.CollectorAt,
+		},
+	}
+
+	--- The upper floor. NOT stacked on the ground floor: a ceiling is the one thing
+	--- Roblox's camera has no good answer for (opaque snaps the camera to head
+	--- height, transparent lets it pop through, and LocalTransparencyModifier is
+	--- overwritten by the default camera scripts every frame). An open mezzanine
+	--- over the BACK half of the plot leaves the aisle you walk open to the sky.
+	Config.Floors = {
+		{
+			id = "mezzanine",
+			-- unlocked by the LAST button of the ground floor, in the same currency.
+			-- Buying floor 2 before you have finished floor 1 is the single most
+			-- complained-about thing in multi-floor tycoons.
+			requires = "dropper10",
+			height = 22,             -- floor top, plot-local
+			-- deck covers the back half only, so it does not roof the walkway
+			deckSize = Vector3.new(112, 1.6, 60),
+			deckAt = Vector3.new(0, 0, -38),
+			-- teleport pads. Shipped elevators in this genre are pad pairs, not
+			-- moving platforms: TweenService lifts jitter and slide players off.
+			padDown = Vector3.new(40, 0, -14),
+			padUp = Vector3.new(40, 0, -14),
+			railHeight = 5,          -- falling off is the obvious new failure mode
+		},
+	}
+
+	-- ── player upgrades ──────────────────────────────────────────────────────────
+	--
+	-- Deliberately small. Pet Sim 99's whole walkspeed track is +25% over two
+	-- tiers, and its biggest stat track is +54% over eight. The large multipliers
+	-- belong to rebirth; this shop is for shaving friction off the loop.
+	Config.PlayerUpgrades = {
+		{
+			id = "speed", name = "Sahur Sprint",
+			stat = "WalkSpeed", levels = 8,
+			base = 22, perLevel = 1.1,        -- caps at 30.8, under the ~32 wall-clip ceiling
+			cost = 250, costGrowth = 4,
+			blurb = "Move %s studs/sec.",
+		},
+		{
+			id = "magnet", name = "Tung Magnet",
+			stat = "CollectRadius", levels = 7,
+			base = 0, perLevel = 4,
+			cost = 400, costGrowth = 3.4,
+			blurb = "Pull drops in from %s studs.",
+		},
+		{
+			id = "payout", name = "Vault Skimmer",
+			stat = "CashMultiplier", levels = 7,
+			base = 1, perLevel = 0.08,
+			cost = 800, costGrowth = 5,
+			blurb = "All income x%s.",
+		},
+		{
+			id = "autocollect", name = "Auto Collector",
+			stat = "AutoCollect", levels = 1,
+			base = 0, perLevel = 1,
+			cost = 60000, costGrowth = 1,
+			blurb = "The vault collects itself.",
+		},
+	}
+
+	-- ── the utility slot ─────────────────────────────────────────────────────────
+	--
+	-- Steal a Brainrot's weapon ladder is one archetype reskinned eleven times,
+	-- scaling exactly one stat. All of its VARIETY lives in a second slot where
+	-- every item is a new verb with one duration number. That split is the thing
+	-- worth copying: progression in the weapon, variety in the utility.
+	--- `radius` and `force` are per-verb, not global: how far a shove reaches is a
+	--- property of the shove, and the moment they are shared constants the next
+	--- utility has to fight them.
+	Config.Utilities = {
+		{ id = "freeze", name = "Sahur Freeze", verb = "freeze", duration = 4, cooldown = 18,
+		  price = 40000, requires = "batforge", radius = 34 },
+		{ id = "shove", name = "Tung Shove", verb = "shove", duration = 0, cooldown = 12,
+		  price = 300000, requires = "upgrader3", radius = 26, force = 130 },
+		{ id = "decoy", name = "Sahur Decoy", verb = "decoy", duration = 10, cooldown = 30,
+		  price = 4000000, requires = "batforge2", radius = 6 },
+	}
+
+	-- ── rebirth perks ────────────────────────────────────────────────────────────
+	--
+	-- Four rewards per rebirth instead of one. The multiplier is the headline but
+	-- the other three are what stop the re-grind feeling like a punishment, and
+	-- what give MaxRebirths = 25 something on every rung.
+	Config.RebirthPerks = {
+		StartingCashPerRebirth = 2500,     -- compounding is handled by the multiplier
+		StartingCashGrowth = 3.2,
+		-- every Nth rebirth grants a permanent extra machine slot
+		SlotEveryRebirths = 3,
+		-- milestone unlocks: rebirth -> what opens up
+		Milestones = {
+			[2] = { unlock = "mezzanine", label = "Second floor" },
+			[4] = { unlock = "utility2", label = "Utility slot II" },
+			[8] = { unlock = "goldplot", label = "Golden plot theme" },
+		},
+	}
+
+	-- ── offline earnings ─────────────────────────────────────────────────────────
+	Config.Offline = {
+		Rate = 0.25,             -- fraction of your live income per second
+		CapHours = 8,
+		-- extending the cap is a purchase, which turns the cap into a goal rather
+		-- than a wall you resent
+		CapUpgradeHours = { 12, 16, 24 },
+		CapUpgradeCost = { 250000, 5000000, 120000000 },
+		MinimumSeconds = 120,    -- below this, don't bother with the panel
+	}
+
+	-- ── session loops ────────────────────────────────────────────────────────────
+	Config.Sessions = {
+		-- 7-day loop with milestones. 48h of grace, because losing a 20-day streak
+		-- to one missed evening is how you lose the player instead of the streak.
+		DailyRewards = { 500, 1500, 4000, 10000, 25000, 60000, 150000 },
+		DailyGraceHours = 48,
+		DailyMilestones = { [7] = 250000, [14] = 750000, [30] = 3000000 },
+
+		-- Pet Sim 99's ladder, and note the deliberately decaying cadence: close
+		-- together early so the first one arrives while you are still deciding
+		-- whether to stay.
+		PlaytimeMinutes = { 5, 10, 15, 20, 30, 40, 50, 60, 75, 90, 120, 180 },
+		PlaytimeRewardBase = 1200,
+		PlaytimeRewardGrowth = 1.9,
+
+		-- The rewarded-video-ad shape with the ad removed: a big multiplier over a
+		-- short window, which forces an active session rather than being banked.
+		BoostMultiplier = 2,
+		BoostSeconds = 600,
+		BoostCooldown = 2400,
+
+		-- near-zero code, real concurrency effect
+		WeekendMultiplier = 2,
+		WeekendDays = { [1] = true, [7] = true },   -- os.date("!*t").wday, Sun and Sat
+	}
+
+	-- ── sound ────────────────────────────────────────────────────────────────────
+	--
+	-- Every one of these ships INSIDE the Roblox client. No upload, no moderation,
+	-- and they cannot be taken down. The old handoff assumed audio was blocked
+	-- until someone uploads samples; it is not, and this is the cheapest quality
+	-- win on the list.
+	Config.Sound = {
+		Library = {
+			collect  = "rbxasset://sounds/electronicpingshort.wav",
+			purchase = "rbxasset://sounds/switch3.wav",
+			ui       = "rbxasset://sounds/button.wav",
+			impact   = "rbxasset://sounds/impact_water.mp3",
+			swing    = "rbxasset://sounds/swoosh.wav",
+			rebirth  = "rbxasset://sounds/victory.wav",
+			siren    = "rbxasset://sounds/action.wav",
+		},
+		-- Pool and round-robin; never Instance.new per drop. ~400 live Sound
+		-- instances is where audio/video desync starts.
+		PoolSize = 8,
+		MinRepeatSeconds = 0.04,
+		RollOffMaxDistance = 60,   -- so a neighbour's factory doesn't blare at you
+		PitchPerCombo = 0.06,
+		MaxPitch = 2,
+	}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
 	-- Derived lookups (built once at require time)
 	-- ─────────────────────────────────────────────────────────────────────────────
 
@@ -608,6 +814,10 @@ __MODULES["Fx"] = function()
 		particle sprites (rbxasset://textures/particles/*) which ship with the
 		engine and are always available, so nothing here can be moderated away.
 	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Sound = Req("Sound")
 
 	local TweenService = game:GetService("TweenService")
 	local Debris = game:GetService("Debris")
@@ -872,10 +1082,19 @@ __MODULES["Fx"] = function()
 
 	--- Procedural "tung" percussion. Generated from engine default sound ids that
 	--- ship with Studio, pitched by index so each variant sounds different.
+	---
+	--- With Config.Prototypes.Sound on, both of these hand off to Sound.lua, which
+	--- plays them out of a fixed pool instead of allocating one Sound per drop.
+	--- With it off they keep the shipped behaviour exactly, down to the volumes
+	--- and roll-off distances — the prototype has to be switchable, not merged.
 	local TUNG_SOUND = "rbxasset://sounds/electronicpingshort.wav"
 	local IMPACT_SOUND = "rbxasset://sounds/impact_water.mp3"
 
 	function Fx.tung(part: BasePart, pitch: number?, volume: number?)
+		if Config.Prototypes.Sound then
+			Sound.playAt("collect", part, { pitch = pitch, volume = volume or 0.35 })
+			return
+		end
 		local sound = Instance.new("Sound")
 		sound.SoundId = TUNG_SOUND
 		sound.PlaybackSpeed = pitch or 1
@@ -887,6 +1106,12 @@ __MODULES["Fx"] = function()
 	end
 
 	function Fx.impact(part: BasePart, pitch: number?)
+		if Config.Prototypes.Sound then
+			-- combo is passed by callers that track one (bat swings); without it
+			-- this is just the pitch they asked for
+			Sound.playAt("impact", part, { pitch = pitch, volume = 0.6, rollOff = 120 })
+			return
+		end
 		local sound = Instance.new("Sound")
 		sound.SoundId = IMPACT_SOUND
 		sound.PlaybackSpeed = pitch or 1
@@ -895,6 +1120,19 @@ __MODULES["Fx"] = function()
 		sound.Parent = part
 		sound:Play()
 		Debris:AddItem(sound, 3)
+	end
+
+	--- Named passthroughs for the rest of the library, so callers outside Fx do
+	--- not have to know the asset keys. All no-ops with the flag off.
+	function Fx.sfx(name: string, position: Vector3?, opts)
+		if not Config.Prototypes.Sound then
+			return
+		end
+		if position then
+			Sound.playAt(name, position, opts)
+		else
+			Sound.play(name, opts)
+		end
 	end
 
 	--- Trail between two attachments, used on bats mid-swing.
@@ -959,6 +1197,17 @@ __MODULES["Net"] = function()
 		"RequestRebirth",-- C->S
 		"RequestReset",  -- C->S  (leave plot)
 		"Sfx",           -- S->C  { name, position }
+
+		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
+		-- demand so a client that connects with a flag off still resolves them and
+		-- never sits in WaitForChild for 30 seconds.
+		"UpgradeState",   -- S->C  { levels = {id = level}, costs = {id = price} }
+		"RequestUpgrade", -- C->S  upgrade id
+		"UseUtility",     -- C->S  (fire the equipped utility)
+		"SessionState",   -- S->C  { daily, playtime, boost, offline }
+		"RequestClaim",   -- C->S  { kind = "daily" | "playtime" | "offline", index }
+		"RequestBoost",   -- C->S
+		"FloorState",     -- S->C  { unlocked = boolean }
 	}
 
 	if RunService:IsServer() then
@@ -997,6 +1246,310 @@ __MODULES["Net"] = function()
 	end
 
 	return Net
+end
+
+
+__MODULES["Sound"] = function()
+	--[[
+		Sound.lua — the whole audio layer, built on sounds that ship INSIDE the
+		Roblox client (`rbxasset://sounds/*`). No upload, no moderation queue, and
+		nothing here can 404 or be taken down, which is the same contract every
+		other asset in this project honours.
+
+		Three rules drive the shape of this file, and all three are failure modes
+		rather than preferences:
+
+		  * **Never `Instance.new` a Sound per event.** Around 400 live Sound
+		    instances is where audio/video desync starts, and ten plots dropping a
+		    Tung every 0.4s reach that inside a minute. Every sound name owns a
+		    fixed pool of `Config.Sound.PoolSize` instances handed out round-robin;
+		    the 9th overlapping play steals the oldest slot instead of allocating.
+		  * **Server-side sound spam can take a 20-player server down.** Anything
+		    the client can play for itself, it plays for itself — the server never
+		    broadcasts audio it does not have to.
+		  * **Everything goes through one SoundGroup.** "There is no way to turn
+		    the sound off" is a recurring playtest complaint, and with a group the
+		    fix is one property write.
+
+		Gated on `Config.Prototypes.Sound`: with the flag off every entry point
+		returns nil before touching a single instance, so a shipping build is
+		byte-for-byte the audio it has today.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+
+	local RunService = game:GetService("RunService")
+	local SoundService = game:GetService("SoundService")
+
+	local Sound = {}
+
+	local CFG = Config.Sound
+	local GROUP_NAME = "TungSfx"
+	local ANCHOR_FOLDER = "TungSfxAnchors"
+
+	local IS_SERVER = RunService:IsServer()
+
+	export type PlayOptions = {
+		pitch: number?,       -- multiplies the resolved playback speed
+		volume: number?,
+		combo: number?,       -- pitch-stacks: 1 + combo * PitchPerCombo, clamped
+		rollOff: number?,     -- override RollOffMaxDistance for one play
+		looped: boolean?,
+	}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- lazily-built plumbing
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local group: SoundGroup? = nil
+	local groupVolume = 1
+
+	--- One group for every sound in the game. Found-or-created rather than always
+	--- created: the server's group replicates, so a client that arrives late must
+	--- adopt the existing one instead of stacking a second.
+	local function soundGroup(): SoundGroup
+		if group and group.Parent then
+			return group :: SoundGroup
+		end
+		local existing = SoundService:FindFirstChild(GROUP_NAME)
+		if existing and existing:IsA("SoundGroup") then
+			group = existing :: SoundGroup
+		else
+			local made = Instance.new("SoundGroup")
+			made.Name = GROUP_NAME
+			made.Volume = groupVolume
+			made.Parent = SoundService
+			group = made
+		end
+		return group :: SoundGroup
+	end
+
+	local anchorFolder: Folder? = nil
+
+	local function anchors(): Folder
+		if anchorFolder and anchorFolder.Parent then
+			return anchorFolder :: Folder
+		end
+		local existing = workspace:FindFirstChild(ANCHOR_FOLDER)
+		if existing then
+			anchorFolder = existing :: Folder
+		else
+			local made = Instance.new("Folder")
+			made.Name = ANCHOR_FOLDER
+			made.Parent = workspace
+			anchorFolder = made
+		end
+		return anchorFolder :: Folder
+	end
+
+	--- A pooled positional sound needs somewhere permanent to live. Parenting it
+	--- to the thing that made the noise looks obvious and is wrong: a drop being
+	--- collected destroys its children, so the pool would quietly decay back into
+	--- allocate-per-drop. Each slot owns a 0.2-stud invisible anchor we teleport
+	--- to the emitter instead.
+	local function newAnchor(): BasePart
+		local part = Instance.new("Part")
+		part.Name = "SfxAnchor"
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.CastShadow = false
+		part.Locked = true
+		part.Transparency = 1
+		part.Size = Vector3.one * 0.2
+		part.Parent = anchors()
+		return part
+	end
+
+	type Slot = { sound: Sound, anchor: BasePart? }
+	type Pool = { slots: { Slot }, cursor: number, lastPlay: number }
+
+	local pools: { [string]: Pool } = {}
+	local warned: { [string]: boolean } = {}
+
+	local function buildPool(name: string, assetId: string, positional: boolean): Pool
+		local pool: Pool = { slots = {}, cursor = 0, lastPlay = -math.huge }
+		for i = 1, math.max(1, CFG.PoolSize) do
+			local sound = Instance.new("Sound")
+			sound.Name = ("%s_%d"):format(name, i)
+			sound.SoundId = assetId
+			sound.SoundGroup = soundGroup()
+			sound.Volume = 0.5
+			if positional then
+				local anchor = newAnchor()
+				-- RollOffMaxDistance is the whole reason a neighbour's factory
+				-- does not blare across the ring: a plot is ~120 studs wide and
+				-- the gap between plots is 44, so 60 studs dies out at the fence.
+				sound.RollOffMode = Enum.RollOffMode.InverseTapered
+				sound.RollOffMinDistance = 8
+				sound.RollOffMaxDistance = CFG.RollOffMaxDistance
+				sound.Parent = anchor
+				table.insert(pool.slots, { sound = sound, anchor = anchor })
+			else
+				-- parented to a non-BasePart, a Sound is 2D and plays at full
+				-- volume wherever the listener is — which is what UI wants
+				sound.Parent = SoundService
+				table.insert(pool.slots, { sound = sound })
+			end
+		end
+		return pool
+	end
+
+	--- Round-robin, with the repeat-rate guard applied per sound NAME. Two drops
+	--- landing in the same frame is one audible "tung", not two stacked into a
+	--- clipped mush — and the guard is what stops a ten-plot server machine-gunning
+	--- the same 40ms sample.
+	---
+	--- os.clock() here, not os.time(): this is a sub-second monotonic timer, and
+	--- os.time() has 1-second resolution which would silence everything.
+	local function acquire(name: string, positional: boolean): Slot?
+		local assetId = CFG.Library[name]
+		if not assetId then
+			if not warned[name] then
+				warned[name] = true
+				warn(("[Tung] no sound named %q in Config.Sound.Library"):format(name))
+			end
+			return nil
+		end
+
+		local key = name .. (positional and "@3d" or "@2d")
+		local pool = pools[key]
+		if not pool then
+			pool = buildPool(name, assetId, positional)
+			pools[key] = pool
+		end
+
+		local now = os.clock()
+		if now - pool.lastPlay < CFG.MinRepeatSeconds then
+			return nil
+		end
+		pool.lastPlay = now
+
+		pool.cursor = (pool.cursor % #pool.slots) + 1
+		return pool.slots[pool.cursor]
+	end
+
+	--- `PlaybackSpeed = min(1 + combo * PitchPerCombo, MaxPitch)` — the combo
+	--- pitch-stack. Rising pitch on a repeated hit is the single cheapest way to
+	--- make one stock sample read as a streak instead of a stutter.
+	function Sound.comboPitch(combo: number?): number
+		return math.min(1 + (combo or 0) * CFG.PitchPerCombo, CFG.MaxPitch)
+	end
+
+	local function resolvePitch(opts: PlayOptions?): number
+		local speed = (opts and opts.pitch) or 1
+		if opts and opts.combo then
+			speed *= Sound.comboPitch(opts.combo)
+		end
+		return math.clamp(speed, 0.2, CFG.MaxPitch)
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- public
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- 2D one-shot: UI clicks, stings, anything that is not happening at a place.
+	--- On the client this goes through `PlayLocalSound`, which never replicates and
+	--- never asks the server for anything.
+	function Sound.play(name: string, opts: PlayOptions?): Sound?
+		if not Config.Prototypes.Sound then
+			return nil
+		end
+		local slot = acquire(name, false)
+		if not slot then
+			return nil
+		end
+
+		local sound = slot.sound
+		sound.PlaybackSpeed = resolvePitch(opts)
+		sound.Volume = (opts and opts.volume) or 0.5
+		sound.Looped = (opts and opts.looped) or false
+
+		if IS_SERVER then
+			sound:Play()
+		else
+			SoundService:PlayLocalSound(sound)
+		end
+		return sound
+	end
+
+	--- Positional one-shot at a part or a raw position.
+	---
+	--- Called from the server this replicates a *bounded* number of instances
+	--- (PoolSize per name for the whole server), which is the point: the shipped
+	--- code allocates one Sound per drop and lets Debris clean up after it.
+	function Sound.playAt(name: string, where: any, opts: PlayOptions?): Sound?
+		if not Config.Prototypes.Sound then
+			return nil
+		end
+
+		local position: Vector3?
+		if typeof(where) == "Vector3" then
+			position = where
+		elseif typeof(where) == "Instance" and where:IsA("BasePart") then
+			position = where.Position
+		elseif typeof(where) == "CFrame" then
+			position = where.Position
+		end
+		if not position then
+			return nil
+		end
+
+		local slot = acquire(name, true)
+		if not slot or not slot.anchor then
+			return nil
+		end
+
+		local anchor = slot.anchor :: BasePart
+		anchor.CFrame = CFrame.new(position)
+
+		local sound = slot.sound
+		sound.PlaybackSpeed = resolvePitch(opts)
+		sound.Volume = (opts and opts.volume) or 0.5
+		sound.Looped = (opts and opts.looped) or false
+		sound.RollOffMaxDistance = (opts and opts.rollOff) or CFG.RollOffMaxDistance
+		sound:Play()
+		return sound
+	end
+
+	--- The mute toggle a HUD checkbox would drive. Volume rather than
+	--- SoundGroup.Parent = nil so a muted group still tracks playback position.
+	function Sound.setVolume(volume: number)
+		groupVolume = math.clamp(volume, 0, 1)
+		if Config.Prototypes.Sound then
+			soundGroup().Volume = groupVolume
+		end
+	end
+
+	function Sound.setMuted(muted: boolean)
+		Sound.setVolume(muted and 0 or 1)
+	end
+
+	function Sound.group(): SoundGroup?
+		if not Config.Prototypes.Sound then
+			return nil
+		end
+		return soundGroup()
+	end
+
+	--- Warms every pool up front so the first drop of the session is not the one
+	--- that pays for eight instantiations. Safe to call more than once.
+	function Sound.preload(positional: boolean?)
+		if not Config.Prototypes.Sound then
+			return
+		end
+		for name, assetId in pairs(CFG.Library) do
+			local wants3d = positional ~= false
+			local key = name .. (wants3d and "@3d" or "@2d")
+			if not pools[key] then
+				pools[key] = buildPool(name, assetId, wants3d)
+			end
+		end
+	end
+
+	return Sound
 end
 
 
@@ -2003,6 +2556,116 @@ __MODULES["Util"] = function()
 end
 
 
+__MODULES["Utilities"] = function()
+	--[[
+		Utilities.lua — shared maths and lookups for the two player-progression
+		prototypes: the upgrade shop (Config.PlayerUpgrades) and the utility slot
+		(Config.Utilities).
+
+		Why one module for both: the server prices a purchase and the client draws
+		the price, and if those two ever disagree the shop shows a number you can't
+		actually buy at. Every formula the UI needs lives here so there is exactly
+		one copy of it, and the server treats its own result as the authority.
+
+		Pure data + maths only — no Instances, no remotes, so it is safe on both
+		sides of the wire.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+
+	local Utilities = {}
+
+	export type UpgradeDef = {
+		id: string, name: string, stat: string, levels: number,
+		base: number, perLevel: number, cost: number, costGrowth: number,
+		blurb: string,
+	}
+
+	export type UtilityDef = {
+		id: string, name: string, verb: string,
+		duration: number, cooldown: number, price: number, requires: string,
+	}
+
+	-- Config ships the two tables as arrays; index them once here rather than
+	-- looping over four entries on every remote call.
+	Utilities.UpgradeById = {} :: { [string]: UpgradeDef }
+	for _, def in ipairs(Config.PlayerUpgrades) do
+		Utilities.UpgradeById[def.id] = def
+	end
+
+	Utilities.UtilityById = {} :: { [string]: UtilityDef }
+	for _, def in ipairs(Config.Utilities) do
+		Utilities.UtilityById[def.id] = def
+	end
+
+	--- The value of an upgrade's stat at `level` (level 0 = unpurchased).
+	function Utilities.valueAt(def, level: number): number
+		return def.base + def.perLevel * math.clamp(level, 0, def.levels)
+	end
+
+	--- What the NEXT level costs, or nil at max. Geometric, per IDEAS.md §7:
+	--- x4–6 per tier for a ~7-level premium stat.
+	function Utilities.costAt(def, level: number): number?
+		if level >= def.levels then
+			return nil
+		end
+		return math.floor(def.cost * (def.costGrowth ^ level))
+	end
+
+	--- Trims trailing zeros so "23.10 studs/sec" reads as "23.1 studs/sec" without
+	--- turning the payout multiplier into a bare "x1".
+	function Utilities.formatValue(value: number): string
+		if value == math.floor(value) then
+			return tostring(math.floor(value))
+		end
+		local s = ("%.2f"):format(value)
+		s = s:gsub("0$", "")
+		return s
+	end
+
+	--- The blurb with the current stat value substituted in. Some blurbs (the
+	--- autocollect toggle) have no placeholder, hence the find().
+	function Utilities.describe(def, level: number): string
+		if not def.blurb:find("%%s") then
+			return def.blurb
+		end
+		return def.blurb:format(Utilities.formatValue(Utilities.valueAt(def, level)))
+	end
+
+	--- What each verb actually does, for the shop row. Config.Utilities carries a
+	--- verb and a duration but no player-facing description, and the wording has
+	--- to match what UpgradeService's implementation really does — so it lives
+	--- next to the maths rather than in the UI, where it would be one more thing
+	--- that can quietly stop being true.
+	local VERB_BLURB = {
+		freeze = "Roots nearby raiders for %ds. They can still swing.",
+		shove = "Heavy knockback on everything nearby. No damage.",
+		decoy = "Drops a decoy for %ds. PROTOTYPE: raiders ignore it.",
+	}
+
+	function Utilities.verbBlurb(def): string
+		local blurb = VERB_BLURB[def.verb] or ("%s nearby."):format(def.verb)
+		if blurb:find("%%d") then
+			return blurb:format(def.duration)
+		end
+		return blurb
+	end
+
+	--- Utilities are one-shot purchases, so their "level" is 0 or 1 and their cost
+	--- is flat. Expressed through the same two functions as the upgrades so the
+	--- shop UI can draw both kinds of row with one code path.
+	function Utilities.utilityCostAt(def, level: number): number?
+		if level >= 1 then
+			return nil
+		end
+		return def.price
+	end
+
+	return Utilities
+end
+
+
 __MODULES["CombatService"] = function()
 	--[[
 		CombatService.lua — bats, swinging, damage, knockback and PvP rules.
@@ -2472,6 +3135,22 @@ __MODULES["DataService"] = function()
 			batTier = 1,
 			kills = 0,
 			playtime = 0,
+			-- PROTOTYPE fields (Offline / Sessions / RebirthPerks). reconcile()
+			-- merges a saved value onto this default only when the TYPES match, so
+			-- adding a field here is what makes every existing save keep loading:
+			-- an old profile simply arrives with the default.
+			--
+			-- lastSeen is 0 rather than os.time() deliberately. A profile that has
+			-- never stored one has no knowable logout time, and seeding it with
+			-- "now" would look like a zero-second session; seeding it with 0 means
+			-- SessionService skips the offline payout for that first session and
+			-- starts counting from the logout after it.
+			lastSeen = 0,
+			sessions = {},     -- streak / boost / cap state, shaped by SessionService
+			unlocks = {},      -- { [unlockId] = label } granted by rebirth milestones
+			upgrades = {},     -- { [upgradeId] = level }, shaped by UpgradeService
+			utilityEquipped = "",  -- a Config.Utilities id; "" rather than nil so the
+			                       -- type-matched reconcile can merge a saved value
 			version = 1,
 		}
 	end
@@ -2577,6 +3256,11 @@ __MODULES["DataService"] = function()
 			batTier = profile.batTier,
 			kills = profile.kills,
 			playtime = profile.playtime,
+			lastSeen = profile.lastSeen,
+			sessions = profile.sessions,
+			unlocks = profile.unlocks,
+			upgrades = profile.upgrades,
+			utilityEquipped = profile.utilityEquipped,
 			version = profile.version,
 		}
 
@@ -2662,6 +3346,20 @@ __MODULES["Economy"] = function()
 
 	local dirty: { [Player]: boolean } = {}
 
+	--- PROTOTYPE HOOKS. Timed boosts, the weekend bonus and (eventually) the
+	--- player-upgrade cash multiplier all stack on top of rebirth, but Economy
+	--- must not depend on any of them — they depend on Economy, and Req refuses a
+	--- circular require. Each registers a named function here at boot and Economy
+	--- stays ignorant of what they do.
+	---
+	--- Keyed rather than a single slot so two prototypes can both stack without
+	--- silently overwriting each other.
+	local multiplierHooks: { [string]: (Player) -> number } = {}
+
+	function Economy.setMultiplierHook(name: string, fn: ((Player) -> number)?)
+		multiplierHooks[name] = fn
+	end
+
 	function Economy.multiplier(player: Player): number
 		local profile = DataService.get(player)
 		if not profile then
@@ -2670,7 +3368,11 @@ __MODULES["Economy"] = function()
 		-- compounding, not linear: rebirth cost grows geometrically (CostGrowth^n)
 		-- so a linear payout bonus would make each rebirth strictly worse than the
 		-- last and the prestige loop would dead-end after two or three.
-		return Config.Rebirth.MultiplierPerRebirth ^ profile.rebirths
+		local base = Config.Rebirth.MultiplierPerRebirth ^ profile.rebirths
+		for _, hook in pairs(multiplierHooks) do
+			base *= hook(player)
+		end
+		return base
 	end
 
 	function Economy.get(player: Player): number
@@ -2799,6 +3501,43 @@ __MODULES["Economy"] = function()
 		return math.floor(Config.Rebirth.BaseCost * (Config.Rebirth.CostGrowth ^ n))
 	end
 
+	--- PROTOTYPE (Config.Prototypes.RebirthPerks). A rebirth pays four things, not
+	--- one number. `Tycoon:rebirth()` owns two of them — it bumps profile.rebirths
+	--- (the multiplier) and resets cash to Config.Economy.StartingCash — and it is
+	--- owned by another track, so the other two are applied here, from the one
+	--- module allowed to create cash.
+	---
+	--- `perks` comes from SessionService.rebirthPerksFor(profile). Passing it in
+	--- rather than computing it keeps the dependency arrow pointing one way.
+	---
+	--- Idempotent on purpose: it tops cash UP to the grant instead of adding to
+	--- it, so a double call (a retry, a re-detect) cannot be farmed.
+	function Economy.applyRebirthGrants(player: Player, perks): number
+		local profile = DataService.get(player)
+		if not profile or not perks then
+			return 0
+		end
+
+		local granted = 0
+		local target = math.floor(tonumber(perks.startingCash) or 0)
+		if target > profile.cash then
+			granted = target - profile.cash
+			profile.cash = target
+		end
+
+		if type(perks.unlocks) == "table" then
+			if type(profile.unlocks) ~= "table" then
+				profile.unlocks = {}
+			end
+			for id, label in pairs(perks.unlocks) do
+				profile.unlocks[id] = label
+			end
+		end
+
+		Economy.push(player)
+		return granted
+	end
+
 	function Economy.notify(player: Player, payload)
 		notifyRemote:FireClient(player, payload)
 	end
@@ -2824,6 +3563,416 @@ __MODULES["Economy"] = function()
 	Economy.format = Util.abbreviate
 
 	return Economy
+end
+
+
+__MODULES["FloorService"] = function()
+	--[[
+		FloorService.lua — the second-storey prototype.
+
+		A mezzanine deck over the BACK half of the plot, with its own dropper ->
+		belt -> collector loop and a pair of teleport pads. Gated on
+		Config.Prototypes.Floors; a no-op when the flag is off, and per plot it only
+		appears once that plot owns Config.Floors[1].requires — the last button of
+		the ground floor. "You buy floor 2 before you get anywhere near finishing
+		floor 1" is the single most complained-about thing in multi-floor tycoons.
+
+		Three decisions that look arbitrary and are not:
+
+		  OFFSET, NOT STACKED. The deck covers the back half only, so the aisle you
+		  walk down and the buy-button spine stay open to the sky. Roblox has no
+		  good answer for a ceiling: opaque snaps the camera to head height,
+		  transparent lets it pop through, and LocalTransparencyModifier is
+		  overwritten by the default camera scripts every frame.
+
+		  PADS, NOT A LIFT. Every shipped "elevator" in this genre is a teleport
+		  pair. TweenService platforms jitter and slide players off, and they buy
+		  nothing: the pads do not even have to be vertically aligned.
+
+		  ITS OWN LOOP. Each floor runs an independent dropper -> belt -> collector.
+		  Cross-floor transport is the trap — upward conveyors need velocity >= 25
+		  and still stick.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Tycoon = Req("Tycoon")
+
+	local FloorService = {}
+
+	local FLOOR = Config.Floors and Config.Floors[1]
+
+	-- Geometry Config.Floors has no key for yet, so it lives here rather than in
+	-- someone else's file this week. SHOULD MOVE TO CONFIG: all of it belongs in
+	-- the Config.Floors entry beside deckSize / padUp / railHeight.
+	local DECK_LIFT = 0.1        -- belt and machines float this far over the deck
+	local BACK_MARGIN = 12       -- belt leg 1, in from the deck's back edge
+	local FRONT_MARGIN = 14      -- the return leg, in from the front edge
+	local SIDE_MARGIN = 10       -- the side legs, in from the left/right edges
+	local COLLECTOR_RUN = 16     -- run-off between the belt's end and the hopper
+	local PAD_CLEARANCE = 12     -- keep the hopper this clear of the teleport pad
+	local DROPPER_AT = 14        -- distance along leg 1 for the floor's dropper
+	local RAIL_THICKNESS = 1
+	local RAIL_BAR = 1.4         -- the visible top bar, on top of the guard
+	local PILLAR = 2.4           -- support posts down to the plot floor
+	-- The posts stand on the GROUND floor, so their footprints are chosen to miss
+	-- everything already down there: 4 in from the deck's sides puts them at x=+-52,
+	-- outboard of the belt's leg 2 (which reaches x=-48.6) and clear of the upgrader
+	-- beams; 8 in from the deck's front edge drops them at z=-16, between upgrader
+	-- slots 2 and 3 at z=-26 and z=-10.
+	local PILLAR_INSET_SIDE = 4
+	local PILLAR_INSET_BACK = 4
+	local PILLAR_INSET_FRONT = 8
+	local PAD_SIZE = Vector3.new(9, 1, 9)
+	local PAD_GROUND_TOP = 1.1   -- its own Y: the claim pad tops out at 1.2, rebirth at 1.5
+	local PAD_STAND = 3.5        -- pivot height above the pad you land on
+	local PAD_COOLDOWN = 1.5
+
+	local COLORS = {
+		deck   = Color3.fromRGB(138, 88, 58),
+		frame  = Color3.fromRGB(118, 122, 130),
+		rail   = Color3.fromRGB(255, 176, 60),
+		padUp  = Color3.fromRGB(120, 200, 255),
+		padDown = Color3.fromRGB(255, 190, 120),
+	}
+
+	-- one entry per plot: { folder, built }
+	local state: { [any]: any } = {}
+
+	-- Characters currently standing on a pad they were just delivered to. Weak
+	-- keys so a player who leaves mid-ride doesn't pin their character forever.
+	local arrivals: { [Model]: BasePart } = setmetatable({}, { __mode = "k" }) :: any
+	local lastRide: { [Model]: number } = setmetatable({}, { __mode = "k" }) :: any
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- geometry
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function deckTopY(): number
+		return FLOOR.height
+	end
+
+	--- The mezzanine's belt: three legs around the back and left of the deck, then
+	--- a return leg back across it to the hopper. Derived from the deck rectangle
+	--- and the pad position rather than written out as a second set of magic
+	--- coordinates, so it follows Config.Floors[1] if the deck is ever resized.
+	---
+	--- The return leg is what the shipped outboard heuristic could not do. Its
+	--- midpoint sits near the middle of the plot, so `normal:Dot(midpoint) < 0`
+	--- picks the wrong side and hangs the machines over the walkway. Signs are
+	--- explicit: every leg's outboard side faces out of the U.
+	local function deckPath(): (any, { number })
+		local half = FLOOR.deckSize * 0.5
+		local centre = FLOOR.deckAt
+
+		local backZ = centre.Z - half.Z + BACK_MARGIN
+		local frontZ = centre.Z + half.Z - FRONT_MARGIN
+		local rightX = centre.X + half.X - SIDE_MARGIN
+		local leftX = centre.X - half.X + SIDE_MARGIN
+		local collectorX = FLOOR.padUp.X - PAD_CLEARANCE
+
+		return {
+			id = FLOOR.id,
+			-- lifted off the deck: a belt base whose underside is coplanar with the
+			-- deck's top face is two surfaces at one Y, which z-fights
+			y = deckTopY() + DECK_LIFT,
+			points = {
+				Vector3.new(rightX, 0, backZ),
+				Vector3.new(leftX, 0, backZ),
+				Vector3.new(leftX, 0, frontZ),
+				Vector3.new(collectorX - COLLECTOR_RUN, 0, frontZ),
+			},
+			collectorAt = Vector3.new(collectorX, 0, frontZ),
+		}, { 1, 1, 1 }
+	end
+
+	--- The mezzanine's dropper. It mirrors the button that unlocked the floor, so
+	--- the upper floor rides the ground floor's balance instead of introducing a
+	--- second curve nobody has tuned — but at half the rate and twice the value,
+	--- for the same income out of half as many parts. Config.Economy.MaxDropsPerPlot
+	--- is a whole-plot budget and the modelled ground-floor peak already spends 58
+	--- of its 70.
+	---
+	--- SHOULD MOVE TO CONFIG: Config.Floors[1] has no dropper spec.
+	local function dropperDef(pathIndex: number)
+		local unlock = Config.ButtonById[FLOOR.requires]
+		return {
+			id = "floor_" .. FLOOR.id,
+			name = "Mezzanine Tung",
+			kind = "Dropper",
+			variant = (unlock and unlock.variant) or "classic",
+			dropValue = ((unlock and unlock.dropValue) or 1) * 2,
+			dropRate = ((unlock and unlock.dropRate) or 1.5) * 2,
+			-- pins the machine to a leg of a specific floor's belt; see Tycoon:legOf
+			legIndex = 1,
+			legDistance = DROPPER_AT,
+			pathIndex = pathIndex,
+		}
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- the deck
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	function FloorService.buildDeck(tycoon, folder: Instance)
+		local size = FLOOR.deckSize
+		local centre = FLOOR.deckAt
+		local top = deckTopY()
+
+		Tycoon.part(folder, "Deck", size,
+			tycoon:at(centre.X, top - size.Y / 2, centre.Z), COLORS.deck, Enum.Material.WoodPlanks)
+
+		-- Posts down to the plot floor. They overlap INTO the deck rather than
+		-- meeting its underside, because a post whose top face is coplanar with the
+		-- deck's bottom face z-fights from below.
+		local postTop = top - size.Y / 2 + 0.6
+		local postX = size.X / 2 - PILLAR_INSET_SIDE
+		local postZ = { centre.Z - size.Z / 2 + PILLAR_INSET_BACK, centre.Z + size.Z / 2 - PILLAR_INSET_FRONT }
+		for _, x in ipairs({ -1, 1 }) do
+			for _, z in ipairs(postZ) do
+				Tycoon.part(folder, "Post", Vector3.new(PILLAR, postTop, PILLAR),
+					tycoon:at(centre.X + x * postX, postTop / 2, z),
+					COLORS.frame, Enum.Material.Metal)
+			end
+		end
+
+		-- Perimeter guard: an invisible collide-wall, because a solid 5-stud rail
+		-- around the deck is a wall the camera has to fight. The visible part is a
+		-- thin bar along the top of it, which reads as a railing and occludes
+		-- nothing. Falling off is the obvious new failure mode of a floor.
+		local height = FLOOR.railHeight
+		local sides = {
+			{ Vector3.new(size.X, height, RAIL_THICKNESS), Vector3.new(0, 0, -size.Z / 2 + RAIL_THICKNESS / 2) },
+			{ Vector3.new(size.X, height, RAIL_THICKNESS), Vector3.new(0, 0, size.Z / 2 - RAIL_THICKNESS / 2) },
+			{ Vector3.new(RAIL_THICKNESS, height, size.Z), Vector3.new(-size.X / 2 + RAIL_THICKNESS / 2, 0, 0) },
+			{ Vector3.new(RAIL_THICKNESS, height, size.Z), Vector3.new(size.X / 2 - RAIL_THICKNESS / 2, 0, 0) },
+		}
+		for index, side in ipairs(sides) do
+			local extent, offset = side[1], side[2]
+			-- sunk 0.4 into the deck so its underside is inside solid geometry
+			local guard = Tycoon.part(folder, "Guard" .. index, extent,
+				tycoon:at(centre.X + offset.X, top + height / 2 - 0.4, centre.Z + offset.Z),
+				Color3.new(1, 1, 1), Enum.Material.SmoothPlastic)
+			guard.Transparency = 1
+			guard.CanQuery = false
+			guard.CastShadow = false
+
+			-- The bars are shortened on the long sides so the four of them abut at
+			-- the corners instead of overlapping: two coplanar top faces sharing a
+			-- corner square is a z-fight you only notice from the deck itself.
+			local barSize = Vector3.new(
+				(index <= 2) and extent.X or RAIL_BAR,
+				0.4,
+				(index <= 2) and RAIL_BAR or (extent.Z - 2 * RAIL_BAR))
+			-- and it sits just INSIDE the top of the guard, not flush with it
+			local bar = Tycoon.part(folder, "Rail" .. index, barSize,
+				tycoon:at(centre.X + offset.X, top + height - 0.7, centre.Z + offset.Z),
+				COLORS.rail, Enum.Material.Neon, false)
+			bar.CanQuery = false
+		end
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- teleport pads
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function humanoidsOn(pad: BasePart): { Model }
+		-- Sweep the pad's volume instead of trusting the part that touched it.
+		-- Teleporting only the toucher is the classic pad bug: it strands whoever
+		-- walked in with them on the wrong floor.
+		local volume = pad.Size + Vector3.new(0, 8, 0)
+		local parts = workspace:GetPartBoundsInBox(pad.CFrame * CFrame.new(0, 4, 0), volume)
+
+		local seen: { [Model]: boolean } = {}
+		local found: { Model } = {}
+		for _, part in ipairs(parts) do
+			local model = part:FindFirstAncestorOfClass("Model")
+			local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+			if humanoid and humanoid.Health > 0 and model.PrimaryPart and not seen[model] then
+				seen[model] = true
+				table.insert(found, model)
+			end
+		end
+		return found
+	end
+
+	local function ride(pad: BasePart, destination: BasePart)
+		local now = os.clock()
+		for _, model in ipairs(humanoidsOn(pad)) do
+			-- Don't bounce someone we just delivered here. The time window alone is
+			-- not enough: a character resting on a part re-fires Touched off its own
+			-- physics jitter, so the lock is only released when a sweep of the pad
+			-- no longer finds them (see the TouchEnded handler).
+			if arrivals[model] ~= pad and now - (lastRide[model] or 0) > PAD_COOLDOWN then
+				lastRide[model] = now
+				arrivals[model] = destination
+
+				local pivot = model:GetPivot()
+				local offset = pivot.Position - pad.Position
+				local landing = destination.Position
+					+ Vector3.new(offset.X, 0, offset.Z)
+					+ Vector3.new(0, destination.Size.Y / 2 + PAD_STAND, 0)
+
+				-- PivotTo overwrites the model's rotation outright, so the facing
+				-- has to be baked into the target or everyone lands staring at
+				-- world -Z regardless of which way they walked in.
+				model:PivotTo(CFrame.new(landing) * (pivot - pivot.Position))
+			end
+		end
+	end
+
+	--- Both pads of a pair, wired to each other.
+	local function linkPads(a: BasePart, b: BasePart)
+		for _, pair in ipairs({ { a, b }, { b, a } }) do
+			local pad, destination = pair[1], pair[2]
+			pad.Touched:Connect(function()
+				ride(pad, destination)
+			end)
+			pad.TouchEnded:Connect(function()
+				-- release the arrival lock once they have actually stepped off
+				local standing: { [Model]: boolean } = {}
+				for _, model in ipairs(humanoidsOn(pad)) do
+					standing[model] = true
+				end
+				for model, held in pairs(arrivals) do
+					if held == pad and not standing[model] then
+						arrivals[model] = nil
+					end
+				end
+			end)
+		end
+	end
+
+	local function buildPad(tycoon, folder: Instance, name: string, at: Vector3, topY: number, color: Color3, text: string): BasePart
+		local pad = Tycoon.part(folder, name, PAD_SIZE,
+			tycoon:at(at.X, topY - PAD_SIZE.Y / 2, at.Z), color, Enum.Material.Neon)
+		-- walk-over, not step-onto, exactly like the claim and rebirth pads
+		pad.CanCollide = false
+
+		local light = Instance.new("PointLight")
+		light.Color = color
+		light.Range = 14
+		light.Brightness = 1.6
+		light.Shadows = false
+		light.Parent = pad
+
+		local billboard = Instance.new("BillboardGui")
+		billboard.Size = UDim2.fromScale(12, 4)
+		billboard.StudsOffsetWorldSpace = Vector3.new(0, 6, 0)
+		billboard.MaxDistance = 180
+		billboard.Parent = pad
+
+		local label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.Size = UDim2.fromScale(1, 1)
+		label.Font = Enum.Font.FredokaOne
+		label.Text = text
+		label.TextColor3 = color
+		label.TextStrokeTransparency = 0.2
+		label.TextScaled = true
+		label.Parent = billboard
+
+		return pad
+	end
+
+	function FloorService.buildPads(tycoon, folder: Instance)
+		-- Config.Floors gives padDown and padUp the same X/Z, so which name means
+		-- which cannot bite: the ground pad takes you up, the deck pad takes you
+		-- down. They do not have to line up at all — the shipped elevators in this
+		-- genre explicitly don't — but a pair that does reads as a lift shaft.
+		local toDeck = buildPad(tycoon, folder, "PadToMezzanine", FLOOR.padDown, PAD_GROUND_TOP,
+			COLORS.padUp, "▲ MEZZANINE")
+		local toGround = buildPad(tycoon, folder, "PadToGround", FLOOR.padUp,
+			deckTopY() + DECK_LIFT + PAD_SIZE.Y, COLORS.padDown, "▼ GROUND FLOOR")
+		linkPads(toDeck, toGround)
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- lifecycle
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function stateFor(tycoon)
+		local entry = state[tycoon]
+		if entry then
+			return entry
+		end
+
+		local folder = Instance.new("Folder")
+		folder.Name = "Floors"
+		folder.Parent = tycoon.model
+		-- so a released plot doesn't leave a deck hanging over a bare claim pad
+		tycoon:registerFactoryFolder(folder)
+
+		entry = { folder = folder, built = false }
+		state[tycoon] = entry
+		return entry
+	end
+
+	function FloorService.build(tycoon)
+		local entry = stateFor(tycoon)
+		entry.folder:ClearAllChildren()
+
+		FloorService.buildDeck(tycoon, entry.folder)
+
+		local def, outboard = deckPath()
+		local pathIndex = tycoon:addBeltPath(def, outboard)
+		tycoon:buildBelt(pathIndex, entry.folder)
+		tycoon:buildCollector(pathIndex, entry.folder, false)
+
+		local dropper = dropperDef(pathIndex)
+		local model, nozzle, legIndex = tycoon:buildDropperMachine(dropper, entry.folder)
+		tycoon:startDropLoop(dropper, model, nozzle, legIndex, pathIndex)
+
+		FloorService.buildPads(tycoon, entry.folder)
+		entry.built = true
+	end
+
+	function FloorService.teardown(tycoon)
+		local entry = state[tycoon]
+		if not entry then
+			return
+		end
+		-- Clearing the folder ends the floor's drop loop on its own: the loop polls
+		-- its own model's Parent. The belt PATH stays registered — it is pure maths
+		-- and addBeltPath is idempotent by id, so a rebuild rebuilds parts rather
+		-- than stacking a second path onto the plot.
+		entry.folder:ClearAllChildren()
+		entry.built = false
+	end
+
+	--- Builds or tears down a plot's floors to match what it owns right now.
+	function FloorService.sync(tycoon)
+		local unlocked = tycoon.owner ~= nil and tycoon.owned[FLOOR.requires] == true
+		local entry = state[tycoon]
+		local built = entry ~= nil and entry.built
+
+		if unlocked and not built then
+			FloorService.build(tycoon)
+		elseif built and not unlocked then
+			FloorService.teardown(tycoon)
+		end
+	end
+
+	function FloorService.start()
+		if not Config.Prototypes.Floors then
+			return
+		end
+		if not FLOOR then
+			warn("[Tung] Prototypes.Floors is on but Config.Floors is empty")
+			return
+		end
+		if not Config.ButtonById[FLOOR.requires] then
+			warn("[Tung] floor " .. tostring(FLOOR.id) .. " requires an unknown button: " .. tostring(FLOOR.requires))
+			return
+		end
+
+		for _, tycoon in ipairs(Tycoon.all()) do
+			tycoon:onOwnedChanged(FloorService.sync)
+			FloorService.sync(tycoon)
+		end
+	end
+
+	return FloorService
 end
 
 
@@ -3714,6 +4863,816 @@ __MODULES["PlotService"] = function()
 end
 
 
+__MODULES["SessionService"] = function()
+	--[[
+		SessionService.lua — offline earnings, the three session loops (daily
+		streak, playtime ladder, boost button) and the three rebirth grants that
+		Tycoon:rebirth() does not hand out.
+
+		Three Config.Prototypes flags live here — Offline, Sessions and
+		RebirthPerks — because they share one profile sub-table, one replicated
+		payload and one panel. Each is checked independently, and with all three
+		off every entry point returns before doing any work.
+
+		TIME. Two rules, both of them bugs someone else already shipped:
+
+		  * **os.time(), never tick().** tick() is the wall clock of whatever
+		    machine the server happens to be running on. Storing one machine's
+		    tick() and subtracting another's is how a developer accidentally
+		    granted 1.6 billion from a few seconds of drift. os.time() is UTC
+		    epoch seconds and is the same number everywhere.
+		  * **Day buckets are math.floor(os.time() / 86400), never
+		    os.date("%j").** The day-of-year restarts at 1 on January 1st, so a
+		    streak keyed on it breaks for every player in the game on the same
+		    night — and it breaks in the direction of resetting their streak.
+
+		os.clock() still appears below, but only for monotonic in-session
+		durations (activity sampling, rate limits) where it is the right tool and
+		nothing is persisted.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Util = Req("Util")
+	local Net = Req("Net")
+	local DataService = Req("DataService")
+	local Economy = Req("Economy")
+
+	local Players = game:GetService("Players")
+
+	local SessionService = {}
+
+	local P = Config.Prototypes
+	local S = Config.Sessions
+	local O = Config.Offline
+	local RP = Config.RebirthPerks
+
+	local DAY = 86400
+	local PUSH_SECONDS = 5        -- how often state is re-replicated if nothing changed
+	local ACTIVITY_STUDS = 2      -- movement per sample that counts as "still playing"
+	local CLAIM_COOLDOWN = 0.25   -- per-player floor between remote claims
+
+	local sessionState = Net.event("SessionState")
+	local requestClaim = Net.event("RequestClaim")
+	local requestBoost = Net.event("RequestBoost")
+
+	--- Anything on at all? The whole file is inert otherwise.
+	local function enabled(): boolean
+		return P.Offline or P.Sessions or P.RebirthPerks
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- per-session runtime state (never persisted)
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	type Live = {
+		player: Player,
+		activeSeconds: number,        -- session-scoped, and only counts while active
+		lastPosition: Vector3?,
+		lastClaim: number,
+		claimedPlaytime: { [number]: boolean },
+		offline: any,                 -- pending welcome-back grant, nil once claimed
+		rebirths: number,             -- last seen count, to detect a rebirth landing
+		dirty: boolean,
+		lastPush: number,
+	}
+
+	local live: { [Player]: Live } = {}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- profile shape
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- The `sessions` sub-table of a profile.
+	---
+	--- DataService.reconcile() only type-checks TOP-LEVEL keys, so a table field
+	--- arrives from the DataStore exactly as it was written — including from a
+	--- build where the shape was different. Every field is re-derived here on
+	--- every read, which is cheap and means no other function in this file has to
+	--- wonder whether a number is a number.
+	local function sessions(profile)
+		local s = profile.sessions
+		if type(s) ~= "table" then
+			s = {}
+			profile.sessions = s
+		end
+		s.dailyDay = math.floor(tonumber(s.dailyDay) or 0)
+		s.streak = math.max(0, math.floor(tonumber(s.streak) or 0))
+		s.boostUntil = math.floor(tonumber(s.boostUntil) or 0)
+		s.boostReadyAt = math.floor(tonumber(s.boostReadyAt) or 0)
+		s.offlineCapLevel = math.clamp(math.floor(tonumber(s.offlineCapLevel) or 0), 0, #O.CapUpgradeHours)
+		return s
+	end
+
+	local function dayNumber(): number
+		return math.floor(os.time() / DAY)
+	end
+
+	--- UTC, because a server-wide "weekend" that depends on where the machine is
+	--- would start at different times for different players.
+	local function isWeekend(): boolean
+		return S.WeekendDays[os.date("!*t").wday] == true
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- income, derived from the SAVED plot
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- Income per second computed from persisted plot state and nothing else.
+	---
+	--- Never from a value cached at logout (a stale multiplier survives a nerf and
+	--- pays out forever) and never from anything the client said. An offline
+	--- player has no Tycoon instance to ask, which is why this mirrors
+	--- `Tycoon:incomePerSecond()` rather than calling it.
+	---
+	--- Deliberately EXCLUDES the session multipliers below: a 2x boost is bought
+	--- with presence, and banking it while logged out is the opposite of the
+	--- point. It includes the rebirth multiplier because that is a property of the
+	--- factory, not of the session.
+	function SessionService.incomePerSecondFor(profile): number
+		if type(profile) ~= "table" then
+			return 0
+		end
+		local upgradeMult, total = 1, 0
+		for id, owned in pairs(profile.owned or {}) do
+			local def = owned and Config.ButtonById[id]
+			if def then
+				if def.kind == "Upgrader" then
+					upgradeMult *= def.multiplier
+				elseif def.kind == "Dropper" then
+					total += def.dropValue / def.dropRate
+				end
+			end
+		end
+		local rebirths = math.max(0, math.floor(tonumber(profile.rebirths) or 0))
+		return total * upgradeMult * (Config.Rebirth.MultiplierPerRebirth ^ rebirths)
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- offline earnings
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- Hours of offline income this profile banks. The cap is a purchase, which is
+	--- what turns it from a wall you resent into a goal you aim at.
+	function SessionService.offlineCapHours(profile): number
+		local level = sessions(profile).offlineCapLevel
+		return O.CapUpgradeHours[level] or O.CapHours
+	end
+
+	--- The upgrade that WOULD have prevented the clip. Naming it on the panel is
+	--- the difference between "we took your money" and "here is what to buy".
+	local function nextCapUpgrade(profile)
+		local level = sessions(profile).offlineCapLevel + 1
+		local hours = O.CapUpgradeHours[level]
+		if not hours then
+			return nil
+		end
+		return {
+			level = level,
+			hours = hours,
+			cost = O.CapUpgradeCost[level],
+			name = ("Vault Timer %d"):format(level),
+			label = ("Vault Timer %d — banks %dh offline instead of %dh"):format(
+				level, hours, SessionService.offlineCapHours(profile)),
+		}
+	end
+
+	--- What they earned while away. Returns nil when there is nothing worth
+	--- showing a panel for — that is a real answer, not a failure.
+	local function computeOffline(profile)
+		if not P.Offline then
+			return nil
+		end
+		local lastSeen = math.floor(tonumber(profile.lastSeen) or 0)
+		if lastSeen <= 0 then
+			return nil            -- no recorded logout: pre-prototype save, or a first session
+		end
+
+		local away = os.time() - lastSeen
+		-- A clock that went backwards (host migration, NTP correction) must pay
+		-- nothing rather than something huge with a sign error in it.
+		if away < O.MinimumSeconds then
+			return nil
+		end
+
+		local perSecond = SessionService.incomePerSecondFor(profile)
+		if perSecond <= 0 then
+			return nil            -- no factory yet; there is nothing to have missed
+		end
+
+		local capSeconds = SessionService.offlineCapHours(profile) * 3600
+		local credited = math.min(away, capSeconds)
+		local earned = math.floor(credited * perSecond * O.Rate)
+		if earned <= 0 then
+			return nil
+		end
+
+		return {
+			seconds = away,
+			creditedSeconds = credited,
+			earned = earned,
+			rate = O.Rate,
+			perSecond = perSecond,
+			capHours = capSeconds / 3600,
+			clipped = away > capSeconds,
+			lost = math.max(0, math.floor((away - credited) * perSecond * O.Rate)),
+			upgrade = nextCapUpgrade(profile),
+		}
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- daily streak
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function dailyRewardFor(streak: number)
+		-- the ladder loops, so day 8 restarts at day 1's payout and the MILESTONES
+		-- carry the long tail
+		local index = ((math.max(1, streak) - 1) % #S.DailyRewards) + 1
+		local base = S.DailyRewards[index]
+		local milestone = S.DailyMilestones[streak]
+		return base + (milestone or 0), index, milestone
+	end
+
+	--- Streak arithmetic in whole UTC day buckets.
+	---
+	--- Grace is expressed in buckets rather than hours on purpose: buckets are
+	--- coarse (claim at 23:00 and again at 01:00 two buckets later is 26 real
+	--- hours), and every rounding error in a grace period should fall on the
+	--- player's side. Losing a 20-day streak to one missed evening is how you lose
+	--- the player, not the streak.
+	local function nextStreak(s): number
+		local graceBuckets = 1 + math.floor(S.DailyGraceHours / 24)
+		if s.dailyDay <= 0 then
+			return 1
+		end
+		local gap = dayNumber() - s.dailyDay
+		if gap <= graceBuckets then
+			return s.streak + 1
+		end
+		return 1
+	end
+
+	local function dailyState(profile)
+		local s = sessions(profile)
+		local streak = nextStreak(s)
+		local reward, index, milestone = dailyRewardFor(streak)
+		return {
+			available = s.dailyDay < dayNumber(),
+			streak = s.streak,
+			nextStreak = streak,
+			dayIndex = index,
+			ladder = #S.DailyRewards,
+			reward = reward,
+			milestone = milestone,
+			graceHours = S.DailyGraceHours,
+			-- seconds until the next bucket opens, for the "come back in" line
+			resetIn = ((dayNumber() + 1) * DAY) - os.time(),
+		}
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- playtime ladder
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function playtimeReward(index: number): number
+		return math.floor(S.PlaytimeRewardBase * (S.PlaytimeRewardGrowth ^ (index - 1)))
+	end
+
+	local function playtimeState(entry: Live)
+		local rungs = {}
+		for index, minutes in ipairs(S.PlaytimeMinutes) do
+			local required = minutes * 60
+			local status = "locked"
+			if entry.claimedPlaytime[index] then
+				status = "claimed"
+			elseif entry.activeSeconds >= required then
+				status = "ready"
+			end
+			rungs[index] = {
+				index = index,
+				minutes = minutes,
+				reward = playtimeReward(index),
+				status = status,
+			}
+		end
+		return {
+			activeSeconds = math.floor(entry.activeSeconds),
+			rungs = rungs,
+		}
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- boost + weekend
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- Everything the session layer multiplies income by. Registered onto Economy
+	--- at start(), so `Economy.multiplier()` — and therefore every payout and
+	--- every income/sec readout — picks it up without Economy knowing this file
+	--- exists.
+	function SessionService.incomeMultiplier(player: Player): number
+		if not P.Sessions then
+			return 1
+		end
+		local profile = DataService.get(player)
+		if not profile then
+			return 1
+		end
+		local mult = 1
+		if sessions(profile).boostUntil > os.time() then
+			mult *= S.BoostMultiplier
+		end
+		if isWeekend() then
+			mult *= S.WeekendMultiplier
+		end
+		return mult
+	end
+
+	local function boostState(profile)
+		local s = sessions(profile)
+		local now = os.time()
+		return {
+			active = s.boostUntil > now,
+			secondsLeft = math.max(0, s.boostUntil - now),
+			cooldownLeft = math.max(0, s.boostReadyAt - now),
+			multiplier = S.BoostMultiplier,
+			duration = S.BoostSeconds,
+			cooldown = S.BoostCooldown,
+			weekend = isWeekend(),
+			weekendMultiplier = S.WeekendMultiplier,
+		}
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- rebirth perks
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- The four things a rebirth pays, for a given profile's CURRENT rebirth count.
+	---
+	--- Exposed rather than applied wholesale because `Tycoon:rebirth()` is owned by
+	--- another track and already applies two of them (it increments
+	--- profile.rebirths, which is the multiplier, and resets cash to
+	--- Config.Economy.StartingCash). This function is the single description of
+	--- all four; Economy.applyRebirthGrants() consumes two more, and the fourth is
+	--- the TODO below.
+	---
+	--- Safe to call with the flag off: you get the shipped behaviour (multiplier
+	--- only, default starting cash), which is what makes it usable as the one
+	--- source of truth for a HUD.
+	function SessionService.rebirthPerksFor(profile)
+		local n = math.max(0, math.floor(tonumber(profile and profile.rebirths) or 0))
+		local perks = {
+			rebirths = n,
+			multiplier = Config.Rebirth.MultiplierPerRebirth ^ n,
+			startingCash = Config.Economy.StartingCash,
+			capacityBonus = 0,
+			milestone = nil,
+			unlocks = {},
+		}
+		if not P.RebirthPerks or n == 0 then
+			return perks
+		end
+
+		-- Geometric like the cost curve it is paid against; a flat per-rebirth
+		-- grant is invisible by rebirth four.
+		perks.startingCash = math.max(
+			Config.Economy.StartingCash,
+			math.floor(RP.StartingCashPerRebirth * (RP.StartingCashGrowth ^ (n - 1))))
+
+		-- TODO(capacity): the third grant is a PERMANENT CAPACITY BUMP and it is
+		-- the one part of this that cannot be applied from outside the tycoon.
+		-- The consumer is `Tycoon:spawnDrop()`, whose guard reads
+		--
+		--     if self.dropCount >= Config.Economy.MaxDropsPerPlot then
+		--
+		-- and needs to become
+		--
+		--     local perks = SessionService.rebirthPerksFor(DataService.get(self.owner))
+		--     if self.dropCount >= Config.Economy.MaxDropsPerPlot + perks.capacityBonus then
+		--
+		-- Tycoon.lua is owned by another track, so the number is computed and
+		-- replicated here and is simply not read yet. Belt occupancy is verified
+		-- in tools/verify_config.lua, so raising the cap needs that check re-run.
+		perks.capacityBonus = math.floor(n / RP.SlotEveryRebirths)
+
+		perks.milestone = RP.Milestones[n]
+		-- every milestone at or below the current count, so a player who somehow
+		-- skipped one (a rollback, an admin grant) still owns everything they passed
+		for at, milestone in pairs(RP.Milestones) do
+			if n >= at then
+				perks.unlocks[milestone.unlock] = milestone.label
+			end
+		end
+		return perks
+	end
+
+	--- Has this profile been granted a milestone unlock? The persisted form is
+	--- `profile.unlocks[id] = label`, written by Economy.applyRebirthGrants — this
+	--- is the read side, for whoever consumes "mezzanine" / "utility2" /
+	--- "goldplot" (FloorService and the utility slot own those, not this file).
+	function SessionService.hasUnlock(profile, id: string): boolean
+		return type(profile) == "table" and type(profile.unlocks) == "table" and profile.unlocks[id] ~= nil
+	end
+
+	--- Detected rather than called: Tycoon:rebirth() is off limits, so the rebirth
+	--- count is polled once a second and the extra grants land right behind it.
+	local function onRebirthDetected(player: Player, profile, entry: Live)
+		local perks = SessionService.rebirthPerksFor(profile)
+		local granted = Economy.applyRebirthGrants(player, perks)
+
+		local lines = { ("All payouts x%.2f"):format(perks.multiplier) }
+		if granted > 0 then
+			table.insert(lines, ("Starting cash %s"):format(Util.abbreviate(granted)))
+		end
+		if perks.capacityBonus > 0 then
+			table.insert(lines, ("+%d permanent slot%s"):format(
+				perks.capacityBonus, perks.capacityBonus == 1 and "" or "s"))
+		end
+		if perks.milestone then
+			table.insert(lines, ("Unlocked: %s"):format(perks.milestone.label))
+		end
+
+		Economy.notify(player, {
+			kind = "rebirth",
+			title = ("REBIRTH %d PERKS"):format(perks.rebirths),
+			body = table.concat(lines, "  •  "),
+		})
+		entry.dirty = true
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- replication
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- The entire replicated payload for one player. Public because it is also the
+	--- answer to "what does the server think my session is", which is the only
+	--- useful thing to print when a claim button disagrees with the server.
+	function SessionService.stateFor(player: Player)
+		local entry = live[player]
+		local profile = DataService.get(player)
+		if not entry or not profile then
+			return nil
+		end
+		return {
+			enabled = { offline = P.Offline, sessions = P.Sessions, rebirth = P.RebirthPerks },
+			daily = P.Sessions and dailyState(profile) or nil,
+			playtime = P.Sessions and playtimeState(entry) or nil,
+			boost = P.Sessions and boostState(profile) or nil,
+			offline = entry.offline,
+			rebirth = P.RebirthPerks and SessionService.rebirthPerksFor(profile) or nil,
+		}
+	end
+
+	local function pushState(player: Player)
+		local entry = live[player]
+		local payload = SessionService.stateFor(player)
+		if not entry or not payload then
+			return
+		end
+		entry.dirty = false
+		entry.lastPush = os.clock()
+		sessionState:FireClient(player, payload)
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- claims (server-authoritative; the client sends an intent, never an amount)
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function claimOffline(player: Player, entry: Live)
+		local pending = entry.offline
+		if not P.Offline or not pending then
+			return
+		end
+		-- cleared BEFORE the payout so a double-fired remote cannot pay twice
+		entry.offline = nil
+
+		Economy.add(player, pending.earned, false)   -- perSecond already carries the rebirth multiplier
+		Economy.push(player)
+		Economy.notify(player, {
+			kind = "claim",
+			title = "OFFLINE TUNG COLLECTED",
+			body = ("%s banked from %s away."):format(
+				Util.abbreviate(pending.earned), SessionService.describeDuration(pending.seconds)),
+		})
+		entry.dirty = true
+	end
+
+	local function claimDaily(player: Player, entry: Live, profile)
+		if not P.Sessions then
+			return
+		end
+		local s = sessions(profile)
+		local today = dayNumber()
+		if s.dailyDay >= today then
+			return                      -- already claimed in this UTC bucket
+		end
+
+		local streak = nextStreak(s)
+		local reward, _index, milestone = dailyRewardFor(streak)
+		s.streak = streak
+		s.dailyDay = today
+
+		-- flat, unmultiplied: a login reward that scales with a 2x boost turns the
+		-- boost button into a "wait before claiming" puzzle
+		Economy.add(player, reward, false)
+		Economy.push(player)
+		Economy.notify(player, {
+			kind = "claim",
+			title = ("DAY %d STREAK"):format(streak),
+			body = milestone
+				and ("%s — including a %s milestone bonus."):format(Util.abbreviate(reward), Util.abbreviate(milestone))
+				or ("%s. Come back tomorrow for more."):format(Util.abbreviate(reward)),
+		})
+		entry.dirty = true
+	end
+
+	local function claimPlaytime(player: Player, entry: Live, index: number)
+		if not P.Sessions then
+			return
+		end
+		local minutes = S.PlaytimeMinutes[index]
+		if not minutes or entry.claimedPlaytime[index] then
+			return
+		end
+		if entry.activeSeconds < minutes * 60 then
+			return                      -- the client asked early; the server decides
+		end
+
+		entry.claimedPlaytime[index] = true
+		local reward = playtimeReward(index)
+		Economy.add(player, reward, false)
+		Economy.push(player)
+		Economy.notify(player, {
+			kind = "claim",
+			title = ("%d MINUTES PLAYED"):format(minutes),
+			body = ("%s. The ladder resets when you leave."):format(Util.abbreviate(reward)),
+		})
+		entry.dirty = true
+	end
+
+	local function claimBoost(player: Player, entry: Live, profile)
+		if not P.Sessions then
+			return
+		end
+		local s = sessions(profile)
+		local now = os.time()
+		if s.boostReadyAt > now then
+			return
+		end
+		s.boostUntil = now + S.BoostSeconds
+		s.boostReadyAt = now + S.BoostCooldown
+
+		Economy.push(player)            -- the multiplier readout changes immediately
+		Economy.notify(player, {
+			kind = "gear",
+			title = ("x%g BOOST ACTIVE"):format(S.BoostMultiplier),
+			body = ("All income x%g for %d minutes."):format(S.BoostMultiplier, S.BoostSeconds // 60),
+		})
+		entry.dirty = true
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- activity
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- The playtime ladder is gated on ACTIVITY, not wall clock. Paying for
+	--- alt-tabbed minutes prices the reward against nothing and rewards the one
+	--- behaviour a session loop exists to avoid.
+	---
+	--- Two signals, because either alone has a hole: position delta misses someone
+	--- holding W into a wall, and MoveDirection misses someone being carried by a
+	--- conveyor or a knockback. Neither misses someone actually playing.
+	local function sampleActivity(entry: Live, dt: number)
+		local character = entry.player.Character
+		if not character then
+			entry.lastPosition = nil
+			return
+		end
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+
+		local active = false
+		local position = (root :: BasePart).Position
+		if entry.lastPosition and (position - entry.lastPosition).Magnitude >= ACTIVITY_STUDS then
+			active = true
+		end
+		entry.lastPosition = position
+
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid and humanoid.MoveDirection.Magnitude > 0.1 then
+			active = true
+		end
+
+		if active then
+			local before = entry.activeSeconds
+			entry.activeSeconds += dt
+			-- a rung becoming claimable is the moment worth replicating
+			for index, minutes in ipairs(S.PlaytimeMinutes) do
+				local required = minutes * 60
+				if before < required and entry.activeSeconds >= required and not entry.claimedPlaytime[index] then
+					entry.dirty = true
+					Economy.notify(entry.player, {
+						kind = "claim",
+						title = ("%d MINUTE REWARD READY"):format(minutes),
+						body = ("Claim %s from the session panel."):format(Util.abbreviate(playtimeReward(index))),
+					})
+				end
+			end
+		end
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- public
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- "2 days, 3 hours" — the panel has to state how long they were away, and
+	--- "173,244 seconds" is not that.
+	function SessionService.describeDuration(seconds: number): string
+		seconds = math.max(0, math.floor(seconds))
+		local days = seconds // DAY
+		local hours = (seconds % DAY) // 3600
+		local minutes = (seconds % 3600) // 60
+		if days > 0 then
+			return ("%dd %dh"):format(days, hours)
+		elseif hours > 0 then
+			return ("%dh %dm"):format(hours, minutes)
+		elseif minutes > 0 then
+			return ("%dm"):format(minutes)
+		end
+		return ("%ds"):format(seconds)
+	end
+
+	--- One beat of one player's session. Pulled out of the loop below so the loop
+	--- reads as a loop, and so the whole of this file can be driven a step at a
+	--- time from outside Roblox.
+	function SessionService.step(player: Player, dt: number)
+		local entry = live[player]
+		local profile = DataService.get(player)
+		if not entry or not profile then
+			return
+		end
+
+		-- Keep the logout stamp fresh every beat. PlayerRemoving also writes it,
+		-- but DataService connects its own PlayerRemoving save first and signal
+		-- handler order is not a guarantee — this is what actually makes the
+		-- offline calculation correct, and it costs a server crash at most one
+		-- second of a player's banked time.
+		profile.lastSeen = os.time()
+
+		if P.Sessions then
+			sampleActivity(entry, dt)
+		end
+
+		if P.RebirthPerks then
+			local rebirths = math.max(0, math.floor(tonumber(profile.rebirths) or 0))
+			if rebirths > entry.rebirths then
+				entry.rebirths = rebirths
+				onRebirthDetected(player, profile, entry)
+			end
+		end
+
+		if entry.dirty or os.clock() - entry.lastPush >= PUSH_SECONDS then
+			pushState(player)
+		end
+	end
+
+	function SessionService.onPlayer(player: Player)
+		if not enabled() then
+			return
+		end
+		local profile = DataService.get(player) or DataService.load(player)
+		if not profile then
+			return
+		end
+
+		local entry: Live = {
+			player = player,
+			activeSeconds = 0,
+			lastPosition = nil,
+			lastClaim = 0,
+			claimedPlaytime = {},
+			offline = nil,
+			rebirths = math.floor(tonumber(profile.rebirths) or 0),
+			dirty = true,
+			lastPush = 0,
+		}
+		live[player] = entry
+
+		-- Read lastSeen BEFORE stamping it, then stamp it: from here on this
+		-- session owns the clock.
+		entry.offline = computeOffline(profile)
+		profile.lastSeen = os.time()
+
+		if P.RebirthPerks and entry.rebirths > 0 then
+			-- Retroactive unlock sync for a save made before this prototype
+			-- existed. startingCash is deliberately zeroed: applyRebirthGrants
+			-- tops cash UP to the number it is given, and a join must never be a
+			-- way to refill your wallet.
+			local perks = SessionService.rebirthPerksFor(profile)
+			Economy.applyRebirthGrants(player, { startingCash = 0, unlocks = perks.unlocks })
+		end
+
+		if entry.offline then
+			Economy.notify(player, {
+				kind = "welcome",
+				title = "WELCOME BACK",
+				body = ("Your factory ran for %s while you were gone."):format(
+					SessionService.describeDuration(entry.offline.seconds)),
+			})
+		end
+
+		-- the client's panel is built on the first push, so send one promptly
+		task.delay(1, function()
+			if live[player] then
+				pushState(player)
+			end
+		end)
+	end
+
+	function SessionService.start()
+		if not enabled() then
+			return
+		end
+
+		if P.Sessions then
+			Economy.setMultiplierHook("sessions", SessionService.incomeMultiplier)
+		end
+
+		requestClaim.OnServerEvent:Connect(function(player, payload)
+			local entry = live[player]
+			local profile = DataService.get(player)
+			if not entry or not profile or type(payload) ~= "table" then
+				return
+			end
+			-- cheap flood guard: the claims below are all idempotent, but a remote
+			-- that can be spammed is a remote that will be
+			if os.clock() - entry.lastClaim < CLAIM_COOLDOWN then
+				return
+			end
+			entry.lastClaim = os.clock()
+
+			local kind = payload.kind
+			if kind == "offline" then
+				claimOffline(player, entry)
+			elseif kind == "daily" then
+				claimDaily(player, entry, profile)
+			elseif kind == "playtime" then
+				local index = math.floor(tonumber(payload.index) or 0)
+				claimPlaytime(player, entry, index)
+			end
+			pushState(player)
+		end)
+
+		requestBoost.OnServerEvent:Connect(function(player)
+			local entry = live[player]
+			local profile = DataService.get(player)
+			if not entry or not profile then
+				return
+			end
+			if os.clock() - entry.lastClaim < CLAIM_COOLDOWN then
+				return
+			end
+			entry.lastClaim = os.clock()
+			claimBoost(player, entry, profile)
+			pushState(player)
+		end)
+
+		Players.PlayerRemoving:Connect(function(player)
+			local profile = DataService.get(player)
+			if profile then
+				-- Stamped here AND on the tick below. DataService connects its own
+				-- PlayerRemoving save before this one and signal handlers are not
+				-- ordered guarantees, so the tick is what actually makes this
+				-- correct — this line just tightens the last few seconds.
+				profile.lastSeen = os.time()
+			end
+			live[player] = nil
+		end)
+
+		-- One loop for everything: a 1-second beat is fine for session state and
+		-- keeps the rebirth grant landing visibly right after the rebirth.
+		task.spawn(function()
+			while true do
+				task.wait(1)
+				for player in pairs(live) do
+					if player.Parent then
+						local ok, err = pcall(SessionService.step, player, 1)
+						if not ok then
+							warn("[Tung] session tick error: " .. tostring(err))
+						end
+					else
+						live[player] = nil
+					end
+				end
+			end
+		end)
+	end
+
+	return SessionService
+end
+
+
 __MODULES["Tycoon"] = function()
 	--[[
 		Tycoon.lua — the standardized tycoon.
@@ -3746,6 +5705,15 @@ __MODULES["Tycoon"] = function()
 
 	local Tycoon = {}
 	Tycoon.__index = Tycoon
+
+	--- Every plot built this session, in plot order. PlotService owns the plots and
+	--- hands them out by player; a service that has to walk ALL of them (like
+	--- FloorService) has nowhere else to get the list.
+	local INSTANCES: { any } = {}
+
+	function Tycoon.all(): { any }
+		return INSTANCES
+	end
 
 	-- Buttons that aren't attached to a belt machine sit in a row on the open
 	-- floor, spaced further apart than a button is wide. Positions live in Config
@@ -3818,20 +5786,63 @@ __MODULES["Tycoon"] = function()
 		end,
 	}
 
+	-- ── belt paths ───────────────────────────────────────────────────────────────
+
+	--- Turns a path definition ({ id, y, points, outboard, collectorAt }) into
+	--- resolved legs.
+	---
+	--- `outboard` is the SIDE each leg's machines stand on: its outboard normal is
+	--- sign * (-dir.Z, 0, dir.X). It used to be inferred with
+	--- `normal:Dot(midpoint) < 0` — "point away from the plot origin" — which holds
+	--- only while every leg hugs an outer edge, and silently inverts for any leg
+	--- whose midpoint doesn't. An upper floor's return leg runs back across the
+	--- middle of its own deck, where the inferred side flips and puts the machines
+	--- over the walkway and the buy buttons out in space. So the side is carried,
+	--- not guessed. Both ground legs are +1, which is exactly what the old
+	--- heuristic produced.
+	local function resolvePath(def, outboard: { number }?)
+		outboard = outboard or def.outboard
+		local points = def.points
+		assert(points and #points >= 2, "a belt path needs at least two points")
+
+		local legs = {}
+		for index = 1, #points - 1 do
+			local a, b = points[index], points[index + 1]
+			local delta = b - a
+			local dir = delta.Unit
+			local sign = (outboard and outboard[index]) or 1
+			legs[index] = {
+				a = a,
+				b = b,
+				dir = dir,
+				length = delta.Magnitude,
+				normal = Vector3.new(-dir.Z, 0, dir.X) * sign,
+			}
+		end
+
+		return {
+			id = def.id,
+			y = def.y or 0,
+			legs = legs,
+			collectorAt = def.collectorAt,
+			surfaces = {},
+		}
+	end
+
 	--- Builds a machine's masses into `parent` and returns them keyed by name.
 	function Tycoon:buildMasses(def, parent: Instance, color: Color3, material: Enum.Material)
 		local shape = MACHINE_MASSES[def.kind]
 		if not shape then
 			return {}
 		end
-		local legIndex, distance = self:legOf(def)
+		local legIndex, distance, pathIndex = self:legOf(def)
 		local parts = {}
 		for _, mass in ipairs(shape()) do
 			local name, size, offset, y, collide = mass[1], mass[2], mass[3], mass[4], mass[5]
 			parts[name] = newPart(parent, name, size,
-				self:segmentCF(legIndex, distance, offset, y), color, material, collide)
+				self:segmentCF(legIndex, distance, offset, y, pathIndex), color, material, collide)
 		end
-		return parts, legIndex, distance
+		return parts, legIndex, distance, pathIndex
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -3847,6 +5858,16 @@ __MODULES["Tycoon"] = function()
 		self.beltSpeed = L.BeltSpeed
 		self.dropCount = 0
 
+		-- Folders that come and go with the factory. Registered as they are built
+		-- rather than listed in setFactoryVisible; see registerFactoryFolder.
+		self.factoryFolders = {}
+		self.factoryShown = true
+
+		-- Belt paths. Path 1 is the ground floor and is always present; anything
+		-- above it registers its own through addBeltPath.
+		self.paths = {}
+		self:addBeltPath(Config.BeltPaths[1])
+
 		local model, cf = MapBuilder.buildPlotPad(parent, index)
 		self.model = model
 		self.cf = cf
@@ -3855,6 +5876,7 @@ __MODULES["Tycoon"] = function()
 		self.machines = Instance.new("Folder")
 		self.machines.Name = "Machines"
 		self.machines.Parent = model
+		self:registerFactoryFolder(self.machines)
 
 		self.buttonsFolder = Instance.new("Folder")
 		self.buttonsFolder.Name = "Buttons"
@@ -3864,8 +5886,8 @@ __MODULES["Tycoon"] = function()
 		self.drops.Name = "Drops"
 		self.drops.Parent = model
 
-		self:buildBelt()
-		self:buildCollector()
+		self:buildBelt(1)
+		self:buildCollector(1, nil, true)
 		self:buildRebirthPad()
 		self:buildClaimPad()
 
@@ -3876,7 +5898,28 @@ __MODULES["Tycoon"] = function()
 		self:setFactoryVisible(false)
 		self:updateSign()
 
+		table.insert(INSTANCES, self)
 		return self
+	end
+
+	--- Listener for "what this plot owns has changed" — a purchase, a claim, a
+	--- release, a rebirth. FloorService hangs the mezzanine off this rather than
+	--- polling every plot on a timer. One listener, because there is exactly one
+	--- consumer; make it a list the day there are two.
+	function Tycoon:onOwnedChanged(fn: ((any) -> ())?)
+		self.ownedChanged = fn
+	end
+
+	function Tycoon:fireOwnedChanged()
+		local fn = self.ownedChanged
+		if not fn then
+			return
+		end
+		-- pcall'd: a listener that throws must not take a purchase down with it
+		local ok, err = pcall(fn, self)
+		if not ok then
+			warn("[Tung] owned-changed listener error on plot " .. self.index .. ": " .. tostring(err))
+		end
 	end
 
 	--- Buy buttons are built on first claim, not at server start: every plot x 21
@@ -3889,16 +5932,27 @@ __MODULES["Tycoon"] = function()
 		self:buildButtons()
 	end
 
+	--- Adds a folder to the set that appears and disappears with the factory.
+	---
+	--- Registration rather than a literal list, because setFactoryVisible used to
+	--- walk `for i = 1, 4` over one: the fifth folder anyone added was silently
+	--- left standing on an unclaimed plot, which is the exact bug the hidden
+	--- factory exists to prevent. A folder registered while the factory is hidden
+	--- is hidden immediately, so late arrivals (an upper floor) can't leak either.
+	function Tycoon:registerFactoryFolder(folder: Instance)
+		table.insert(self.factoryFolders, folder)
+		if not self.factoryShown then
+			folder.Parent = nil
+		end
+	end
+
 	--- Shows/hides the whole factory. Machinery lives in folders so this is a
 	--- reparent rather than a rebuild.
 	function Tycoon:setFactoryVisible(visible: boolean)
+		self.factoryShown = visible
 		local target = visible and self.model or nil
-		local folders = { self.beltFolder, self.collectorFolder, self.rebirthFolder, self.machines }
-		for i = 1, 4 do
-			local folder = folders[i]
-			if folder then
-				folder.Parent = target
-			end
+		for _, folder in ipairs(self.factoryFolders) do
+			folder.Parent = target
 		end
 	end
 
@@ -3917,18 +5971,26 @@ __MODULES["Tycoon"] = function()
 
 	-- ── belt ─────────────────────────────────────────────────────────────────────
 
-	function Tycoon:buildBelt()
-		local folder = Instance.new("Folder")
-		folder.Name = "Belt"
-		folder.Parent = self.model
-		self.beltFolder = folder
+	--- Builds the running surface, the corner sensors and the flow markers for one
+	--- belt path. Called once for the ground floor at construction, and once more
+	--- per floor above it — `parent` lets a floor keep its belt in its own folder
+	--- so tearing the floor down takes the belt with it.
+	function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
+		pathIndex = pathIndex or 1
+
+		local folder = parent
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = "Belt"
+			folder.Parent = self.model
+			self.beltFolder = folder
+			self:registerFactoryFolder(folder)
+		end
 
 		local width = L.BeltWidth
 		local half = width / 2
 		local surfaceY = L.BeltY
-
-		local _, _, _, leg1Len = self:leg(1)
-		local _, _, _, leg2Len = self:leg(2)
+		local legs = self:legCount(pathIndex)
 
 		--[[
 			SEAMLESS CORNER, AND NOTHING SOLID NEAR THE BELT.
@@ -3942,19 +6004,19 @@ __MODULES["Tycoon"] = function()
 			what the drops were piling up against.
 
 			So: the running surface is the only collidable thing here. The edge
-			trim is decoration with CanCollide off, and leg 1's surface runs
-			THROUGH the corner square so there is no separate plate to seam
-			against — leg 2 simply starts a little way inside it.
+			trim is decoration with CanCollide off, and every leg's surface runs
+			THROUGH its corner square so there is no separate plate to seam
+			against — the next leg simply starts a little way inside it.
 		]]
 		local function buildRun(index, fromDist, toDist)
 			local length = toDist - fromDist
 			local mid = (fromDist + toDist) / 2
 
 			newPart(folder, "BeltBase" .. index, Vector3.new(width + 1.2, surfaceY - 0.2, length),
-				self:segmentCF(index, mid, 0, (surfaceY - 0.2) / 2), COLORS.frame, Enum.Material.DiamondPlate)
+				self:segmentCF(index, mid, 0, (surfaceY - 0.2) / 2, pathIndex), COLORS.frame, Enum.Material.DiamondPlate)
 
 			local surface = newPart(folder, "BeltSurface" .. index, Vector3.new(width, 0.4, length),
-				self:segmentCF(index, mid, 0, surfaceY - 0.2), COLORS.belt, Enum.Material.SmoothPlastic)
+				self:segmentCF(index, mid, 0, surfaceY - 0.2, pathIndex), COLORS.belt, Enum.Material.SmoothPlastic)
 			surface.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.02, 0.05, 1, 1)
 
 			local texture = Instance.new("Texture")
@@ -3970,40 +6032,52 @@ __MODULES["Tycoon"] = function()
 			-- collidable. The inner side is left completely open so the two legs
 			-- flow into each other.
 			local trim = newPart(folder, "Trim" .. index, Vector3.new(0.5, 0.5, length),
-				self:segmentCF(index, mid, half + 0.25, surfaceY + 0.15),
+				self:segmentCF(index, mid, half + 0.25, surfaceY + 0.15, pathIndex),
 				COLORS.beltLine, Enum.Material.Neon, false)
 			trim.CanQuery = false
 
 			return surface
 		end
 
-		-- leg 1 owns the corner square: it runs half a belt-width past the bend
-		local surface1 = buildRun(1, -1, leg1Len + half)
-		-- leg 2 starts just inside that square, overlapping slightly so the two
-		-- surfaces share a face rather than meeting at a hairline seam
-		local surface2 = buildRun(2, half - 0.6, leg2Len)
-		self.beltSurfaces = { surface1, surface2 }
-		self.beltSurface = surface1
+		local path = self:beltPath(pathIndex)
+		local surfaces = {}
+		for index = 1, legs do
+			local _, _, _, length = self:leg(index, pathIndex)
+			-- The first leg starts a stud behind the first dropper; every other one
+			-- starts just INSIDE the corner square its predecessor already covers,
+			-- overlapping slightly so the two surfaces share a face rather than
+			-- meeting at a hairline seam.
+			local fromDist = (index == 1) and -1 or (half - 0.6)
+			-- Every leg but the last owns the square at its far end: it runs half a
+			-- belt-width past the bend so there is no separate corner plate.
+			local toDist = (index == legs) and length or (length + half)
+			surfaces[index] = buildRun(index, fromDist, toDist)
+		end
+		path.surfaces = surfaces
 
 		-- Visual end cap behind the first dropper. Non-collidable: nothing should
 		-- ever reach it, and if something does we want it to slide off, not wedge.
 		local cap = newPart(folder, "BeltCap", Vector3.new(width + 1.2, 1.6, 0.6),
-			self:segmentCF(1, -1.2, 0, surfaceY + 0.8), COLORS.metal, Enum.Material.Metal, false)
+			self:segmentCF(1, -1.2, 0, surfaceY + 0.8, pathIndex), COLORS.metal, Enum.Material.Metal, false)
 		cap.CanQuery = false
 
-		-- The bend: a trigger spanning the belt at the corner that hands a drop
-		-- from leg 1's direction to leg 2's. No geometry, just a retarget.
-		local turn = newPart(folder, "TurnSensor", Vector3.new(width + 1, 6, 2.5),
-			self:segmentCF(1, leg1Len, 0, surfaceY + 3),
-			Color3.new(1, 1, 1), Enum.Material.Neon, false)
-		turn.Transparency = 1
-		turn.CanQuery = false
-		turn.CanTouch = true
-		turn.Touched:Connect(function(hit)
-			self:onTurn(hit)
-		end)
+		-- One trigger per bend, spanning the belt, handing a drop from leg i's
+		-- direction to leg i+1's. No geometry, just a retarget — so an N-legged
+		-- path costs N-1 triggers and still no per-frame work.
+		for index = 1, legs - 1 do
+			local _, _, _, length = self:leg(index, pathIndex)
+			local turn = newPart(folder, "TurnSensor" .. index, Vector3.new(width + 1, 6, 2.5),
+				self:segmentCF(index, length, 0, surfaceY + 3, pathIndex),
+				Color3.new(1, 1, 1), Enum.Material.Neon, false)
+			turn.Transparency = 1
+			turn.CanQuery = false
+			turn.CanTouch = true
+			turn.Touched:Connect(function(hit)
+				self:onTurn(hit, pathIndex, index)
+			end)
+		end
 
-		self:buildFlowMarkers(folder)
+		self:buildFlowMarkers(folder, pathIndex)
 	end
 
 	--- Chevrons painted on the floor beside the belt, pointing downstream.
@@ -4012,19 +6086,19 @@ __MODULES["Tycoon"] = function()
 	--- end is the start. Following the arrows takes you from the first dropper to
 	--- the vault, which is also the order the buy buttons come in — so "walk the
 	--- arrows" is the whole tutorial for reading a plot.
-	function Tycoon:buildFlowMarkers(parent: Instance)
+	function Tycoon:buildFlowMarkers(parent: Instance, pathIndex: number?)
 		local SPACING = 18
 		local INBOARD = -(L.BeltWidth / 2 + 2.5)   -- clear of the belt, clear of the buttons
 
-		for legIndex = 1, 2 do
-			local _, _, _, length = self:leg(legIndex)
+		for legIndex = 1, self:legCount(pathIndex) do
+			local _, _, _, length = self:leg(legIndex, pathIndex)
 			local at = SPACING * 0.5
 			while at < length do
 				-- two bars meeting at a point: a wedge read from above is just a
 				-- rectangle, so the arrowhead has to be drawn rather than modelled
 				for _, side in ipairs({ 1, -1 }) do
 					local bar = newPart(parent, "Flow", Vector3.new(0.7, 0.25, 4),
-						self:segmentCF(legIndex, at, INBOARD, 0.12)
+						self:segmentCF(legIndex, at, INBOARD, 0.12, pathIndex)
 							* CFrame.new(side * 1.1, 0, -1.1)
 							* CFrame.Angles(0, math.rad(side * 32), 0),
 						COLORS.beltLine, Enum.Material.Neon, false)
@@ -4037,16 +6111,24 @@ __MODULES["Tycoon"] = function()
 		end
 	end
 
-	--- Hands a drop from leg 1 onto leg 2 at the corner.
-	function Tycoon:onTurn(hit: BasePart)
+	--- Hands a drop from leg `fromLeg` of a path onto leg `fromLeg + 1`. Every
+	--- corner on every floor shares this; the sensor closes over which one it is,
+	--- so nothing here knows how many legs the path has.
+	function Tycoon:onTurn(hit: BasePart, pathIndex: number, fromLeg: number)
 		local drop = hit.Parent
 		if not drop or not drop:IsA("Model") then
 			return
 		end
-		if drop:GetAttribute("PlotIndex") ~= self.index or drop:GetAttribute("Leg") ~= 1 then
+		if drop:GetAttribute("PlotIndex") ~= self.index then
 			return
 		end
-		drop:SetAttribute("Leg", 2)
+		-- Drops that predate multi-floor have no Path attribute; treat them as the
+		-- ground floor rather than dropping them on the corner.
+		if (drop:GetAttribute("Path") or 1) ~= pathIndex or drop:GetAttribute("Leg") ~= fromLeg then
+			return
+		end
+		local toLeg = fromLeg + 1
+		drop:SetAttribute("Leg", toLeg)
 
 		local body = drop.PrimaryPart
 		if not body then
@@ -4054,11 +6136,11 @@ __MODULES["Tycoon"] = function()
 		end
 		local mover = body:FindFirstChild("BeltMover")
 		local upkeep = body:FindFirstChild("StayUpright")
-		local direction = self:legDirectionWorld(2)
+		local direction = self:legDirectionWorld(toLeg, pathIndex)
 
 		if mover and mover:IsA("LinearVelocity") then
 			mover.PrimaryTangentAxis = direction
-			mover.SecondaryTangentAxis = self:legNormalWorld(2)
+			mover.SecondaryTangentAxis = self:legNormalWorld(toLeg, pathIndex)
 			mover.PlaneVelocity = Vector2.new(self.beltSpeed, 0)
 		end
 		if upkeep and upkeep:IsA("AlignOrientation") then
@@ -4067,94 +6149,144 @@ __MODULES["Tycoon"] = function()
 	end
 
 	-- ── belt geometry ────────────────────────────────────────────────────────────
-	-- The run is an L: leg 1 along the back edge, leg 2 along the left edge.
-	-- Everything (machines, buttons, rails, the corner) is derived from these two
-	-- segments, so moving the belt is a Config edit.
+	-- A belt is a POLYLINE, not an L. `points` is the corner list and everything —
+	-- runs, corner sensors, machines, buttons, flow markers — derives from leg(i),
+	-- so a path with five corners builds exactly like the shipped two-legged one.
+	-- The ground floor is Config.BeltPaths[1], which is itself written in terms of
+	-- Layout.BeltStart / BeltCorner / BeltEnd so the two cannot drift apart.
+
+	--- Registers a belt path and returns its index. Idempotent by id, because a
+	--- floor that is torn down and rebuilt must not stack up a second copy of its
+	--- own geometry — the path is pure maths, only the parts get rebuilt.
+	function Tycoon:addBeltPath(def, outboard: { number }?): number
+		for index, existing in ipairs(self.paths) do
+			if existing.id == def.id then
+				return index
+			end
+		end
+		table.insert(self.paths, resolvePath(def, outboard or def.outboard))
+		return #self.paths
+	end
+
+	function Tycoon:beltPath(pathIndex: number?)
+		return self.paths[pathIndex or 1]
+	end
+
+	function Tycoon:legCount(pathIndex: number?): number
+		return #self:beltPath(pathIndex).legs
+	end
 
 	--- start, finish, unit direction, length and the outboard normal of a leg,
-	--- all in PLOT-LOCAL space.
-	function Tycoon:leg(index: number)
-		local a = (index == 1) and L.BeltStart or L.BeltCorner
-		local b = (index == 1) and L.BeltCorner or L.BeltEnd
-		local delta = b - a
-		local length = delta.Magnitude
-		local dir = delta.Unit
-
-		-- horizontal perpendicular, flipped to point AWAY from the plot centre
-		local normal = Vector3.new(-dir.Z, 0, dir.X)
-		local midpoint = (a + b) * 0.5
-		if normal:Dot(midpoint) < 0 then
-			normal = -normal
-		end
-
-		return a, b, dir, length, normal
+	--- all in PLOT-LOCAL space, plus the path it belongs to.
+	function Tycoon:leg(index: number, pathIndex: number?)
+		local path = self:beltPath(pathIndex)
+		local leg = path.legs[index]
+		return leg.a, leg.b, leg.dir, leg.length, leg.normal, path
 	end
 
 	--- A point `distance` along a leg, offset sideways. Positive offset is
 	--- outboard (toward the plot edge), negative is inboard (toward the floor).
-	function Tycoon:pointOnLeg(index: number, distance: number, offset: number): Vector3
-		local a, _, dir, _, normal = self:leg(index)
-		return a + dir * distance + normal * (offset or 0)
+	--- The path's own height is baked in, so a leg on the mezzanine lands on the
+	--- mezzanine without every caller having to know which floor it is on.
+	function Tycoon:pointOnLeg(index: number, distance: number, offset: number, pathIndex: number?): Vector3
+		local a, _, dir, _, normal, path = self:leg(index, pathIndex)
+		return a + dir * distance + normal * (offset or 0) + Vector3.new(0, path.y, 0)
 	end
 
-	function Tycoon:legDirectionWorld(index: number): Vector3
-		local _, _, dir = self:leg(index)
+	function Tycoon:legDirectionWorld(index: number, pathIndex: number?): Vector3
+		local _, _, dir = self:leg(index, pathIndex)
 		return self.cf:VectorToWorldSpace(dir).Unit
 	end
 
-	function Tycoon:legNormalWorld(index: number): Vector3
-		local _, _, _, _, normal = self:leg(index)
+	function Tycoon:legNormalWorld(index: number, pathIndex: number?): Vector3
+		local _, _, _, _, normal = self:leg(index, pathIndex)
 		return self.cf:VectorToWorldSpace(normal).Unit
 	end
 
-	--- Which leg a machine slot lives on: droppers on the back edge, upgraders
-	--- on the left edge.
-	function Tycoon:legOf(def): (number, number)
-		if def.kind == "Dropper" then
-			return 1, L.DropperDist[def.slot]
+	--- Which leg (and which floor's belt) a machine lives on: droppers on the back
+	--- edge of the ground floor, upgraders on its left edge.
+	---
+	--- A def may pin itself instead, which is how FloorService stands a dropper on
+	--- an upper floor without inventing a second slot table.
+	function Tycoon:legOf(def): (number, number, number)
+		if def.legIndex then
+			return def.legIndex, def.legDistance or 0, def.pathIndex or 1
 		end
-		return 2, L.UpgraderDist[def.slot]
+		if def.kind == "Dropper" then
+			return 1, L.DropperDist[def.slot], 1
+		end
+		return 2, L.UpgraderDist[def.slot], 1
 	end
 
 	--- World CFrame of a box lying along a leg.
-	function Tycoon:segmentCF(index: number, distance: number, offset: number, y: number): CFrame
-		local _, _, dir = self:leg(index)
-		local point = self:pointOnLeg(index, distance, offset) + Vector3.new(0, y, 0)
+	function Tycoon:segmentCF(index: number, distance: number, offset: number, y: number, pathIndex: number?): CFrame
+		local _, _, dir = self:leg(index, pathIndex)
+		local point = self:pointOnLeg(index, distance, offset, pathIndex) + Vector3.new(0, y, 0)
 		return self.cf * CFrame.lookAt(point, point + dir)
+	end
+
+	--- Every live belt surface on the plot, on every floor. Skips destroyed ones:
+	--- tearing a floor down leaves its surfaces referenced but dead, and writing a
+	--- property on a destroyed part throws.
+	function Tycoon:eachBeltSurface(fn: (BasePart) -> ())
+		for _, path in ipairs(self.paths) do
+			for _, surface in ipairs(path.surfaces) do
+				if surface.Parent then
+					fn(surface)
+				end
+			end
+		end
 	end
 
 	-- ── collector ────────────────────────────────────────────────────────────────
 
-	function Tycoon:buildCollector()
-		local folder = Instance.new("Folder")
-		folder.Name = "Collector"
-		folder.Parent = self.model
-		self.collectorFolder = folder
+	--- Run-off ramp, collect sensor and the body that catches the drops, at the end
+	--- of a path's last leg.
+	---
+	--- `headline` adds the vault dressing — gold trim, statue, income sign. Only
+	--- the ground floor gets it: a second statue on every upper floor is noise, and
+	--- the income readout on it would be wrong anyway (it reports the whole plot).
+	function Tycoon:buildCollector(pathIndex: number?, parent: Instance?, headline: boolean?)
+		pathIndex = pathIndex or 1
+		local path = self:beltPath(pathIndex)
 
-		-- The vault sits past the end of leg 2. Its shell must stay entirely
-		-- DOWNSTREAM of the sensor: a solid body overlapping the run-off walls
-		-- the belt off and nothing can ever be collected.
-		local _, beltEnd, dir2 = self:leg(2)
-		local vaultDepth = 10
-		local vaultCentre = L.CollectorAt
-		local runOff = (vaultCentre - beltEnd).Magnitude
-		assert(runOff > vaultDepth / 2 + 3,
-			"Collector vault overlaps the belt run-off; move Layout.CollectorAt further out")
-
-		local function alongExit(distance, y, lateral)
-			local point = beltEnd + dir2 * distance + Vector3.new(0, y, 0)
-				+ Vector3.new(-dir2.Z, 0, dir2.X) * (lateral or 0)
-			return self.cf * CFrame.lookAt(point, point + dir2)
+		local folder = parent
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = "Collector"
+			folder.Parent = self.model
+			self.collectorFolder = folder
+			self:registerFactoryFolder(folder)
 		end
 
-		newPart(folder, "VaultBase", Vector3.new(18, 9, vaultDepth), alongExit(runOff, 4.5, 0),
-			COLORS.vault, Enum.Material.WoodPlanks)
-		newPart(folder, "VaultTrim", Vector3.new(19, 1.2, vaultDepth + 1), alongExit(runOff, 9.4, 0),
-			COLORS.gold, Enum.Material.Metal)
+		-- The catcher sits past the end of the last leg. Its shell must stay
+		-- entirely DOWNSTREAM of the sensor: a solid body overlapping the run-off
+		-- walls the belt off and nothing can ever be collected.
+		local _, beltEnd, exitDir = self:leg(self:legCount(pathIndex), pathIndex)
+		local bodyDepth = headline and 10 or 8
+		local bodyWidth = headline and 18 or 13
+		local bodyHeight = headline and 9 or 6.5
+		local centre = path.collectorAt
+		local runOff = (centre - beltEnd).Magnitude
+		assert(runOff > bodyDepth / 2 + 3,
+			("Collector body overlaps the belt run-off on path %q; move its collectorAt further out"):format(tostring(path.id)))
+
+		-- Path-local: `y` is measured from the floor this belt runs on, exactly as
+		-- it is everywhere else on the path.
+		local function alongExit(distance, y, lateral)
+			local point = beltEnd + exitDir * distance + Vector3.new(0, y + path.y, 0)
+				+ Vector3.new(-exitDir.Z, 0, exitDir.X) * (lateral or 0)
+			return self.cf * CFrame.lookAt(point, point + exitDir)
+		end
+
+		newPart(folder, "VaultBase", Vector3.new(bodyWidth, bodyHeight, bodyDepth),
+			alongExit(runOff, bodyHeight / 2, 0), COLORS.vault, Enum.Material.WoodPlanks)
+		newPart(folder, "VaultTrim", Vector3.new(bodyWidth + 1, 1.2, bodyDepth + 1),
+			alongExit(runOff, bodyHeight + 0.4, 0), COLORS.gold, Enum.Material.Metal)
 
 		-- funnel mouth facing back down the belt
-		local mouth = newPart(folder, "Mouth", Vector3.new(12, 6, 1.5),
-			alongExit(runOff - vaultDepth / 2 - 0.5, L.BeltY + 3, 0),
+		local mouth = newPart(folder, "Mouth", Vector3.new(bodyWidth - 6, 6, 1.5),
+			alongExit(runOff - bodyDepth / 2 - 0.5, L.BeltY + 3, 0),
 			Color3.fromRGB(30, 24, 40), Enum.Material.Neon, false)
 		mouth.Transparency = 0.5
 
@@ -4167,6 +6299,14 @@ __MODULES["Tycoon"] = function()
 			Color3.fromRGB(255, 255, 255), Enum.Material.Neon, false)
 		sensor.Transparency = 1
 		sensor.CanTouch = true
+
+		sensor.Touched:Connect(function(hit)
+			self:onCollect(hit)
+		end)
+
+		if not headline then
+			return
+		end
 
 		-- sign
 		local signAnchor = newPart(folder, "SignAnchor", Vector3.new(1, 1, 1), alongExit(runOff, 12, 0), COLORS.vault, nil, false)
@@ -4193,10 +6333,6 @@ __MODULES["Tycoon"] = function()
 		statue:PivotTo(alongExit(runOff, 13.5, 0) * CFrame.Angles(0, math.pi, 0))
 		statue.Parent = folder
 		self.vaultStatue = statue
-
-		sensor.Touched:Connect(function(hit)
-			self:onCollect(hit)
-		end)
 	end
 
 	function Tycoon:onCollect(hit: BasePart)
@@ -4296,6 +6432,7 @@ __MODULES["Tycoon"] = function()
 		folder.Name = "Rebirth"
 		folder.Parent = self.model
 		self.rebirthFolder = folder
+		self:registerFactoryFolder(folder)
 
 		local spot = L.RebirthPadAt
 		local pad = newPart(folder, "RebirthPad", Vector3.new(12, 1.2, 12),
@@ -4353,8 +6490,8 @@ __MODULES["Tycoon"] = function()
 	--- build, so the row you walk along is the row you buy from.
 	function Tycoon:buttonPosition(def): Vector3
 		if def.kind == "Dropper" or def.kind == "Upgrader" then
-			local legIndex, distance = self:legOf(def)
-			return self:pointOnLeg(legIndex, distance, -L.ButtonOffset)
+			local legIndex, distance, pathIndex = self:legOf(def)
+			return self:pointOnLeg(legIndex, distance, -L.ButtonOffset, pathIndex)
 		end
 		return MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
 	end
@@ -4754,20 +6891,25 @@ __MODULES["Tycoon"] = function()
 		end
 
 		self:refreshButtons()
+		self:fireOwnedChanged()
 	end
 
 	-- ── installers ───────────────────────────────────────────────────────────────
 
 	Tycoon.INSTALLERS = {}
 
-	Tycoon.INSTALLERS.Dropper = function(self, def, silent)
+	--- The dropper machine itself: masses, dressing, nameplate. Shared by the buy
+	--- button installer and by FloorService, which stands one on each upper floor —
+	--- a floor's dropper is not a button, so it cannot go through INSTALLERS.
+	--- Returns the model, its nozzle, and the leg and path it feeds.
+	function Tycoon:buildDropperMachine(def, parent: Instance)
 		local variant = Config.Variants[def.variant] or Config.Variants.classic
 
 		local model = Instance.new("Model")
 		model.Name = "Dropper_" .. def.id
-		model.Parent = self.machines
+		model.Parent = parent
 
-		local parts, legIndex = self:buildMasses(def, model, COLORS.frame, Enum.Material.DiamondPlate)
+		local parts, legIndex, _, pathIndex = self:buildMasses(def, model, COLORS.frame, Enum.Material.DiamondPlate)
 
 		local core = parts.Core
 		core.Color = variant.wood
@@ -4799,19 +6941,35 @@ __MODULES["Tycoon"] = function()
 		label.TextScaled = true
 		label.Parent = billboard
 
+		return model, nozzle, legIndex, pathIndex
+	end
+
+	--- Starts a dropper's drop loop. `alive` is polled each cycle so the caller
+	--- decides what ends it: a bought dropper dies when its button is wiped by a
+	--- rebirth, a floor's dropper dies when the floor is torn down (its model is
+	--- destroyed, which the model.Parent check catches on its own).
+	function Tycoon:startDropLoop(def, model: Model, nozzle: BasePart, legIndex: number, pathIndex: number?, alive: (() -> boolean)?)
+		local generation = self.generation
+		task.spawn(function()
+			-- stagger so ten droppers don't fire on the same frame
+			task.wait(math.random() * def.dropRate)
+			while self.generation == generation and model.Parent and (alive == nil or alive()) do
+				self:spawnDrop(def, nozzle, legIndex, pathIndex)
+				task.wait(def.dropRate)
+			end
+		end)
+	end
+
+	Tycoon.INSTALLERS.Dropper = function(self, def, silent)
+		local model, nozzle, legIndex, pathIndex = self:buildDropperMachine(def, self.machines)
+
 		local entry = self.objects[def.id]
 		if entry then
 			entry.machine = model
 		end
 
-		local generation = self.generation
-		task.spawn(function()
-			-- stagger so ten droppers don't fire on the same frame
-			task.wait(math.random() * def.dropRate)
-			while self.generation == generation and self.owned[def.id] and model.Parent do
-				self:spawnDrop(def, nozzle, legIndex)
-				task.wait(def.dropRate)
-			end
+		self:startDropLoop(def, model, nozzle, legIndex, pathIndex, function()
+			return self.owned[def.id] == true
 		end)
 	end
 
@@ -4884,9 +7042,10 @@ __MODULES["Tycoon"] = function()
 
 	Tycoon.INSTALLERS.Belt = function(self, def, silent)
 		self.beltSpeed += def.speedBonus
-		for _, surface in ipairs(self.beltSurfaces or {}) do
+		-- one speed for the whole plot, every floor included
+		self:eachBeltSurface(function(surface)
 			surface.Color = Color3.fromRGB(92, 70, 40)
-		end
+		end)
 		-- retro-apply to drops already rolling
 		for _, drop in ipairs(self.drops:GetChildren()) do
 			local mover = drop:FindFirstChildWhichIsA("LinearVelocity", true)
@@ -4956,8 +7115,21 @@ __MODULES["Tycoon"] = function()
 					self.cf * spec[2] * CFrame.new(0, h / 2, 0), COLORS.beltLine, Enum.Material.Neon, false)
 			end
 		elseif def.structure == "roof" then
-			local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, 1.4, W.PlotSize.Z),
-				self:at(0, 20, 0), Color3.fromRGB(138, 88, 58), Enum.Material.WoodPlanks)
+			-- With the Floors prototype on, the mezzanine deck IS the roof of the
+			-- back half of the plot. Roofing it twice interpenetrates two slabs a
+			-- third of a stud apart and hides a floor under a roof nobody can see,
+			-- so the roof stops short of the deck with a couple of studs of
+			-- daylight between them. Flag off, this is the full-plot roof it has
+			-- always been.
+			local front = W.PlotSize.Z / 2
+			local back = -W.PlotSize.Z / 2
+			local floorDef = Config.Prototypes.Floors and Config.Floors[1]
+			if floorDef then
+				back = floorDef.deckAt.Z + floorDef.deckSize.Z / 2 + 2
+			end
+
+			local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, 1.4, front - back),
+				self:at(0, 20, (front + back) / 2), Color3.fromRGB(138, 88, 58), Enum.Material.WoodPlanks)
 			roof.CanCollide = true
 			for _, sign in ipairs({ -1, 1 }) do
 				for _, signZ in ipairs({ -1, 1 }) do
@@ -4993,7 +7165,8 @@ __MODULES["Tycoon"] = function()
 
 	-- ── drops ────────────────────────────────────────────────────────────────────
 
-	function Tycoon:spawnDrop(def, nozzle: BasePart, legIndex: number)
+	function Tycoon:spawnDrop(def, nozzle: BasePart, legIndex: number, pathIndex: number?)
+		pathIndex = pathIndex or 1
 		if not self.owner then
 			return
 		end
@@ -5007,11 +7180,15 @@ __MODULES["Tycoon"] = function()
 		drop:SetAttribute("PlotIndex", self.index)
 		drop:SetAttribute("Variant", def.variant)
 
+		-- Which belt, and how far along it: the corner sensors and the collector
+		-- all filter on these, so a drop on the mezzanine is invisible to the
+		-- ground floor's geometry and vice versa.
 		drop:SetAttribute("Leg", legIndex)
+		drop:SetAttribute("Path", pathIndex)
 
 		local body = drop.PrimaryPart :: BasePart
-		local direction = self:legDirectionWorld(legIndex)
-		local across = self:legNormalWorld(legIndex)
+		local direction = self:legDirectionWorld(legIndex, pathIndex)
+		local across = self:legNormalWorld(legIndex, pathIndex)
 		local jitter = (math.random() - 0.5) * (L.BeltWidth * 0.35)
 
 		-- NOTE: the model's pivot is the body, so PivotTo overwrites the body's
@@ -5168,6 +7345,7 @@ __MODULES["Tycoon"] = function()
 
 		self:refreshButtons()
 		self:updateSign()
+		self:fireOwnedChanged()
 		return true
 	end
 
@@ -5187,13 +7365,14 @@ __MODULES["Tycoon"] = function()
 		self:clearDrops()
 		self:setFactoryVisible(false)
 
-		for _, surface in ipairs(self.beltSurfaces or {}) do
+		self:eachBeltSurface(function(surface)
 			surface.Color = COLORS.belt
-		end
+		end)
 		self.roofSign = nil
 
 		self:refreshButtons()
 		self:updateSign()
+		self:fireOwnedChanged()
 	end
 
 	--- Wipes the factory but keeps the player, and hands out a rebirth.
@@ -5234,6 +7413,7 @@ __MODULES["Tycoon"] = function()
 
 		self:refreshButtons()
 		self:updateSign()
+		self:fireOwnedChanged()
 		Economy.push(player)
 
 		Economy.notify(player, {
@@ -5249,7 +7429,749 @@ __MODULES["Tycoon"] = function()
 		return true
 	end
 
+	--- The plot's own part constructor, exposed so FloorService builds its deck out
+	--- of the same defaults (anchored, smooth surfaces, collidable unless told
+	--- otherwise) instead of a second near-identical local copy that drifts.
+	Tycoon.part = newPart
+
 	return Tycoon
+end
+
+
+__MODULES["UpgradeService"] = function()
+	--[[
+		UpgradeService.lua — PROTOTYPE. Two features that share one profile field:
+
+		  * the player upgrade shop  (Config.Prototypes.PlayerUpgrades)
+		  * the utility slot         (Config.Prototypes.Utilities)
+
+		Both are gated; with both flags off every entry point returns on its first
+		line and nothing here is ever constructed.
+
+		Server-authoritative in the usual shape: the client may only ever ask. It
+		sends RequestUpgrade with an id and gets a fresh UpgradeState back — it is
+		never told "yes", it is told what the state now is, so a rejected purchase
+		and a lost race look identical from the client's side.
+
+		The utility slot is a KEYBIND, not a second Tool. A Tool would be the
+		obvious reading of "second slot", and Roblox's hotbar would carry it for
+		free — but only one Tool can be equipped at a time, so firing the utility
+		would mean putting the bat away, which is exactly the moment you need it.
+		The verbs here (freeze a pack of raiders, shove them off you) are things you
+		do mid-swing. So: Q on desktop, an on-screen chip on touch, both routed
+		through the UseUtility remote, and the equipped utility is chosen in the
+		shop panel rather than by which Tool is in your hand.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Util = Req("Util")
+	local Fx = Req("Fx")
+	local Net = Req("Net")
+	local Utilities = Req("Utilities")
+	local DataService = Req("DataService")
+	local Economy = Req("Economy")
+	local CombatService = Req("CombatService")
+
+	local Players = game:GetService("Players")
+	local Debris = game:GetService("Debris")
+
+	local UpgradeService = {}
+
+	local SHOP_ON = Config.Prototypes.PlayerUpgrades
+	local UTILITY_ON = Config.Prototypes.Utilities
+	local ENABLED = SHOP_ON or UTILITY_ON
+
+	-- Reach and force are per-verb and live on the Config.Utilities row, because
+	-- "how far does the shove reach" is a property of the shove: the moment they
+	-- are shared constants the next utility has to fight them.
+	local function reachOf(id: string, fallback: number): number
+		local def = Config.Utilities and Utilities.UtilityById[id]
+		return (def and def.radius) or fallback
+	end
+	local function forceOf(id: string, fallback: number): number
+		local def = Config.Utilities and Utilities.UtilityById[id]
+		return (def and def.force) or fallback
+	end
+
+	local USE_THROTTLE = 0.15       -- floor on UseUtility, independent of cooldowns
+	local ICE = Color3.fromRGB(150, 220, 255)
+
+	local upgradeState = Net.event("UpgradeState")
+	local requestUpgrade = Net.event("RequestUpgrade")
+	local useUtility = Net.event("UseUtility")
+	local knockbackRemote = Net.event("Knockback")
+
+	-- os.clock() timestamps, dropped when the player leaves.
+	local cooldowns: { [Player]: { [string]: number } } = {}
+	local lastUse: { [Player]: number } = {}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- profile state
+	--
+	-- PERSISTENCE. DataService whitelists what it saves twice over: reconcile()
+	-- only copies keys that exist in defaultProfile(), and save() builds an
+	-- explicit payload table. A new profile field is invisible until it is added
+	-- to BOTH, which is why `upgrades` and `utilityEquipped` appear in each.
+	--
+	-- utilityEquipped defaults to "" rather than nil, and that matters: reconcile
+	-- carries a saved value across only when type(saved[k]) == type(default[k]),
+	-- and a nil default is not even iterated by pairs(), so a nil default would
+	-- silently discard the field on every load. "" reads as "nothing equipped".
+	-- Everything below also tolerates the fields being absent, so a profile saved
+	-- before this prototype existed loads either way.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- Levels for BOTH tables live in one map. Ids can't collide (speed/magnet/
+	--- payout/autocollect vs freeze/shove/decoy) and it keeps the persistence ask
+	--- down to a single new field. A utility is level 0 or 1.
+	local function ensure(player: Player)
+		local profile = DataService.get(player)
+		if not profile then
+			return nil
+		end
+		if type(profile.upgrades) ~= "table" then
+			profile.upgrades = {}
+		end
+		if type(profile.utilityEquipped) ~= "string" then
+			profile.utilityEquipped = ""
+		end
+		-- A save written before a Config edit can carry a level above the new cap,
+		-- or an id that no longer exists. Sanitising on read means every consumer
+		-- below can trust the number.
+		for id, level in pairs(profile.upgrades) do
+			local def = Utilities.UpgradeById[id]
+			local utility = Utilities.UtilityById[id]
+			if def then
+				profile.upgrades[id] = math.clamp(math.floor(tonumber(level) or 0), 0, def.levels)
+			elseif utility then
+				profile.upgrades[id] = math.clamp(math.floor(tonumber(level) or 0), 0, 1)
+			else
+				profile.upgrades[id] = nil
+			end
+		end
+		if profile.utilityEquipped ~= "" and (profile.upgrades[profile.utilityEquipped] or 0) < 1 then
+			profile.utilityEquipped = ""
+		end
+		return profile
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- public read API — for Tycoon / Economy / anyone else
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	function UpgradeService.levelOf(player: Player, id: string): number
+		if not ENABLED then
+			return 0
+		end
+		local profile = DataService.get(player)
+		if not profile or type(profile.upgrades) ~= "table" then
+			return 0
+		end
+		return tonumber(profile.upgrades[id]) or 0
+	end
+
+	--- The value of an upgrade's stat right now (WalkSpeed in studs/sec, magnet
+	--- radius in studs, payout as a multiplier…). Level 0 returns the def's base,
+	--- so this is safe to call for a player who has bought nothing.
+	function UpgradeService.valueOf(player: Player, id: string): number
+		local def = Utilities.UpgradeById[id]
+		if not def then
+			return 0
+		end
+		if not SHOP_ON then
+			return def.base
+		end
+		return Utilities.valueAt(def, UpgradeService.levelOf(player, id))
+	end
+
+	--- Cash multiplier from the `payout` track. 1.0 when the prototype is off.
+	---
+	--- Registered with Economy.setMultiplierHook("upgrades") in start(), so this
+	--- folds into every payout beside the rebirth multiplier. The registry is keyed
+	--- so the session track's hook and this one compose rather than clobber.
+	function UpgradeService.multiplierFor(player: Player): number
+		if not SHOP_ON then
+			return 1
+		end
+		return UpgradeService.valueOf(player, "payout")
+	end
+
+	--- Pickup radius from the `magnet` track, in studs.
+	---
+	--- TODO(consumer): Tycoon.lua's collector should sweep drops within this
+	--- radius of the owner instead of requiring a touch, or the drop's own
+	--- proximity check should widen by it. Tycoon.lua belongs to another track.
+	function UpgradeService.magnetRadius(player: Player): number
+		if not SHOP_ON then
+			return 0
+		end
+		return UpgradeService.valueOf(player, "magnet")
+	end
+
+	--- Whether the vault empties itself.
+	---
+	--- TODO(consumer): Tycoon.lua's vault loop should, when this is true, pay the
+	--- owner out on a timer rather than waiting for them to walk into the
+	--- collector. Tycoon.lua belongs to another track.
+	function UpgradeService.autoCollects(player: Player): boolean
+		if not SHOP_ON then
+			return false
+		end
+		return UpgradeService.levelOf(player, "autocollect") >= 1
+	end
+
+	function UpgradeService.equippedUtility(player: Player): string?
+		if not UTILITY_ON then
+			return nil
+		end
+		local profile = DataService.get(player)
+		local id = profile and profile.utilityEquipped
+		if type(id) == "string" and id ~= "" then
+			return id
+		end
+		return nil
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- replication
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function cooldownRemaining(player: Player, id: string): number
+		local byId = cooldowns[player]
+		local readyAt = byId and byId[id]
+		if not readyAt then
+			return 0
+		end
+		return math.max(0, readyAt - os.clock())
+	end
+
+	function UpgradeService.push(player: Player)
+		if not ENABLED or not player.Parent then
+			return
+		end
+		local profile = ensure(player)
+		if not profile then
+			return
+		end
+
+		local levels: { [string]: number } = {}
+		local costs: { [string]: number } = {}
+		-- utilities gated behind a tycoon button they haven't bought yet, mapped to
+		-- the name of the thing that unlocks them so the row can say why it's dead
+		local locked: { [string]: string } = {}
+
+		if SHOP_ON then
+			for _, def in ipairs(Config.PlayerUpgrades) do
+				local level = tonumber(profile.upgrades[def.id]) or 0
+				levels[def.id] = level
+				-- nil cost means maxed out; the client draws that as "MAX"
+				costs[def.id] = Utilities.costAt(def, level)
+			end
+		end
+
+		local equipped = ""
+		if UTILITY_ON then
+			for _, def in ipairs(Config.Utilities) do
+				local level = tonumber(profile.upgrades[def.id]) or 0
+				levels[def.id] = level
+				costs[def.id] = Utilities.utilityCostAt(def, level)
+				if level < 1 and def.requires and not (profile.owned and profile.owned[def.requires]) then
+					local button = Config.ButtonById[def.requires]
+					locked[def.id] = button and button.name or def.requires
+				end
+			end
+			equipped = profile.utilityEquipped or ""
+		end
+
+		local cooldown, cooldownTotal = 0, 0
+		if equipped ~= "" then
+			local def = Utilities.UtilityById[equipped]
+			cooldown = cooldownRemaining(player, equipped)
+			cooldownTotal = def and def.cooldown or 0
+		end
+
+		-- The declared payload is { levels, costs }; the rest is additive and a
+		-- client that ignores it still draws a correct shop.
+		upgradeState:FireClient(player, {
+			levels = levels,
+			costs = costs,
+			locked = locked,
+			equipped = equipped,
+			-- seconds remaining at the moment this was sent. The client counts it
+			-- down locally rather than trusting os.clock() to mean the same thing
+			-- on both machines — it doesn't.
+			cooldown = cooldown,
+			cooldownTotal = cooldownTotal,
+		})
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- applying the stat upgrades
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- WalkSpeed is the only upgrade with a live effect on the character; the rest
+	--- are read by other services through the API above.
+	local function applySpeed(player: Player, character: Model?)
+		if not SHOP_ON then
+			return
+		end
+		character = character or player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if not humanoid then
+			return
+		end
+		humanoid.WalkSpeed = UpgradeService.valueOf(player, "speed")
+
+		-- Mirrored onto the player so anything that wants the stat — the client,
+		-- a future Tycoon collector sweep — can read it without a round trip. The
+		-- server is still the only writer.
+		player:SetAttribute("TungMagnetRadius", UpgradeService.magnetRadius(player))
+		player:SetAttribute("TungCashMultiplier", UpgradeService.multiplierFor(player))
+		player:SetAttribute("TungAutoCollect", UpgradeService.autoCollects(player))
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- the utility verbs
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- NPCService parents every raider to workspace.SahurRaiders and exposes no
+	--- accessor for the live set, so we read the folder. TODO(NPCService): a
+	--- `NPCService.raidersNear(position, radius)` would let this stop reaching
+	--- into the workspace by name. The IsSahurNPC attribute check is the same one
+	--- CombatService.canDamage uses, so a stray Model in the folder can't be
+	--- frozen by accident.
+	local function raidersNear(position: Vector3, radius: number): { Model }
+		local folder = workspace:FindFirstChild("SahurRaiders")
+		local found: { Model } = {}
+		if not folder then
+			return found
+		end
+		for _, child in ipairs(folder:GetChildren()) do
+			if child:IsA("Model") and child:GetAttribute("IsSahurNPC") then
+				local humanoid, root = Util.getRig(child)
+				if humanoid and root and humanoid.Health > 0
+					and (root.Position - position).Magnitude <= radius
+				then
+					table.insert(found, child)
+				end
+			end
+		end
+		return found
+	end
+
+	type FrozenEntry = { root: BasePart, wasAnchored: boolean, thawAt: number, highlight: Highlight? }
+	local frozen: { [Model]: FrozenEntry } = {}
+
+	local function thaw(npc: Model)
+		local entry = frozen[npc]
+		if not entry then
+			return
+		end
+		-- a second freeze landed while this one was pending; let the later one own
+		-- the thaw so overlapping casts extend rather than cut each other short
+		local remaining = entry.thawAt - os.clock()
+		if remaining > 0.05 then
+			task.delay(remaining, thaw, npc)
+			return
+		end
+		frozen[npc] = nil
+		if entry.highlight then
+			entry.highlight:Destroy()
+		end
+		if entry.root.Parent then
+			entry.root.Anchored = entry.wasAnchored
+		end
+	end
+
+	--- Roots a raider by ANCHORING it, not by zeroing WalkSpeed.
+	---
+	--- NPCService's tick writes `humanoid.WalkSpeed` on every Heartbeat, so a
+	--- WalkSpeed of 0 set from out here survives for less than a frame. Anchoring
+	--- the root part anchors the whole welded assembly and no amount of MoveTo
+	--- moves it, which is the only way to root a raider without editing
+	--- NPCService. Side effect worth knowing: a raider frozen mid-air hangs there
+	--- and drops when it thaws, and a frozen raider still swings if you stand in
+	--- its reach — freeze buys you movement, not safety.
+	local function freezeRaider(npc: Model, seconds: number)
+		local humanoid, root = Util.getRig(npc)
+		if not humanoid or not root then
+			return
+		end
+
+		local entry = frozen[npc]
+		if entry then
+			entry.thawAt = math.max(entry.thawAt, os.clock() + seconds)
+			return
+		end
+
+		-- Highlights are capped at 255 per client and disabled ones still hold a
+		-- slot, so these are created per freeze and destroyed on thaw rather than
+		-- living on every raider. A wave is capped well under the limit.
+		local highlight = Instance.new("Highlight")
+		highlight.FillColor = ICE
+		highlight.FillTransparency = 0.55
+		highlight.OutlineColor = Color3.fromRGB(235, 250, 255)
+		highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+		highlight.Adornee = npc
+		highlight.Parent = npc
+
+		frozen[npc] = {
+			root = root,
+			wasAnchored = root.Anchored,
+			thawAt = os.clock() + seconds,
+			highlight = highlight,
+		}
+		root.Anchored = true
+		Fx.burst(root.Position, ICE, 6, workspace)
+
+		task.delay(seconds, thaw, npc)
+	end
+
+	local VERBS: { [string]: (Player, Model, BasePart, any) -> boolean } = {}
+
+	VERBS.freeze = function(player: Player, character: Model, root: BasePart, def): boolean
+		local targets = raidersNear(root.Position, reachOf("freeze", 34))
+		for _, npc in ipairs(targets) do
+			freezeRaider(npc, def.duration)
+		end
+		Fx.burst(root.Position, ICE, reachOf("freeze", 34) * 0.9, workspace)
+		Fx.impact(root, 1.9)
+		Economy.notify(player, {
+			kind = "info",
+			title = "SAHUR FREEZE",
+			body = #targets == 0
+				and "Nothing in range."
+				or ("%d raider%s frozen for %ds."):format(#targets, #targets == 1 and "" or "s", def.duration),
+		})
+		return true
+	end
+
+	VERBS.shove = function(player: Player, character: Model, root: BasePart, def): boolean
+		local origin = root.Position
+		local pushed = 0
+
+		local function impulseFor(victimRoot: BasePart): Vector3
+			local direction = victimRoot.Position - origin
+			direction = Vector3.new(direction.X, 0, direction.Z)
+			if direction.Magnitude < 0.1 then
+				direction = root.CFrame.LookVector * Vector3.new(1, 0, 1)
+			end
+			direction = direction.Unit
+			-- same shape as CombatService.damage's knockback so a shove reads as a
+			-- very heavy bat hit rather than as a different physics system
+			return (direction * forceOf("shove", 130) + Vector3.new(0, forceOf("shove", 130) * 0.45, 0))
+				* victimRoot.AssemblyMass * 0.6
+		end
+
+		for _, npc in ipairs(raidersNear(origin, reachOf("shove", 26))) do
+			local _, npcRoot = Util.getRig(npc)
+			-- A frozen raider is anchored, so an impulse does nothing to it. That
+			-- interaction is deliberate: freeze pins them, shove scatters them, and
+			-- you have to pick.
+			if npcRoot and not npcRoot.Anchored then
+				npcRoot:ApplyImpulse(impulseFor(npcRoot))
+				pushed += 1
+			end
+		end
+
+		for _, other in ipairs(Players:GetPlayers()) do
+			local otherChar = other.Character
+			local victimHumanoid, victimRoot = Util.getRig(otherChar)
+			if other ~= player and otherChar and victimHumanoid and victimRoot and victimHumanoid.Health > 0
+				and (victimRoot.Position - origin).Magnitude <= reachOf("shove", 26)
+				-- Shove deals no damage, but it still displaces someone, so it obeys
+				-- the same geography rule as the bat: only inside the arena, never
+				-- onto someone standing on their own plot.
+				and CombatService.canDamage(player, otherChar)
+			then
+				-- The victim's client owns their character's physics; a server
+				-- ApplyImpulse here is discarded on the next replication tick, so
+				-- the impulse is computed on the server and applied by them.
+				knockbackRemote:FireClient(other, impulseFor(victimRoot))
+				pushed += 1
+			end
+		end
+
+		Fx.burst(origin, Color3.fromRGB(255, 190, 120), reachOf("shove", 26) * 0.9, workspace)
+		Fx.impact(root, 0.7)
+		Economy.notify(player, {
+			kind = "info",
+			title = "TUNG SHOVE",
+			body = pushed == 0 and "Nothing in range." or ("Shoved %d."):format(pushed),
+		})
+		return true
+	end
+
+	--- STUB. It builds and shows the decoy, and raiders completely ignore it.
+	---
+	--- Making it real is a change in NPCService, not here: `nearestPlayer()` only
+	--- scans Players:GetPlayers(), so nothing else can ever be a target. The hook
+	--- it needs is for the target search to also consider models tagged
+	--- IsSahurDecoy and prefer the nearest of either kind, plus a Humanoid on the
+	--- decoy so raider swings have something to connect with. Left as a stub on
+	--- purpose: faking it here (e.g. teleporting raiders at the decoy) would look
+	--- right for one wave and fight the AI forever after.
+	VERBS.decoy = function(player: Player, character: Model, root: BasePart, def): boolean
+		local dummy = Instance.new("Part")
+		dummy.Name = "TungDecoy"
+		dummy.Anchored = true
+		dummy.CanCollide = false
+		dummy.Material = Enum.Material.Neon
+		dummy.Color = Color3.fromRGB(255, 150, 60)
+		dummy.Size = Vector3.new(2.4, 5.6, 2.4)
+		dummy.CFrame = root.CFrame * CFrame.new(0, 0, -reachOf("decoy", 6))
+		dummy:SetAttribute("IsSahurDecoy", true)
+		dummy:SetAttribute("Owner", player.UserId)
+		dummy.Parent = workspace
+		Debris:AddItem(dummy, def.duration)
+
+		Economy.notify(player, {
+			kind = "warn",
+			title = "DECOY (PROTOTYPE)",
+			body = "The decoy spawns, but raiders don't target it yet.",
+		})
+		return true
+	end
+
+	--- Runs the equipped verb if it is off cooldown. Returns whether it fired, so
+	--- a refusal never starts a cooldown.
+	function UpgradeService.useUtility(player: Player): boolean
+		if not UTILITY_ON then
+			return false
+		end
+		local now = os.clock()
+		if now - (lastUse[player] or 0) < USE_THROTTLE then
+			return false
+		end
+		lastUse[player] = now
+
+		local id = UpgradeService.equippedUtility(player)
+		if not id then
+			return false
+		end
+		local def = Utilities.UtilityById[id]
+		if not def or UpgradeService.levelOf(player, id) < 1 then
+			return false
+		end
+		if cooldownRemaining(player, id) > 0 then
+			-- the client hides this case already; a stale or hostile one gets a
+			-- state push back so its readout resyncs instead of silence
+			UpgradeService.push(player)
+			return false
+		end
+
+		local character = player.Character
+		local humanoid, root = Util.getRig(character)
+		if not character or not humanoid or not root or humanoid.Health <= 0 then
+			return false
+		end
+
+		local verb = VERBS[def.verb]
+		if not verb then
+			warn(("[Tung] utility %q has no verb implementation"):format(def.verb))
+			return false
+		end
+
+		local ok, err = pcall(verb, player, character, root, def)
+		if not ok then
+			warn(("[Tung] utility %s failed: %s"):format(id, tostring(err)))
+			return false
+		end
+
+		local byId = cooldowns[player]
+		if not byId then
+			byId = {}
+			cooldowns[player] = byId
+		end
+		byId[id] = os.clock() + def.cooldown
+		UpgradeService.push(player)
+		return true
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- purchases
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function buyUpgrade(player: Player, profile, def): boolean
+		local level = tonumber(profile.upgrades[def.id]) or 0
+		local cost = Utilities.costAt(def, level)
+		if not cost then
+			return false
+		end
+		if not Economy.spend(player, cost) then
+			Economy.notify(player, {
+				kind = "warn",
+				title = "NOT ENOUGH TUNG",
+				body = ("%s costs %s."):format(def.name, Util.abbreviate(cost)),
+			})
+			return false
+		end
+
+		profile.upgrades[def.id] = level + 1
+		applySpeed(player)
+
+		Economy.notify(player, {
+			kind = "buy",
+			title = ("%s  Lv %d"):format(def.name, level + 1),
+			body = Utilities.describe(def, level + 1),
+		})
+		local _, root = Util.getRig(player.Character)
+		if root then
+			Fx.burst(root.Position, Color3.fromRGB(190, 130, 255), 8, workspace)
+		end
+		return true
+	end
+
+	--- One remote does buy AND equip: clicking a utility you don't own buys it,
+	--- clicking one you do own equips it. The alternative is a second C->S remote
+	--- for equipping, and "the row you tap is the utility you get" is a simpler
+	--- contract than two verbs on one row.
+	local function buyOrEquipUtility(player: Player, profile, def): boolean
+		local level = tonumber(profile.upgrades[def.id]) or 0
+		if level >= 1 then
+			if profile.utilityEquipped == def.id then
+				return false
+			end
+			profile.utilityEquipped = def.id
+			Economy.notify(player, {
+				kind = "gear",
+				title = "EQUIPPED: " .. def.name,
+				body = ("Press Q  •  %ds cooldown"):format(def.cooldown),
+			})
+			return true
+		end
+
+		if def.requires and not (profile.owned and profile.owned[def.requires]) then
+			local button = Config.ButtonById[def.requires]
+			Economy.notify(player, {
+				kind = "warn",
+				title = "LOCKED",
+				body = ("%s needs %s first."):format(def.name, button and button.name or def.requires),
+			})
+			return false
+		end
+
+		if not Economy.spend(player, def.price) then
+			Economy.notify(player, {
+				kind = "warn",
+				title = "NOT ENOUGH TUNG",
+				body = ("%s costs %s."):format(def.name, Util.abbreviate(def.price)),
+			})
+			return false
+		end
+
+		profile.upgrades[def.id] = 1
+		-- equip it immediately: buying a verb and then having to select it is a
+		-- second step nobody expects
+		profile.utilityEquipped = def.id
+		Economy.notify(player, {
+			kind = "gear",
+			title = "UTILITY: " .. def.name,
+			body = ("Press Q  •  %ds cooldown"):format(def.cooldown),
+		})
+		return true
+	end
+
+	function UpgradeService.request(player: Player, id: string)
+		if not ENABLED or type(id) ~= "string" then
+			return
+		end
+		local profile = ensure(player)
+		if not profile then
+			return
+		end
+
+		local upgrade = SHOP_ON and Utilities.UpgradeById[id]
+		local utility = UTILITY_ON and Utilities.UtilityById[id]
+		if upgrade then
+			buyUpgrade(player, profile, upgrade)
+		elseif utility then
+			buyOrEquipUtility(player, profile, utility)
+		end
+
+		-- Push regardless of the outcome. The client's own copy of the state is
+		-- only ever a redraw of ours, so a rejected click resyncs it rather than
+		-- leaving it showing a price it can't pay.
+		UpgradeService.push(player)
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- lifecycle
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	function UpgradeService.onPlayer(player: Player)
+		if not ENABLED then
+			return
+		end
+		task.spawn(function()
+			-- the profile can still be loading on first join; the shop is not worth
+			-- blocking the boot for, so wait for it out of band
+			local deadline = os.clock() + 12
+			while not DataService.get(player) and player.Parent and os.clock() < deadline do
+				task.wait(0.25)
+			end
+			if not player.Parent then
+				return
+			end
+			ensure(player)
+			applySpeed(player)
+			UpgradeService.push(player)
+		end)
+	end
+
+	function UpgradeService.onCharacter(player: Player, character: Model)
+		if not ENABLED then
+			return
+		end
+		if not character:FindFirstChildOfClass("Humanoid") then
+			character:WaitForChild("Humanoid", 10)
+		end
+		applySpeed(player, character)
+		-- CombatService.onCharacter also writes WalkSpeed, and on respawn the order
+		-- of the two is not guaranteed by anything stronger than Main's call order.
+		-- Re-applying once a beat later is a cheap way to always win that race.
+		task.delay(0.75, function()
+			if player.Character == character then
+				applySpeed(player, character)
+			end
+		end)
+		UpgradeService.push(player)
+	end
+
+	function UpgradeService.start()
+		if not ENABLED then
+			return
+		end
+
+		-- Fold the `payout` track into every payout. The registry is keyed so the
+		-- session track's own hook and this one compose instead of clobbering each
+		-- other, and registering here rather than in Economy keeps Economy from
+		-- having to know a prototype exists.
+		if SHOP_ON then
+			Economy.setMultiplierHook("upgrades", UpgradeService.multiplierFor)
+		end
+
+		requestUpgrade.OnServerEvent:Connect(function(player, id)
+			UpgradeService.request(player, id)
+		end)
+
+		useUtility.OnServerEvent:Connect(function(player)
+			UpgradeService.useUtility(player)
+		end)
+
+		Players.PlayerRemoving:Connect(function(player)
+			cooldowns[player] = nil
+			lastUse[player] = nil
+		end)
+
+		print(("[Tung] UpgradeService: %d upgrades, %d utilities%s")
+			:format(SHOP_ON and #Config.PlayerUpgrades or 0,
+				UTILITY_ON and #Config.Utilities or 0,
+				UTILITY_ON and "" or " (utility slot off)"))
+	end
+
+	return UpgradeService
 end
 
 
@@ -5273,6 +8195,12 @@ local CombatService = Req("CombatService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 
+-- Prototype services. Each one is a no-op unless its Config.Prototypes flag is
+-- on, so this list costs nothing in a shipping build.
+local UpgradeService = Req("UpgradeService")
+local SessionService = Req("SessionService")
+local FloorService = Req("FloorService")
+
 local Players = game:GetService("Players")
 
 local START = os.clock()
@@ -5294,7 +8222,12 @@ PlotService.start()
 -- 4. raids
 NPCService.start()
 
--- 5. players
+-- 5. prototypes, each gated on its own flag
+UpgradeService.start()
+SessionService.start()
+FloorService.start()
+
+-- 6. players
 local function onCharacterAdded(player: Player, character: Model)
 	-- keep players from clipping into the belt machinery on spawn
 	character:WaitForChild("HumanoidRootPart", 10)
@@ -5306,6 +8239,7 @@ local function onCharacterAdded(player: Player, character: Model)
 	task.defer(PlotService.teleportToPlot, player)
 
 	CombatService.onCharacter(player, character)
+	UpgradeService.onCharacter(player, character)
 	Economy.push(player)
 end
 
@@ -5313,6 +8247,8 @@ local function onPlayerAdded(player: Player)
 	DataService.load(player)
 	Economy.setupLeaderstats(player)
 	Economy.push(player)
+	UpgradeService.onPlayer(player)
+	SessionService.onPlayer(player)
 
 	player.CharacterAdded:Connect(function(character)
 		task.spawn(onCharacterAdded, player, character)
