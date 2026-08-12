@@ -178,12 +178,28 @@ and fixed, and most fail *silently*.
 ### Procedural animation
 
 - **Write `Motor6D.Transform`, not `C0`, on player characters.** `Transform` is
-  the channel the Animator writes into every frame, so setting it replaces the
-  playing animation's contribution and leaves the rest pose alone. Writing `C0`
-  fights the default `Animate` script and permanently deforms the rig.
-- **Bind after `Enum.RenderPriority.Character`.** That is where the engine
-  applies character animation; anything written before it is overwritten in the
-  same frame. Same class of bug as the camera shake, one stage earlier.
+  the channel the Animator writes into every frame, so it composes with the
+  playing animation and leaves the rest pose alone — and stopping the write
+  needs no restore step. `C0` is also becoming *read-only* on character joints
+  under the Avatar Joint Upgrade.
+- **Those writes go on `RunService.PreSimulation` and nowhere else.** The frame
+  runs `PreRender` → render → `PreAnimation` → *Animator writes joint
+  transforms* → `PreSimulation` → *transforms applied to parts*.
+  **This shipped broken:** the first version used `BindToRenderStep`, which
+  binds to `PreRender`, so every write was overwritten by the Animator later in
+  the same frame and discarded before it reached a part. Damage landed, nothing
+  moved. `Enum.RenderPriority` is a bare ordering constant with no engine
+  meaning — `Character = 300` does **not** mark where characters are animated,
+  and reading it that way is what produced the bug.
+- **Multiply into `Transform`, don't assign it** — assigning deletes the
+  Animator's pose for that joint. And remember what you wrote: the Animator does
+  *not* reset `Transform` when it is throttled (`Animator.EvaluationThrottled`,
+  which happens for distant characters) or when no track is playing, so an
+  unguarded multiply compounds every frame into a windmill.
+- **Look joints up by name and accept `AnimationConstraint` as well as
+  `Motor6D`.** R15 characters are migrating to `AnimationConstraint` under the
+  Avatar Joint Upgrade; an upgraded character has no `Motor6D`s at all, so any
+  `IsA("Motor6D")` filter silently finds nothing.
 - **Express poses in torso space and conjugate per joint:**
   `Transform = C0.Rotation:Inverse() * Q * C0.Rotation`. R6 and R15 bake
   completely different rotations into their shoulder `C0`s, so a raw joint-space
