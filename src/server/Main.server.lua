@@ -11,6 +11,7 @@ local Config = Req("Config")
 Req("Net")  -- creates the RemoteEvent folder before any client asks for it
 local MapBuilder = Req("MapBuilder")
 local DataService = Req("DataService")
+local Analytics = Req("Analytics")
 local Economy = Req("Economy")
 local CombatService = Req("CombatService")
 local PlotService = Req("PlotService")
@@ -34,6 +35,7 @@ local world = MapBuilder.build()
 
 -- 2. services
 DataService.start()
+Analytics.start()
 Economy.start()
 CombatService.start()
 
@@ -72,6 +74,14 @@ end
 
 local function onPlayerAdded(player: Player)
 	DataService.load(player)
+	-- BETWEEN load AND SessionService.onPlayer, AND THAT IS NOT A PREFERENCE.
+	-- SessionService.onPlayer overwrites profile.lastSeen with os.time() as its
+	-- second act, and its per-second tick re-stamps it after that. The previous
+	-- logout time is readable exactly once, here, and it is the only input the
+	-- `returned` event has. Moving this line below SessionService.onPlayer does
+	-- not break anything visibly — it makes every "how long before they came
+	-- back" number zero.
+	Analytics.onPlayer(player)
 	Economy.setupLeaderstats(player)
 	Economy.push(player)
 	UpgradeService.onPlayer(player)

@@ -50,6 +50,14 @@ Net.NAMES = {
 	"RequestClaim",   -- C->S  { kind = "daily" | "playtime" | "offline", index }
 	"RequestBoost",   -- C->S
 	"FloorState",     -- S->C  { unlocked = boolean }
+
+	-- Roblox exposes no server-side device API, so the ONE thing the client has
+	-- to tell us about itself is which kind of machine it is. Declared here
+	-- rather than created on demand for the reason above: a client that resolves
+	-- it lazily sits in WaitForChild, and this one fires in the first seconds of
+	-- a session. Validated server-side against Config.Analytics.Fields.platform
+	-- and used as a chart label only — it gates nothing.
+	"ClientHello",    -- C->S  { platform = string }
 }
 
 if RunService:IsServer() then

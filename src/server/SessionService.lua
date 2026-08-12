@@ -31,6 +31,7 @@ local Util = Req("Util")
 local Net = Req("Net")
 local DataService = Req("DataService")
 local Economy = Req("Economy")
+local Analytics = Req("Analytics")
 
 local Players = game:GetService("Players")
 
@@ -488,6 +489,10 @@ local function claimOffline(player: Player, entry: Live)
 
 	Economy.add(player, pending.earned, false)   -- perSecond already carries the rebirth multiplier
 	Economy.push(player)
+	-- `clipped` is the only reason this event carries a facet at all: whether
+	-- the 8-hour cap actually cut someone off is the question that decides
+	-- whether the Vault Timer upgrades are worth anything.
+	Analytics.onOfflineClaim(player, pending, Economy.get(player))
 	Economy.notify(player, {
 		kind = "claim",
 		title = "OFFLINE TUNG COLLECTED",
