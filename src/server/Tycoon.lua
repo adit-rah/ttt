@@ -42,6 +42,7 @@ local COLORS = {
 	beltLine  = Color3.fromRGB(255, 176, 60),
 	buttonOn  = Color3.fromRGB(110, 235, 150),
 	buttonOff = Color3.fromRGB(230, 90, 90),
+	preview   = Color3.fromRGB(126, 122, 146),
 	vault     = Color3.fromRGB(146, 110, 72),
 	gold      = Color3.fromRGB(255, 205, 90),
 }
@@ -63,6 +64,57 @@ local function newPart(parent, name, size, cf, color, material, collide)
 	p.BottomSurface = Enum.SurfaceType.Smooth
 	p.Parent = parent
 	return p
+end
+
+-- ── machine geometry ─────────────────────────────────────────────────────────
+
+--- The masses a belt machine is made of: { name, size, offset, y, collide }.
+--- Offset is outboard of the belt, y is the centre height, both in the leg's
+--- own frame (see Tycoon:segmentCF).
+---
+--- This exists so the GHOST PREVIEW and the real machine are built from one
+--- description. A silhouette hand-copied from the installer is a silhouette
+--- that stops matching the machine the first time either is touched.
+local MACHINE_MASSES = {
+	Dropper = function()
+		-- Sized to Layout.MachineFootprint so neighbouring droppers can never
+		-- overlap. The arm hangs directly over the running surface, so it is
+		-- non-collidable: a tall drop has to pass under it untouched.
+		local depth = L.MachineFootprint
+		return {
+			{ "Base", Vector3.new(depth, 3.6, depth), L.MachineOffset, 1.8, true },
+			{ "Core", Vector3.new(depth - 1.4, 2.2, depth - 1.4), L.MachineOffset, 4.7, true },
+			{ "Arm", Vector3.new(L.MachineOffset, 1, 1.4), L.MachineOffset / 2, L.BeltY + 5, false },
+			{ "Spout", Vector3.new(2.4, 1.8, 2.4), 0, L.BeltY + 4.2, false },
+			{ "Nozzle", Vector3.new(1.8, 0.5, 1.8), 0, L.BeltY + 3.2, false },
+		}
+	end,
+	Upgrader = function()
+		-- Single post on the OUTBOARD side with a cantilevered beam, rather
+		-- than an arch straddling the belt: keeps the inboard walkway clear.
+		local reach = L.MachineOffset + L.BeltWidth / 2
+		return {
+			{ "Post", Vector3.new(1.8, 6, 1.8), L.MachineOffset, 3, true },
+			{ "Beam", Vector3.new(reach, 1.5, 2.2), (L.MachineOffset - L.BeltWidth / 2) / 2, L.BeltY + 4.6, false },
+			{ "Scanner", Vector3.new(L.BeltWidth, 3.6, 1), 0, L.BeltY + 1.8, false },
+		}
+	end,
+}
+
+--- Builds a machine's masses into `parent` and returns them keyed by name.
+function Tycoon:buildMasses(def, parent: Instance, color: Color3, material: Enum.Material)
+	local shape = MACHINE_MASSES[def.kind]
+	if not shape then
+		return {}
+	end
+	local legIndex, distance = self:legOf(def)
+	local parts = {}
+	for _, mass in ipairs(shape()) do
+		local name, size, offset, y, collide = mass[1], mass[2], mass[3], mass[4], mass[5]
+		parts[name] = newPart(parent, name, size,
+			self:segmentCF(legIndex, distance, offset, y), color, material, collide)
+	end
+	return parts, legIndex, distance
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -233,6 +285,39 @@ function Tycoon:buildBelt()
 	turn.Touched:Connect(function(hit)
 		self:onTurn(hit)
 	end)
+
+	self:buildFlowMarkers(folder)
+end
+
+--- Chevrons painted on the floor beside the belt, pointing downstream.
+---
+--- An L-shaped conveyor with machinery on both sides does not tell you which
+--- end is the start. Following the arrows takes you from the first dropper to
+--- the vault, which is also the order the buy buttons come in — so "walk the
+--- arrows" is the whole tutorial for reading a plot.
+function Tycoon:buildFlowMarkers(parent: Instance)
+	local SPACING = 18
+	local INBOARD = -(L.BeltWidth / 2 + 2.5)   -- clear of the belt, clear of the buttons
+
+	for legIndex = 1, 2 do
+		local _, _, _, length = self:leg(legIndex)
+		local at = SPACING * 0.5
+		while at < length do
+			-- two bars meeting at a point: a wedge read from above is just a
+			-- rectangle, so the arrowhead has to be drawn rather than modelled
+			for _, side in ipairs({ 1, -1 }) do
+				local bar = newPart(parent, "Flow", Vector3.new(0.7, 0.25, 4),
+					self:segmentCF(legIndex, at, INBOARD, 0.12)
+						* CFrame.new(side * 1.1, 0, -1.1)
+						* CFrame.Angles(0, math.rad(side * 32), 0),
+					COLORS.beltLine, Enum.Material.Neon, false)
+				bar.Transparency = 0.25
+				bar.CanQuery = false
+				bar.CanTouch = false
+			end
+			at += SPACING
+		end
+	end
 end
 
 --- Hands a drop from leg 1 onto leg 2 at the corner.
@@ -587,9 +672,14 @@ function Tycoon:buildButtons()
 
 		local billboard = Instance.new("BillboardGui")
 		billboard.Name = "Info"
-		billboard.Size = UDim2.fromScale(15, 7)
-		billboard.StudsOffsetWorldSpace = Vector3.new(0, 5.5, 0)
-		billboard.MaxDistance = 190
+		billboard.Size = UDim2.fromScale(16, 9)
+		billboard.StudsOffsetWorldSpace = Vector3.new(0, 6, 0)
+		billboard.MaxDistance = 220
+		-- Readable through your own machinery. Without this the label for the
+		-- button you are walking towards disappears behind the dropper next to
+		-- it exactly when you need it.
+		billboard.AlwaysOnTop = true
+		billboard.LightInfluence = 0
 		billboard.Parent = pad
 
 		local frame = Instance.new("Frame")
@@ -605,38 +695,51 @@ function Tycoon:buildButtons()
 		stroke.Thickness = 2.5
 		stroke.Parent = frame
 
+		-- Four lines, in the order you ask the questions: where am I in the
+		-- build, what is this, what does it do for me, what does it cost.
+		local step = Instance.new("TextLabel")
+		step.Name = "Step"
+		step.BackgroundTransparency = 1
+		step.Size = UDim2.fromScale(0.94, 0.18)
+		step.Position = UDim2.fromScale(0.03, 0.02)
+		step.Font = Enum.Font.GothamBold
+		step.Text = ("STEP %d OF %d"):format(def.order, #Config.Buttons)
+		step.TextColor3 = Color3.fromRGB(150, 142, 172)
+		step.TextScaled = true
+		step.Parent = frame
+
 		local title = Instance.new("TextLabel")
 		title.Name = "Title"
 		title.BackgroundTransparency = 1
-		title.Size = UDim2.fromScale(0.94, 0.4)
-		title.Position = UDim2.fromScale(0.03, 0.05)
+		title.Size = UDim2.fromScale(0.94, 0.32)
+		title.Position = UDim2.fromScale(0.03, 0.2)
 		title.Font = Enum.Font.FredokaOne
 		title.Text = def.name
 		title.TextColor3 = Color3.fromRGB(255, 240, 210)
 		title.TextScaled = true
 		title.Parent = frame
 
+		local effect = Instance.new("TextLabel")
+		effect.Name = "Effect"
+		effect.BackgroundTransparency = 1
+		effect.Size = UDim2.fromScale(0.94, 0.22)
+		effect.Position = UDim2.fromScale(0.03, 0.52)
+		effect.Font = Enum.Font.GothamBold
+		effect.Text = def.blurb or ""
+		effect.TextColor3 = Color3.fromRGB(150, 235, 190)
+		effect.TextScaled = true
+		effect.Parent = frame
+
 		local price = Instance.new("TextLabel")
 		price.Name = "Price"
 		price.BackgroundTransparency = 1
-		price.Size = UDim2.fromScale(0.94, 0.3)
-		price.Position = UDim2.fromScale(0.03, 0.44)
+		price.Size = UDim2.fromScale(0.94, 0.24)
+		price.Position = UDim2.fromScale(0.03, 0.74)
 		price.Font = Enum.Font.GothamBold
 		price.Text = "$" .. Util.abbreviate(def.price)
 		price.TextColor3 = COLORS.buttonOn
 		price.TextScaled = true
 		price.Parent = frame
-
-		local blurb = Instance.new("TextLabel")
-		blurb.Name = "Blurb"
-		blurb.BackgroundTransparency = 1
-		blurb.Size = UDim2.fromScale(0.94, 0.22)
-		blurb.Position = UDim2.fromScale(0.03, 0.74)
-		blurb.Font = Enum.Font.Gotham
-		blurb.Text = def.blurb or ""
-		blurb.TextColor3 = Color3.fromRGB(180, 168, 200)
-		blurb.TextScaled = true
-		blurb.Parent = frame
 
 		local lastTouch = 0
 		pad.Touched:Connect(function(hit)
@@ -654,10 +757,15 @@ function Tycoon:buildButtons()
 			def = def,
 			holder = holder,
 			pad = pad,
+			pedestal = holder:FindFirstChild("Pedestal"),
 			stroke = stroke,
 			priceLabel = price,
+			effectLabel = effect,
+			stepLabel = step,
+			titleLabel = title,
 			light = light,
 			machine = nil,
+			ghost = nil,
 		}
 	end
 end
@@ -675,19 +783,180 @@ function Tycoon:requirementsMet(id: string): boolean
 	return true
 end
 
+--- A translucent stand-in for a machine you haven't bought yet, built from the
+--- same MACHINE_MASSES description as the real thing.
+---
+--- Showing the next few purchases as ghosts turns the plot into a plan you are
+--- filling in, rather than a row of anonymous pads with prices on them. It also
+--- answers the standing complaint about tycoon infrastructure — "why am I
+--- buying walls before I can buy upgraders" stops being a fair question once
+--- you can see the upgraders standing there waiting.
+function Tycoon:buildGhost(def)
+	if not MACHINE_MASSES[def.kind] then
+		return nil
+	end
+	local variant = Config.Variants[def.variant] or Config.Variants.classic
+
+	local model = Instance.new("Model")
+	model.Name = "Ghost_" .. def.id
+
+	local parts = self:buildMasses(def, model, variant.wood, Enum.Material.ForceField)
+	for _, part in pairs(parts) do
+		part.Transparency = 0.72
+		-- A ghost must never be walked into, stood on, or hit by a drop: it is
+		-- a drawing, and the belt has to run through where it will stand.
+		part.CanCollide = false
+		part.CanTouch = false
+		part.CanQuery = false
+		part.CastShadow = false
+	end
+	return model
+end
+
+--- Buy buttons have three states, because the two obvious designs both fail:
+--- showing every button at once gives the plot no focal point, and showing
+--- only the next one hides the shape of the build from you.
+---
+---   available   full colour, lit, touchable, and the cheapest one wears a
+---               Highlight and a beacon so it is findable from anywhere
+---   preview     the next few steps: dimmed, inert, with a ghost of the
+---               machine standing where it will go
+---   hidden      everything further out, and everything already owned
+local PREVIEW_AHEAD = 3
+
 function Tycoon:refreshButtons()
-	for id, entry in pairs(self.objects) do
-		local visible = (self.owner ~= nil) and (not self.owned[id]) and self:requirementsMet(id)
-		entry.holder.Parent = visible and self.buttonsFolder or nil
-		if visible then
-			local affordable = self.owner and Economy.get(self.owner) >= entry.def.price
-			local color = affordable and COLORS.buttonOn or COLORS.buttonOff
-			entry.pad.Color = color
-			entry.light.Color = color
-			entry.stroke.Color = color
-			entry.priceLabel.TextColor3 = color
+	if not self.owner then
+		for _, entry in pairs(self.objects) do
+			entry.holder.Parent = nil
+			if entry.ghost then
+				entry.ghost:Destroy()
+				entry.ghost = nil
+			end
+		end
+		if self.marker then
+			self:pointAt(nil)
+		end
+		return
+	end
+
+	local cash = Economy.get(self.owner)
+
+	-- how far along the linear chain the player has got
+	local nextOrder = #Config.Buttons + 1
+	for _, def in ipairs(Config.Buttons) do
+		if not self.owned[def.id] then
+			nextOrder = def.order
+			break
 		end
 	end
+
+	local target, targetPrice = nil, math.huge
+
+	for id, entry in pairs(self.objects) do
+		local def = entry.def
+		local owned = self.owned[id] == true
+		local available = (not owned) and self:requirementsMet(id)
+		local preview = (not owned) and (not available) and (def.order <= nextOrder + PREVIEW_AHEAD)
+
+		entry.holder.Parent = (available or preview) and self.buttonsFolder or nil
+
+		if preview then
+			-- inert: a preview pad you can buy from would just spam "you can't
+			-- afford that yet" every time you crossed it
+			entry.pad.CanTouch = false
+			entry.pad.Color = COLORS.preview
+			entry.pad.Transparency = 0.45
+			if entry.pedestal then
+				entry.pedestal.Transparency = 0.55
+				entry.pedestal.CanCollide = false
+			end
+			entry.light.Enabled = false
+			entry.stroke.Color = COLORS.preview
+			entry.stepLabel.TextColor3 = COLORS.preview
+			entry.titleLabel.TextColor3 = COLORS.preview
+			entry.effectLabel.Text = "locked — finish step " .. (def.order - 1)
+			entry.effectLabel.TextColor3 = COLORS.preview
+			entry.priceLabel.Text = "$" .. Util.abbreviate(def.price)
+			entry.priceLabel.TextColor3 = COLORS.preview
+		elseif available then
+			local affordable = cash >= def.price
+			local color = affordable and COLORS.buttonOn or COLORS.buttonOff
+			entry.pad.CanTouch = true
+			entry.pad.Transparency = 0
+			entry.pad.Color = color
+			if entry.pedestal then
+				entry.pedestal.Transparency = 0
+				entry.pedestal.CanCollide = true
+			end
+			entry.light.Enabled = true
+			entry.light.Color = color
+			entry.stroke.Color = color
+			entry.stepLabel.TextColor3 = Color3.fromRGB(150, 142, 172)
+			entry.titleLabel.TextColor3 = Color3.fromRGB(255, 240, 210)
+			entry.effectLabel.Text = self:effectLine(def)
+			entry.effectLabel.TextColor3 = Color3.fromRGB(150, 235, 190)
+			entry.priceLabel.TextColor3 = color
+			entry.priceLabel.Text = affordable
+				and ("$" .. Util.abbreviate(def.price))
+				or ("NEED " .. Util.abbreviate(def.price - cash) .. " MORE")
+
+			if def.price < targetPrice then
+				target, targetPrice = entry, def.price
+			end
+		end
+
+		-- ghosts stand for anything not yet built, available or previewed
+		local wantsGhost = (available or preview) and MACHINE_MASSES[def.kind] ~= nil
+		if wantsGhost and not entry.ghost then
+			entry.ghost = self:buildGhost(def)
+			if entry.ghost then
+				entry.ghost.Parent = self.machines
+			end
+		elseif not wantsGhost and entry.ghost then
+			entry.ghost:Destroy()
+			entry.ghost = nil
+		end
+	end
+
+	self:pointAt(target)
+end
+
+--- Moves the "buy this next" marker onto `entry`. One Highlight and one light
+--- column per plot, reparented, rather than one of each per button: Highlight
+--- is capped at 255 per client and disabled ones still occupy a slot.
+function Tycoon:pointAt(entry)
+	if not self.marker then
+		local marker = Instance.new("Model")
+		marker.Name = "NextMarker"
+
+		local beam = newPart(marker, "Beam", Vector3.new(4, 26, 4), CFrame.new(),
+			COLORS.gold, Enum.Material.Neon, false)
+		beam.Transparency = 0.75
+		beam.CanQuery = false
+
+		local highlight = Instance.new("Highlight")
+		highlight.FillColor = COLORS.gold
+		highlight.FillTransparency = 0.65
+		highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+		-- through your own machinery: the point of the marker is that you can
+		-- find it from the far end of a plot you have already half filled
+		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		highlight.Parent = marker
+
+		self.marker = marker
+		self.markerBeam = beam
+		self.markerHighlight = highlight
+	end
+
+	if not entry then
+		self.marker.Parent = nil
+		self.markerHighlight.Adornee = nil
+		return
+	end
+
+	self.markerHighlight.Adornee = entry.holder
+	self.markerBeam.CFrame = entry.pad.CFrame * CFrame.new(0, 13, 0)
+	self.marker.Parent = self.buttonsFolder
 end
 
 -- ── purchasing ───────────────────────────────────────────────────────────────
@@ -775,38 +1044,27 @@ end
 Tycoon.INSTALLERS = {}
 
 Tycoon.INSTALLERS.Dropper = function(self, def, silent)
-	local legIndex, distance = self:legOf(def)
 	local variant = Config.Variants[def.variant] or Config.Variants.classic
 
 	local model = Instance.new("Model")
 	model.Name = "Dropper_" .. def.id
 	model.Parent = self.machines
 
-	-- Machine body, outboard of the belt against the plot edge. Sized to
-	-- Layout.MachineFootprint so neighbouring droppers can never overlap.
-	local depth = L.MachineFootprint
-	newPart(model, "Base", Vector3.new(depth, 3.6, depth),
-		self:segmentCF(legIndex, distance, L.MachineOffset, 1.8), COLORS.frame, Enum.Material.DiamondPlate)
+	local parts, legIndex = self:buildMasses(def, model, COLORS.frame, Enum.Material.DiamondPlate)
 
-	local core = newPart(model, "Core", Vector3.new(depth - 1.4, 2.2, depth - 1.4),
-		self:segmentCF(legIndex, distance, L.MachineOffset, 4.7), variant.wood, variant.material)
+	local core = parts.Core
+	core.Color = variant.wood
+	core.Material = variant.material
 	Fx.applyVariant(core, variant)
 
-	-- arm reaching inboard over the belt
-	local reach = L.MachineOffset
-	-- non-collidable: it hangs directly over the running surface, and a tall
-	-- drop must be able to pass under it without ever touching anything
-	newPart(model, "Arm", Vector3.new(reach, 1, 1.4),
-		self:segmentCF(legIndex, distance, reach / 2, L.BeltY + 5), COLORS.metal, Enum.Material.Metal, false)
+	parts.Arm.Color = COLORS.metal
+	parts.Arm.Material = Enum.Material.Metal
+	parts.Spout.Color = COLORS.metal
+	parts.Spout.Material = Enum.Material.Metal
 
-	local spout = newPart(model, "Spout", Vector3.new(2.4, 1.8, 2.4),
-		self:segmentCF(legIndex, distance, 0, L.BeltY + 4.2), COLORS.metal, Enum.Material.Metal)
-	spout.CanCollide = false
-
-	local nozzle = newPart(model, "Nozzle", Vector3.new(1.8, 0.5, 1.8),
-		self:segmentCF(legIndex, distance, 0, L.BeltY + 3.2),
-		variant.light and variant.light.color or variant.wood, Enum.Material.Neon)
-	nozzle.CanCollide = false
+	local nozzle = parts.Nozzle
+	nozzle.Color = variant.light and variant.light.color or variant.wood
+	nozzle.Material = Enum.Material.Neon
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Size = UDim2.fromScale(9, 2.6)
@@ -841,27 +1099,22 @@ Tycoon.INSTALLERS.Dropper = function(self, def, silent)
 end
 
 Tycoon.INSTALLERS.Upgrader = function(self, def, silent)
-	local legIndex, distance = self:legOf(def)
 	local variant = Config.Variants[def.variant] or Config.Variants.classic
 
 	local model = Instance.new("Model")
 	model.Name = "Upgrader_" .. def.id
 	model.Parent = self.machines
 
-	-- Single post on the OUTBOARD side with a cantilevered beam, rather than
-	-- an arch straddling the belt: keeps the inboard walkway completely clear.
-	newPart(model, "Post", Vector3.new(1.8, 6, 1.8),
-		self:segmentCF(legIndex, distance, L.MachineOffset, 3), COLORS.metal, Enum.Material.Metal)
+	local parts = self:buildMasses(def, model, COLORS.metal, Enum.Material.Metal)
 
-	local reach = L.MachineOffset + L.BeltWidth / 2
-	local beam = newPart(model, "Beam", Vector3.new(reach, 1.5, 2.2),
-		self:segmentCF(legIndex, distance, (L.MachineOffset - L.BeltWidth / 2) / 2, L.BeltY + 4.6),
-		variant.wood, variant.material, false)
+	local beam = parts.Beam
+	beam.Color = variant.wood
+	beam.Material = variant.material
 	Fx.applyVariant(beam, variant)
 
-	local scanner = newPart(model, "Scanner", Vector3.new(L.BeltWidth, 3.6, 1),
-		self:segmentCF(legIndex, distance, 0, L.BeltY + 1.8),
-		variant.light and variant.light.color or variant.wood, Enum.Material.Neon, false)
+	local scanner = parts.Scanner
+	scanner.Color = variant.light and variant.light.color or variant.wood
+	scanner.Material = Enum.Material.Neon
 	scanner.Transparency = 0.55
 	scanner.CanTouch = true
 
@@ -1099,23 +1352,44 @@ end
 -- ── income readout ───────────────────────────────────────────────────────────
 
 --- Estimated Tung/second with everything currently installed.
-function Tycoon:incomePerSecond(): number
-	local upgradeMult = 1
-	for id, owned in pairs(self.owned) do
-		local def = Config.ButtonById[id]
-		if owned and def and def.kind == "Upgrader" then
-			upgradeMult *= def.multiplier
-		end
+---
+--- `extraId` pretends one more button is owned, which is how a buy button can
+--- advertise "+$28/sec" instead of only a price. A price alone is a cost with
+--- no stated benefit, and for an Upgrader the benefit is not even guessable —
+--- x1.85 of an unknown number is not information.
+function Tycoon:incomePerSecond(extraId: string?): number
+	local function has(id: string): boolean
+		return self.owned[id] == true or id == extraId
 	end
+
+	local upgradeMult = 1
 	local total = 0
-	for id, owned in pairs(self.owned) do
-		local def = Config.ButtonById[id]
-		if owned and def and def.kind == "Dropper" then
-			total += (def.dropValue / def.dropRate)
+	for id, def in pairs(Config.ButtonById) do
+		if has(id) then
+			if def.kind == "Upgrader" then
+				upgradeMult *= def.multiplier
+			elseif def.kind == "Dropper" then
+				total += (def.dropValue / def.dropRate)
+			end
 		end
 	end
 	local rebirthMult = self.owner and Economy.multiplier(self.owner) or 1
 	return total * upgradeMult * rebirthMult
+end
+
+--- One line of plain English for what a button actually does for you. Income
+--- kinds get the measured delta; the rest get their blurb, because "walls" has
+--- no income to quote.
+function Tycoon:effectLine(def): string
+	if def.kind == "Dropper" or def.kind == "Upgrader" then
+		local delta = self:incomePerSecond(def.id) - self:incomePerSecond()
+		if delta > 0 then
+			return ("+%s/sec"):format(Util.abbreviate(delta))
+		end
+	elseif def.kind == "Belt" then
+		return ("belt +%d studs/sec"):format(def.speedBonus)
+	end
+	return def.blurb or ""
 end
 
 function Tycoon:updateSign()
