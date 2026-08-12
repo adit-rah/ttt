@@ -331,3 +331,320 @@ Unchanged from v5 §6, plus one.
   written, and no amount of care in the prose could have caught that. When you
   write an invariant here, ask what would fail if it were violated — and if the
   answer is "nothing", that is the work, not the document.
+
+---
+---
+
+# Handoff v6 — the growth round
+
+**Brief:** `GROWTH-TODO.md`, worked in parallel with the round above in a
+separate worktree. `RECONCILE_v6.md` maps the files the two rounds share and the
+order they merge in. Read that first if you are resolving a conflict.
+
+Ten pull requests, all stacked on `#37`.
+
+Where the round above is about the inside of one session, this one is about
+whether anyone comes back tomorrow, brings a friend, or taps the icon at all.
+Roblox rewrote its recommendation algorithm in June 2026 to score a **28-day
+window**, explicitly to stop rewarding games that "win attention with exciting
+thumbnails but don't deliver long-term value." Retention stopped being the thing
+you fix after you get traffic and became the thing that decides whether you get
+any.
+
+**§G2 is the part to read before you change anything.**
+
+---
+
+## G1. What changed
+
+| PR | What |
+| --- | --- |
+| #37 | **the game runs outside Roblox** — a headless spec harness |
+| #41 | the store-page brief, the live-ops calendar, `RECONCILE_v6.md` |
+| #43 | the rebirth pad priced as a rung; the 60-minute credit cap asserted |
+| #44 | a friend bonus, and an invite button where the number is |
+| #45 | **DataStore session locking** — the standing highest-severity defect |
+| #46 | one `UiKit`, one `UIScale`, and a safe area |
+| #47 | analytics: seven events, and a schema the verifier can count |
+| #48 | a vault you can watch fill |
+| #50 | offline earnings, streaks, the ladder, the boost and weekend 2× **turned on** |
+| #51 | the boss became a shared objective |
+
+### #37 — the sentence that had appeared five times
+
+Every handoff since v1 opens with *"nothing in this round has run in Roblox"*,
+and it was true every time because there was no way to make it false. The
+verifier reads `Config.lua` and nothing else.
+
+`tools/test.py` assembles the mocks, the real `src/` modules and the specs into
+one Lua chunk and runs it under the `luau` CLI. It is a **second consumer of
+`tools/pack.py`** — same `BOOTSTRAP` regex, different replacement — so a packer
+regression now surfaces as a failing spec rather than as a `build/` nobody
+reads.
+
+**What it found immediately was #35**, and the shape of that find is the reason
+the harness exists: the generator's contract was asserted six ways in Config and
+the assignment it described was never written. `got 37, want 62.16` is
+HANDOFF_v5 §5 item 8 — a number that handoff asked a human to verify in Studio,
+naming the two wrong answers it might be. It was asked twice, answered zero
+times, and **the real answer was a third thing neither round guessed.**
+
+**And then it found that the retention features are correct.** 30 specs across
+offline earnings, streaks, the playtime ladder, the boost and the weekend, all
+green against code that had never executed. Including the two most likely to be
+wrong: day buckets survive New Year's Eve, and a backwards clock pays nothing.
+
+### #45 — session locking
+
+Open in all five previous handoffs. `save()` used `UpdateAsync` with a transform
+that **ignored its argument** — a `SetAsync` with retries, last-write-wins by
+construction.
+
+The lock lives **inside** the profile record. Roblox has no cross-key
+transaction, so the only way to make "only the holder may write" atomic is for
+the check and the write to be the same call.
+
+Proven by 17 specs, **mutation-tested against 15 deliberately broken versions of
+`DataService` — all 15 caught.** Three of those were only caught after adding
+assertions the first pass had missed.
+
+### #50 — the switches, and the three things behind them
+
+`GROWTH-TODO.md` item 2 says *"Don't just flip the switches."* It was right:
+
+- **The Vault Timer was advertised and unbuyable.** `offlineCapLevel` had no
+  writer anywhere. The panel dangled a product that did not exist.
+- **The playtime ladder was a rejoin farm.** `claimedPlaytime` was
+  per-session and never persisted.
+- **`profile.unlocks` was a cache of a pure function.** It could only go stale,
+  and had — recording `"mezzanine"` forever after the mezzanine became a button.
+
+### #51 — the boss
+
+The raid was already server-wide. What was missing is that the boss was a
+*bigger raider* rather than a *shared objective*: credit was strictly
+last-hitter, and nobody could see its health.
+
+---
+
+## G2. Invariants — the landmine list
+
+Additions to v1 §5, v2 §5, v4 §2, v5 §2 and §2 above. Everything there applies.
+
+### The harness
+
+- **A mock is a claim about Roblox that only Roblox can settle.** Everything
+  `tools/testing/mock/` asserts — that `UpdateAsync` re-runs its transform on
+  conflict, that a `nil` return aborts the write, that `IsFriendsWith` throws
+  rather than returning `false` on a web failure — is an assumption. Where the
+  game depends on one, it is named in §G6.
+- **The DataStore mock deep-copies on every read and write.** A mock that stores
+  by reference makes every save/load spec a tautology that passes forever.
+- **`Players.MaxPlayers` must be a number.** `Config.plotCountFor()` reads it at
+  module load inside a `pcall`; leave it nil and the specs run against different
+  plot geometry than the verifier, with no error anywhere.
+- **The default clock epoch is a Thursday, deliberately.** A weekend default
+  would silently double every income assertion in the suite.
+- **`_G` is readonly under the `luau` CLI.** Globals are assigned directly.
+- **`os` is shadowed, and `os.date` delegates** to the real implementation with
+  an explicit timestamp rather than reimplementing the civil calendar — which is
+  what keeps `wday` correct for the weekend multiplier.
+
+### Persistence
+
+- **The lock is `stored.__lock`, and it never reaches the profile.**
+  `reconcile()` iterates the keys of the fresh *default*, so an extra key in the
+  stored blob is structurally invisible. `save()` builds an explicit payload, so
+  it cannot leak back. **No `PROFILE_VERSION` bump and no migration** — verify
+  that reasoning before you change either.
+- **The `UpdateAsync` transform can run more than once.** Assign the outcome,
+  never accumulate it; sample `os.time()` *inside* the transform.
+- **`SERVER_ID` falls back to the stable string `"studio"`**, not a random id, so
+  a Studio restart re-acquires its own leftover lock instead of waiting out the
+  stale window. `BindToClose` early-returns in Studio, so nothing releases it.
+- **A contended load can now take ~32 seconds**, against milliseconds before.
+  Anything that assumes a profile is present shortly after join got weaker. This
+  already found one live bug in the other round's admin commands.
+- **A sparse numeric-keyed table does not round-trip through the DataStore.**
+  JSON turns `{[3] = true}` into a string key, and the playtime ladder silently
+  re-opens on every load. It is a `bit32` mask for that reason.
+
+### Screen UI
+
+- **There is exactly one `ScreenGui`, and a lint keeps it that way.** One
+  ScreenGui means one `Root` means one `UIScale`, so a new panel cannot bypass
+  mobile scaling by accident.
+- **The client is guaranteed at least 1280×720 of DESIGN space** at every aspect
+  ratio, because the scale divides by `min(vx/1280, vy/720)`. That is what makes
+  every existing `UDim2.fromOffset` literal correct by construction.
+- **A `UIScale` transforms its whole subtree**, so a shade at `fromScale(1,1)`
+  inside a 0.62 layer dims 62% of the screen and leaves a bright border. Both
+  layers are sized `fromScale(1/scale)` to cancel exactly that.
+- **Do not re-apply the top inset.** `IgnoreGuiInset = false` already pushes the
+  ScreenGui below the topbar; subtracting `GetGuiInset()` again is the classic
+  double-inset bug.
+- **Card-scale geometry belongs to `Config.UI`, and a lint enforces it.**
+- **Combat is not touched, deliberately.** The bat is a plain `Tool`, so
+  Roblox's mobile fire button drives `Tool.Activated` for free.
+
+### Growth surfaces
+
+- **Never put a continuous value in an analytics custom field.** Three fields per
+  event, string values only, and **8,000 unique combinations per experience** —
+  a shared budget across every event. The schema sits in `Config.Analytics` so
+  the verifier can count it, because every one of those limits fails *silently*.
+- **The friend bonus does not bank while you are logged out**, by the same
+  mechanism that excludes the boost. A bonus for being in a server with friends
+  must not pay while you are in no server.
+- **A failed `IsFriendsWith` caches nothing.** Caching a web failure as `false`
+  silently deletes the bonus for the rest of the session.
+- **The multiplier hook runs on every `Economy.add`** — up to ~10/sec/plot at
+  endgame. It must be an O(1) table read, never a web call.
+- **Boss scaling is sampled once at `beginWave` and never re-read.** If it
+  tracked live player count, someone leaving would change the boss's max health
+  under a bar twelve people are watching.
+- **The damage ledger takes `before - humanoid.Health`, not `amount`.** A 10k
+  overkill on a 2k boss would otherwise buy 80% of the pot.
+- **At one eligible player the boss split is algebraically the identity**, and
+  the verifier asserts it. A solo server gets byte-for-byte the old boss with no
+  branch anywhere in the code.
+- **`forceEnd` settles the boss ledger pro-rata before zeroing healths.** The old
+  "no reward for a wave nobody finished" is right for raiders and wrong for a
+  shared boss — twelve people fighting for five minutes would have got nothing.
+
+### Pacing
+
+- **`Config.Rebirth.BaseCost` is DERIVED and must not be hand-set again.** The
+  comment claiming it was "derived from endgame income" was false for two
+  rounds. `PriceRung` anchors it to the spine, which guarantees the rungs above
+  it are still unbought when the pad lights.
+- **`BaseCost` is not the lever, and this is the round's most useful negative
+  result.** Sweeping it across a 20× price cut moves the first rebirth about
+  **twelve minutes**. `upgrader6` and `dropper10` multiply income ~17× between
+  them, so saving instead of buying them is never worth it. **The lever was
+  always build length.**
+- **The 60-minute credit cap is its own check**, separate from the build-length
+  band. One is an opinion someone may widen; the other is a platform fact that
+  has to keep refusing when they do.
+
+---
+
+## G3. The tooling
+
+**`tools/verify.py` runs eight passes now**, not five: syntax and analysis cover
+`tools/testing/` as well as `src/`; the style lint does not (a mock may name an
+`Enum.Font`, and `tools/` is not shipped); two new UI lints; and **`runtime
+specs`, which executes the game.**
+
+```
+python3 tools/test.py --plain              # the specs alone
+python3 tools/test.py --filter offline     # one family
+python3 tools/verify.py                    # everything, and regenerates build/
+```
+
+Modules that now execute outside Roblox: `Config`, `Util`, `Net`, `Economy`,
+`DataService`, `SessionService`, `Tycoon`, `CombatService`, `MapBuilder`,
+`Analytics`, `SocialService`, `VaultService`. **`NPCService` and `PlotService`
+are still out** — they need `Touched` and a physics step. Widening
+`SERVER_MODULES` is real work and should be its own PR.
+
+Every PR in this round falsified every assertion it added. Between them that is
+**over 150 deliberate breakages**, each confirmed to fire with the message
+written for it. Three found real defects while being checked:
+
+- a `math.clamp` in the verifier that **errors when floor > ceiling**, making the
+  check that would have caught a bad pair unreachable — it would have crashed all
+  1732 checks with a stack trace instead of reporting one failure;
+- two assertions in the vault work that **could not fail** — one measuring a
+  lateral pane against the wrong axis, one whose bound was unsatisfiable
+  alongside geometry that already existed;
+- `Case:warned` and `Case:fired` in the harness, which read a field nothing
+  assigns. Dead-on-arrival API, found independently by two PRs within an hour.
+
+**That is now four instances this round of the same shape: a thing that reads as
+checked and is not.** With the generator and the `PathTopY` dead key, it is the
+round's real theme, and it is worth naming as a class rather than as four
+incidents.
+
+---
+
+## G4. What is still open
+
+- **The seventh verifier pass, and it is the top unclaimed item.** A sweep for
+  `X = Config.<path>` where the leaf does not exist in `Config.lua` — about
+  fifteen lines of Python. Both rounds named it and neither took it; it belongs
+  against `main` after both stacks land, touching only `verify.py`. Given the
+  theme above, it is the highest-value tooling change available.
+- **Rebirths 4 through 12 collapse to one-to-three-minute loops.** Rebirth
+  multiplies income while nothing scales the price ladder, so rebuild time falls
+  as `M^-(n-1)` while saving time grows only as `(G/M)^(n-1)`. **No value of
+  `BaseCost` or `CostGrowth` fixes this** — it was swept for. The lever is
+  scaling prices by `profile.rebirths`, which lives in `Tycoon:tryPurchase`.
+  Strongest candidate for the next round's item 1.
+- **`NPCService` and `PlotService` cannot be specced.**
+- **No icon, no thumbnails, no trailer.** `docs/growth/STORE_PAGE.md` removes
+  every decision except the drawing, and the drawing still needs a person. It is
+  100% of acquisition.
+- **The analytics A/B loop cannot start until the events have aggregated** —
+  Roblox's charts lag ~24h, and you cannot read a CTR change against a game
+  whose retention is also moving.
+- **Two of six ranking signals remain permanently zero** by the no-monetization
+  decision. The other four have to be exceptional rather than adequate.
+
+---
+
+## G5. What only Studio can tell you
+
+The list is shorter than v5's, and that is the point of §G3 — but the items left
+are left because **no harness can reach them**, not because nobody looked.
+
+**Three of these need a populated server.**
+
+1. **Which lateral face the vault gauge landed on.** Derived from `exitDir`. If
+   the sign is backwards the gauge faces a wall and the entire feature is
+   invisible. **Check this first; it is cheap and it is total.**
+2. **Whether the vault reads as a vault filling** or as a bar stuck on a crate.
+   And the detail plaque sits at knee height, because the headline board's
+   footprint forced it there.
+3. **The mobile layout on a real phone.** The shop/NEXT-UPGRADE overlap was
+   computed, not seen — it overlaps at the 720px reference height itself with the
+   utility slot on. The fix moved the shop to its own column; that needs eyes.
+4. **`ScreenInsets` semantics on the 2026 unified topbar.** `pcall`'d with a
+   fallback, and `SafeAreaPad = 12` means a wrong guess is a generous gutter
+   rather than an amputated button — but it is still a guess.
+5. **The shared boss bar on a full server.** Watch whether 2 Hz packets lerp
+   smoothly, and whether twelve people can find a boss on the dais.
+6. **A boss fought by one player on a full server.** The check says 248s against
+   a 300s deadline with the *starting* bat. That is the floor-of-the-experience
+   case and it is thin.
+7. **The invite prompt actually appearing.** `CanSendGameInviteAsync` can error
+   *or* return false under account policy; both paths hide the button, and
+   neither has been seen.
+8. **Two servers racing one profile.** The specs prove the logic; only Roblox
+   proves that `UpdateAsync` re-runs its transform on conflict and that a `nil`
+   return aborts the write. **Everything in #45 rests on those two claims.**
+9. **Whether any analytics event arrives at all.** `AnalyticsService` is
+   published-place-only, and every one of its limits fails by showing nothing
+   rather than erroring. The first thing to check is that the funnel is
+   non-empty.
+10. **Whether stopping at `upgrader5` to save for the rebirth FEELS like a
+    choice** rather than like being told to wait. The pad is affordable at minute
+    43 with four things still standing that you cannot afford. That is a
+    statement about a simulation, not about a person.
+
+---
+
+## G6. Conventions
+
+Unchanged from §6 above, plus three.
+
+- **New: write the spec before the fix, and hand over the red.** #37's generator
+  family went red against `ee44387` and green against #35 without changing. That
+  is a cleaner falsification than breaking your own fix on purpose, precisely
+  because it was not written to make the fix look good.
+- **New: a mock is a claim, so write the claim down.** Every place the harness
+  assumes Roblox behaviour, §G5 names it. A green suite over a wrong mock is
+  more dangerous than no suite, because it reads as evidence.
+- **New: when an assertion cannot fail, that is a defect, not a spare.** Four
+  showed up this round. Falsifying every assertion is what catches them, which is
+  why the convention above it is not optional.
