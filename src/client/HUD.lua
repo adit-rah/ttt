@@ -435,7 +435,11 @@ local TRACK_RANK = { factory = 1, weapons = 2, armor = 3 }
 local function cheapestAvailable()
 	local best, bestRank
 	for _, def in ipairs(Config.Buttons) do
-		if not state.owned[def.id] then
+		-- The gate has to be applied here too, and for the same reason the
+		-- ranking does: a track that has not opened yet has no cabinet and no
+		-- buttons anywhere on the plot, so naming one of its rungs as your next
+		-- purchase points you at nothing.
+		if not state.owned[def.id] and Config.trackUnlocked(def.track, state.owned) then
 			local ok = true
 			for _, req in ipairs(Config.requirementsOf(def)) do
 				if not state.owned[req] then

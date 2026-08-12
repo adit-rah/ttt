@@ -324,6 +324,27 @@ for index, path in ipairs(Config.BeltPaths) do
 	end
 end
 
+-- TRACK GATES. A precondition on a whole ladder, not a link inside one — so the
+-- failures worth naming are the ones that would quietly turn it back into a
+-- link, or into a cycle.
+for track, gate in pairs(Config.TrackUnlock) do
+	check(Config.Tracks[track] ~= nil,
+		("TrackUnlock names track %q, which does not exist"):format(track))
+	local def = Config.ButtonById[gate]
+	check(def ~= nil,
+		("TrackUnlock.%s is gated on %q, which is not a button"):format(track, tostring(gate)))
+	if def then
+		check(def.track ~= track,
+			("TrackUnlock.%s is gated on %s, which is on the %s track itself — that is a chain link, not a gate")
+				:format(track, gate, track))
+		check(def.track == "factory",
+			("TrackUnlock.%s is gated on a %s-track button; a side track cannot gate another side track, or two of them can deadlock each other")
+				:format(track, tostring(def.track)))
+	end
+end
+check(Config.TrackUnlock.factory == nil,
+	"the factory track cannot be gated — it is the thing that pays for everything else")
+
 -- ...and a hand-placed button coordinate is a FLOOR coordinate. Its height
 -- comes from the pedestal it stands on, not from the table, so a stray Y here
 -- would be a button hovering for no stated reason.
@@ -1532,9 +1553,32 @@ local function firstAffordable(price: number): (number, number)
 	return math.huge, last and last.income or 0
 end
 
+--- The minute a track's cabinet actually appears. Ungated tracks open at zero;
+--- a gated one opens when its gate button is bought.
+---
+--- This is what "affordable by minute 10" had to become. The rule was written
+--- when the cabinets stood on the plot from the moment you claimed it, so
+--- minute 10 of the BUILD and minute 10 of the cabinet's existence were the
+--- same number. With the cabinets behind a forty-minute button they are not,
+--- and the old form is false by construction rather than by any fault of the
+--- prices.
+local function trackOpensAt(track: string): number
+	local gate = Config.TrackUnlock[track]
+	if not gate then
+		return 0
+	end
+	local row = curveRow(gate)
+	return row and row.at / 60 or math.huge
+end
+
 local sideTotal = 0
 for _, track in ipairs(Config.TrackOrder) do
 	if track ~= "factory" then
+		local opensAt = trackOpensAt(track)
+		check(opensAt ~= math.huge,
+			("the %s track is gated on %q, which the factory never buys")
+				:format(track, tostring(Config.TrackUnlock[track])))
+
 		for _, def in ipairs(Config.Tracks[track]) do
 			local at, income = firstAffordable(def.price)
 			check(at ~= math.huge,
@@ -1551,14 +1595,42 @@ for _, track in ipairs(Config.TrackOrder) do
 			end
 		end
 
-		-- ...and the cabinet must not be scenery while you learn the game.
+		-- ...and the cabinet must not be scenery once it is standing there.
+		-- Measured from when the track OPENS, not from the start of the build.
 		local first = Config.Tracks[track][1]
-		if first then
+		if first and opensAt ~= math.huge then
 			local at = firstAffordable(first.price)
-			check(at <= FIRST_SIDE_RUNG_BY_MINUTE,
-				("the first %s rung is unaffordable until minute %.0f; until then the cabinet is scenery")
-					:format(track, at))
+			local afterOpen = math.max(0, at - opensAt)
+			check(afterOpen <= FIRST_SIDE_RUNG_BY_MINUTE,
+				("the first %s rung is unaffordable until %.0f minutes after its cabinet opens; until then the cabinet is scenery")
+					:format(track, afterOpen))
 		end
+	end
+end
+
+-- HOW FAST A CABINET EMPTIES ONCE IT OPENS, printed rather than asserted.
+--
+-- Gating a track behind a forty-minute button inverts its old risk. It can no
+-- longer be scenery you stare at for half an hour; it can now arrive with
+-- almost every rung already affordable, which makes a ladder into a vending
+-- machine. The check that would catch that fails TODAY at 4 of 5 weapon rungs,
+-- and fixing it means retuning cabinet prices — which this round has
+-- deliberately left alone. So it is a number on every run, and it becomes an
+-- assertion in the round that retunes the curve. Landing it as one now would
+-- force that retune through the back door.
+for _, track in ipairs(Config.TrackOrder) do
+	local gate = Config.TrackUnlock[track]
+	if gate then
+		local opensAt = trackOpensAt(track)
+		local ready = 0
+		for _, def in ipairs(Config.Tracks[track]) do
+			local at = firstAffordable(def.price)
+			if at <= opensAt + 5 then
+				ready += 1
+			end
+		end
+		print(("%s cabinet:%s opens at %.0f min with %d of %d rungs already affordable")
+			:format(track, (" "):rep(math.max(1, 12 - #track)), opensAt, ready, #Config.Tracks[track]))
 	end
 end
 

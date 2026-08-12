@@ -1284,6 +1284,40 @@ Config.Tracks = {
 }
 Config.TrackLabel = { factory = "FACTORY", weapons = "WEAPONS", armor = "ARMORY" }
 
+-- WHAT A WHOLE LADDER WAITS ON.
+--
+-- Deliberately NOT a `requires` on each track's first rung. The loader derives
+-- requirements within a track and the verifier asserts none ever crosses one —
+-- that guarantee is worth more than the convenience, and a precondition on an
+-- entire ladder is a different kind of thing from a link inside one.
+--
+-- The two cabinets stood on the plot from the moment you claimed it: two
+-- display cases and nine pedestals, for upgrades you could not use and had no
+-- reason to care about yet. That is most of the visual noise in the first few
+-- minutes, and it is why they now arrive with the second floor.
+Config.TrackUnlock = { weapons = "floor2", armor = "floor2" }
+
+--- Whether `track` is open on a plot that owns `owned`.
+---
+--- STICKY, and derived rather than stored. Owning any rung of a track counts as
+--- having it open, which matters because rebirth wipes the factory (and so the
+--- gate button) while deliberately keeping weapons and armour. Without that
+--- clause a rebirth would make the cabinets vanish while the shelf displays and
+--- the granted bat survived — a cabinet-shaped hole with a bat floating in it.
+--- Derived this way it costs no new persisted field and no migration.
+function Config.trackUnlocked(track: string, owned): boolean
+	local gate = Config.TrackUnlock[track]
+	if not gate or owned[gate] then
+		return true
+	end
+	for _, def in ipairs(Config.Tracks[track] or {}) do
+		if owned[def.id] then
+			return true
+		end
+	end
+	return false
+end
+
 Config.Buttons = {}
 Config.ButtonById = {}
 for _, track in ipairs(Config.TrackOrder) do
