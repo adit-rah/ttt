@@ -77,9 +77,17 @@ def module_block(name: str, source: str) -> str:
 
 
 def collect(folder: Path):
-    """Returns (modules, entries) for a source folder."""
+    """Returns (modules, entries) for a source folder, NESTED FOLDERS INCLUDED.
+
+    rglob, not glob. `Req` searches one level of folder nesting so a module that
+    has outgrown one file can become a folder of modules (src/server/tycoon/),
+    and a one-level glob silently drops every one of them out of the paste
+    build: Rojo and the harness would both still resolve them, so the only
+    symptom is `module not found in packed build` in the no-Rojo install, on a
+    file nobody edited.
+    """
     modules, entries = [], []
-    for path in sorted(folder.glob("*.lua")) + sorted(folder.glob("*.luau")):
+    for path in sorted(folder.rglob("*.lua")) + sorted(folder.rglob("*.luau")):
         stem = path.stem
         if stem == "Req":
             continue  # replaced by __Req
@@ -93,10 +101,26 @@ def collect(folder: Path):
 def build(side: str, folders, out_path: Path):
     chunks = [HEADER.format(side=side)]
     entry_sources = []
+    # ONE FLAT NAMESPACE, KEYED BY FILENAME STEM. `__MODULES["Belt"]` says
+    # nothing about which folder Belt.lua was in, so two files with the same
+    # stem anywhere under the folders of one side would overwrite each other and
+    # the paste build would silently run whichever came second. Req has the same
+    # blind spot (first hit in its search order wins), so this is not a packer
+    # quirk to work around — it is the naming rule, and it is enforced here
+    # because here is where both files are in hand at once.
+    seen: dict = {}
 
     for folder in folders:
         modules, entries = collect(folder)
         for path in modules:
+            clash = seen.get(path.stem)
+            if clash is not None:
+                raise SystemExit(
+                    f"duplicate module name {path.stem!r} in the {side} build:\n"
+                    f"    {clash.relative_to(ROOT)}\n"
+                    f"    {path.relative_to(ROOT)}\n"
+                    f"one of them must be renamed — Req resolves a NAME, not a path")
+            seen[path.stem] = path
             chunks.append(module_block(path.stem, path.read_text(encoding="utf-8")))
         for path in entries:
             entry_sources.append(strip_bootstrap(path.read_text(encoding="utf-8")))

@@ -110,7 +110,19 @@ src/server/
   MapBuilder.lua    world, arena, lighting, plot pads
   DataService.lua   DataStore with retries, session locking, autosave, flush
   Economy.lua       the only place cash is created or spent
-  Tycoon.lua        ← the standardized tycoon. One instance per plot.
+  tycoon/           ← the standardized tycoon. One instance per plot.
+    Tycoon.lua        the aggregator: Req("Tycoon") resolves here
+    Class.lua         the class table, the shared values, the constructor
+    Parts.lua         newPart, and the masses a belt machine is made of
+    Belt.lua          the conveyor, its geometry and the plot's one speed
+    Vault.lua         the collector, the gauge, and where a drop becomes money
+    Props.lua         claim rig, rebirth pad, cabinets, yard, generator
+    Buttons.lua       the buy buttons, their three states and their ghosts
+    Purchase.lua      tryPurchase and install
+    Installers.lua    one case per `kind`, and the machines they build
+    Drops.lua         spawning what the belt carries, and the drop budget
+    Income.lua        Tung/sec, the refinery multiplier, the signs
+    Ownership.lua     assign, release, rebirth
   PlotService.lua   claiming, releasing, offline grace period
   FloorService.lua  the second storey: deck, its belt, its collector, the ladder
   VaultService.lua  the fill gauge and the number on the way out
@@ -150,7 +162,7 @@ and pulls in siblings with `Req("Config")`. Keep that line byte-identical —
 
 ## Adding content
 
-The tycoon is data driven. **You should never edit `Tycoon.lua` to add a
+The tycoon is data driven. **You should never edit `src/server/tycoon/` to add a
 dropper.** Add a row to `Config.FactoryButtons` — one of four per-track tables
 (`FactoryButtons`, `WeaponButtons`, `ArmorButtons`, `PowerButtons`) that
 `Config.Buttons` is merged from at require time:
@@ -310,8 +322,8 @@ A few decisions in here are load-bearing and look arbitrary until they bite:
 - **One `Highlight` per plot, reparented.** Highlights are capped at 255 per
   client and *disabled ones still occupy a slot*, so the "buy this next" marker
   is a single instance that moves rather than one per button.
-- **The vault shell must sit downstream of the collector sensor.** `Tycoon.lua`
-  asserts this at build time — if the solid body overlaps the belt run-off it
+- **The vault shell must sit downstream of the collector sensor.**
+  `tycoon/Vault.lua` asserts this at build time — if the solid body overlaps the belt run-off it
   walls the conveyor off and nothing can ever be collected.
 - **Knockback on players is applied client-side.** The victim's own client owns
   their character's physics, so a server `ApplyImpulse` is silently discarded on

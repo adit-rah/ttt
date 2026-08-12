@@ -722,6 +722,13 @@ specced — they need `Touched` and a physics step.
   **second consumer of the same regex** — so a packer regression surfaces as a failing spec
   rather than as a `build/` nobody reads. `[spec]` partial: only the twelve modules the harness
   loads. A mismatch elsewhere still packs a build that compiles and dies at runtime.
+- **A module's FILENAME STEM is its global name, so no two `.lua` files under one side's
+  source roots may share one.** `Req` resolves a name and not a path — it searches
+  `TungShared`, then the side's root, then one level of folder nesting, and takes the first
+  hit — and the packed build flattens the whole tree into `__MODULES[stem]`. So a second
+  `Belt.lua` in another folder does not collide loudly: it silently overwrites the first in
+  the paste build and shadows it under Rojo, and both halves still compile. `[lint]`
+  `tools/pack.py`'s `build()` refuses a duplicate stem and prints both paths.
 - **`build/` is generated output that is committed, because it is the deliverable for the
   no-Rojo install path; `src/` is the source of truth.** `[lint]` `verify.py` regenerates
   `build/` and syntax-checks the packed output as its last pass, and CI fails on a dirty

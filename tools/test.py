@@ -40,11 +40,15 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 TESTING = ROOT / "tools" / "testing"
 
-# The modules the harness executes. Deliberately NOT the whole tree: Tycoon,
-# MapBuilder, PlotService, CombatService and NPCService need BasePart, CFrame,
-# Region3, Touched and a physics step -- an order of magnitude more mock, for
-# services this round is not graduating. Widening this list is a real piece of
-# work and should be its own PR, not a quiet addition to someone else's.
+# The modules the harness executes. Deliberately NOT the whole tree: NPCService
+# and PlotService need Region3, Touched and a physics step -- an order of
+# magnitude more mock, for services no round has graduated yet -- and
+# UpgradeService, VaultService, FloorService, AdminService and all of src/client
+# are simply not in the list. Widening it is a real piece of work and should be
+# its own PR, not a quiet addition to someone else's.
+#
+# Tycoon, MapBuilder and CombatService ARE in it. The comment here used to say
+# the opposite, two lines above the list that contradicted it.
 SERVER_MODULES = ["DataService", "Analytics", "Economy", "SessionService", "SocialService",
                   "CombatService", "MapBuilder", "Tycoon"]
 
@@ -105,6 +109,33 @@ def module_block(name: str, source: str) -> str:
     return f'__MODULES["{name}"] = function(Req)\n{pack.indent(body)}\nend\n\n'
 
 
+def server_sources():
+    """SERVER_MODULES by name, wherever the module actually lives.
+
+    A module that has outgrown one file becomes a FOLDER of modules -- see
+    src/server/tycoon/ -- and the name in SERVER_MODULES does not change,
+    because Req resolves a NAME and searches one level of folder nesting.
+
+    WHEN THE NAME RESOLVES INSIDE A FOLDER, THE WHOLE FOLDER COMES WITH IT. The
+    aggregator requires its mixins through the realm's `req`, which can only
+    hand back a module this bundle registered, so listing the aggregator alone
+    would fail at load with "module not found in spec bundle: Class" -- and it
+    would fail inside the first spec that touches a plot, reading like a game
+    bug rather than a missing file.
+    """
+    out, seen = [], set()
+    for name in SERVER_MODULES:
+        direct = SRC / "server" / f"{name}.lua"
+        nested = sorted((SRC / "server").rglob(f"{name}.lua"))
+        siblings = [direct] if direct.exists() or not nested \
+            else sorted(nested[0].parent.glob("*.lua"))
+        for path in siblings:
+            if path not in seen:
+                seen.add(path)
+                out.append((path.stem, path))
+    return out
+
+
 def collect_sources(spec_filter=None):
     """Returns [(module_name, path)] in load order."""
     out = []
@@ -116,8 +147,7 @@ def collect_sources(spec_filter=None):
     for path in sorted((SRC / "shared").glob("*.lua")):
         if path.stem != "Req":
             out.append((path.stem, path))
-    for name in SERVER_MODULES:
-        out.append((name, SRC / "server" / f"{name}.lua"))
+    out.extend(server_sources())
 
     for path in sorted((TESTING / "specs").glob("*_spec.lua")):
         if spec_filter and spec_filter not in path.stem:
