@@ -239,6 +239,16 @@ A few decisions in here are load-bearing and look arbitrary until they bite:
   the same frame the swing started — a whole animation before the bat visibly
   reached anything. `Combat.SwingStrikeAt` is now the delay, and the verifier
   caps the resulting input-to-damage latency at 250 ms.
+- **Buy buttons have three states, not two.** Showing every button at once
+  gives the plot no focal point; showing only the next one hides the shape of
+  the build. Available buttons are lit and touchable, the next three steps
+  stand as dimmed, inert pads with a translucent ghost of the machine where it
+  will go, and everything beyond that is hidden. The ghost is built from the
+  same `MACHINE_MASSES` description as the real machine, so a silhouette can't
+  drift from the thing it previews.
+- **One `Highlight` per plot, reparented.** Highlights are capped at 255 per
+  client and *disabled ones still occupy a slot*, so the "buy this next" marker
+  is a single instance that moves rather than one per button.
 - **The vault shell must sit downstream of the collector sensor.** `Tycoon.lua`
   asserts this at build time — if the solid body overlaps the belt run-off it
   walls the conveyor off and nothing can ever be collected.

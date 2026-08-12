@@ -487,7 +487,10 @@ Config.Combat = {
 	FinisherKnockback = 1.8,
 	FinisherReach = 1.25,
 
-	WalkSpeed = 19,
+	-- Roblox's default is 16. The plot grew by a third, and 22 keeps the walk
+	-- from the gateway to the last dropper at about six seconds. Above ~32 a
+	-- humanoid starts clipping through 4-stud walls.
+	WalkSpeed = 22,
 	JumpPower = 52,
 }
 

@@ -519,7 +519,10 @@ __MODULES["Config"] = function()
 		FinisherKnockback = 1.8,
 		FinisherReach = 1.25,
 
-		WalkSpeed = 19,
+		-- Roblox's default is 16. The plot grew by a third, and 22 keeps the walk
+		-- from the gateway to the last dropper at about six seconds. Above ~32 a
+		-- humanoid starts clipping through 4-stud walls.
+		WalkSpeed = 22,
 		JumpPower = 52,
 	}
 
@@ -2270,7 +2273,7 @@ __MODULES["HUD"] = function()
 		rebirthCost = Config.Rebirth.BaseCost,
 	}
 
-	local gui, cashLabel, multLabel, waveFrame, waveLabel, toastList, nextLabel, rebirthButton
+	local gui, cashLabel, multLabel, waveFrame, waveLabel, toastList, nextLabel, nextDetail, rebirthButton
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- builders
@@ -2384,7 +2387,7 @@ __MODULES["HUD"] = function()
 	end
 
 	local function buildNextPanel(root)
-		local frame = panel(root, UDim2.fromOffset(280, 64), UDim2.fromOffset(18, 124))
+		local frame = panel(root, UDim2.fromOffset(280, 74), UDim2.fromOffset(18, 124))
 		frame.Name = "NextUp"
 
 		text(frame, {
@@ -2397,12 +2400,24 @@ __MODULES["HUD"] = function()
 		})
 
 		nextLabel = text(frame, {
-			Size = UDim2.fromOffset(252, 30),
-			Position = UDim2.fromOffset(14, 26),
+			Size = UDim2.fromOffset(252, 26),
+			Position = UDim2.fromOffset(14, 24),
 			Font = Enum.Font.FredokaOne,
 			Text = "Tung Dropper — 50",
 			TextSize = 18,
 			TextColor3 = PALETTE.text,
+		})
+
+		-- The gap to the next purchase, and how far through the build you are. A
+		-- price on its own doesn't tell you whether to keep grinding or go and
+		-- fight a wave for the bounty.
+		nextDetail = text(frame, {
+			Size = UDim2.fromOffset(252, 18),
+			Position = UDim2.fromOffset(14, 48),
+			Font = Enum.Font.GothamMedium,
+			Text = "",
+			TextSize = 13,
+			TextColor3 = PALETTE.muted,
 		})
 
 		return frame
@@ -2643,14 +2658,28 @@ __MODULES["HUD"] = function()
 			state.multiplier, state.rebirths, state.rebirths == 1 and "" or "s",
 			state.kills, state.kills == 1 and "" or "s")
 
+		local owned = 0
+		for _, def in ipairs(Config.Buttons) do
+			if state.owned[def.id] then
+				owned += 1
+			end
+		end
+
 		local next_ = cheapestAvailable()
 		if next_ then
 			local affordable = state.cash >= next_.price
 			nextLabel.Text = ("%s — %s"):format(next_.name, Util.abbreviate(next_.price))
 			nextLabel.TextColor3 = affordable and PALETTE.good or PALETTE.text
+			nextDetail.Text = affordable
+				and ("step %d of %d  •  affordable now"):format(owned + 1, #Config.Buttons)
+				or ("step %d of %d  •  %s to go"):format(owned + 1, #Config.Buttons,
+					Util.abbreviate(next_.price - state.cash))
+			nextDetail.TextColor3 = affordable and PALETTE.good or PALETTE.muted
 		else
 			nextLabel.Text = "Factory complete. Rebirth?"
 			nextLabel.TextColor3 = PALETTE.accent
+			nextDetail.Text = ("all %d steps built"):format(#Config.Buttons)
+			nextDetail.TextColor3 = PALETTE.muted
 		end
 
 		rebirthButton.Text = ("REBIRTH  %s"):format(Util.abbreviate(state.rebirthCost))
