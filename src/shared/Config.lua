@@ -469,15 +469,31 @@ Config.Admin = {
 }
 
 Config.Rebirth = {
-	-- ~10 minutes of fully-built income. This is DERIVED from endgame income
-	-- rather than being a price on the ladder, so it moves when endgame income
-	-- does: the generator doubles it, which halved the first rebirth to 5
-	-- minutes and made the sentence above this line untrue. 50e9 puts it back
-	-- at ~10. The verifier holds it between 4 and 40 either way.
-	BaseCost = 50e9,
-	CostGrowth = 3.0,           -- cost multiplier per rebirth
+	-- THE PAD IS PRICED AS A RUNG, NOT AS A NUMBER. Config.rebirthBaseCost()
+	-- in the derived-lookups section fills in BaseCost once the spine exists.
+	--
+	-- The comment that used to sit here claimed BaseCost was "DERIVED from
+	-- endgame income". It was not. It was retyped by hand against whatever the
+	-- curve happened to be that week, and it drifted the moment the generator
+	-- doubled endgame income — the round that shipped the generator had to come
+	-- back and edit this number to keep its own comment true.
+	--
+	-- PriceRung = 4 means the pad costs what the 4th most expensive thing on
+	-- the spine costs, which buys a property no constant can:
+	--
+	--   the minute you can afford the rebirth is at most the minute you could
+	--   afford that rung, so the THREE rungs above it are provably still
+	--   unbought when the pad lights up.
+	--
+	-- That is "the session ends on a choice rather than on being finished",
+	-- guaranteed by construction rather than by luck, and it re-derives itself
+	-- under whatever prices the ladder lands on next.
+	PriceRung = 4,
+	CostGrowth = 3.4,            -- cost multiplier per rebirth
 	MultiplierPerRebirth = 2.25, -- payout multiplier is this ^ rebirths
 	MaxRebirths = 25,
+	-- BaseCost is assigned below, once Config.Tracks exists. Every consumer
+	-- reads it as a plain number and does not care where it came from.
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1657,6 +1673,44 @@ for _, track in ipairs(Config.TrackOrder) do
 		Config.ButtonById[def.id] = def
 	end
 end
+
+--- Every price on the SPINE — factory plus power — highest first.
+---
+--- The spine is what the progression simulation walks and what the build time
+--- is measured against. Weapons and armour are deliberately excluded: they are
+--- side tracks, priced against the factory rather than pacing it, and a bat
+--- costing more than a dropper is the entire point of that split.
+function Config.spinePricesDescending(): { number }
+	local prices = {}
+	for _, def in ipairs(Config.Tracks.factory) do
+		table.insert(prices, def.price)
+	end
+	for _, def in ipairs(Config.Tracks.power) do
+		table.insert(prices, def.price)
+	end
+	table.sort(prices, function(a, b)
+		return a > b
+	end)
+	return prices
+end
+
+--- What the rebirth pad costs: the price of the PriceRung-th most expensive
+--- thing on the spine, rounded to two significant figures.
+---
+--- The rounding is not cosmetic. Unrounded, this would change in its ninth
+--- digit every time anyone touched an unrelated dropper, and every one of those
+--- changes would rewrite build/ and land in a diff as noise.
+function Config.rebirthBaseCost(): number
+	local prices = Config.spinePricesDescending()
+	local raw = prices[Config.Rebirth.PriceRung] or prices[#prices] or 0
+	if raw <= 0 then
+		return 0
+	end
+	local magnitude = 10 ^ (math.floor(math.log(raw, 10)) - 1)
+	return math.floor(raw / magnitude + 0.5) * magnitude
+end
+
+Config.Rebirth.BaseCost = Config.rebirthBaseCost()
 
 Config.BatById = {}
 for tier, def in ipairs(Config.Bats) do
