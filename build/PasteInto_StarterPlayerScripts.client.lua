@@ -1059,9 +1059,10 @@ __MODULES["SwingAnim"] = function()
 		return { arm = arm, offArm = offArm or ZERO, torso = torso or ZERO }
 	end
 
-	--- One entry per step of the combo; `Config.Combat.ComboMaxStacks` swings cycle
-	--- through these. Alternating the direction is what makes a chain read as a
-	--- combo instead of as the same swing played four times.
+	--- One entry per step of the combo. `Config.Combat.SwingSteps` (which is
+	--- ComboMaxStacks + 1, because stack 0 is the first swing of a chain) selects
+	--- among these. Alternating the direction is what makes a chain read as a combo
+	--- instead of as the same swing played four times.
 	SwingAnim.SWINGS = {
 		{   -- 1. overhead diagonal, right shoulder down to left hip
 			name = "diagonal",
@@ -1116,8 +1117,14 @@ __MODULES["SwingAnim"] = function()
 			return {
 				arm = torso:FindFirstChild("Right Shoulder"),
 				offArm = torso:FindFirstChild("Left Shoulder"),
-				-- R6 has no waist, so the whole torso turns on the root joint
+				-- R6 has no waist. RootJoint is the closest thing, but it is NOT
+				-- equivalent to R15's Waist: every R6 limb joint hangs off the
+				-- Torso, so a rotation here carries the arms, legs and head with
+				-- it and the character bodily leans rather than twisting at the
+				-- middle. Yaw only, and damped — that reads as a shoulder turn,
+				-- where the raw pose would swing the feet.
 				torso = rootPart:FindFirstChild("RootJoint"),
+				torsoGain = Vector3.new(0, 0.45, 0),
 			}
 		end
 
@@ -1127,7 +1134,9 @@ __MODULES["SwingAnim"] = function()
 		return {
 			arm = rightUpperArm and rightUpperArm:FindFirstChild("RightShoulder"),
 			offArm = leftUpperArm and leftUpperArm:FindFirstChild("LeftShoulder"),
+			-- R15's Waist joins LowerTorso to UpperTorso, so the legs stay put
 			torso = upperTorso and upperTorso:FindFirstChild("Waist"),
+			torsoGain = Vector3.new(1, 1, 1),
 		}
 	end
 
@@ -1244,7 +1253,7 @@ __MODULES["SwingAnim"] = function()
 						local pose, weight = evaluate(entry.swing, entry.elapsed, entry.duration)
 						applyJoint(joints.arm, pose.arm, weight)
 						applyJoint(joints.offArm, pose.offArm, weight)
-						applyJoint(joints.torso, pose.torso, weight * 0.8)
+						applyJoint(joints.torso, pose.torso * (joints.torsoGain or ZERO), weight * 0.8)
 					end
 				end
 			end
@@ -1501,23 +1510,34 @@ __MODULES["TungModels"] = function()
 		face.Transparency = 1
 		TungModels.paintFace(face, v, o.mood)
 
-		-- arms
-		for i, sign in ipairs({ -1, 1 }) do
+		-- Arms. The RIGHT one — the one holding the bat — is built into its own
+		-- sub-model so it can hang off a Motor6D instead of being welded rigidly to
+		-- the body. Without that joint there is no way to raise a raider's bat:
+		-- the R6 rig underneath is entirely invisible, so animating its shoulder
+		-- rotates a stick nobody can see.
+		local rightArm = Instance.new("Model")
+		rightArm.Name = "RightArm"
+		rightArm.Parent = model
+
+		local shoulderCF, armRoot
+		for _, sign in ipairs({ -1, 1 }) do
+			local parent = (sign > 0) and rightArm or model
 			local shoulder = origin * CFrame.new(sign * 0.72 * s, 1.15 * s, 0) * CFrame.Angles(0, 0, math.rad(sign * -34))
-			local arm = cylinder(model, "Arm" .. i, 1.30 * s, 0.22 * s, shoulder * CFrame.new(0, -0.55 * s, 0),
+			local arm = cylinder(parent, "Arm", 1.30 * s, 0.22 * s, shoulder * CFrame.new(0, -0.55 * s, 0),
 				Color3.fromRGB(232, 214, 186), Enum.Material.SmoothPlastic)
 			arm.Name = (sign < 0) and "ArmLeft" or "ArmRight"
-			local hand = ball(model, (sign < 0) and "HandLeft" or "HandRight", 0.34 * s,
+			local hand = ball(parent, "Hand", 0.34 * s,
 				shoulder * CFrame.new(0, -1.25 * s, 0), Color3.fromRGB(240, 226, 200), Enum.Material.SmoothPlastic)
 			hand.Name = (sign < 0) and "HandLeft" or "HandRight"
-		end
 
-		-- little held bat
-		if o.holdBat ~= false then
-			local hand = model:FindFirstChild("HandRight") :: BasePart
-			if hand then
-				local grip = CFrame.new(hand.Position) * CFrame.Angles(math.rad(-58), 0, math.rad(-18))
-				TungModels.buildBatBody(model, variantName, 0.34 * (o.scale or 1), grip * CFrame.new(0, 0.55 * s, 0))
+			if sign > 0 then
+				shoulderCF = shoulder
+				armRoot = arm
+				-- the held bat rides with the arm, so it goes in the same sub-model
+				if o.holdBat ~= false then
+					local grip = CFrame.new(hand.Position) * CFrame.Angles(math.rad(-58), 0, math.rad(-18))
+					TungModels.buildBatBody(rightArm, variantName, 0.34 * (o.scale or 1), grip * CFrame.new(0, 0.55 * s, 0))
+				end
 			end
 		end
 
@@ -1526,12 +1546,28 @@ __MODULES["TungModels"] = function()
 			Fx.applyVariant(barrel, v)
 		end
 
-		-- assemble
+		-- Assemble. Everything is welded rigidly to the core except the right arm,
+		-- whose parts weld to each other and then join the body on one Motor6D —
+		-- the only articulated joint on the visible model.
 		for _, p in ipairs(model:GetDescendants()) do
-			if p:IsA("BasePart") and p ~= core then
+			if p:IsA("BasePart") and p ~= core and p ~= armRoot then
 				p.Anchored = true
-				Util.weld(core, p)
+				Util.weld(p:IsDescendantOf(rightArm) and armRoot or core, p)
 			end
+		end
+
+		if armRoot then
+			armRoot.Anchored = true
+			local joint = Instance.new("Motor6D")
+			joint.Name = "TungArm"
+			joint.Part0 = core
+			joint.Part1 = armRoot
+			-- Pivot at the shoulder. Both C-frames are expressed relative to the
+			-- same world point, so an identity Transform reproduces the pose the
+			-- parts were built in.
+			joint.C0 = core.CFrame:Inverse() * shoulderCF
+			joint.C1 = armRoot.CFrame:Inverse() * shoulderCF
+			joint.Parent = core
 		end
 
 		if not o.anchored then
@@ -2104,10 +2140,12 @@ __MODULES["CombatClient"] = function()
 			hideAt = os.clock() + 0.16
 			for _, tick in ipairs(marker:GetChildren()) do
 				if tick:IsA("Frame") then
-					tick.BackgroundColor3 = payload.killed and Color3.fromRGB(255, 120, 90) or Color3.fromRGB(255, 245, 200)
+					tick.BackgroundColor3 = payload.killed and Color3.fromRGB(255, 120, 90)
+						or payload.crit and Color3.fromRGB(255, 190, 90)
+						or Color3.fromRGB(255, 245, 200)
 				end
 			end
-			shake = math.min(shake + (payload.killed and 1.1 or 0.55), 2)
+			shake = math.min(shake + (payload.killed and 1.1 or payload.crit and 0.85 or 0.55), 2)
 			-- Stopping the arc dead for two or three frames is most of what makes a
 			-- hit feel like it connected with something solid.
 			SwingAnim.hitStop(player.Character, Config.Combat.HitStop)
@@ -2120,7 +2158,12 @@ __MODULES["CombatClient"] = function()
 			if typeof(payload) ~= "table" or not payload.character then
 				return
 			end
-			if payload.character == player.Character then
+			-- Skip our own swing only if we really did predict it. The two cooldown
+			-- gates run on different clocks, so a pair of clicks near the boundary
+			-- can be refused locally and accepted by the server — and an
+			-- unconditional skip would leave the attacker dealing damage with no
+			-- swing drawn at all.
+			if payload.character == player.Character and (os.clock() - localSwing.at) < 0.3 then
 				return
 			end
 			SwingAnim.play(payload.character, payload.combo or 1, payload.duration or 0.5)

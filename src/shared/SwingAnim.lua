@@ -59,9 +59,10 @@ local function P(arm: Vector3, offArm: Vector3?, torso: Vector3?)
 	return { arm = arm, offArm = offArm or ZERO, torso = torso or ZERO }
 end
 
---- One entry per step of the combo; `Config.Combat.ComboMaxStacks` swings cycle
---- through these. Alternating the direction is what makes a chain read as a
---- combo instead of as the same swing played four times.
+--- One entry per step of the combo. `Config.Combat.SwingSteps` (which is
+--- ComboMaxStacks + 1, because stack 0 is the first swing of a chain) selects
+--- among these. Alternating the direction is what makes a chain read as a combo
+--- instead of as the same swing played four times.
 SwingAnim.SWINGS = {
 	{   -- 1. overhead diagonal, right shoulder down to left hip
 		name = "diagonal",
@@ -116,8 +117,14 @@ local function jointsFor(character: Model)
 		return {
 			arm = torso:FindFirstChild("Right Shoulder"),
 			offArm = torso:FindFirstChild("Left Shoulder"),
-			-- R6 has no waist, so the whole torso turns on the root joint
+			-- R6 has no waist. RootJoint is the closest thing, but it is NOT
+			-- equivalent to R15's Waist: every R6 limb joint hangs off the
+			-- Torso, so a rotation here carries the arms, legs and head with
+			-- it and the character bodily leans rather than twisting at the
+			-- middle. Yaw only, and damped — that reads as a shoulder turn,
+			-- where the raw pose would swing the feet.
 			torso = rootPart:FindFirstChild("RootJoint"),
+			torsoGain = Vector3.new(0, 0.45, 0),
 		}
 	end
 
@@ -127,7 +134,9 @@ local function jointsFor(character: Model)
 	return {
 		arm = rightUpperArm and rightUpperArm:FindFirstChild("RightShoulder"),
 		offArm = leftUpperArm and leftUpperArm:FindFirstChild("LeftShoulder"),
+		-- R15's Waist joins LowerTorso to UpperTorso, so the legs stay put
 		torso = upperTorso and upperTorso:FindFirstChild("Waist"),
+		torsoGain = Vector3.new(1, 1, 1),
 	}
 end
 
@@ -244,7 +253,7 @@ local function step(dt: number)
 					local pose, weight = evaluate(entry.swing, entry.elapsed, entry.duration)
 					applyJoint(joints.arm, pose.arm, weight)
 					applyJoint(joints.offArm, pose.offArm, weight)
-					applyJoint(joints.torso, pose.torso, weight * 0.8)
+					applyJoint(joints.torso, pose.torso * (joints.torsoGain or ZERO), weight * 0.8)
 				end
 			end
 		end

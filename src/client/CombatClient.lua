@@ -137,10 +137,12 @@ function CombatClient.start()
 		hideAt = os.clock() + 0.16
 		for _, tick in ipairs(marker:GetChildren()) do
 			if tick:IsA("Frame") then
-				tick.BackgroundColor3 = payload.killed and Color3.fromRGB(255, 120, 90) or Color3.fromRGB(255, 245, 200)
+				tick.BackgroundColor3 = payload.killed and Color3.fromRGB(255, 120, 90)
+					or payload.crit and Color3.fromRGB(255, 190, 90)
+					or Color3.fromRGB(255, 245, 200)
 			end
 		end
-		shake = math.min(shake + (payload.killed and 1.1 or 0.55), 2)
+		shake = math.min(shake + (payload.killed and 1.1 or payload.crit and 0.85 or 0.55), 2)
 		-- Stopping the arc dead for two or three frames is most of what makes a
 		-- hit feel like it connected with something solid.
 		SwingAnim.hitStop(player.Character, Config.Combat.HitStop)
@@ -153,7 +155,12 @@ function CombatClient.start()
 		if typeof(payload) ~= "table" or not payload.character then
 			return
 		end
-		if payload.character == player.Character then
+		-- Skip our own swing only if we really did predict it. The two cooldown
+		-- gates run on different clocks, so a pair of clicks near the boundary
+		-- can be refused locally and accepted by the server — and an
+		-- unconditional skip would leave the attacker dealing damage with no
+		-- swing drawn at all.
+		if payload.character == player.Character and (os.clock() - localSwing.at) < 0.3 then
 			return
 		end
 		SwingAnim.play(payload.character, payload.combo or 1, payload.duration or 0.5)

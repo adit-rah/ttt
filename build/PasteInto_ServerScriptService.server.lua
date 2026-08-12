@@ -1059,9 +1059,10 @@ __MODULES["SwingAnim"] = function()
 		return { arm = arm, offArm = offArm or ZERO, torso = torso or ZERO }
 	end
 
-	--- One entry per step of the combo; `Config.Combat.ComboMaxStacks` swings cycle
-	--- through these. Alternating the direction is what makes a chain read as a
-	--- combo instead of as the same swing played four times.
+	--- One entry per step of the combo. `Config.Combat.SwingSteps` (which is
+	--- ComboMaxStacks + 1, because stack 0 is the first swing of a chain) selects
+	--- among these. Alternating the direction is what makes a chain read as a combo
+	--- instead of as the same swing played four times.
 	SwingAnim.SWINGS = {
 		{   -- 1. overhead diagonal, right shoulder down to left hip
 			name = "diagonal",
@@ -1116,8 +1117,14 @@ __MODULES["SwingAnim"] = function()
 			return {
 				arm = torso:FindFirstChild("Right Shoulder"),
 				offArm = torso:FindFirstChild("Left Shoulder"),
-				-- R6 has no waist, so the whole torso turns on the root joint
+				-- R6 has no waist. RootJoint is the closest thing, but it is NOT
+				-- equivalent to R15's Waist: every R6 limb joint hangs off the
+				-- Torso, so a rotation here carries the arms, legs and head with
+				-- it and the character bodily leans rather than twisting at the
+				-- middle. Yaw only, and damped — that reads as a shoulder turn,
+				-- where the raw pose would swing the feet.
 				torso = rootPart:FindFirstChild("RootJoint"),
+				torsoGain = Vector3.new(0, 0.45, 0),
 			}
 		end
 
@@ -1127,7 +1134,9 @@ __MODULES["SwingAnim"] = function()
 		return {
 			arm = rightUpperArm and rightUpperArm:FindFirstChild("RightShoulder"),
 			offArm = leftUpperArm and leftUpperArm:FindFirstChild("LeftShoulder"),
+			-- R15's Waist joins LowerTorso to UpperTorso, so the legs stay put
 			torso = upperTorso and upperTorso:FindFirstChild("Waist"),
+			torsoGain = Vector3.new(1, 1, 1),
 		}
 	end
 
@@ -1244,7 +1253,7 @@ __MODULES["SwingAnim"] = function()
 						local pose, weight = evaluate(entry.swing, entry.elapsed, entry.duration)
 						applyJoint(joints.arm, pose.arm, weight)
 						applyJoint(joints.offArm, pose.offArm, weight)
-						applyJoint(joints.torso, pose.torso, weight * 0.8)
+						applyJoint(joints.torso, pose.torso * (joints.torsoGain or ZERO), weight * 0.8)
 					end
 				end
 			end
@@ -1501,23 +1510,34 @@ __MODULES["TungModels"] = function()
 		face.Transparency = 1
 		TungModels.paintFace(face, v, o.mood)
 
-		-- arms
-		for i, sign in ipairs({ -1, 1 }) do
+		-- Arms. The RIGHT one — the one holding the bat — is built into its own
+		-- sub-model so it can hang off a Motor6D instead of being welded rigidly to
+		-- the body. Without that joint there is no way to raise a raider's bat:
+		-- the R6 rig underneath is entirely invisible, so animating its shoulder
+		-- rotates a stick nobody can see.
+		local rightArm = Instance.new("Model")
+		rightArm.Name = "RightArm"
+		rightArm.Parent = model
+
+		local shoulderCF, armRoot
+		for _, sign in ipairs({ -1, 1 }) do
+			local parent = (sign > 0) and rightArm or model
 			local shoulder = origin * CFrame.new(sign * 0.72 * s, 1.15 * s, 0) * CFrame.Angles(0, 0, math.rad(sign * -34))
-			local arm = cylinder(model, "Arm" .. i, 1.30 * s, 0.22 * s, shoulder * CFrame.new(0, -0.55 * s, 0),
+			local arm = cylinder(parent, "Arm", 1.30 * s, 0.22 * s, shoulder * CFrame.new(0, -0.55 * s, 0),
 				Color3.fromRGB(232, 214, 186), Enum.Material.SmoothPlastic)
 			arm.Name = (sign < 0) and "ArmLeft" or "ArmRight"
-			local hand = ball(model, (sign < 0) and "HandLeft" or "HandRight", 0.34 * s,
+			local hand = ball(parent, "Hand", 0.34 * s,
 				shoulder * CFrame.new(0, -1.25 * s, 0), Color3.fromRGB(240, 226, 200), Enum.Material.SmoothPlastic)
 			hand.Name = (sign < 0) and "HandLeft" or "HandRight"
-		end
 
-		-- little held bat
-		if o.holdBat ~= false then
-			local hand = model:FindFirstChild("HandRight") :: BasePart
-			if hand then
-				local grip = CFrame.new(hand.Position) * CFrame.Angles(math.rad(-58), 0, math.rad(-18))
-				TungModels.buildBatBody(model, variantName, 0.34 * (o.scale or 1), grip * CFrame.new(0, 0.55 * s, 0))
+			if sign > 0 then
+				shoulderCF = shoulder
+				armRoot = arm
+				-- the held bat rides with the arm, so it goes in the same sub-model
+				if o.holdBat ~= false then
+					local grip = CFrame.new(hand.Position) * CFrame.Angles(math.rad(-58), 0, math.rad(-18))
+					TungModels.buildBatBody(rightArm, variantName, 0.34 * (o.scale or 1), grip * CFrame.new(0, 0.55 * s, 0))
+				end
 			end
 		end
 
@@ -1526,12 +1546,28 @@ __MODULES["TungModels"] = function()
 			Fx.applyVariant(barrel, v)
 		end
 
-		-- assemble
+		-- Assemble. Everything is welded rigidly to the core except the right arm,
+		-- whose parts weld to each other and then join the body on one Motor6D —
+		-- the only articulated joint on the visible model.
 		for _, p in ipairs(model:GetDescendants()) do
-			if p:IsA("BasePart") and p ~= core then
+			if p:IsA("BasePart") and p ~= core and p ~= armRoot then
 				p.Anchored = true
-				Util.weld(core, p)
+				Util.weld(p:IsDescendantOf(rightArm) and armRoot or core, p)
 			end
+		end
+
+		if armRoot then
+			armRoot.Anchored = true
+			local joint = Instance.new("Motor6D")
+			joint.Name = "TungArm"
+			joint.Part0 = core
+			joint.Part1 = armRoot
+			-- Pivot at the shoulder. Both C-frames are expressed relative to the
+			-- same world point, so an identity Transform reproduces the pose the
+			-- parts were built in.
+			joint.C0 = core.CFrame:Inverse() * shoulderCF
+			joint.C1 = armRoot.CFrame:Inverse() * shoulderCF
+			joint.Parent = core
 		end
 
 		if not o.anchored then
@@ -2116,7 +2152,7 @@ __MODULES["CombatService"] = function()
 	end
 
 	--- Applies damage to any humanoid, from a player or from an NPC.
-	function CombatService.damage(victimModel: Model, amount: number, sourcePosition: Vector3?, knockback: number?, attacker: Player?)
+	function CombatService.damage(victimModel: Model, amount: number, sourcePosition: Vector3?, knockback: number?, attacker: Player?, crit: boolean?)
 		local humanoid, root = Util.getRig(victimModel)
 		if not humanoid or not root or humanoid.Health <= 0 then
 			return false
@@ -2162,6 +2198,7 @@ __MODULES["CombatService"] = function()
 				damage = amount,
 				position = root.Position,
 				killed = humanoid.Health <= 0,
+				crit = crit == true,
 			})
 		end
 		return true
@@ -2186,7 +2223,14 @@ __MODULES["CombatService"] = function()
 		local seen = {}
 		local victims = {}
 		for _, part in ipairs(parts) do
+			-- Walk UP until we find the model that owns a Humanoid, rather than
+			-- stopping at the first Model ancestor. A raider's visible body is a
+			-- sub-model of the rig, and the arm is a sub-model of that, so the first
+			-- Model above a hit part is often not the character at all.
 			local model = part:FindFirstAncestorOfClass("Model")
+			while model and not model:FindFirstChildOfClass("Humanoid") do
+				model = model:FindFirstAncestorOfClass("Model")
+			end
 			if model and not seen[model] then
 				local humanoid = model:FindFirstChildOfClass("Humanoid")
 				if humanoid and humanoid.Health > 0 then
@@ -2209,7 +2253,7 @@ __MODULES["CombatService"] = function()
 			-- one swing damages a given victim once, however many samples see them
 			if not hit[victim] and CombatService.canDamage(player, victim) then
 				hit[victim] = true
-				CombatService.damage(victim, damage, origin, knockback, player)
+				CombatService.damage(victim, damage, origin, knockback, player, crit)
 				local _, victimRoot = Util.getRig(victim)
 				if victimRoot then
 					Fx.burst(victimRoot.Position, crit and Color3.fromRGB(255, 120, 80) or Color3.fromRGB(255, 230, 160),
@@ -2300,8 +2344,17 @@ __MODULES["CombatService"] = function()
 		local hit: { [Model]: boolean } = {}
 
 		local function strike()
-			-- a second swing (or death) since we were scheduled cancels this one
-			if s.lastSwing ~= generation or humanoid.Health <= 0 or character.Parent == nil then
+			-- A second swing, a death, a respawn or a disconnect since we were
+			-- scheduled all cancel this one. The player check matters: canDamage
+			-- lets anyone hit an NPC without looking at the attacker, so without it
+			-- a departing player's last swing still lands, tags a raider with a
+			-- creator who is gone, and fires hit feedback at nobody.
+			if s.lastSwing ~= generation
+				or player.Parent == nil
+				or player.Character ~= character
+				or humanoid.Health <= 0
+				or character.Parent == nil
+			then
 				return
 			end
 			resolveStrike(player, character, hit, reach, width, damage, knockback, crit)
@@ -3087,6 +3140,11 @@ __MODULES["NPCService"] = function()
 
 	local WV = Config.Waves
 
+	-- Raider swing poses, in body space: arm overhead, then swung through to just
+	-- past the target. See SwingAnim for why these are expressed this way.
+	local TOP_PITCH = 158
+	local CONTACT_PITCH = 22
+
 	local active: { [Model]: any } = {}
 	local folder: Folder
 	local waveNumber = 0
@@ -3207,7 +3265,12 @@ __MODULES["NPCService"] = function()
 
 		local humanoid = npc:FindFirstChildOfClass("Humanoid") :: Humanoid
 		local torso = npc:FindFirstChild("Torso")
-		local arm = torso and torso:FindFirstChild("Right Shoulder")
+		-- The VISIBLE arm, not the R6 rig's. Every rig part is Transparency = 1
+		-- (the rig exists so Humanoid/MoveTo/damage work); the guy you actually see
+		-- is the Visual model, and TungArm is its one articulated joint.
+		local visual = npc:FindFirstChild("Visual")
+		local core = visual and visual.PrimaryPart
+		local arm = core and core:FindFirstChild("TungArm")
 		local entry = {
 			wave = wave,
 			boss = boss,
@@ -3227,6 +3290,13 @@ __MODULES["NPCService"] = function()
 			swingAt = nil,
 			rootedUntil = 0,
 		}
+		-- The waddle used to rewrite the sway joint's C0 from a hardcoded 0.7, but
+		-- buildNPC sets it to 0.7 * scale — so a 2.1x boss dropped a stud and a half
+		-- into its own legs on the first frame it moved.
+		if entry.sway then
+			entry.swayBase = entry.sway.C0
+		end
+
 		active[npc] = entry
 		aliveCount += 1
 
@@ -3261,11 +3331,11 @@ __MODULES["NPCService"] = function()
 			end
 
 			-- waddle
-			if entry.sway and entry.sway:IsA("Motor6D") then
+			if entry.sway and entry.swayBase then
 				entry.phase += dt * (6 + humanoid.WalkSpeed * 0.25)
 				local lean = math.sin(entry.phase) * 0.18
 				local bob = math.abs(math.cos(entry.phase)) * 0.22
-				entry.sway.C0 = CFrame.new(0, 0.7 + bob, 0) * CFrame.Angles(0, 0, lean)
+				entry.sway.C0 = entry.swayBase * CFrame.new(0, bob, 0) * CFrame.Angles(0, 0, lean)
 			end
 
 			-- Raise the bat over the wind-up, hold at the top for an instant, then
@@ -3273,19 +3343,29 @@ __MODULES["NPCService"] = function()
 			-- what makes a raider fair is that the arm is visibly UP before the
 			-- damage lands, and that they are rooted while it is.
 			if entry.arm and entry.armBase then
+				-- Raise, hold, chop — and the chop has to finish BEFORE the damage
+				-- lands, not after it. The whole point of a telegraph is that the
+				-- bat is visibly on its way down when it connects.
 				local pitch = 0
 				if entry.swingAt then
-					pitch = 155 * (1 - math.clamp((entry.swingAt - now) / entry.windUp, 0, 1))
+					local w = 1 - math.clamp((entry.swingAt - now) / entry.windUp, 0, 1)
+					if w < 0.55 then
+						pitch = TOP_PITCH * (w / 0.55)                 -- raise
+					elseif w < 0.72 then
+						pitch = TOP_PITCH                              -- hold at the top
+					else
+						-- chop, arriving at the contact pose exactly on the hit
+						local k = (w - 0.72) / 0.28
+						pitch = TOP_PITCH + (CONTACT_PITCH - TOP_PITCH) * (k ^ 0.6)
+					end
 				elseif now < entry.rootedUntil then
-					-- the chop itself: cubic, so it falls fast off the top and
-					-- settles rather than sliding back at a constant rate
-					local k = 1 - math.clamp((entry.rootedUntil - now) / WV.AttackRecover, 0, 1)
-					pitch = 155 * (1 - k) ^ 3
+					-- follow-through settling back to rest
+					pitch = CONTACT_PITCH * math.clamp((entry.rootedUntil - now) / WV.AttackRecover, 0, 1)
 				end
-				-- The pitch is in TORSO space; conjugating by the joint's own C0
+				-- The pitch is in BODY space; conjugating by the joint's own C0
 				-- rotation converts it, so this reads the same way as the player
-				-- swing poses in SwingAnim and doesn't depend on how the raider rig
-				-- happens to orient its shoulder. +X pitch raises the arm forward.
+				-- swing poses in SwingAnim and doesn't depend on how the shoulder
+				-- happens to be oriented. +X pitch raises the arm forward.
 				local basis = entry.armBase.Rotation
 				entry.arm.C0 = entry.armBase * (basis:Inverse() * CFrame.Angles(math.rad(pitch), 0, 0) * basis)
 			end

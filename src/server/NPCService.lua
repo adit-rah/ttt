@@ -28,6 +28,11 @@ local notifyRemote = Net.event("Notify")
 
 local WV = Config.Waves
 
+-- Raider swing poses, in body space: arm overhead, then swung through to just
+-- past the target. See SwingAnim for why these are expressed this way.
+local TOP_PITCH = 158
+local CONTACT_PITCH = 22
+
 local active: { [Model]: any } = {}
 local folder: Folder
 local waveNumber = 0
@@ -148,7 +153,12 @@ local function spawnRaider(wave: number, index: number, count: number, boss: boo
 
 	local humanoid = npc:FindFirstChildOfClass("Humanoid") :: Humanoid
 	local torso = npc:FindFirstChild("Torso")
-	local arm = torso and torso:FindFirstChild("Right Shoulder")
+	-- The VISIBLE arm, not the R6 rig's. Every rig part is Transparency = 1
+	-- (the rig exists so Humanoid/MoveTo/damage work); the guy you actually see
+	-- is the Visual model, and TungArm is its one articulated joint.
+	local visual = npc:FindFirstChild("Visual")
+	local core = visual and visual.PrimaryPart
+	local arm = core and core:FindFirstChild("TungArm")
 	local entry = {
 		wave = wave,
 		boss = boss,
@@ -168,6 +178,13 @@ local function spawnRaider(wave: number, index: number, count: number, boss: boo
 		swingAt = nil,
 		rootedUntil = 0,
 	}
+	-- The waddle used to rewrite the sway joint's C0 from a hardcoded 0.7, but
+	-- buildNPC sets it to 0.7 * scale — so a 2.1x boss dropped a stud and a half
+	-- into its own legs on the first frame it moved.
+	if entry.sway then
+		entry.swayBase = entry.sway.C0
+	end
+
 	active[npc] = entry
 	aliveCount += 1
 
@@ -202,11 +219,11 @@ local function tick(dt: number)
 		end
 
 		-- waddle
-		if entry.sway and entry.sway:IsA("Motor6D") then
+		if entry.sway and entry.swayBase then
 			entry.phase += dt * (6 + humanoid.WalkSpeed * 0.25)
 			local lean = math.sin(entry.phase) * 0.18
 			local bob = math.abs(math.cos(entry.phase)) * 0.22
-			entry.sway.C0 = CFrame.new(0, 0.7 + bob, 0) * CFrame.Angles(0, 0, lean)
+			entry.sway.C0 = entry.swayBase * CFrame.new(0, bob, 0) * CFrame.Angles(0, 0, lean)
 		end
 
 		-- Raise the bat over the wind-up, hold at the top for an instant, then
@@ -214,19 +231,29 @@ local function tick(dt: number)
 		-- what makes a raider fair is that the arm is visibly UP before the
 		-- damage lands, and that they are rooted while it is.
 		if entry.arm and entry.armBase then
+			-- Raise, hold, chop — and the chop has to finish BEFORE the damage
+			-- lands, not after it. The whole point of a telegraph is that the
+			-- bat is visibly on its way down when it connects.
 			local pitch = 0
 			if entry.swingAt then
-				pitch = 155 * (1 - math.clamp((entry.swingAt - now) / entry.windUp, 0, 1))
+				local w = 1 - math.clamp((entry.swingAt - now) / entry.windUp, 0, 1)
+				if w < 0.55 then
+					pitch = TOP_PITCH * (w / 0.55)                 -- raise
+				elseif w < 0.72 then
+					pitch = TOP_PITCH                              -- hold at the top
+				else
+					-- chop, arriving at the contact pose exactly on the hit
+					local k = (w - 0.72) / 0.28
+					pitch = TOP_PITCH + (CONTACT_PITCH - TOP_PITCH) * (k ^ 0.6)
+				end
 			elseif now < entry.rootedUntil then
-				-- the chop itself: cubic, so it falls fast off the top and
-				-- settles rather than sliding back at a constant rate
-				local k = 1 - math.clamp((entry.rootedUntil - now) / WV.AttackRecover, 0, 1)
-				pitch = 155 * (1 - k) ^ 3
+				-- follow-through settling back to rest
+				pitch = CONTACT_PITCH * math.clamp((entry.rootedUntil - now) / WV.AttackRecover, 0, 1)
 			end
-			-- The pitch is in TORSO space; conjugating by the joint's own C0
+			-- The pitch is in BODY space; conjugating by the joint's own C0
 			-- rotation converts it, so this reads the same way as the player
-			-- swing poses in SwingAnim and doesn't depend on how the raider rig
-			-- happens to orient its shoulder. +X pitch raises the arm forward.
+			-- swing poses in SwingAnim and doesn't depend on how the shoulder
+			-- happens to be oriented. +X pitch raises the arm forward.
 			local basis = entry.armBase.Rotation
 			entry.arm.C0 = entry.armBase * (basis:Inverse() * CFrame.Angles(math.rad(pitch), 0, 0) * basis)
 		end

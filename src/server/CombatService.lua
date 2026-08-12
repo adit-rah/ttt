@@ -149,7 +149,7 @@ local function broadcastSwing(character: Model, comboIndex: number, duration: nu
 end
 
 --- Applies damage to any humanoid, from a player or from an NPC.
-function CombatService.damage(victimModel: Model, amount: number, sourcePosition: Vector3?, knockback: number?, attacker: Player?)
+function CombatService.damage(victimModel: Model, amount: number, sourcePosition: Vector3?, knockback: number?, attacker: Player?, crit: boolean?)
 	local humanoid, root = Util.getRig(victimModel)
 	if not humanoid or not root or humanoid.Health <= 0 then
 		return false
@@ -195,6 +195,7 @@ function CombatService.damage(victimModel: Model, amount: number, sourcePosition
 			damage = amount,
 			position = root.Position,
 			killed = humanoid.Health <= 0,
+			crit = crit == true,
 		})
 	end
 	return true
@@ -219,7 +220,14 @@ local function hitscan(character: Model, reach: number, width: number): { Model 
 	local seen = {}
 	local victims = {}
 	for _, part in ipairs(parts) do
+		-- Walk UP until we find the model that owns a Humanoid, rather than
+		-- stopping at the first Model ancestor. A raider's visible body is a
+		-- sub-model of the rig, and the arm is a sub-model of that, so the first
+		-- Model above a hit part is often not the character at all.
 		local model = part:FindFirstAncestorOfClass("Model")
+		while model and not model:FindFirstChildOfClass("Humanoid") do
+			model = model:FindFirstAncestorOfClass("Model")
+		end
 		if model and not seen[model] then
 			local humanoid = model:FindFirstChildOfClass("Humanoid")
 			if humanoid and humanoid.Health > 0 then
@@ -242,7 +250,7 @@ local function resolveStrike(player: Player, character: Model, hit: { [Model]: b
 		-- one swing damages a given victim once, however many samples see them
 		if not hit[victim] and CombatService.canDamage(player, victim) then
 			hit[victim] = true
-			CombatService.damage(victim, damage, origin, knockback, player)
+			CombatService.damage(victim, damage, origin, knockback, player, crit)
 			local _, victimRoot = Util.getRig(victim)
 			if victimRoot then
 				Fx.burst(victimRoot.Position, crit and Color3.fromRGB(255, 120, 80) or Color3.fromRGB(255, 230, 160),
@@ -333,8 +341,17 @@ function CombatService.swing(player: Player, tool: Tool)
 	local hit: { [Model]: boolean } = {}
 
 	local function strike()
-		-- a second swing (or death) since we were scheduled cancels this one
-		if s.lastSwing ~= generation or humanoid.Health <= 0 or character.Parent == nil then
+		-- A second swing, a death, a respawn or a disconnect since we were
+		-- scheduled all cancel this one. The player check matters: canDamage
+		-- lets anyone hit an NPC without looking at the attacker, so without it
+		-- a departing player's last swing still lands, tags a raider with a
+		-- creator who is gone, and fires hit feedback at nobody.
+		if s.lastSwing ~= generation
+			or player.Parent == nil
+			or player.Character ~= character
+			or humanoid.Health <= 0
+			or character.Parent == nil
+		then
 			return
 		end
 		resolveStrike(player, character, hit, reach, width, damage, knockback, crit)
