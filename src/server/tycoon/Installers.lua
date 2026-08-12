@@ -471,10 +471,12 @@ end
 --- gate leaves in its openings, a neon cap along the top of each side and a neon
 --- strip along the inside of the storey line.
 ---
---- IT TAKES THE STOREY. Only the ground storey is built today, because the
---- mezzanine deck covers the BACK HALF of the plot and there is nothing to stand
---- the front half of an upper wall on — but an upper storey's ring is this same
---- call with a different id, and Config.wallSegments already answers for it.
+--- IT TAKES THE STOREY, AND BOTH STOREYS ARE BUILT NOW. This installer builds the
+--- ground ring; FloorService calls the same function with the upper storey's id
+--- when the mezzanine lands, because the deck spans the whole plot and there is a
+--- floor to stand that ring on. Nothing here knows which storey it is being asked
+--- for — Config.wallSegments answers for both, and the WHY of the split ownership
+--- is written where the second caller is (FloorService.build).
 ---
 --- THREE COURSES PER SOLID RUN, one lintel per opening. The bay course is
 --- Config.wallBays: piers in wall material, panes in glass. A pane is
@@ -546,8 +548,10 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 
 	if def.structure == "walls" then
 		-- THE GROUND STOREY ONLY, and the id comes from Config rather than being
-		-- typed here. The upper storey's ring is the same call with the next
-		-- Storeys entry, and it waits for a deck that spans the whole plot.
+		-- typed here. The upper storey's ring is the same call with the storey the
+		-- mezzanine's deck floors, and FloorService makes it when that deck lands —
+		-- this purchase happens around minute three, when there is nothing up there
+		-- to stand a wall on, and an installer never runs again.
 		self:buildStoreyWalls(model, S.Storeys[1].id)
 	elseif def.structure == "roof" then
 		self:buildRoofModel(model)
@@ -581,7 +585,10 @@ function Tycoon:buildRoofModel(model: Instance)
 	model:ClearAllChildren()
 
 	local floorDef = Config.Floors[1]
-	local underside = Config.roofUnderside(floorDef ~= nil and self.owned[floorDef.button] ~= nil)
+	-- `== true`, not `~= nil`: `owned` is the same map FloorService.sync tests with
+	-- `== true`, and the two have to answer the same question the same way or the
+	-- roof lifts onto a storey whose deck was never built.
+	local underside = Config.roofUnderside(floorDef ~= nil and self.owned[floorDef.button] == true)
 	-- The wall ring's own |x| and |z|, read from the extents the walls are built
 	-- from rather than re-derived here: "inset in from the wall ring" has to mean
 	-- the wall the columns stand beside.

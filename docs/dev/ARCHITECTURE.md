@@ -125,7 +125,7 @@ The `UiKit` argument applies to it; nothing depends on it not being moved.
 | `NPCService.lua` | The Sahur Raid: wave state machine, raider AI, the boss, the `WaveState` remote. One tick loop for all NPCs. | `AdminService`, `Main.server` | spawn a thread per NPC |
 | `SessionService.lua` | Offline earnings, the four session loops (daily streak, playtime ladder, boost, weekend), the vault projection, rebirth grants. | `VaultService`, `Main.server` | require `Tycoon` or `PlotService` — it derives income from a **saved profile** so an absent player can be paid with no plot to ask; use `tick()` or `os.date("%j")` for anything persisted |
 | `SocialService.lua` | Friends in this server and what they are worth. Pairwise `IsFriendsWith`, cached; `SocialState` remote; `RequestInvite` cooldown. | `Main.server` | use `GetFriendsAsync` (unbounded pagination for ≤9 known ids); cache a failed web call as `false` |
-| `FloorService.lua` | The second storey: mezzanine deck, its own belt + collector, a `TrussPart` ladder. Driven off `Tycoon:onOwnedChanged`. | `Main.server` | build from the `Floor` installer — the deck outlives the purchase (release, rebirth, re-claim never go through `install()`) |
+| `FloorService.lua` | The second storey, whole: a deck that **spans the plot** in pieces around `Floors[1].hatch`, the railing round that stairwell, a `TrussPart` ladder standing **inside** it, the floor's own belt + collector, **and the upper storey's walls** (`buildStoreyWalls(model, "upper")`) with `refreshRoof` on top. Driven off `Tycoon:onOwnedChanged`. | `Main.server` | build from the `Floor` installer — the deck outlives the purchase (release, rebirth, re-claim never go through `install()`); build the slab as one box, or list its pieces by hand instead of deriving them from the deck and hatch rectangles |
 | `GateService.lua` | The doors in the shell's openings: opens a `Config.Structure.Openings` entry's leaves when a humanoid is inside `Gate.triggerRadius`, closes them when none is. **One** `Gate.tickRate` loop for the whole server, over `Tycoon.all()`. | `Main.server` | use `Touched`/`TouchEnded` (a character resting on a trigger bounces off its own physics jitter — that is what cost the deleted teleport pads a cooldown, an arrival lock and a sweep); run a loop per plot; hold a leaf reference across ticks without checking `Parent`; learn what a raider is (leash 124 vs a plot edge at 140) |
 | `VaultService.lua` | The number on the side of the vault: capacity/banked/fraction gauge, the collect prompt and its drain animation. Driven off `onOwnedChanged` plus a slow beat. | `Main.server` | send a net message — it has **zero**; parts and BillboardGuis replicate on their own and the claim is a `ProximityPrompt` |
 | `UpgradeService.lua` | **Prototype.** Player upgrade shop + the utility keybind slot. Both flags off ⇒ every entry point returns on line 1. | `Main.server` | make the utility a second `Tool` (only one Tool equips at a time) |
@@ -290,9 +290,16 @@ assertions ever saw it, and two of them were wrong.
 
 Geometry therefore lives in `Config.Layout` (`Config.lua:143`) and
 `Config.World` (`:15`), with the per-track furniture positions derived by
-`Config.trackButtonPosition` / `trackCabinet` / `trackShelfPosition`
-(`:2371-2394`) and the yard by `Config.yardMachinePosition` /
-`yardButtonPosition` (`:378-383`).
+`Config.trackButtonPosition` / `trackCabinet` / `trackShelfPosition` and the yard
+by `Config.yardMachinePosition` / `yardButtonPosition` (`:378-383`).
+
+**All three track helpers take their Y from `Config.floorTopY(t.floor)`**, and
+both side tracks name `floor = "mezzanine"` — the weapons and armour cabinets,
+their nine buy-button pedestals and their shelf displays stand on the deck, in
+`Floors[1].zones.armoury`, not on the ground floor. A builder that drops that Y
+(`self:at(pos.X, 0, pos.Z)`) builds the whole armoury *underneath* the deck, and
+it has happened in three separate places: `Tycoon:buttonBaseCF`,
+`Tycoon:ensureCabinets` and `buildShelfDisplay`.
 
 Two escapes, both principled: `tycoon/Class.lua:36` keeps `MIN_PART = 0.05` on
 the class table because it is a property of the engine, not a knob; and `Config.Admin`
@@ -534,11 +541,22 @@ local unlocked = tycoon.owner ~= nil and tycoon.owned[FLOOR.button] == true
 Build if unlocked and not built; tear down if built and not unlocked; then
 `tycoon:refreshRoof()` either way. **That call is the beat that raises the
 building.** The roof sits on the top storey that exists — `Config.roofUnderside`
-reads `owned[floor2]` and answers 20.4 or 38 — so without the rebuild the roof
+reads `owned[floor2]` and answers 20.4 or 42 — so without the rebuild the roof
 stays on the ground storey's line with a deck at 22 growing through it. It used
 to *shrink* instead, pulling its back edge in to clear the deck and leaving open
 sky over the back half; there is one structural line now and the roof always
 spans the whole plot.
+
+`build()` puts the **upper storey's walls** up in the same pass, into the deck's
+own folder. They are structure, but they are not the `Structure` installer's:
+`walls` is bought around minute three, when there is no deck to stand a wall on,
+and an installer never runs again — that is the hole `refreshRoof` exists to
+cover, and rebuilding the ground ring to add a storey above it would destroy the
+gate leaves `GateService` may be mid-tween on. Off `onOwnedChanged` the storey
+arrives and leaves as one object across purchase, release, rebirth and re-claim,
+and there is no state in which a deck has no walls. The one thing that assumes
+otherwise is `GateService`'s `tycoon.machines:FindFirstChild(name, true)`; no
+upper-storey `Openings` entry exists today, so no leaf is built up there.
 `FloorService.start()` (`:280`) registers it on every plot **and calls it once
 immediately** (`:291-292`), which is what makes a server restart with saved
 plots correct. `VaultService.start()` (`:197`) has the same shape plus a slow

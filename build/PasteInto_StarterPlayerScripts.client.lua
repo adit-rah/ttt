@@ -330,11 +330,28 @@ __MODULES["Config"] = function()
 		-- `slots` is the capacity of the column, not the number of buttons in the
 		-- track; the verifier asserts the track fits, which is what stops a new
 		-- tier silently stacking a pedestal on top of the one before it.
+		--
+		-- THEY STAND ON THE MEZZANINE, IN ITS ARMOURY ZONE. `floor` names a
+		-- Config.Floors id and every one of the three position helpers at the bottom
+		-- of this file takes its Y from it. TODO.md item 1: "cabinets and armor should
+		-- not be on the first floor."
+		--
+		-- Config.TrackUnlock has gated both of these on `floor2` for two rounds, so
+		-- the mezzanine was already the thing that opened them — and they stood
+		-- downstairs, because ensureCabinets built at y = 0 and these three helpers
+		-- hardcoded it. The ground floor is the production line; this is the armoury
+		-- above it, and the two no longer share an aisle.
+		--
+		-- firstZ moved from -34 to 4 with the same spacing, which puts the columns in
+		-- the armoury zone (z -8..68) rather than over the belt. weapons' five slots
+		-- run z 4..60 and armour's four run z 4..46, both clear of the deck's front
+		-- edge at 68 and of the stairwell, which ends at z = -7.
 		Tracks = {
-			-- weapons stops at 5: a sixth slot lands at z = 36, which is 12.6 studs
-			-- from the rebirth pad at (42, 40) and fails MiscButtonSpacing.
-			weapons = { cabinetX = 20, buttonX = 30, firstZ = -34, spacing = 14, slots = 5, depth = 4, height = 13 },
-			armor   = { cabinetX = 54, buttonX = 44, firstZ = -34, spacing = 14, slots = 4, depth = 4, height = 13 },
+			-- weapons stops at 5: a sixth slot would land at z = 74, past the deck's
+			-- front edge. Downstairs the binding constraint was the rebirth pad; up
+			-- here it is the building.
+			weapons = { floor = "mezzanine", cabinetX = 20, buttonX = 30, firstZ = 4, spacing = 14, slots = 5, depth = 4, height = 13 },
+			armor   = { floor = "mezzanine", cabinetX = 54, buttonX = 44, firstZ = 4, spacing = 14, slots = 4, depth = 4, height = 13 },
 		},
 
 		RebirthPadAt = Vector3.new(42, 0, 40),   -- front-right, away from the vault
@@ -1753,9 +1770,100 @@ __MODULES["Config"] = function()
 			-- side-track cabinets, which is the reason it could not stay at forty.
 			button = "floor2",
 			height = 22,             -- floor top, plot-local
-			-- deck covers the back half only, so it does not roof the walkway
-			deckSize = Vector3.new(112, 1.6, 60),
-			deckAt = Vector3.new(0, 0, -38),
+
+			-- THE DECK SPANS THE PLOT, wall face to wall face on both axes: x -58..58
+			-- and z -68..68 inside a 2-stud ring at ±59/±69. It covered the back 60
+			-- studs of a 140-deep plot, so the deck stopped in mid-air at z = -8 and
+			-- the ladder had to stand in front of that edge.
+			--
+			-- The cost is named rather than hidden: FloorService's header argued for
+			-- the back half because "Roblox has no good answer for a ceiling", and a
+			-- full-span deck roofs the ground floor. What makes it liveable is that the
+			-- ground storey has 20.4 studs of headroom and PopperCam sits under it, and
+			-- what makes it legible is that the walls are now glazed. It is the first
+			-- item in this round's Studio list, and the levers if it plays badly are,
+			-- cheapest first: more glass, a taller ground storey, or a light well over
+			-- the aisle.
+			deckSize = Vector3.new(116, 1.6, 136),
+			deckAt = Vector3.new(0, 0, 0),
+
+			-- WHAT IS ON THE FLOOR, AS NAMED ZONES.
+			--
+			-- TODO.md item 1: "make the code clean so each floor and its contents can
+			-- be easily deciphered without extensive detailing". A deck rectangle plus
+			-- four belt margins could not say that the back of the storey is a
+			-- production line and the front is an armoury — you had to read
+			-- FloorService and Layout.Tracks and hold both in your head.
+			--
+			-- `line` IS DELIBERATELY THE OLD DECK RECTANGLE, to the stud. The belt is
+			-- derived from this zone rather than from the deck (see Config.floorBeltPath
+			-- below), so widening the deck moved no belt leg, no machine and no
+			-- collector — and every belt assertion, the drop budget and the trigger
+			-- dwell all still measure exactly what they measured before.
+			zones = {
+				line = {
+					at = Vector3.new(0, 0, -38),
+					size = Vector3.new(112, 0, 60),
+					holds = "the mezzanine belt, its dropper and its hopper",
+				},
+				armoury = {
+					at = Vector3.new(0, 0, 30),
+					size = Vector3.new(116, 0, 76),
+					holds = "the weapons and armour cabinets and their button columns",
+				},
+			},
+
+			-- THE STAIRWELL, a void in the slab rather than a ladder in front of it.
+			--
+			-- The deck used to end at z = -8 and the ladder stood just proud of that
+			-- edge, with a gap cut in the front guard to arrive through. A deck that
+			-- spans the plot has no front edge to stand in front of, so the slab is
+			-- built in pieces around this rectangle and the guard runs round three
+			-- sides of it.
+			--
+			-- WHERE IT IS, and it is not where two earlier attempts put it.
+			--
+			-- The obvious spot is x = Layout.GateCentre 14, in line with the gateway —
+			-- which is where the old ladder stood and where this hatch started. The
+			-- aisle at x 9..19, z -16..-6 turns out to be the most contested strip on
+			-- the storey, and it failed twice:
+			--
+			--   * against the mezzanine belt's BASE. The return leg runs at z = -22
+			--     with an 8-stud running surface, but Belt.lua builds the base at
+			--     BeltWidth + 1.2, so its inboard edge is z = -17.4 and the hatch's
+			--     guard landed 0.1 studs inside it. Measuring against the surface said
+			--     it cleared by a stud.
+			--   * against that leg's MACHINE ROW, x -46.5..14.5, z -16.5..-11.5. Every
+			--     x from the left wall to 14.5 is spoken for by a machine that could
+			--     stand on leg 3, and nothing stands there today only because the
+			--     floor's one dropper is on leg 1. A hole in the slab where a future
+			--     dropper goes is a dropper built in mid-air.
+			--
+			-- So it goes in the deck's front-left quarter instead: inside the armoury
+			-- zone, clear of every belt leg's machine and button bands, clear of both
+			-- cabinets and their columns, and — because the truss runs from the plot
+			-- floor up through the void — clear of the vault, the claim pad and the
+			-- misc spine on the ground floor below. You come in the gateway and the
+			-- stairs are on your left. Arrival is on the -Z lip so you step off facing
+			-- into the armoury rather than out at the front wall.
+			hatch = {
+				-- z = 58, not 60: the slab is built in PIECES around this rectangle, so
+				-- the hatch needs enough deck between it and the edge to leave a piece
+				-- worth building — six studs, which is also what the perimeter guard
+				-- would stand on if the deck ever pulls back from a wall.
+				at = Vector3.new(-16, 0, 58),
+				size = Vector3.new(8, 0, 8),
+				-- WHICH LIP YOU ARRIVE OVER. The guard closes the other three sides and
+				-- `ladder.gate` is the opening cut in this one. -Z faces back into the
+				-- armoury, so the climb ends looking at the thing the storey is for
+				-- rather than at the front wall two studs away.
+				--
+				-- Stated rather than chosen in the builder because two things have to
+				-- agree about it — where the truss stands and where the gap is cut —
+				-- and a builder that decides for itself is a builder the verifier
+				-- cannot check against.
+				arrival = "-Z",
+			},
 			-- belt and machines float this far over the deck: a belt base whose
 			-- underside is coplanar with the deck's top face is two surfaces at one
 			-- Y, which z-fights
@@ -1791,11 +1899,14 @@ __MODULES["Config"] = function()
 
 			rail = { thickness = 1, bar = 1.4 },
 
-			-- Support posts down to the plot floor. Their footprints miss what is
-			-- already down there: 4 in from the deck's sides puts them at x = +-52,
-			-- outboard of leg 2 (which reaches x = -48.6) and clear of the upgrader
-			-- beams; 8 in from the front edge drops them at z = -16, between
-			-- upgrader slots 2 and 3 at z = -26 and z = -10.
+			-- Support posts down to the plot floor, inset from the DECK's edges — and
+			-- the deck is now the whole plot, so they land at x = +-54 and
+			-- z = -64 / +60 rather than the x = +-52, z = -16 this comment described
+			-- when the deck was the back half. They are in the corners of the building
+			-- now instead of standing in the middle of the ground floor, which is a
+			-- better place for a post. The verifier re-derives them and asserts they
+			-- clear every dropper and upgrader box, so the numbers here are
+			-- illustrative and that check is the authority.
 			pillar = { size = 2.4, insetSide = 4, insetBack = 4, insetFront = 8 },
 
 			-- A LADDER, WHERE THE TELEPORT PADS WERE.
@@ -1831,23 +1942,77 @@ __MODULES["Config"] = function()
 			-- walk in through: not beside the main entrance, but in line with it.
 			-- It clears belt1 by 2.5 studs and the weapons cabinet by 3.
 			ladder = {
-				at = Vector3.new(14, 0, -6.6),  -- centre of the column, just proud of the deck
+				-- THERE IS NO `ladder.at` ANY MORE, and that is the point. It was
+				-- Vector3.new(14, 0, -6.6): a spot just proud of the deck's front
+				-- edge, correct while the deck stopped at z = -8 and meaningless once
+				-- it spans the plot. It survived this round's first pass as a number
+				-- the VERIFIER still measured while the builder had started deriving
+				-- its own — a box nothing builds, checked for clearances against
+				-- furniture it is nowhere near. Deleted, and replaced by
+				-- Config.floorLadderAt below so both read one derivation.
 				width = 2,                       -- a TrussPart's cross-section is 2x2
 				rise = 1.5,                      -- overshoot above the deck, to step off onto
-				-- The front guard is built in two pieces with this much of a gap at
-				-- `at.X`, because a ladder that arrives at a railing is a ladder to
-				-- nowhere. The visible bar is cut with it.
-				gate = 7,
+				-- The hatch guard is cut this wide on the arrival lip, because a
+				-- ladder that arrives at a railing is a ladder to nowhere. The visible
+				-- bar is cut with it. Six in an eight-stud lip leaves a jamb a full
+				-- rail thickness wide at each end; seven would leave half of one.
+				gate = 6,
 			},
 		},
 	}
 
+	--- WHERE THE TRUSS STANDS: inside the hatch, against its arrival lip.
+	---
+	--- Against the lip and not in the middle of the void, because at the top of a
+	--- truss you step off HORIZONTALLY. From the centre of a 10-stud hole there is
+	--- nothing within reach to step onto; from the far lip the hole is between you
+	--- and the floor. So the column hugs the lip the guard is cut in.
+	---
+	--- This exists because the builder and the verifier both need it and briefly had
+	--- different answers: `ladder.at` said z = -6.6 and the builder derived z = -8,
+	--- so every ladder clearance check measured a box nothing built. One function,
+	--- read by both. Component arithmetic only — the verifier's Vector3 has no
+	--- operators.
+	function Config.floorLadderAt(floor)
+		local h = floor.hatch
+		local inset = floor.ladder.width / 2
+		if h.arrival == "-Z" then
+			return Vector3.new(h.at.X, 0, h.at.Z - h.size.Z / 2 + inset)
+		elseif h.arrival == "+X" then
+			return Vector3.new(h.at.X + h.size.X / 2 - inset, 0, h.at.Z)
+		elseif h.arrival == "-X" then
+			return Vector3.new(h.at.X - h.size.X / 2 + inset, 0, h.at.Z)
+		end
+		return Vector3.new(h.at.X, 0, h.at.Z + h.size.Z / 2 - inset)
+	end
+
+	--- Where you actually stand when you step off it: just past the arrival lip, on
+	--- the deck. This is the point the hopper has to keep `belt.ladderClearance`
+	--- away from — the old check measured the deck's front edge, which after the deck
+	--- grew was 74 studs from the truss and passed for entirely the wrong reason.
+	function Config.floorLandingAt(floor)
+		local h = floor.hatch
+		local step = floor.ladder.width
+		if h.arrival == "-Z" then
+			return Vector3.new(h.at.X, 0, h.at.Z - h.size.Z / 2 - step)
+		elseif h.arrival == "+X" then
+			return Vector3.new(h.at.X + h.size.X / 2 + step, 0, h.at.Z)
+		elseif h.arrival == "-X" then
+			return Vector3.new(h.at.X - h.size.X / 2 - step, 0, h.at.Z)
+		end
+		return Vector3.new(h.at.X, 0, h.at.Z + h.size.Z / 2 + step)
+	end
+
 	--- The mezzanine's belt, as a Config.BeltPaths entry.
 	---
-	--- Three legs around the back and left of the deck, then a return leg back
-	--- across it to the hopper. Derived from the deck rectangle and the pad
-	--- position rather than written out as a second set of magic coordinates, so it
-	--- follows the deck if that is ever resized.
+	--- Three legs around the back and left of the LINE ZONE, then a return leg back
+	--- across it to the hopper. Derived from that zone's rectangle rather than from
+	--- the deck, which is the change that let the deck grow to span the plot without
+	--- moving a single belt leg: the zone is the old deck rectangle to the stud, so
+	--- every point this function returns is byte-identical to what it returned when
+	--- the deck WAS that rectangle. A belt derived from the deck would have spread
+	--- itself across the whole storey the moment the deck did, and taken the drop
+	--- budget, the trigger dwell and the mezzanine dropper's position with it.
 	---
 	--- The return leg is what the old inferred-outboard heuristic could not do: its
 	--- midpoint sits near the middle of the plot, so "point away from the origin"
@@ -1861,12 +2026,13 @@ __MODULES["Config"] = function()
 	--- particularly silly place to break them.
 	function Config.floorBeltPath(floor)
 		local b = floor.belt
-		local halfX, halfZ = floor.deckSize.X / 2, floor.deckSize.Z / 2
+		local zone = floor.zones.line
+		local halfX, halfZ = zone.size.X / 2, zone.size.Z / 2
 
-		local backZ = floor.deckAt.Z - halfZ + b.back
-		local frontZ = floor.deckAt.Z + halfZ - b.front
-		local rightX = floor.deckAt.X + halfX - b.side
-		local leftX = floor.deckAt.X - halfX + b.side
+		local backZ = zone.at.Z - halfZ + b.back
+		local frontZ = zone.at.Z + halfZ - b.front
+		local rightX = zone.at.X + halfX - b.side
+		local leftX = zone.at.X - halfX + b.side
 		local collectorX = b.collectorX
 
 		return {
@@ -1928,11 +2094,14 @@ __MODULES["Config"] = function()
 		-- the budget was being asserted against a number 13% below what is built.
 		Trim = { section = 1, proud = 0.4 },
 
-		-- Ground clear height is DERIVED (see below). `upper` is chosen: the
-		-- cabinets that move up there are 13 tall and a dropper's arm reaches
-		-- MachineTopY 6.9 above whatever it stands on, so 16 clears both with room
-		-- to walk. Taller costs nothing but makes the building read as a tower.
-		UpperClear = 16,
+		-- Ground clear height is DERIVED (see below). `upper` is chosen, and the
+		-- binding constraint is not headroom: a cabinet body is 13 tall and hangs its
+		-- sign anchor at 15.5 with an 18x4 billboard on it, so the label reaches 17.5
+		-- above the deck. At 16 the top two studs of every cabinet sign were inside
+		-- the ceiling. 20 clears the sign, the dropper's arm (MachineTopY 6.9) and a
+		-- player, and leaves the storey a shade lower than the ground floor's 20.4 —
+		-- which is what a mezzanine should read as.
+		UpperClear = 20,
 
 		-- WINDOW BAYS. A solid run is built as three courses: a sill course from the
 		-- floor to `sill`, a bay course of alternating piers and glass panes, and a
@@ -2806,9 +2975,40 @@ __MODULES["Config"] = function()
 	--- Component arithmetic on purpose: tools/verify_config.lua stubs Vector3 as a
 	--- plain table with no operators, so anything that adds or scales a Vector3 at
 	--- require time takes the whole verifier down.
+	--- The top face a floor's furniture stands on, plot-local. 0 for the ground
+	--- floor, the deck's top for anything naming a Config.Floors id.
+	---
+	--- A SCALAR, because the verifier's Vector3 has no arithmetic and the three
+	--- helpers below have to add this to a component. It is also why `floor` is an
+	--- id rather than a height: a height in Layout.Tracks would be a second copy of
+	--- Config.Floors[n].height, and the two would disagree the first time the deck
+	--- moved.
+	--- AN UNKNOWN ID RAISES, it does not fall back to 0.
+	---
+	--- `floor = nil` means the ground floor and is a legitimate answer. `floor =
+	--- "mezanine"` is a typo, and returning 0 for it would put the entire armoury
+	--- back on the ground floor — the exact defect this round exists to fix — with
+	--- nothing warned, nothing logged, and every verifier check still passing,
+	--- because 0 == 0. A silent fallback to the safe-looking value is how the
+	--- generator multiplied by one for two rounds.
+	---
+	--- Style.distance(tier) sets the precedent: an unknown tier is a programming
+	--- mistake, so it errors at the call site rather than picking something.
+	function Config.floorTopY(floorId: string?): number
+		if not floorId then
+			return 0
+		end
+		for _, floor in ipairs(Config.Floors) do
+			if floor.id == floorId then
+				return floor.height
+			end
+		end
+		error(("[Tung] Config.floorTopY: no floor with id %q"):format(tostring(floorId)), 2)
+	end
+
 	function Config.trackButtonPosition(track: string, slot: number): Vector3
 		local t = Config.Layout.Tracks[track]
-		return Vector3.new(t.buttonX, 0, t.firstZ + (slot - 1) * t.spacing)
+		return Vector3.new(t.buttonX, Config.floorTopY(t.floor), t.firstZ + (slot - 1) * t.spacing)
 	end
 
 	--- The cabinet body behind that column: centre, then size. Its long axis is Z,
@@ -2818,7 +3018,8 @@ __MODULES["Config"] = function()
 	function Config.trackCabinet(track: string): (Vector3, Vector3)
 		local t = Config.Layout.Tracks[track]
 		local length = (t.slots - 1) * t.spacing + 8
-		return Vector3.new(t.cabinetX, 0, t.firstZ + (t.slots - 1) * t.spacing / 2),
+		return Vector3.new(t.cabinetX, Config.floorTopY(t.floor),
+				t.firstZ + (t.slots - 1) * t.spacing / 2),
 			Vector3.new(t.depth, t.height, length)
 	end
 
@@ -2826,7 +3027,8 @@ __MODULES["Config"] = function()
 	--- stands, so the case visibly fills up as you climb the track.
 	function Config.trackShelfPosition(track: string, slot: number): Vector3
 		local t = Config.Layout.Tracks[track]
-		return Vector3.new(t.cabinetX, 5, t.firstZ + (slot - 1) * t.spacing)
+		return Vector3.new(t.cabinetX, Config.floorTopY(t.floor) + 5,
+			t.firstZ + (slot - 1) * t.spacing)
 	end
 
 	function Config.requirementsOf(def)
