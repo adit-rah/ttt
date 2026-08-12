@@ -44,7 +44,7 @@ end
 local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Floor = true, Power = true }
 local KNOWN_STRUCTURES = { walls = true, roof = true }
 
-local seenIds, dropperSlots, upgraderSlots, powerSlots = {}, {}, {}, {}
+local seenIds, dropperSlots, upgraderSlots = {}, {}, {}
 -- Per TRACK, not global. Prices only have to climb against the other rungs of
 -- their own ladder now; a weapons tier costing less than the dropper it sits
 -- beside is not a bug, it is the whole point of the split. Keeping the old
@@ -148,10 +148,14 @@ for index, def in ipairs(Config.Buttons) do
 		-- even rungs rather than three decorations and one big one.
 		check(type(def.factor) == "number" and def.factor > 1,
 			("%s: factor must be > 1; a rung that speeds nothing up is a rung that charges for nothing"):format(where))
-		check(type(def.slot) == "number" and def.slot >= 1 and def.slot <= Config.Layout.Yard.Slots,
-			("%s: slot must be 1..%d, the yard's capacity"):format(where, Config.Layout.Yard.Slots))
-		check(not powerSlots[def.slot], ("%s: yard slot %s already used"):format(where, tostring(def.slot)))
-		powerSlots[def.slot] = true
+		-- THE INVERSE OF WHAT USED TO BE HERE, which asserted a unique slot per
+		-- rung in 1..Yard.Slots. A per-rung slot is exactly how the yard came to
+		-- grow four generators and four buy pads on a plot that had bought none
+		-- of them — the defect this whole change exists for. There is one stand
+		-- now, and every rung upgrades the machine on it.
+		check(def.slot == nil,
+			("%s carries a yard slot; there is one generator, and a second position would build a second machine behind the plot")
+				:format(where))
 		check(Config.Variants[def.variant] ~= nil, where .. ": unknown variant " .. tostring(def.variant))
 		if def.trackOrder > 1 then
 			local below = Config.Tracks.power[def.trackOrder - 1]
@@ -1339,23 +1343,27 @@ local function inYard(label, point, margin)
 			:format(label, point.Z, yardHalfZ, Y.Centre.Z))
 end
 
-check(#Config.Tracks.power <= Y.Slots,
-	("the power track has %d rungs but the yard has %d slots; the extras would stack on the last pedestal")
-		:format(#Config.Tracks.power, Y.Slots))
+-- FOUR PEDESTALS SHARE ONE POSITION, and this is the check that keeps that
+-- honest. Only the frontier rung is ever parented — refreshButtons hides the
+-- rest — which is what lets one pad in front of the generator sell four rungs
+-- in sequence. Preview depth is the only thing that can break it: at 2 the yard
+-- grew three pads on a plot that owned none of them, and at 1 a dimmed pad
+-- would be built INSIDE the lit one at the same coordinate.
+--
+-- It replaces `#Config.Tracks.power <= Y.Slots`, which counted rungs against a
+-- capacity that no longer exists.
+check(Config.TrackInfo.power.preview == 0,
+	("TrackInfo.power.preview is %s; every power rung stands on one pedestal spot, so anything but 0 builds a preview pad inside the frontier pad")
+		:format(tostring(Config.TrackInfo.power.preview)))
 
-for slot = 1, Y.Slots do
-	inYard(("Yard machine %d"):format(slot), Config.yardMachinePosition(slot), Y.MachineSize.X / 2)
-	inYard(("Yard button %d"):format(slot), Config.yardButtonPosition(slot), 3)
-end
-for slot = 2, Y.Slots do
-	local gap = Config.yardMachinePosition(slot).X - Config.yardMachinePosition(slot - 1).X
-	check(gap >= Y.MachineSize.X + 4,
-		("Yard slots %d and %d are %.1f studs apart but a generator is %.0f wide")
-			:format(slot - 1, slot, gap, Y.MachineSize.X))
-end
+local yardMachine, yardButton = Config.yardMachinePosition(), Config.yardButtonPosition()
+inYard("the generator", yardMachine, Y.MachineSize.X / 2)
+inYard("the generator's pad", yardButton, 3)
+check(yardMachine.X == Y.Centre.X and yardButton.X == Y.Centre.X,
+	"the generator and its pad stand on the yard's centre line; anything else is a slot table growing back")
 local buttonToMachine = math.abs(Y.ButtonZ - Y.MachineZ) - Y.MachineSize.Z / 2
 check(buttonToMachine >= 3,
-	("the yard's buy buttons are %.1f studs clear of the generators (need 3)"):format(buttonToMachine))
+	("the yard's buy pad is %.1f studs clear of the generator (need 3)"):format(buttonToMachine))
 
 -- BEHIND the plot, not on it. A yard that reaches onto the pad is a plot resize
 -- wearing a disguise, and a plot resize moves every other plot in the game.
@@ -1367,6 +1375,16 @@ check(Y.Size.X <= Config.World.PlotSize.X,
 	("the yard is %d studs wide against a %d-stud plot; anything wider re-solves the ring, which is the one thing growing backwards was meant to avoid")
 		:format(Y.Size.X, Config.World.PlotSize.X))
 
+-- ...AND WIDTH ALONE STOPPED BEING ENOUGH once the yard moved off-centre. A
+-- 28-stud slab is comfortably narrower than the plot and can still hang over
+-- its edge, which eats the ring gap the packing checks below solved for without
+-- changing Size.X at all. The old yard was centred, so this could not happen
+-- and was never asked.
+local plotHalfWidth = Config.World.PlotSize.X / 2
+check(Y.Centre.X + yardHalfX <= plotHalfWidth and Y.Centre.X - yardHalfX >= -plotHalfWidth,
+	("the yard spans x %.0f..%.0f, past the %d-stud plot it hangs off the back of")
+		:format(Y.Centre.X - yardHalfX, Y.Centre.X + yardHalfX, Config.World.PlotSize.X))
+
 -- THE DOOR. The back edge of the plot is the dropper row, so there is exactly
 -- one span of wall with nothing behind it.
 local farthestDropper = L.BeltStart.X - L.DropperDist[1] + L.MachineFootprint / 2
@@ -1376,9 +1394,15 @@ check(Y.DoorFrom >= farthestDropper + 2,
 local doorWidth = (Config.World.PlotSize.X / 2 - 1) - Y.DoorFrom
 check(doorWidth >= 8,
 	("the yard doorway is %.1f studs wide; a humanoid plus its hitbox needs 8"):format(doorWidth))
-check(Y.DoorFrom >= Y.Centre.X - yardHalfX and Y.DoorFrom <= Y.Centre.X + yardHalfX,
-	("the yard doorway at x=%.0f opens onto grass; the yard slab spans %.0f..%.0f")
-		:format(Y.DoorFrom, Y.Centre.X - yardHalfX, Y.Centre.X + yardHalfX))
+-- THE WHOLE DOORWAY HAS TO BE OVER THE SLAB, not just its left jamb. This
+-- checked one point, which was enough while the yard was 108 studs wide and
+-- spanned the plot — the door could not miss it. A 28-stud corner chunk can sit
+-- entirely clear of the door it is supposed to be reached through, and you
+-- would walk out of the back wall onto grass.
+local doorTo = Config.World.PlotSize.X / 2 - 1
+check(Y.Centre.X - yardHalfX <= Y.DoorFrom and Y.Centre.X + yardHalfX >= doorTo,
+	("the doorway spans x %.0f..%.0f but the yard slab spans %.0f..%.0f; you would step out of the back wall onto grass")
+		:format(Y.DoorFrom, doorTo, Y.Centre.X - yardHalfX, Y.Centre.X + yardHalfX))
 
 -- The gateway in the front wall has to open onto the aisle the player actually
 -- walks, not onto the vault.
@@ -1641,14 +1665,22 @@ end
 -- Every horizontal surface needs its own Y. Two coplanar faces at the same
 -- height is what produces the shimmering/tearing artefact, and it is very easy
 -- to reintroduce by hand-placing one more slab.
-local surfaces = {
-	GroundTopY = Config.World.GroundTopY,
-	PathTopY = Config.World.PathTopY,
-	ArenaFloorTopY = Config.World.ArenaFloorTopY,
-	PlotSurfaceY = Config.World.PlotSurfaceY,
-}
+--
+-- BY NAME, NOT BY VALUE, and that is a bug fix rather than a style change.
+-- This was a map literal containing `PathTopY = Config.World.PathTopY` — a key
+-- that does not exist anywhere in Config. The value was nil, so the entry was
+-- simply absent from the table and pairs() never visited it: the check silently
+-- covered three surfaces while appearing to cover four, and its `type(y) ==
+-- "number"` guard could never fire because a nil never arrived.
+--
+-- YardTopY was missing from the list at the same time. #32 said the yard got
+-- "its own surface height, so the existing distinct-heights check picks it up";
+-- it did not, and has not since. Iterating names makes a missing key fail
+-- loudly instead of vanishing.
+local surfaceNames = { "GroundTopY", "ArenaFloorTopY", "YardTopY", "PlotSurfaceY" }
 local seenHeights = {}
-for name, y in pairs(surfaces) do
+for _, name in ipairs(surfaceNames) do
+	local y = Config.World[name]
 	check(type(y) == "number", ("World.%s must be a number"):format(name))
 	local clash = seenHeights[y]
 	check(clash == nil,

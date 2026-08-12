@@ -255,9 +255,10 @@ function Tycoon.new(index: number, parent: Instance)
 	self:buildRebirthPad()
 	self:buildClaimPad()
 	self:ensureCabinets()
-	-- Built once and kept, like a cabinet body. The generators standing on it
-	-- are machines and come and go with a rebirth; the slab does not.
-	self:buildYard()
+	-- Kept like a cabinet body. The generator standing on it is a machine and
+	-- comes and goes with a rebirth; the slab does not. Idempotent, and also
+	-- re-run from refreshButtons, because release() clears self.props.
+	self:ensureYard()
 
 	-- An unclaimed plot shows a bare pad and a claim marker, nothing else.
 	-- Leaving the vault and belt standing on an empty plot is what makes it
@@ -945,15 +946,33 @@ function Tycoon:ensureCabinets()
 	end
 end
 
---- The generator yard: a slab behind the plot, a fence around three sides of
---- it, and a sign.
+--- The generator yard: a small slab behind the plot's back-right corner, with a
+--- fence around three sides of it.
 ---
 --- Permanent plot furniture in self.props, exactly like a cabinet body. The
---- GENERATORS that stand on it go into self.machines instead, so a rebirth
---- takes them down with the droppers they were speeding up and leaves the yard
+--- GENERATOR that stands on it goes into self.machines instead, so a rebirth
+--- takes it down with the droppers it was speeding up and leaves the yard
 --- standing — the same split the cabinets and their shelf displays already use.
-function Tycoon:buildYard()
+---
+--- IDEMPOTENT AND RE-RUN FROM refreshButtons, for the same reason
+--- ensureCabinets is. This used to be buildYard(), called once from the
+--- constructor and never again — but release() does props:ClearAllChildren(),
+--- so the first time an owner left a plot the slab and its fence went with
+--- them, permanently, for the rest of the server's life. Every subsequent owner
+--- bought generators that stood in mid-air. The cabinets survived that because
+--- they are rebuilt from a refresh; the yard had no equivalent.
+---
+--- NO SIGN. It used to hang a "POWER YARD" billboard off the back fence and
+--- store the label in self.cabinetSigns — where updateCabinetSigns rewrote it
+--- with the cabinet format string, so it actually read "POWER CABINET - 0/4".
+--- The pad twelve studs away already carries the track, the tier name, the
+--- effect and the price; a second sign restating it is the noise this change is
+--- about. If a yard sign is ever wanted it must NOT go in cabinetSigns.
+function Tycoon:ensureYard()
 	local Y = L.Yard
+	if self.props:FindFirstChild("Yard") then
+		return
+	end
 	local model = Instance.new("Model")
 	model.Name = "Yard"
 	model.Parent = self.props
@@ -964,7 +983,13 @@ function Tycoon:buildYard()
 
 	-- Fence on three sides. The plot side is left open: it is where you walk in
 	-- from, through the doorway the wall leaves for it.
-	local halfX, halfZ = Y.Size.X / 2, Y.Size.Z / 2
+	--
+	-- Inset by half its own thickness so it stands ON the slab rather than
+	-- straddling the edge. With the yard now flush against the plot's own
+	-- x-extent at 60, the old straddling fence would have hung half a stud past
+	-- it and made the containment assertion a lie by exactly that much.
+	local halfX = Y.Size.X / 2 - Y.FenceThickness / 2
+	local halfZ = Y.Size.Z / 2 - Y.FenceThickness / 2
 	local sides = {
 		{ Vector3.new(Y.Size.X, Y.FenceHeight, Y.FenceThickness), Vector3.new(0, 0, -halfZ) },
 		{ Vector3.new(Y.FenceThickness, Y.FenceHeight, Y.Size.Z), Vector3.new(-halfX, 0, 0) },
@@ -975,31 +1000,51 @@ function Tycoon:buildYard()
 			self:at(Y.Centre.X + side[2].X, Y.LocalY + Y.FenceHeight / 2, Y.Centre.Z + side[2].Z),
 			COLORS.frame, Enum.Material.DiamondPlate)
 	end
-
-	local anchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1),
-		self:at(Y.Centre.X, Y.LocalY + Y.FenceHeight + 6, Y.Centre.Z - halfZ),
-		COLORS.frame, nil, false)
-	anchor.Transparency = 1
-	local billboard = Style.billboard(anchor, {
-		name = "Sign", width = 18, height = 4, distance = "prop",
-	})
-	self.cabinetSigns = self.cabinetSigns or {}
-	self.cabinetSigns.power = Style.text(billboard, {
-		name = "Label", color = COLORS.gold, text = "POWER YARD",
-	})
 end
 
---- One generator, standing in its slot on the yard.
-function Tycoon:buildYardMachine(def)
+--- The one generator, showing the highest power rung this plot owns.
+---
+--- DERIVED STATE, not an install side effect. It used to be buildYardMachine(),
+--- called from INSTALLERS.Power, which built a NEW machine per rung in a slot of
+--- its own — four generators standing in a row for a track whose rungs are
+--- upgrades of each other. Now each rung replaces the machine in place and the
+--- visible change is the variant: golden, crimson, void, infinity.
+---
+--- Rebuilt only when the tier actually changes, so a refresh on every button
+--- purchase costs one attribute read. Lives in self.machines, so a rebirth
+--- takes it down and leaves the yard standing.
+function Tycoon:refreshGenerator()
 	local Y = L.Yard
-	local variant = Config.Variants[def.variant] or Config.Variants.classic
-	local spot = Config.yardMachinePosition(def.slot)
+
+	-- The LAST owned rung, the same rule Config.powerFactor uses, because
+	-- `factor` is cumulative and so is the machine that represents it.
+	local top = nil
+	for _, def in ipairs(Config.Tracks.power) do
+		if self.owned[def.id] then
+			top = def
+		end
+	end
+
+	local existing = self.machines:FindFirstChild("Generator")
+	if existing and existing:GetAttribute("PowerId") == (top and top.id or nil) then
+		return existing
+	end
+	if existing then
+		existing:Destroy()
+	end
+	if not top then
+		return nil
+	end
+
+	local variant = Config.Variants[top.variant] or Config.Variants.classic
+	local spot = Config.yardMachinePosition()
 
 	local model = Instance.new("Model")
-	model.Name = "Generator_" .. def.id
+	model.Name = "Generator"
+	model:SetAttribute("PowerId", top.id)
 	model.Parent = self.machines
 
-	local body = newPart(model, "Body", Y.MachineSize,
+	newPart(model, "Body", Y.MachineSize,
 		self:at(spot.X, spot.Y + Y.MachineSize.Y / 2, spot.Z), COLORS.metal, Enum.Material.Metal)
 	local core = newPart(model, "Core",
 		Vector3.new(Y.MachineSize.X - 4, Y.MachineSize.Y - 5, Y.MachineSize.Z - 4),
@@ -1008,11 +1053,11 @@ function Tycoon:buildYardMachine(def)
 	core.Transparency = 0.35
 	Fx.applyVariant(core, variant)
 
-	local entry = self.objects[def.id]
-	if entry then
-		entry.machine = model
-	end
-	return model, body
+	-- Deliberately NOT written to self.objects[id].machine. Four button entries
+	-- would share one model handle, and release() destroys through one of them
+	-- and leaves three dangling. machines:ClearAllChildren() already covers it
+	-- in both release() and rebirth().
+	return model
 end
 
 --- Keeps each cabinet sign honest about how far up its track you are.
@@ -1104,7 +1149,7 @@ function Tycoon:buttonPosition(def): Vector3
 	if furniture == "cabinet" then
 		return Config.trackButtonPosition(def.track, def.trackOrder)
 	elseif furniture == "yard" then
-		return Config.yardButtonPosition(def.slot)
+		return Config.yardButtonPosition()
 	end
 	return MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
 end
@@ -1507,6 +1552,11 @@ function Tycoon:refreshButtons()
 	-- costs a FindFirstChild per track.
 	self:ensureCabinets()
 	self:updateCabinetSigns()
+	-- The yard and its generator are refreshed on the same beat and for the
+	-- same reason: this is the one place that runs on install, assign, release
+	-- and rebirth, and both of them have to survive all four.
+	self:ensureYard()
+	self:refreshGenerator()
 end
 
 --- Moves the "buy this next" marker onto `entry`. One Highlight and one light
@@ -1807,10 +1857,12 @@ Tycoon.INSTALLERS.Power = function(self, def, silent)
 		return self.owned[id] == true
 	end)
 	self:refreshBeltSpeed()
-	-- The machine itself lives in self.machines rather than self.props, which
-	-- is what makes a rebirth take the generators down along with the droppers
-	-- they were speeding up. The yard around them is furniture and stays.
-	self:buildYardMachine(def)
+	-- The machine is derived from `owned` by refreshGenerator, which install()
+	-- reaches through refreshButtons on the next line of its own body. It lives
+	-- in self.machines rather than self.props, which is what makes a rebirth
+	-- take it down along with the droppers it was speeding up while the yard
+	-- around it stays.
+	self:refreshGenerator()
 end
 
 --- A bought tier's display, standing on its own shelf of the track's cabinet.
