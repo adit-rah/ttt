@@ -289,11 +289,30 @@ __MODULES["Config"] = function()
 	-- slot of every entry, and ensureCabinets builds a display case for each. A
 	-- yard at z = -89 is outside the plot on purpose, and it is not a cabinet.
 	Config.Layout.Yard = {
+		-- A SMALL CHUNK IN THE CORNER, not a second plot.
+		--
+		-- This was 108 x 40 — nearly as wide as the 120-stud plot — with three
+		-- fences, a billboard and FOUR generator stands on it, all of which
+		-- appeared the moment you claimed. Before you had bought a generator you
+		-- were looking at 4320 square studs of concrete and three buy pads for a
+		-- track you had no reason to care about yet. That is the same complaint the
+		-- cabinets answered in #30, one track over.
+		--
+		-- 28 x 28 is 784, eighteen percent of it, and twelve studs less deep. There
+		-- is one generator now and one pad in front of it, so the yard is sized for
+		-- what actually stands there rather than for four of something.
+		--
 		-- The front face overlaps the pad by a stud so the two slabs interpenetrate
 		-- rather than share a vertical plane, which is the same trick the deck's
 		-- posts use where they meet the deck.
-		Size   = Vector3.new(108, 2, 40),   -- x -50..58, z -109..-69
-		Centre = Vector3.new(4, 0, -89),
+		Size   = Vector3.new(28, 2, 28),    -- x 32..60, z -97..-69
+		-- OFF-CENTRE RIGHT, and that is forced rather than chosen. The back edge of
+		-- the plot IS the dropper row (slot 1 reaches x = 43.5) and the left side is
+		-- the upgrader alley, so the back-right corner is the only span of wall with
+		-- nothing behind it — which is already why DoorFrom is 46. The yard moves to
+		-- the door rather than the door moving to the yard, so the wall spec does
+		-- not change at all.
+		Centre = Vector3.new(46, 0, -83),
 
 		-- THE DOOR, and there is only one place it can go. The back edge of the
 		-- plot IS the dropper row — slots 1..10 occupy x = -42.5 to 43.5 — and the
@@ -305,11 +324,11 @@ __MODULES["Config"] = function()
 		-- door in it seals the yard off for good.
 		DoorFrom = 46,
 
-		Slots = 4,
-		FirstX = -32,
-		Spacing = 22,          -- machines at x = -32, -10, 12, 34
-		MachineZ = -101,
-		ButtonZ = -88,         -- their buy buttons, downstream toward the plot
+		-- ONE STAND, ONE PAD. Slots/FirstX/Spacing are gone: there is no per-rung
+		-- position any more, because every rung upgrades the machine standing here
+		-- rather than adding another one beside it. See Config.PowerButtons.
+		MachineZ = -88,
+		ButtonZ = -75,         -- its pad, between the door and the machine
 		MachineSize = Vector3.new(12, 14, 10),
 
 		FenceHeight = 8,
@@ -320,16 +339,23 @@ __MODULES["Config"] = function()
 	-- exist, because the verifier's Vector3 has no arithmetic.
 	Config.Layout.Yard.LocalY = Config.World.YardTopY - Config.World.PlotSurfaceY
 
-	--- Where generator `slot` stands, and where its buy button does. Component
-	--- arithmetic, like every other derived position in this file.
-	function Config.yardMachinePosition(slot: number): Vector3
+	--- Where the generator stands, and where its pad does. Both on the yard's
+	--- centre line; component arithmetic, like every other derived position here.
+	---
+	--- These took a `slot` and returned four different places. Every power rung now
+	--- resolves to the SAME pad position, which is what makes one pad sell four
+	--- rungs: `requirementsMet` is true for exactly one rung at a time, so exactly
+	--- one holder is ever parented and the pad in front of the generator always
+	--- shows the next tier up. See TrackInfo.power.preview, which has to be 0 for
+	--- that to hold.
+	function Config.yardMachinePosition(): Vector3
 		local y = Config.Layout.Yard
-		return Vector3.new(y.FirstX + (slot - 1) * y.Spacing, y.LocalY, y.MachineZ)
+		return Vector3.new(y.Centre.X, y.LocalY, y.MachineZ)
 	end
 
-	function Config.yardButtonPosition(slot: number): Vector3
+	function Config.yardButtonPosition(): Vector3
 		local y = Config.Layout.Yard
-		return Vector3.new(y.FirstX + (slot - 1) * y.Spacing, y.LocalY, y.ButtonZ)
+		return Vector3.new(y.Centre.X, y.LocalY, y.ButtonZ)
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -933,22 +959,22 @@ __MODULES["Config"] = function()
 	Config.PowerButtons = {
 		{
 			id = "power1", name = "Diesel Generator", price = 17500,
-			kind = "Power", slot = 1, factor = 1.19, variant = "golden",
+			kind = "Power", factor = 1.19, variant = "golden",
 			blurb = "The whole line runs 19% faster.",
 		},
 		{
 			id = "power2", name = "Twin Turbine", price = 650000,
-			kind = "Power", slot = 2, factor = 1.42, variant = "crimson",
+			kind = "Power", factor = 1.42, variant = "crimson",
 			blurb = "The whole line runs 42% faster.",
 		},
 		{
 			id = "power3", name = "Sahur Reactor", price = 3600000,
-			kind = "Power", slot = 3, factor = 1.68, variant = "void",
+			kind = "Power", factor = 1.68, variant = "void",
 			blurb = "The whole line runs 68% faster.",
 		},
 		{
 			id = "power4", name = "Tung Fusion Core", price = 260000000,
-			kind = "Power", slot = 4, factor = 2.00, variant = "infinity",
+			kind = "Power", factor = 2.00, variant = "infinity",
 			blurb = "Double production. Droppers and belt alike.",
 		},
 	}
@@ -1565,7 +1591,12 @@ __MODULES["Config"] = function()
 		-- prestige, which makes the asserted CostGrowth/MultiplierPerRebirth ratio
 		-- a lie about the real pacing. It is plot machinery, same class as a
 		-- dropper — not a monotone character grant like a bat or a suit of armour.
-		power   = { label = "POWER",   preview = 2, keepOnRebirth = false, paced = "spine", furniture = "yard" },
+		-- preview = 0, and it is load-bearing rather than a taste call. All four
+		-- rungs resolve to ONE pad position, so a preview pad would be built inside
+		-- the lit one. At 2 it put three pads in the yard on a plot that had bought
+		-- none of them, which is most of what "the generator is visually intrusive
+		-- on plot creation" was about. The verifier asserts this is 0.
+		power   = { label = "POWER",   preview = 0, keepOnRebirth = false, paced = "spine", furniture = "yard" },
 	}
 
 	Config.TrackLabel = {}
@@ -7557,9 +7588,10 @@ __MODULES["Tycoon"] = function()
 		self:buildRebirthPad()
 		self:buildClaimPad()
 		self:ensureCabinets()
-		-- Built once and kept, like a cabinet body. The generators standing on it
-		-- are machines and come and go with a rebirth; the slab does not.
-		self:buildYard()
+		-- Kept like a cabinet body. The generator standing on it is a machine and
+		-- comes and goes with a rebirth; the slab does not. Idempotent, and also
+		-- re-run from refreshButtons, because release() clears self.props.
+		self:ensureYard()
 
 		-- An unclaimed plot shows a bare pad and a claim marker, nothing else.
 		-- Leaving the vault and belt standing on an empty plot is what makes it
@@ -8247,15 +8279,33 @@ __MODULES["Tycoon"] = function()
 		end
 	end
 
-	--- The generator yard: a slab behind the plot, a fence around three sides of
-	--- it, and a sign.
+	--- The generator yard: a small slab behind the plot's back-right corner, with a
+	--- fence around three sides of it.
 	---
 	--- Permanent plot furniture in self.props, exactly like a cabinet body. The
-	--- GENERATORS that stand on it go into self.machines instead, so a rebirth
-	--- takes them down with the droppers they were speeding up and leaves the yard
+	--- GENERATOR that stands on it goes into self.machines instead, so a rebirth
+	--- takes it down with the droppers it was speeding up and leaves the yard
 	--- standing — the same split the cabinets and their shelf displays already use.
-	function Tycoon:buildYard()
+	---
+	--- IDEMPOTENT AND RE-RUN FROM refreshButtons, for the same reason
+	--- ensureCabinets is. This used to be buildYard(), called once from the
+	--- constructor and never again — but release() does props:ClearAllChildren(),
+	--- so the first time an owner left a plot the slab and its fence went with
+	--- them, permanently, for the rest of the server's life. Every subsequent owner
+	--- bought generators that stood in mid-air. The cabinets survived that because
+	--- they are rebuilt from a refresh; the yard had no equivalent.
+	---
+	--- NO SIGN. It used to hang a "POWER YARD" billboard off the back fence and
+	--- store the label in self.cabinetSigns — where updateCabinetSigns rewrote it
+	--- with the cabinet format string, so it actually read "POWER CABINET - 0/4".
+	--- The pad twelve studs away already carries the track, the tier name, the
+	--- effect and the price; a second sign restating it is the noise this change is
+	--- about. If a yard sign is ever wanted it must NOT go in cabinetSigns.
+	function Tycoon:ensureYard()
 		local Y = L.Yard
+		if self.props:FindFirstChild("Yard") then
+			return
+		end
 		local model = Instance.new("Model")
 		model.Name = "Yard"
 		model.Parent = self.props
@@ -8266,7 +8316,13 @@ __MODULES["Tycoon"] = function()
 
 		-- Fence on three sides. The plot side is left open: it is where you walk in
 		-- from, through the doorway the wall leaves for it.
-		local halfX, halfZ = Y.Size.X / 2, Y.Size.Z / 2
+		--
+		-- Inset by half its own thickness so it stands ON the slab rather than
+		-- straddling the edge. With the yard now flush against the plot's own
+		-- x-extent at 60, the old straddling fence would have hung half a stud past
+		-- it and made the containment assertion a lie by exactly that much.
+		local halfX = Y.Size.X / 2 - Y.FenceThickness / 2
+		local halfZ = Y.Size.Z / 2 - Y.FenceThickness / 2
 		local sides = {
 			{ Vector3.new(Y.Size.X, Y.FenceHeight, Y.FenceThickness), Vector3.new(0, 0, -halfZ) },
 			{ Vector3.new(Y.FenceThickness, Y.FenceHeight, Y.Size.Z), Vector3.new(-halfX, 0, 0) },
@@ -8277,31 +8333,51 @@ __MODULES["Tycoon"] = function()
 				self:at(Y.Centre.X + side[2].X, Y.LocalY + Y.FenceHeight / 2, Y.Centre.Z + side[2].Z),
 				COLORS.frame, Enum.Material.DiamondPlate)
 		end
-
-		local anchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1),
-			self:at(Y.Centre.X, Y.LocalY + Y.FenceHeight + 6, Y.Centre.Z - halfZ),
-			COLORS.frame, nil, false)
-		anchor.Transparency = 1
-		local billboard = Style.billboard(anchor, {
-			name = "Sign", width = 18, height = 4, distance = "prop",
-		})
-		self.cabinetSigns = self.cabinetSigns or {}
-		self.cabinetSigns.power = Style.text(billboard, {
-			name = "Label", color = COLORS.gold, text = "POWER YARD",
-		})
 	end
 
-	--- One generator, standing in its slot on the yard.
-	function Tycoon:buildYardMachine(def)
+	--- The one generator, showing the highest power rung this plot owns.
+	---
+	--- DERIVED STATE, not an install side effect. It used to be buildYardMachine(),
+	--- called from INSTALLERS.Power, which built a NEW machine per rung in a slot of
+	--- its own — four generators standing in a row for a track whose rungs are
+	--- upgrades of each other. Now each rung replaces the machine in place and the
+	--- visible change is the variant: golden, crimson, void, infinity.
+	---
+	--- Rebuilt only when the tier actually changes, so a refresh on every button
+	--- purchase costs one attribute read. Lives in self.machines, so a rebirth
+	--- takes it down and leaves the yard standing.
+	function Tycoon:refreshGenerator()
 		local Y = L.Yard
-		local variant = Config.Variants[def.variant] or Config.Variants.classic
-		local spot = Config.yardMachinePosition(def.slot)
+
+		-- The LAST owned rung, the same rule Config.powerFactor uses, because
+		-- `factor` is cumulative and so is the machine that represents it.
+		local top = nil
+		for _, def in ipairs(Config.Tracks.power) do
+			if self.owned[def.id] then
+				top = def
+			end
+		end
+
+		local existing = self.machines:FindFirstChild("Generator")
+		if existing and existing:GetAttribute("PowerId") == (top and top.id or nil) then
+			return existing
+		end
+		if existing then
+			existing:Destroy()
+		end
+		if not top then
+			return nil
+		end
+
+		local variant = Config.Variants[top.variant] or Config.Variants.classic
+		local spot = Config.yardMachinePosition()
 
 		local model = Instance.new("Model")
-		model.Name = "Generator_" .. def.id
+		model.Name = "Generator"
+		model:SetAttribute("PowerId", top.id)
 		model.Parent = self.machines
 
-		local body = newPart(model, "Body", Y.MachineSize,
+		newPart(model, "Body", Y.MachineSize,
 			self:at(spot.X, spot.Y + Y.MachineSize.Y / 2, spot.Z), COLORS.metal, Enum.Material.Metal)
 		local core = newPart(model, "Core",
 			Vector3.new(Y.MachineSize.X - 4, Y.MachineSize.Y - 5, Y.MachineSize.Z - 4),
@@ -8310,11 +8386,11 @@ __MODULES["Tycoon"] = function()
 		core.Transparency = 0.35
 		Fx.applyVariant(core, variant)
 
-		local entry = self.objects[def.id]
-		if entry then
-			entry.machine = model
-		end
-		return model, body
+		-- Deliberately NOT written to self.objects[id].machine. Four button entries
+		-- would share one model handle, and release() destroys through one of them
+		-- and leaves three dangling. machines:ClearAllChildren() already covers it
+		-- in both release() and rebirth().
+		return model
 	end
 
 	--- Keeps each cabinet sign honest about how far up its track you are.
@@ -8406,7 +8482,7 @@ __MODULES["Tycoon"] = function()
 		if furniture == "cabinet" then
 			return Config.trackButtonPosition(def.track, def.trackOrder)
 		elseif furniture == "yard" then
-			return Config.yardButtonPosition(def.slot)
+			return Config.yardButtonPosition()
 		end
 		return MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
 	end
@@ -8809,6 +8885,11 @@ __MODULES["Tycoon"] = function()
 		-- costs a FindFirstChild per track.
 		self:ensureCabinets()
 		self:updateCabinetSigns()
+		-- The yard and its generator are refreshed on the same beat and for the
+		-- same reason: this is the one place that runs on install, assign, release
+		-- and rebirth, and both of them have to survive all four.
+		self:ensureYard()
+		self:refreshGenerator()
 	end
 
 	--- Moves the "buy this next" marker onto `entry`. One Highlight and one light
@@ -9109,10 +9190,12 @@ __MODULES["Tycoon"] = function()
 			return self.owned[id] == true
 		end)
 		self:refreshBeltSpeed()
-		-- The machine itself lives in self.machines rather than self.props, which
-		-- is what makes a rebirth take the generators down along with the droppers
-		-- they were speeding up. The yard around them is furniture and stays.
-		self:buildYardMachine(def)
+		-- The machine is derived from `owned` by refreshGenerator, which install()
+		-- reaches through refreshButtons on the next line of its own body. It lives
+		-- in self.machines rather than self.props, which is what makes a rebirth
+		-- take it down along with the droppers it was speeding up while the yard
+		-- around it stays.
+		self:refreshGenerator()
 	end
 
 	--- A bought tier's display, standing on its own shelf of the track's cabinet.
