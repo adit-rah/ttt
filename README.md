@@ -93,30 +93,47 @@ it. That curve is measured, not guessed — see *Verification* below.
 ## Layout of the code
 
 ```
-src/shared/     replicated to everyone
+src/shared/     replicated to everyone — compiled into BOTH paste builds
   Req.lua           tiny module locator; every file imports through it
-  Config.lua        ← ALL the tuning. Prices, variants, waves, combat.
-  Util.lua          number formatting, welding, misc
+  Config.lua        ← ALL the tuning. Prices, geometry, variants, waves, combat.
+  Util.lua          number formatting, welding, part helpers
   Net.lua           declares and hands out the RemoteEvents
+  Style.lua         world-space text: the only file that may name a font
   Fx.lua            particle / light / sound recipes per variant
+  Sound.lua         sound pools (prototype, off)
+  ShopMath.lua      price curves for the upgrade shop and utility slot (prototype)
   TungModels.lua    procedural Sahur models: character, drop, NPC rig, weapon
   SwingAnim.lua     procedural melee swings; drives the rig, client-side only
 
 src/server/
   Main.server.lua   boot order
   MapBuilder.lua    world, arena, lighting, plot pads
-  DataService.lua   DataStore with retries, autosave, shutdown flush
+  DataService.lua   DataStore with retries, session locking, autosave, flush
   Economy.lua       the only place cash is created or spent
   Tycoon.lua        ← the standardized tycoon. One instance per plot.
   PlotService.lua   claiming, releasing, offline grace period
+  FloorService.lua  the second storey: deck, its belt, its collector, the ladder
+  VaultService.lua  the fill gauge and the number on the way out
+  SessionService.lua  offline earnings, streaks, the playtime ladder, boosts
+  SocialService.lua friend bonus and the invite prompt
+  UpgradeService.lua  player upgrades and the utility slot (prototype)
   CombatService.lua bats, swings, damage, knockback, PvP zoning
-  NPCService.lua    the raid waves
+  NPCService.lua    the raid waves and the boss
+  Analytics.lua     seven events, on a schema the verifier counts
+  AdminService.lua  chat commands for the things only a save can reach
 
 src/client/
   Main.client.lua   entry point
-  HUD.lua           cash, next-upgrade hint, toasts, wave banner, rebirth modal
-  CombatClient.lua  hitmarkers, camera shake, knockback, mobile swing button
+  HUD.lua           ← owns the only ScreenGui and its two layers
+  UiKit.lua         screen-space palette, scaling and safe-area insets
+  SessionUI.lua     the session panel and the welcome-back modal
+  UpgradeUI.lua     the upgrade shop and the utility chip (prototype)
+  CombatClient.lua  hitmarkers, camera shake, knockback
 ```
+
+**`docs/dev/ARCHITECTURE.md` is the full map** — every module with its
+responsibility, its requirers and what it must not do — and
+`docs/dev/INVARIANTS.md` is what you read before changing any of it.
 
 ### The import convention
 
@@ -134,16 +151,22 @@ and pulls in siblings with `Req("Config")`. Keep that line byte-identical —
 ## Adding content
 
 The tycoon is data driven. **You should never edit `Tycoon.lua` to add a
-dropper.** Add a row to `Config.Buttons`:
+dropper.** Add a row to `Config.FactoryButtons` — one of four per-track tables
+(`FactoryButtons`, `WeaponButtons`, `ArmorButtons`, `PowerButtons`) that
+`Config.Buttons` is merged from at require time:
 
 ```lua
 {
     id = "dropper11", name = "Hyper Tung", price = 20000000000,
-    kind = "Dropper", slot = 11, variant = "infinity", requires = "dropper10",
+    kind = "Dropper", slot = 11, variant = "infinity",
     dropValue = 1000000, dropRate = 1.0,
     blurb = "tung beyond tung.",
 },
 ```
+
+Note the absence of `requires`: **table order is dependency order** within a
+track, and the loader derives the chain from it. Restating a requirement is what
+once hid a fork that made the whole mezzanine a dead-end branch.
 
 …then add a distance to `Config.Layout.DropperDist` for slot 11 (how far along
 the belt's back leg it sits). That's the whole change. The button, the machine, the drop loop, the save key, the unlock
@@ -330,10 +353,11 @@ could add.
 ## Roadmap, if you want to keep going
 
 - Pets / helpers that auto-collect drops from the belt
-- A shared arena objective (a giant boss the whole server fights)
 - Bat skins as a cosmetic sink for post-rebirth cash
 - Trading Tung between players
-- Cosmetic bat skins as a post-rebirth cash sink
+- Scaling prices by `profile.rebirths` — without it, rebirths 4 through 12
+  collapse into one-to-three-minute loops, and no value of `Rebirth.BaseCost` or
+  `CostGrowth` fixes it (it was swept for)
 
 ---
 

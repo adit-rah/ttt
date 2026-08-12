@@ -21,6 +21,29 @@
 	COMMANDS GO THROUGH THE NORMAL PATHS. `!give` calls Tycoon:install, `!wave`
 	drives the wave state machine, cash goes through Economy. A command that
 	takes a shortcut tests the shortcut.
+
+	IT OWNS NO STATE AND NO CONFIG. Everything it can do, some other service can
+	already do; this file is a parser, an authorisation check, and a list of verbs.
+	It writes profile.owned in exactly one place (`give`, mirroring tryPurchase)
+	and otherwise only calls Economy, PlotService, Tycoon and NPCService.
+
+	Config.Admin IS NOT A Config.Prototypes FLAG AND MUST NOT BECOME ONE.
+	tools/verify_config.lua asserts every prototype flag ships false, so a
+	prototype flag is one you cannot turn on — the opposite of what this needs.
+	This feature is finished, is meant to be on, and is gated on WHO is asking.
+
+	IT STARTS AFTER NPCService, in Main.server.lua, because `!wave` and `!clear`
+	drive that service's schedule and forceWave/forceClear are meaningless before
+	it has one. `hook` also runs over Players:GetPlayers() as well as PlayerAdded,
+	because in Studio the one player who matters is always already there.
+
+	WHAT TO READ FIRST. The load-window guard in AdminService.handle is the
+	non-obvious part of this file and it explains itself at length: every command
+	ends in a write that needs a loaded profile, DataService.get returns nil rather
+	than yielding, and Economy.add fails silently on a nil profile — so without
+	the guard a grant reported success and did nothing. That window is now up to
+	~32 seconds wide on a contended session lock. Nothing here is covered by
+	tools/test.py; the commands are the testing instrument, not the thing tested.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))

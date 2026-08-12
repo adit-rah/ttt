@@ -4,7 +4,7 @@ verify.py — full pre-flight check for Tung Tung Tycoon.
 
     python3 tools/verify.py [--luau /path/to/luau] [--analyze /path/to/luau-analyze]
 
-Runs NINE passes, in order. Keep this list and main() in step -- it has said
+Runs TEN passes, in order. Keep this list and main() in step -- it has said
 five, seven and eight while main() ran nine, and a pass count nobody can trust
 is a pass somebody can quietly delete.
 
@@ -13,11 +13,12 @@ is a pass somebody can quietly delete.
                    rather than the whole "Unknown global" class waved through
   3. style         nothing but Style.lua names a font, an outline or a view distance
   4. prototypes    every Config.Prototypes flag read is a flag that exists
-  5. ui geometry   no card-scale literal in src/client; it comes from Config.UI
-  6. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
-  7. config        the integrity suite in tools/verify_config.lua
-  8. specs         the runtime specs in tools/testing, via tools/test.py
-  9. packed build  regenerates build/ and syntax-checks the output
+  5. config paths  every Config.<path> read in src/ names a key that exists
+  6. ui geometry   no card-scale literal in src/client; it comes from Config.UI
+  7. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
+  8. config        the integrity suite in tools/verify_config.lua
+  9. specs         the runtime specs in tools/testing, via tools/test.py
+ 10. packed build  regenerates build/ and syntax-checks the output
 
 Exit code is non-zero if anything fails, so it drops straight into CI.
 """
@@ -337,6 +338,260 @@ def check_prototypes(files):
     return True
 
 
+# EVERY Config.<path> READ NAMES A KEY THAT EXISTS.
+#
+# `PathTopY = Config.World.PathTopY` sat in the distinct-surface-heights check
+# for two rounds. There is no PathTopY. The read was nil, so the entry never
+# entered the table it was written into, pairs() never visited it, and a check
+# that read as covering four surfaces covered three -- its own
+# `type(y) == "number"` guard could not fire on a key that was not there. In Lua
+# a misspelled key is not an error: it is nil, and nil is a value that every code
+# path short of arithmetic is happy to carry to the end of the round.
+#
+# The prototypes lint above is this lint restricted to one table. This one walks
+# the whole of Config.lua, and the ALIASES are the point: almost nothing reads
+# `Config.Layout.BeltY` directly, it reads `L.BeltY` after `local L =
+# Config.Layout`, so a lint that cannot follow that binding covers nothing worth
+# the pass. Two shapes matter beyond the obvious one -- two-deep bindings
+# (`local BTN = Config.Style.Button`) and scalar bindings
+# (`local SHOP_ON = Config.Prototypes.PlayerUpgrades`, a boolean, which must
+# never be treated as a table prefix).
+#
+# IT SKIPS WHAT IT CANNOT RESOLVE, ALWAYS. See config_index for the rules. A
+# false positive here is what turns a pass into a pass somebody deletes, so an
+# unresolvable parent means silence, not a finding.
+CONFIG_OWNER = "src/shared/Config.lua"
+# `Config.a.b = ...` anywhere: the table literals up top and the derived
+# assignments at the bottom of Config.lua both match.
+CONFIG_ASSIGN = re.compile(r"\bConfig((?:\.\w+)+)\s*=(?!=)")
+CONFIG_FUNCTION = re.compile(r"\bfunction\s+Config[.:](\w+)")
+# `Config.ButtonById[def.id] = def` -- a table filled through a computed key.
+CONFIG_DYNAMIC = re.compile(r"\bConfig((?:\.\w+)+)\s*\[")
+CONFIG_KEY = re.compile(r"([A-Za-z_]\w*)\s*=(?!=)")
+# `local L = Config.Layout` / `local BTN = Config.Style.Button`, and nothing
+# else on the line: `local FLOOR = Config.Floors and Config.Floors[1]` binds an
+# element, not the table, and must not become a prefix.
+CONFIG_ALIAS = re.compile(r"^[ \t]*local\s+(\w+)\s*=\s*Config((?:\.\w+)+)[ \t]*$", re.M)
+CONFIG_REQUIRE = re.compile(r"^[ \t]*local\s+Config\s*=", re.M)
+
+
+def _unshadowed(text, name):
+    """True when `name` is bound once in the file and nothing rebinds it.
+
+    Nothing in src/ shadows an alias today -- all twenty-one are bound once at
+    the head of their file. The guard is here so that the first `local W` inside a
+    function, or the first `function f(L)`, costs this lint its coverage of that
+    name rather than costing it its credibility with a finding about a local that
+    was never Config's.
+    """
+    escaped = re.escape(name)
+    bindings = re.findall(rf"^[ \t]*local\b[^\n=]*\b{escaped}\b", text, re.M)
+    parameters = re.findall(rf"\bfunction\b[^\n(]*\([^)\n]*\b{escaped}\b", text)
+    loops = re.findall(rf"\bfor\b[^\n]*\b{escaped}\b[^\n]*\bin\b", text)
+    return len(bindings) == 1 and not parameters and not loops
+
+
+def _uncommented(text):
+    """Config.lua with its comments and its string bodies removed.
+
+    Both matter to a brace-counting parser: a `--[[ ]]` header naming a deleted
+    key would be read as a declaration, and a `"{"` in a label would unbalance
+    everything after it.
+    """
+    out, i, n = [], 0, len(text)
+    while i < n:
+        char = text[i]
+        if char in "\"'":
+            out.append(char)
+            i += 1
+            while i < n and text[i] != char:
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+            out.append(char)
+            continue
+        if text.startswith("--", i):
+            if text.startswith("--[[", i):
+                end = text.find("]]", i)
+                i = n if end < 0 else end + 2
+            else:
+                end = text.find("\n", i)
+                i = n if end < 0 else end
+            continue
+        out.append(char)
+        i += 1
+    return "".join(out)
+
+
+def _past_bracket(text, start):
+    """Index just past the bracket that closes the one opened at `start`."""
+    closers = {"{": "}", "(": ")", "[": "]"}
+    stack, i = [closers[text[start]]], start + 1
+    while i < len(text) and stack:
+        char = text[i]
+        if char in closers:
+            stack.append(closers[char])
+        elif char == stack[-1]:
+            stack.pop()
+        i += 1
+    return i
+
+
+def config_index(text):
+    """Every key path Config.lua declares, and which of them are exhaustive.
+
+    Returns (known, closed). `known` is the set of dotted paths that exist.
+    `closed` is the subset whose key set is believed COMPLETE -- the only paths a
+    missing child may be reported against. Everything else is skipped.
+
+    A path is closed when its value is a table literal parsed to its matching
+    brace, written with named keys only, and never written into through a
+    computed key. That deliberately leaves out:
+
+      * arrays and arrays of tables -- Config.Floors, Config.Bats,
+        Config.FactoryButtons. They are read as `Config.Floors[1].button`, which
+        this lint stops at the bracket anyway.
+      * anything built in a loop -- Config.Buttons, Config.ButtonById,
+        Config.TrackRank, Config.BatById. CONFIG_DYNAMIC opens them back up.
+      * any value that is not a literal: `Config.World.PlotCount =
+        Config.plotCountFor()` exists, but what it holds is not visible here, so
+        no child of it is ever reported.
+
+    Keys added through a local alias inside Config.lua are picked up too --
+    `local ui = Config.UI` followed by `ui.ShopPanel.X = ...` declares
+    Config.UI.ShopPanel.X, and eight of the UI layout numbers arrive that way.
+    """
+    source = _uncommented(text)
+    known, closed = set(), set()
+
+    def parse_table(body, prefix):
+        """Collect this table's own keys. False if it holds unnamed entries."""
+        named, i = True, 0
+        while i < len(body):
+            char = body[i]
+            if char in "{([":
+                # A `{...}` at this table's own depth is an array element and a
+                # `[k] =` is a key this parser does not read, so either way the
+                # table stops being a namespace whose keys are all accounted for.
+                named = named and char == "("
+                i = _past_bracket(body, i)
+                continue
+            match = CONFIG_KEY.match(body, i)
+            if not match:
+                i += 1
+                continue
+            path = f"{prefix}.{match.group(1)}"
+            known.add(path)
+            rest = match.end()
+            while rest < len(body) and body[rest] in " \t\r\n":
+                rest += 1
+            if rest < len(body) and body[rest] == "{":
+                end = _past_bracket(body, rest)
+                if parse_table(body[rest + 1:end - 1], path):
+                    closed.add(path)
+                i = end
+            else:
+                i = match.end()
+        return named
+
+    for match in CONFIG_ASSIGN.finditer(source):
+        path = "Config" + match.group(1)
+        segments = path.split(".")
+        for depth in range(2, len(segments) + 1):
+            known.add(".".join(segments[:depth]))
+        rest = match.end()
+        while rest < len(source) and source[rest] in " \t\r\n":
+            rest += 1
+        if rest < len(source) and source[rest] == "{":
+            end = _past_bracket(source, rest)
+            if parse_table(source[rest + 1:end - 1], path):
+                closed.add(path)
+
+    for match in CONFIG_FUNCTION.finditer(source):
+        known.add("Config." + match.group(1))
+
+    for name, path in CONFIG_ALIAS.findall(source):
+        target = "Config" + path
+        if target not in closed:
+            continue
+        for match in re.finditer(rf"\b{re.escape(name)}((?:\.\w+)+)\s*=(?!=)", source):
+            segments = (target + match.group(1)).split(".")
+            for depth in range(2, len(segments) + 1):
+                known.add(".".join(segments[:depth]))
+
+    # A table anything writes into by computed key is open by definition: the
+    # keys it ends up holding are not in this file's text.
+    for match in CONFIG_DYNAMIC.finditer(source):
+        closed.discard("Config" + match.group(1))
+
+    return known, closed
+
+
+def check_config_paths(files):
+    step("config paths")
+    known, closed = config_index((ROOT / CONFIG_OWNER).read_text(encoding="utf-8"))
+    if not closed:
+        print(f"  {RED}FAIL{RESET} resolved no tables at all in {CONFIG_OWNER}")
+        return False
+
+    findings = []
+    for path in files:
+        rel = path.relative_to(ROOT).as_posix()
+        if rel == CONFIG_OWNER:
+            continue
+        text = path.read_text(encoding="utf-8")
+        # Only a binding to a table whose keys are all accounted for can be a
+        # prefix: `local SHOP_ON = Config.Prototypes.PlayerUpgrades` binds a
+        # boolean, and SHOP_ON.anything is not a config read at all.
+        prefixes = {name: "Config" + at for name, at in CONFIG_ALIAS.findall(text)
+                    if "Config" + at in closed and _unshadowed(text, name)}
+        # A file with no `local Config` has no Config to read; a name that only
+        # looks like one is an undeclared global, which is pass 2's finding.
+        if CONFIG_REQUIRE.search(text):
+            prefixes["Config"] = "Config"
+        if not prefixes:
+            continue
+        # Longest name first so BTN_LOCKED is not read as BTN.
+        pattern = re.compile(
+            r"\b(" + "|".join(re.escape(n) for n in sorted(prefixes, key=len, reverse=True))
+            + r")((?:\.\w+)+)")
+
+        in_block = False
+        for number, line in enumerate(text.splitlines(), 1):
+            stripped = line.lstrip()
+            if in_block:
+                if "]]" in line:
+                    in_block = False
+                continue
+            # A --[[ ]] header is where a graduated key gets explained, by name,
+            # after it was deleted -- exactly the text this lint must not read.
+            if stripped.startswith("--[["):
+                if "]]" not in stripped[4:]:
+                    in_block = True
+                continue
+            if stripped.startswith("--"):
+                continue
+            for name, tail in pattern.findall(line.split("--")[0]):
+                at = prefixes[name]
+                for segment in tail.split(".")[1:]:
+                    child = f"{at}.{segment}"
+                    if child in known:
+                        at = child
+                        continue
+                    if at in closed:
+                        findings.append((rel, number, child, line.strip()))
+                    break
+
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for rel, number, child, text in findings:
+            print(f"    {rel}:{number} reads {child}, which {CONFIG_OWNER} does not declare —")
+            print(f"      a misspelled key is nil, not an error, so nothing here will fail")
+            print(f"      {DIM}{text}{RESET}")
+        return False
+    print(f"  {GREEN}ok{RESET}  every Config.<path> read in src/ names a key {CONFIG_OWNER} declares")
+    return True
+
+
 def check_config(luau):
     step("config integrity")
     harness = (ROOT / "tools" / "verify_config.lua").read_text(encoding="utf-8")
@@ -410,6 +665,7 @@ def main():
         # style ownership is about the SHIPPED game; tools/ is not shipped
         check_style(files),
         check_prototypes(files),
+        check_config_paths(files),
         check_ui_geometry(files),
         check_single_screengui(files),
         check_config(args.luau),

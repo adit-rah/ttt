@@ -36,6 +36,112 @@ __MODULES["Config"] = function()
 		The tycoon is DATA DRIVEN. To add content you add a table entry below;
 		you should never need to touch the tycoon runtime to add a dropper,
 		an upgrader, or a new tier. That is the "standardized tycoon system".
+
+		IT IS 2400 LINES AND IT IS DELIBERATELY NOT SPLIT. tools/verify_config.lua
+		inlines this exact file at its `--@INJECT src/shared/Config.lua` marker and
+		every one of its several hundred assertions evaluates that single chunk — a
+		split would either have to be re-stitched before injection or the checks would
+		quietly stop seeing half the numbers. So the answer to the length is the table
+		of contents below: grep to one banner, read that section, leave the rest alone.
+
+		DECLARATION ORDER IS LOAD-BEARING, from the button tables (~line 920) all the
+		way down to the analytics field values (~line 2300). This file does real work
+		at require time. The `Derived lookups` section merges the four track tables
+		into Config.Buttons and Config.ButtonById — deriving each row's `requires`,
+		`order` and `trackOrder` as it goes — builds TrackRank, TrackLabel, BatById and
+		ArmorById, and assigns Config.Rebirth.BaseCost from the spine's prices; then the
+		ANALYTICS section fills Analytics.Fields.buttonId.values from
+		Config.Tracks.factory and .milestone.values from Config.Buttons. Every one of
+		those reads a table declared ABOVE it, and Lua will not complain if it is not:
+		moving an assignment below its consumer yields an empty field set or a nil
+		price, not an error. Do not renumber or reorder sections. Append.
+
+		Two things the whole file obeys, both because the verifier has to be able to
+		require it: PLAIN NUMBERS AND THE THREE STUBBED TYPES ONLY (verify_config stubs
+		Color3, Vector3 and Enum — a UDim2 or a Vector2 in any table here takes every
+		config check down at require time), and NO VECTOR ARITHMETIC AT REQUIRE TIME
+		(the Vector3 stub is a plain table with no operators, which is why the helpers
+		at the bottom do component arithmetic instead).
+
+		── CONTENTS, in file order. Grep the banner text; line numbers rot. ─────────
+
+		  WORLD                Config.World — plot count, plot size, the ring the
+		                       plots stand on, the arena. plotPlacements() solves the
+		                       ring radius from the plot count; plotCountFor() reads
+		                       Players.MaxPlayers, which is a Studio setting nothing
+		                       here can enforce.
+		  (no banner)          Config.Layout — plot-LOCAL coordinates for everything a
+		                       Tycoon builds: belt corners, machine slots, buy-button
+		                       spine, roof, Layout.Vault, Layout.Yard, Layout.Tracks.
+		                       The ASCII plot map just above it is the fastest way in.
+		  WORLD TEXT           Config.Style — the fonts, outlines and view distances
+		                       every in-world label uses. They live here so the
+		                       verifier can see them; Style.lua is the only file
+		                       allowed to turn them into instances.
+		  SCREEN UI            Config.UI — the reference canvas, the one UIScale
+		                       formula the client mounts, and every panel and card
+		                       size that used to be a literal in src/client.
+		  ECONOMY              Config.Economy (currency, StartingCash, drop caps,
+		                       OfflineGraceSeconds), Config.Admin (who gets the chat
+		                       commands, and why it is not a prototype flag),
+		                       Config.Rebirth (PriceRung, CostGrowth,
+		                       MultiplierPerRebirth — BaseCost is derived far below).
+		  PERSISTENCE          Config.Persistence — the retry, lock and autosave
+		                       timings DataService's session lock runs on.
+		  SOCIAL               Config.Social — the friend bonus, its cap, and the
+		                       kill switch (BonusPerFriend = 0, which the verifier
+		                       refuses to let you commit).
+		  TUNG VARIANTS        Config.Variants — the visual and audio recipe shared by
+		                       a dropper's spout and the bat-guy it drops.
+		  THE BUTTON TABLES    Config.FactoryButtons — the spine, and the field
+		                       reference for every track table. READ THIS BANNER
+		                       BEFORE EDITING ANY TRACK: `requires` is derived from
+		                       the row above, so table order IS dependency order.
+		  COMBAT               Config.Bats and nothing else. Index is the tier and
+		                       profile.batTier stores that index, so inserting a tier
+		                       renumbers live saves; appending is free.
+		  THE WEAPONS CABINET  Config.WeaponButtons — track 2, priced against the
+		                       detour the verifier measures, not against the factory.
+		  THE ARMOUR CABINET   Config.Armor (tiers, granting MaxHealth only) and
+		                       Config.ArmorButtons — track 3.
+		  THE GENERATOR YARD   Config.Power, Config.PowerButtons, powerFactor() —
+		                       track 4 — AND THEN, sharing this section with no banner
+		                       of their own, Config.Combat (swing timing, combo,
+		                       walkspeed) and Config.Waves (raid pacing, the boss, and
+		                       bossHealthFactor / bossRewardFactor / bossShare). If you
+		                       are hunting a combat number, it is here, not under the
+		                       COMBAT banner above.
+		  BELT PATHS AND FLOORS
+		                       Config.BeltPaths (the ground floor, derived from Layout
+		                       so the two cannot drift), Config.Floors (the mezzanine)
+		                       and floorBeltPath().
+		  PROTOTYPES, and the graduates that used to be here
+		                       Config.Prototypes — every flag ships false, and
+		                       graduating a feature DELETES its flag rather than
+		                       flipping it. Then three sub-banners of prototype data:
+		                       `player upgrades` (Config.PlayerUpgrades), `the utility
+		                       slot` (Config.Utilities), `rebirth perks`
+		                       (Config.RebirthPerks).
+		  SHIPPED: offline earnings and the session loops
+		                       Sub-banners `offline earnings` (Config.Offline, whose
+		                       Vault sub-table drives the gauge on the plot), `session
+		                       loops` (Config.Sessions — streak, playtime ladder,
+		                       boost, weekend) and `sound` (Config.Sound).
+		  Derived lookups      THE CODE THAT RUNS AT REQUIRE TIME, and the reason
+		                       order matters: World.PlotCount and the placements;
+		                       TrackOrder, Tracks, TrackInfo, TrackRank, TrackLabel,
+		                       TrackUnlock and trackUnlocked(); the merge into
+		                       Config.Buttons and Config.ButtonById;
+		                       spinePricesDescending() and Rebirth.BaseCost; BatById
+		                       and ArmorById.
+		  ANALYTICS            Config.Analytics (the four silent platform limits and
+		                       the kill switch), .Fields (closed value sets — buttonId
+		                       and milestone are FILLED from Config.Tracks.factory and
+		                       Config.Buttons in the loops just below), .Events (the
+		                       seven), and analyticsCombinations(), which prices the
+		                       whole schema against the 8,000-combination budget.
+		  (no banner, at EOF)  trackButtonPosition(), trackCabinet(),
+		                       trackShelfPosition(), requirementsOf().
 	]]
 
 	local Config = {}
@@ -2893,6 +2999,122 @@ __MODULES["Net"] = function()
 end
 
 
+__MODULES["ShopMath"] = function()
+	--[[
+		ShopMath.lua — shared maths and lookups for the two player-progression
+		prototypes: the upgrade shop (Config.PlayerUpgrades) and the utility slot
+		(Config.Utilities).
+
+		IT WAS CALLED Utilities.lua, next to Util.lua, and the two are unrelated:
+		Util is number formatting and welding, this is price curves. Two modules a
+		letter apart, neither named after what it does, is a wrong guess every time
+		somebody new opens the tree — and this one is reached from exactly two files
+		while Util is reached from fifteen. Renamed for the reader, not for tidiness.
+
+		Why one module for both: the server prices a purchase and the client draws
+		the price, and if those two ever disagree the shop shows a number you can't
+		actually buy at. Every formula the UI needs lives here so there is exactly
+		one copy of it, and the server treats its own result as the authority.
+
+		Pure data + maths only — no Instances, no remotes, so it is safe on both
+		sides of the wire.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+
+	local ShopMath = {}
+
+	export type UpgradeDef = {
+		id: string, name: string, stat: string, levels: number,
+		base: number, perLevel: number, cost: number, costGrowth: number,
+		blurb: string,
+	}
+
+	export type UtilityDef = {
+		id: string, name: string, verb: string,
+		duration: number, cooldown: number, price: number, requires: string,
+	}
+
+	-- Config ships the two tables as arrays; index them once here rather than
+	-- looping over four entries on every remote call.
+	ShopMath.UpgradeById = {} :: { [string]: UpgradeDef }
+	for _, def in ipairs(Config.PlayerUpgrades) do
+		ShopMath.UpgradeById[def.id] = def
+	end
+
+	ShopMath.UtilityById = {} :: { [string]: UtilityDef }
+	for _, def in ipairs(Config.Utilities) do
+		ShopMath.UtilityById[def.id] = def
+	end
+
+	--- The value of an upgrade's stat at `level` (level 0 = unpurchased).
+	function ShopMath.valueAt(def, level: number): number
+		return def.base + def.perLevel * math.clamp(level, 0, def.levels)
+	end
+
+	--- What the NEXT level costs, or nil at max. Geometric, per IDEAS.md §7:
+	--- x4–6 per tier for a ~7-level premium stat.
+	function ShopMath.costAt(def, level: number): number?
+		if level >= def.levels then
+			return nil
+		end
+		return math.floor(def.cost * (def.costGrowth ^ level))
+	end
+
+	--- Trims trailing zeros so "23.10 studs/sec" reads as "23.1 studs/sec" without
+	--- turning the payout multiplier into a bare "x1".
+	function ShopMath.formatValue(value: number): string
+		if value == math.floor(value) then
+			return tostring(math.floor(value))
+		end
+		local s = ("%.2f"):format(value)
+		s = s:gsub("0$", "")
+		return s
+	end
+
+	--- The blurb with the current stat value substituted in. Some blurbs (the
+	--- autocollect toggle) have no placeholder, hence the find().
+	function ShopMath.describe(def, level: number): string
+		if not def.blurb:find("%%s") then
+			return def.blurb
+		end
+		return def.blurb:format(ShopMath.formatValue(ShopMath.valueAt(def, level)))
+	end
+
+	--- What each verb actually does, for the shop row. Config.Utilities carries a
+	--- verb and a duration but no player-facing description, and the wording has
+	--- to match what UpgradeService's implementation really does — so it lives
+	--- next to the maths rather than in the UI, where it would be one more thing
+	--- that can quietly stop being true.
+	local VERB_BLURB = {
+		freeze = "Roots nearby raiders for %ds. They can still swing.",
+		shove = "Heavy knockback on everything nearby. No damage.",
+		decoy = "Drops a decoy for %ds. PROTOTYPE: raiders ignore it.",
+	}
+
+	function ShopMath.verbBlurb(def): string
+		local blurb = VERB_BLURB[def.verb] or ("%s nearby."):format(def.verb)
+		if blurb:find("%%d") then
+			return blurb:format(def.duration)
+		end
+		return blurb
+	end
+
+	--- Utilities are one-shot purchases, so their "level" is 0 or 1 and their cost
+	--- is flat. Expressed through the same two functions as the upgrades so the
+	--- shop UI can draw both kinds of row with one code path.
+	function ShopMath.utilityCostAt(def, level: number): number?
+		if level >= 1 then
+			return nil
+		end
+		return def.price
+	end
+
+	return ShopMath
+end
+
+
 __MODULES["Sound"] = function()
 	--[[
 		Sound.lua — the whole audio layer, built on sounds that ship INSIDE the
@@ -4335,7 +4557,48 @@ end
 
 
 __MODULES["Util"] = function()
-	--[[ Util.lua — small helpers shared by client and server. ]]
+	--[[
+		Util.lua — the leaf. Thirteen small helpers, required by fifteen files
+		across both sides of the game.
+
+		IT REQUIRES NOTHING, and that is a contract rather than an accident. There is
+		no `Req` line and no service lookup anywhere below, so any module can require
+		Util without thinking about the require graph, and the spec harness can load it
+		with no mock standing behind it. Adding `Req("Config")` here would hand all
+		fifteen of those files a new edge, and Req refuses a circular require at
+		RUNTIME — a cycle introduced here does not fail the build, it fails the boot.
+
+		IT IS COMPILED INTO BOTH PASTE BUILDS. tools/pack.py builds the server script
+		from [src/shared, src/server] and the client one from [src/shared, src/client],
+		so everything in src/shared ships to both. Nothing that only one side is
+		allowed to do belongs here — src/client/UiKit.lua lives on the client for
+		precisely this reason, and its header explains the failure.
+
+		WHAT IS LOAD-BEARING, out of the thirteen:
+
+		  abbreviate    the game's money formatter — fifty-odd call sites, and
+		                Economy.format is an alias for it. Its trailing-zero trim is
+		                gated on the text containing a decimal point: an
+		                unconditional trim turned "320" into "32", so 320K rendered
+		                as 32K. That guard is the whole function's history.
+		  platformFrom  every string it can return must also appear in
+		                Config.Analytics.Fields.platform.values. It cannot read
+		                Config to check (see above), so analytics_spec.lua checks it
+		                instead, through the Analytics.platformFrom re-export — which
+		                is why that alias exists and must not be deleted as
+		                redundant. The ORDER of the tests inside it is the function.
+		  getRig        the sanctioned way to read a character's Humanoid and root.
+		                Twelve call sites, every one of which relies on the nil, nil
+		                return rather than on a pcall.
+
+		shallowCopy IS SHALLOW, and its one caller makes that matter: Tycoon:rebirth
+		copies the kept-buttons set with it. A Config.ButtonById def is one table
+		shared by every plot on the server, so copying a def rather than a set of ids
+		would hand you nested tables that are still shared with every other plot.
+
+		comma, count, hash, newPart, setCollision and weldModel have no caller in src/
+		today. They are available; they are not proven.
+	]]
 
 	local Util = {}
 
@@ -4514,116 +4777,6 @@ __MODULES["Util"] = function()
 	end
 
 	return Util
-end
-
-
-__MODULES["Utilities"] = function()
-	--[[
-		Utilities.lua — shared maths and lookups for the two player-progression
-		prototypes: the upgrade shop (Config.PlayerUpgrades) and the utility slot
-		(Config.Utilities).
-
-		Why one module for both: the server prices a purchase and the client draws
-		the price, and if those two ever disagree the shop shows a number you can't
-		actually buy at. Every formula the UI needs lives here so there is exactly
-		one copy of it, and the server treats its own result as the authority.
-
-		Pure data + maths only — no Instances, no remotes, so it is safe on both
-		sides of the wire.
-	]]
-
-	local Req = __Req
-	local Config = Req("Config")
-
-	local Utilities = {}
-
-	export type UpgradeDef = {
-		id: string, name: string, stat: string, levels: number,
-		base: number, perLevel: number, cost: number, costGrowth: number,
-		blurb: string,
-	}
-
-	export type UtilityDef = {
-		id: string, name: string, verb: string,
-		duration: number, cooldown: number, price: number, requires: string,
-	}
-
-	-- Config ships the two tables as arrays; index them once here rather than
-	-- looping over four entries on every remote call.
-	Utilities.UpgradeById = {} :: { [string]: UpgradeDef }
-	for _, def in ipairs(Config.PlayerUpgrades) do
-		Utilities.UpgradeById[def.id] = def
-	end
-
-	Utilities.UtilityById = {} :: { [string]: UtilityDef }
-	for _, def in ipairs(Config.Utilities) do
-		Utilities.UtilityById[def.id] = def
-	end
-
-	--- The value of an upgrade's stat at `level` (level 0 = unpurchased).
-	function Utilities.valueAt(def, level: number): number
-		return def.base + def.perLevel * math.clamp(level, 0, def.levels)
-	end
-
-	--- What the NEXT level costs, or nil at max. Geometric, per IDEAS.md §7:
-	--- x4–6 per tier for a ~7-level premium stat.
-	function Utilities.costAt(def, level: number): number?
-		if level >= def.levels then
-			return nil
-		end
-		return math.floor(def.cost * (def.costGrowth ^ level))
-	end
-
-	--- Trims trailing zeros so "23.10 studs/sec" reads as "23.1 studs/sec" without
-	--- turning the payout multiplier into a bare "x1".
-	function Utilities.formatValue(value: number): string
-		if value == math.floor(value) then
-			return tostring(math.floor(value))
-		end
-		local s = ("%.2f"):format(value)
-		s = s:gsub("0$", "")
-		return s
-	end
-
-	--- The blurb with the current stat value substituted in. Some blurbs (the
-	--- autocollect toggle) have no placeholder, hence the find().
-	function Utilities.describe(def, level: number): string
-		if not def.blurb:find("%%s") then
-			return def.blurb
-		end
-		return def.blurb:format(Utilities.formatValue(Utilities.valueAt(def, level)))
-	end
-
-	--- What each verb actually does, for the shop row. Config.Utilities carries a
-	--- verb and a duration but no player-facing description, and the wording has
-	--- to match what UpgradeService's implementation really does — so it lives
-	--- next to the maths rather than in the UI, where it would be one more thing
-	--- that can quietly stop being true.
-	local VERB_BLURB = {
-		freeze = "Roots nearby raiders for %ds. They can still swing.",
-		shove = "Heavy knockback on everything nearby. No damage.",
-		decoy = "Drops a decoy for %ds. PROTOTYPE: raiders ignore it.",
-	}
-
-	function Utilities.verbBlurb(def): string
-		local blurb = VERB_BLURB[def.verb] or ("%s nearby."):format(def.verb)
-		if blurb:find("%%d") then
-			return blurb:format(def.duration)
-		end
-		return blurb
-	end
-
-	--- Utilities are one-shot purchases, so their "level" is 0 or 1 and their cost
-	--- is flat. Expressed through the same two functions as the upgrades so the
-	--- shop UI can draw both kinds of row with one code path.
-	function Utilities.utilityCostAt(def, level: number): number?
-		if level >= 1 then
-			return nil
-		end
-		return def.price
-	end
-
-	return Utilities
 end
 
 
@@ -6569,7 +6722,7 @@ end
 __MODULES["UpgradeUI"] = function()
 	--[[
 		UpgradeUI.lua — PROTOTYPE. The shop panel for Config.PlayerUpgrades and the
-		utility slot for Config.Utilities.
+		utility slot for Config.ShopMath.
 
 		It draws into HUD's own layers (HUD.root()) rather than making a second
 		ScreenGui, so the two share a z-order, a UIScale and one ResetOnSpawn.
@@ -6591,7 +6744,7 @@ __MODULES["UpgradeUI"] = function()
 	local Util = Req("Util")
 	local Net = Req("Net")
 	local UiKit = Req("UiKit")
-	local Utilities = Req("Utilities")
+	local ShopMath = Req("ShopMath")
 
 	local RunService = game:GetService("RunService")
 	local UserInputService = game:GetService("UserInputService")
@@ -6764,10 +6917,10 @@ __MODULES["UpgradeUI"] = function()
 					title = ("%s  <font color=\"#8f86a8\">Lv %d/%d</font>"):format(def.name, level, def.levels),
 					-- the CURRENT effect, then what the next level moves it to: a
 					-- price with no delta doesn't tell you whether to buy
-					blurb = maxed and Utilities.describe(def, level)
+					blurb = maxed and ShopMath.describe(def, level)
 						or ("%s  →  %s"):format(
-							Utilities.describe(def, level),
-							Utilities.formatValue(Utilities.valueAt(def, level + 1))),
+							ShopMath.describe(def, level),
+							ShopMath.formatValue(ShopMath.valueAt(def, level + 1))),
 					pillText = maxed and "MAX" or Util.abbreviate(cost or 0),
 					pillColor = maxed and PALETTE.accent or (affordable and PALETTE.good or PALETTE.dead),
 					pillTextColor = (not maxed and not affordable) and PALETTE.muted or nil,
@@ -6803,7 +6956,7 @@ __MODULES["UpgradeUI"] = function()
 
 				paint(entry, {
 					title = ("%s  <font color=\"#8f86a8\">%ds cd</font>"):format(def.name, def.cooldown),
-					blurb = lockedBy and ("Needs %s."):format(lockedBy) or Utilities.verbBlurb(def),
+					blurb = lockedBy and ("Needs %s."):format(lockedBy) or ShopMath.verbBlurb(def),
 					pillText = pillText,
 					pillColor = pillColor,
 					pillTextColor = dim and PALETTE.muted or nil,
@@ -6834,7 +6987,7 @@ __MODULES["UpgradeUI"] = function()
 		end
 		chipButton.Visible = true
 
-		local def = Utilities.UtilityById[state.equipped]
+		local def = ShopMath.UtilityById[state.equipped]
 		local remaining = math.max(0, state.readyAt - os.clock())
 		if os.clock() < flashUntil then
 			-- a mistimed press reads as "not yet" rather than as a dropped input

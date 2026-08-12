@@ -1,4 +1,45 @@
---[[ Util.lua — small helpers shared by client and server. ]]
+--[[
+	Util.lua — the leaf. Thirteen small helpers, required by fifteen files
+	across both sides of the game.
+
+	IT REQUIRES NOTHING, and that is a contract rather than an accident. There is
+	no `Req` line and no service lookup anywhere below, so any module can require
+	Util without thinking about the require graph, and the spec harness can load it
+	with no mock standing behind it. Adding `Req("Config")` here would hand all
+	fifteen of those files a new edge, and Req refuses a circular require at
+	RUNTIME — a cycle introduced here does not fail the build, it fails the boot.
+
+	IT IS COMPILED INTO BOTH PASTE BUILDS. tools/pack.py builds the server script
+	from [src/shared, src/server] and the client one from [src/shared, src/client],
+	so everything in src/shared ships to both. Nothing that only one side is
+	allowed to do belongs here — src/client/UiKit.lua lives on the client for
+	precisely this reason, and its header explains the failure.
+
+	WHAT IS LOAD-BEARING, out of the thirteen:
+
+	  abbreviate    the game's money formatter — fifty-odd call sites, and
+	                Economy.format is an alias for it. Its trailing-zero trim is
+	                gated on the text containing a decimal point: an
+	                unconditional trim turned "320" into "32", so 320K rendered
+	                as 32K. That guard is the whole function's history.
+	  platformFrom  every string it can return must also appear in
+	                Config.Analytics.Fields.platform.values. It cannot read
+	                Config to check (see above), so analytics_spec.lua checks it
+	                instead, through the Analytics.platformFrom re-export — which
+	                is why that alias exists and must not be deleted as
+	                redundant. The ORDER of the tests inside it is the function.
+	  getRig        the sanctioned way to read a character's Humanoid and root.
+	                Twelve call sites, every one of which relies on the nil, nil
+	                return rather than on a pcall.
+
+	shallowCopy IS SHALLOW, and its one caller makes that matter: Tycoon:rebirth
+	copies the kept-buttons set with it. A Config.ButtonById def is one table
+	shared by every plot on the server, so copying a def rather than a set of ids
+	would hand you nested tables that are still shared with every other plot.
+
+	comma, count, hash, newPart, setCollision and weldModel have no caller in src/
+	today. They are available; they are not proven.
+]]
 
 local Util = {}
 

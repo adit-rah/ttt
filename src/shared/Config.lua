@@ -4,6 +4,112 @@
 	The tycoon is DATA DRIVEN. To add content you add a table entry below;
 	you should never need to touch the tycoon runtime to add a dropper,
 	an upgrader, or a new tier. That is the "standardized tycoon system".
+
+	IT IS 2400 LINES AND IT IS DELIBERATELY NOT SPLIT. tools/verify_config.lua
+	inlines this exact file at its `--@INJECT src/shared/Config.lua` marker and
+	every one of its several hundred assertions evaluates that single chunk — a
+	split would either have to be re-stitched before injection or the checks would
+	quietly stop seeing half the numbers. So the answer to the length is the table
+	of contents below: grep to one banner, read that section, leave the rest alone.
+
+	DECLARATION ORDER IS LOAD-BEARING, from the button tables (~line 920) all the
+	way down to the analytics field values (~line 2300). This file does real work
+	at require time. The `Derived lookups` section merges the four track tables
+	into Config.Buttons and Config.ButtonById — deriving each row's `requires`,
+	`order` and `trackOrder` as it goes — builds TrackRank, TrackLabel, BatById and
+	ArmorById, and assigns Config.Rebirth.BaseCost from the spine's prices; then the
+	ANALYTICS section fills Analytics.Fields.buttonId.values from
+	Config.Tracks.factory and .milestone.values from Config.Buttons. Every one of
+	those reads a table declared ABOVE it, and Lua will not complain if it is not:
+	moving an assignment below its consumer yields an empty field set or a nil
+	price, not an error. Do not renumber or reorder sections. Append.
+
+	Two things the whole file obeys, both because the verifier has to be able to
+	require it: PLAIN NUMBERS AND THE THREE STUBBED TYPES ONLY (verify_config stubs
+	Color3, Vector3 and Enum — a UDim2 or a Vector2 in any table here takes every
+	config check down at require time), and NO VECTOR ARITHMETIC AT REQUIRE TIME
+	(the Vector3 stub is a plain table with no operators, which is why the helpers
+	at the bottom do component arithmetic instead).
+
+	── CONTENTS, in file order. Grep the banner text; line numbers rot. ─────────
+
+	  WORLD                Config.World — plot count, plot size, the ring the
+	                       plots stand on, the arena. plotPlacements() solves the
+	                       ring radius from the plot count; plotCountFor() reads
+	                       Players.MaxPlayers, which is a Studio setting nothing
+	                       here can enforce.
+	  (no banner)          Config.Layout — plot-LOCAL coordinates for everything a
+	                       Tycoon builds: belt corners, machine slots, buy-button
+	                       spine, roof, Layout.Vault, Layout.Yard, Layout.Tracks.
+	                       The ASCII plot map just above it is the fastest way in.
+	  WORLD TEXT           Config.Style — the fonts, outlines and view distances
+	                       every in-world label uses. They live here so the
+	                       verifier can see them; Style.lua is the only file
+	                       allowed to turn them into instances.
+	  SCREEN UI            Config.UI — the reference canvas, the one UIScale
+	                       formula the client mounts, and every panel and card
+	                       size that used to be a literal in src/client.
+	  ECONOMY              Config.Economy (currency, StartingCash, drop caps,
+	                       OfflineGraceSeconds), Config.Admin (who gets the chat
+	                       commands, and why it is not a prototype flag),
+	                       Config.Rebirth (PriceRung, CostGrowth,
+	                       MultiplierPerRebirth — BaseCost is derived far below).
+	  PERSISTENCE          Config.Persistence — the retry, lock and autosave
+	                       timings DataService's session lock runs on.
+	  SOCIAL               Config.Social — the friend bonus, its cap, and the
+	                       kill switch (BonusPerFriend = 0, which the verifier
+	                       refuses to let you commit).
+	  TUNG VARIANTS        Config.Variants — the visual and audio recipe shared by
+	                       a dropper's spout and the bat-guy it drops.
+	  THE BUTTON TABLES    Config.FactoryButtons — the spine, and the field
+	                       reference for every track table. READ THIS BANNER
+	                       BEFORE EDITING ANY TRACK: `requires` is derived from
+	                       the row above, so table order IS dependency order.
+	  COMBAT               Config.Bats and nothing else. Index is the tier and
+	                       profile.batTier stores that index, so inserting a tier
+	                       renumbers live saves; appending is free.
+	  THE WEAPONS CABINET  Config.WeaponButtons — track 2, priced against the
+	                       detour the verifier measures, not against the factory.
+	  THE ARMOUR CABINET   Config.Armor (tiers, granting MaxHealth only) and
+	                       Config.ArmorButtons — track 3.
+	  THE GENERATOR YARD   Config.Power, Config.PowerButtons, powerFactor() —
+	                       track 4 — AND THEN, sharing this section with no banner
+	                       of their own, Config.Combat (swing timing, combo,
+	                       walkspeed) and Config.Waves (raid pacing, the boss, and
+	                       bossHealthFactor / bossRewardFactor / bossShare). If you
+	                       are hunting a combat number, it is here, not under the
+	                       COMBAT banner above.
+	  BELT PATHS AND FLOORS
+	                       Config.BeltPaths (the ground floor, derived from Layout
+	                       so the two cannot drift), Config.Floors (the mezzanine)
+	                       and floorBeltPath().
+	  PROTOTYPES, and the graduates that used to be here
+	                       Config.Prototypes — every flag ships false, and
+	                       graduating a feature DELETES its flag rather than
+	                       flipping it. Then three sub-banners of prototype data:
+	                       `player upgrades` (Config.PlayerUpgrades), `the utility
+	                       slot` (Config.Utilities), `rebirth perks`
+	                       (Config.RebirthPerks).
+	  SHIPPED: offline earnings and the session loops
+	                       Sub-banners `offline earnings` (Config.Offline, whose
+	                       Vault sub-table drives the gauge on the plot), `session
+	                       loops` (Config.Sessions — streak, playtime ladder,
+	                       boost, weekend) and `sound` (Config.Sound).
+	  Derived lookups      THE CODE THAT RUNS AT REQUIRE TIME, and the reason
+	                       order matters: World.PlotCount and the placements;
+	                       TrackOrder, Tracks, TrackInfo, TrackRank, TrackLabel,
+	                       TrackUnlock and trackUnlocked(); the merge into
+	                       Config.Buttons and Config.ButtonById;
+	                       spinePricesDescending() and Rebirth.BaseCost; BatById
+	                       and ArmorById.
+	  ANALYTICS            Config.Analytics (the four silent platform limits and
+	                       the kill switch), .Fields (closed value sets — buttonId
+	                       and milestone are FILLED from Config.Tracks.factory and
+	                       Config.Buttons in the loops just below), .Events (the
+	                       seven), and analyticsCombinations(), which prices the
+	                       whole schema against the 8,000-combination budget.
+	  (no banner, at EOF)  trackButtonPosition(), trackCabinet(),
+	                       trackShelfPosition(), requirementsOf().
 ]]
 
 local Config = {}
