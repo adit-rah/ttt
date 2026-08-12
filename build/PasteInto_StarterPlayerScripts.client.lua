@@ -1613,28 +1613,38 @@ __MODULES["Config"] = function()
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- PROTOTYPES
+	-- PROTOTYPES, and the graduates that used to be here
 	--
-	-- Everything below this line is unshipped. Each block is gated by a flag in
-	-- Config.Prototypes and every one of them defaults to OFF, so a build with all
-	-- the flags false is byte-for-byte the game that ships today. That is the whole
-	-- contract: a prototype you cannot turn off is not a prototype, it is a
-	-- half-finished feature you have to finish before you can ship anything else.
+	-- A flag in Config.Prototypes gates something UNSHIPPED, and every one of them
+	-- defaults to OFF, so a build with all the flags false is byte-for-byte the game
+	-- that ships today. That is the whole contract: a prototype you cannot turn off
+	-- is not a prototype, it is a half-finished feature you have to finish before
+	-- you can ship anything else.
+	--
+	-- The tables BELOW the flag table are a mix now. Config.PlayerUpgrades,
+	-- Config.Utilities and Config.RebirthPerks are still prototype data; the offline
+	-- and session families under them ship, and are ordinary Config like
+	-- Config.Economy.
 	--
 	-- The rationale for each of these — what shipped where, and what players said
 	-- about it — is in IDEAS.md. Numbers here are first drafts, not balance.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	-- `Floors` is gone from this table rather than set true: the check below asserts
-	-- every prototype flag ships off, so graduating one means it stops being a
-	-- prototype, not that it becomes the exception. The second floor is a purchase
-	-- on the factory track now, gated by owning its button like everything else.
+	-- GRADUATING DELETES THE FLAG, IT DOES NOT SET IT TRUE. The check in
+	-- tools/verify_config.lua asserts every prototype flag ships off, so a feature
+	-- that ships stops being a prototype rather than becoming the exception to the
+	-- rule. `Floors`, `Offline` and `Sessions` all left this table that way, and the
+	-- verifier now asserts by name that they do not come back.
+	--
+	--   Floors    the second floor is a purchase on the factory track, gated by
+	--             owning its button like everything else.
+	--   Offline   offline earnings, the welcome-back panel and the Vault Timer.
+	--   Sessions  the daily streak, the playtime ladder, the boost button and the
+	--             weekend bonus.
 	Config.Prototypes = {
 		PlayerUpgrades = false,-- walkspeed / magnet / cash multiplier shop
 		Utilities = false,     -- a second weapon slot holding a verb, not a stat
 		RebirthPerks = false,  -- rebirth grants four things instead of one number
-		Offline = false,       -- offline earnings and the welcome-back panel
-		Sessions = false,      -- daily streak, playtime ladder, boost cooldown
 		Sound = false,         -- the engine-asset sound layer
 	}
 
@@ -1702,20 +1712,38 @@ __MODULES["Config"] = function()
 		StartingCashGrowth = 3.2,
 		-- every Nth rebirth grants a permanent extra machine slot
 		SlotEveryRebirths = 3,
-		-- milestone unlocks: rebirth -> what opens up
+		-- Milestone unlocks: rebirth -> what opens up. A milestone must name
+		-- something NOTHING ELSE SELLS, and the verifier asserts that against both
+		-- Config.Floors and Config.Buttons.
+		--
+		-- `[2] = { unlock = "mezzanine" }` used to sit at the top of this table and
+		-- was stale from the day the second floor graduated: the mezzanine became
+		-- the floor2 button on the factory track, so the milestone was either a
+		-- second way to get something you had already bought or a promise of
+		-- something you could not be given. Rebirth 2 grants the multiplier and the
+		-- starting cash, and no unlock, until there is a real thing to unlock there.
 		Milestones = {
-			[2] = { unlock = "mezzanine", label = "Second floor" },
 			[4] = { unlock = "utility2", label = "Utility slot II" },
 			[8] = { unlock = "goldplot", label = "Golden plot theme" },
 		},
 	}
 
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- SHIPPED: offline earnings and the session loops
+	--
+	-- These two families used to be Config.Prototypes.Offline and .Sessions. They
+	-- are ordinary config now — SessionService reads them unconditionally and every
+	-- number below is live in front of players.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
 	-- ── offline earnings ─────────────────────────────────────────────────────────
 	Config.Offline = {
 		Rate = 0.25,             -- fraction of your live income per second
 		CapHours = 8,
-		-- extending the cap is a purchase, which turns the cap into a goal rather
-		-- than a wall you resent
+		-- Extending the cap is a PURCHASE — the Vault Timer — which turns the cap
+		-- into a goal rather than a wall you resent. Priced like a side-track rung:
+		-- the verifier checks each tier against the income the factory has at the
+		-- moment it can first bank that many tung.
 		CapUpgradeHours = { 12, 16, 24 },
 		CapUpgradeCost = { 250000, 5000000, 120000000 },
 		MinimumSeconds = 120,    -- below this, don't bother with the panel
@@ -1732,6 +1760,11 @@ __MODULES["Config"] = function()
 		-- Pet Sim 99's ladder, and note the deliberately decaying cadence: close
 		-- together early so the first one arrives while you are still deciding
 		-- whether to stay.
+		--
+		-- The rungs are claimed once per UTC DAY, not once per session, so these
+		-- rewards are a recurring daily income rather than a one-off. The verifier
+		-- checks the ladder's running total against what the factory produces over
+		-- the same minutes: it must supplement the plot, never out-earn it.
 		PlaytimeMinutes = { 5, 10, 15, 20, 30, 40, 50, 60, 75, 90, 120, 180 },
 		PlaytimeRewardBase = 1200,
 		PlaytimeRewardGrowth = 1.9,
@@ -5410,11 +5443,12 @@ __MODULES["SessionUI"] = function()
 
 		Everything is presentation. The server sends the whole state on the
 		SessionState remote and decides every claim; this file's only outbound
-		messages are "I pressed the button".
+		messages are "I pressed the button". Note that the Vault Timer button sends
+		`{ kind = "capUpgrade" }` and NOT a level or a price — the server owns which
+		rung is next and what it costs.
 	]]
 
 	local Req = __Req
-	local Config = Req("Config")
 	local Style = Req("Style")
 	local Util = Req("Util")
 	local Net = Req("Net")
@@ -5427,7 +5461,6 @@ __MODULES["SessionUI"] = function()
 
 	local SessionUI = {}
 
-	local P = Config.Prototypes
 	local UI = Config.UI
 	local PALETTE = UiKit.PALETTE
 
@@ -5438,8 +5471,15 @@ __MODULES["SessionUI"] = function()
 		receivedAt = 0,
 	}
 
-	local root, overlay, panel, dailyRow, playtimeRow, boostButton, offlineRow, weekendBadge
+	local root, overlay, panel, dailyRow, playtimeRow, boostButton, vaultRow, offlineRow, weekendBadge
 	local playtimeFill, modalOpen = nil, false
+
+	-- The panel is a fixed stack down to the boost button; everything below it is
+	-- optional (the Vault Timer disappears at the top of the ladder, the offline row
+	-- only exists while a grant is pending), so the tail is laid out at render time.
+	local STACK_TOP = 200
+	local ROW_HEIGHT, ROW_GAP = 46, 6
+	local PANEL_BASE_HEIGHT = 216
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- builders
@@ -5596,7 +5636,7 @@ __MODULES["SessionUI"] = function()
 			capText = ("<b>Capped at %dh.</b> %s of tung went uncollected."):format(
 				offline.capHours, Util.abbreviate(offline.lost or 0))
 			if upgrade then
-				capText ..= ("\n<b>%s</b> banks %dh instead — %s."):format(
+				capText ..= ("\n<b>%s</b> banks %dh instead — %s, in the session panel."):format(
 					upgrade.name, upgrade.hours, Util.abbreviate(upgrade.cost))
 			else
 				capText ..= "\nYou already own the longest vault timer."
@@ -5750,7 +5790,13 @@ __MODULES["SessionUI"] = function()
 			TextSize = 18,
 		})
 
-		offlineRow = buildRow(panel, 200, 46, "OFFLINE TUNG")
+		-- Both of these are positioned by layoutTail() rather than here: they come
+		-- and go independently and a fixed y for each leaves a hole in the panel.
+		vaultRow = buildRow(panel, STACK_TOP, ROW_HEIGHT, "VAULT TIMER")
+		vaultRow.row.Visible = false
+		vaultRow.action.BackgroundColor3 = PALETTE.gold
+
+		offlineRow = buildRow(panel, STACK_TOP, ROW_HEIGHT, "OFFLINE TUNG")
 		offlineRow.row.Visible = false
 		offlineRow.action.Text = "OPEN"
 		offlineRow.action.BackgroundColor3 = PALETTE.gold
@@ -5778,6 +5824,14 @@ __MODULES["SessionUI"] = function()
 		boostButton.Activated:Connect(function()
 			click()
 			Net.event("RequestBoost"):FireServer()
+		end)
+
+		vaultRow.action.Activated:Connect(function()
+			click()
+			-- INTENT ONLY. No level, no price: the server reads both from Config and
+			-- spends through Economy, so a client that sends a different number gets
+			-- charged the real one.
+			Net.event("RequestClaim"):FireServer({ kind = "capUpgrade" })
 		end)
 
 		offlineRow.action.Activated:Connect(function()
@@ -5861,11 +5915,31 @@ __MODULES["SessionUI"] = function()
 			playtimeFill.Size = UDim2.fromScale(math.clamp((active - previous) / span, 0, 1), 1)
 		else
 			playtimeRow.title.Text = "PLAYTIME"
-			playtimeRow.sub.Text = "whole ladder claimed this session"
+			-- The ladder is claimed per UTC DAY now, not per session, so this line
+			-- has to say when it comes back rather than implying a reconnect does it.
+			playtimeRow.sub.Text = ("whole ladder claimed  •  resets in %s"):format(
+				describe(math.max(0, (playtime.resetIn or 0) - elapsed())))
 			playtimeRow.sub.TextColor3 = PALETTE.muted
 			playtimeRow.action.Visible = false
 			playtimeFill.Size = UDim2.fromScale(1, 1)
 		end
+	end
+
+	--- The Vault Timer, as a row you can press. The panel used to name this upgrade
+	--- in the welcome-back modal and offer no way to buy it.
+	local function renderVault(payload)
+		local upgrade = payload.capUpgrade
+		if not upgrade then
+			vaultRow.row.Visible = false     -- the longest timer is already owned
+			return
+		end
+		vaultRow.row.Visible = true
+		vaultRow.title.Text = upgrade.name:upper()
+		vaultRow.sub.Text = ("banks %dh offline, up from %dh"):format(
+			upgrade.hours, payload.capHours or upgrade.hours)
+		vaultRow.sub.TextColor3 = PALETTE.muted
+		vaultRow.action.Visible = true
+		vaultRow.action.Text = Util.abbreviate(upgrade.cost)
 	end
 
 	local function renderBoost(boost)
@@ -5890,6 +5964,22 @@ __MODULES["SessionUI"] = function()
 		weekendBadge.Text = boost.weekend and ("WEEKEND x%g"):format(boost.weekendMultiplier) or ""
 	end
 
+	--- Stack whichever optional rows are showing, and size the panel to them.
+	local function layoutTail()
+		local y = STACK_TOP
+		for _, row in ipairs({ vaultRow, offlineRow }) do
+			if row.row.Visible then
+				row.row.Position = UDim2.fromOffset(14, y)
+				y += ROW_HEIGHT + ROW_GAP
+			end
+		end
+		if y == STACK_TOP then
+			panel.Size = UDim2.fromOffset(PANEL_W, PANEL_BASE_HEIGHT)
+		else
+			panel.Size = UDim2.fromOffset(PANEL_W, y - ROW_GAP + 12)
+		end
+	end
+
 	local function render()
 		local payload = state.payload
 		if not payload or not panel then
@@ -5900,10 +5990,8 @@ __MODULES["SessionUI"] = function()
 		renderDaily(payload.daily)
 		renderPlaytime(payload.playtime)
 		renderBoost(payload.boost)
+		renderVault(payload)
 
-		-- With Sessions off the panel is nothing but the pending-offline row, so it
-		-- collapses to that row instead of framing 200px of empty purple.
-		local compact = not P.Sessions
 		if payload.offline then
 			offlineRow.row.Visible = true
 			offlineRow.sub.Text = ("%s from %s away"):format(
@@ -5917,15 +6005,11 @@ __MODULES["SessionUI"] = function()
 			panel.Visible = not compact
 			panel.Size = UDim2.fromOffset(PANEL_W, UI.SessionPanel.Height)
 		end
+
+		layoutTail()
 	end
 
 	function SessionUI.start()
-		-- Sessions drives the panel, Offline drives the welcome-back modal; with
-		-- both off there is nothing to build and nothing to listen to.
-		if not (P.Sessions or P.Offline) then
-			return
-		end
-
 		root = HUD.root()
 		if not root then
 			-- HUD.start() runs first in Main.client.lua, but a prototype that
@@ -5946,14 +6030,6 @@ __MODULES["SessionUI"] = function()
 		overlay = HUD.overlay()
 
 		buildPanel()
-		if not P.Sessions then
-			-- offline-only build: keep the panel for the pending row, drop the
-			-- rows that have no server state behind them
-			dailyRow.row.Visible = false
-			playtimeRow.row.Visible = false
-			boostButton.Visible = false
-			offlineRow.row.Position = UDim2.fromOffset(14, 28)
-		end
 
 		Net.event("SessionState").OnClientEvent:Connect(function(payload)
 			if type(payload) ~= "table" then

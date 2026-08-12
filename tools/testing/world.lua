@@ -12,10 +12,15 @@
 	is exactly the production failure nobody has ever been able to reproduce.
 
 	FLAGS. Config.Prototypes ships all-false and tools/verify_config.lua
-	asserts it, so the harness flips them at runtime instead. That works
-	because SessionService captures `local P = Config.Prototypes` — a
-	REFERENCE — and reads P.Offline at call time, so flipping after load is
+	asserts it, so a spec that needs a prototype flips it at runtime instead.
+	That works because a service captures `local P = Config.Prototypes` — a
+	REFERENCE — and reads P.Whatever at call time, so flipping after load is
 	enough, as long as it happens before start().
+
+	T.retention() used to be exactly that: a world with Prototypes.Offline and
+	.Sessions set true. Both features have GRADUATED — the flags are deleted
+	from Config, not set to true — so it is an alias for T.world() now. See the
+	note on it below for why it is still here.
 ]]
 
 local World = {}
@@ -110,17 +115,21 @@ function World.install(T, req)
 		return world
 	end
 
-	--- Shorthand: a world with the two retention prototypes graduated.
+	--- A plain world, under the name the retention specs ask for it by.
+	---
+	--- This used to set `Prototypes.Offline` and `.Sessions` true. Both shipped,
+	--- which in this repo means the FLAGS WERE DELETED rather than flipped, so
+	--- there is nothing left to turn on: offline earnings and the session loops
+	--- are simply what a world does now.
+	---
+	--- Kept as an alias rather than replaced with T.world() across five spec
+	--- files because the name still says something true about those specs — they
+	--- are the retention family — and because a helper that quietly stopped
+	--- setting anything is exactly the kind of thing worth writing down once,
+	--- here, instead of leaving five files to be read as though a flag were
+	--- still involved.
 	function T.retention(opts)
-		opts = opts or {}
-		local world = T.world(opts)
-		if opts.offline ~= false then
-			world.config.Prototypes.Offline = true
-		end
-		if opts.sessions ~= false then
-			world.config.Prototypes.Sessions = true
-		end
-		return world
+		return T.world(opts)
 	end
 end
 

@@ -22,12 +22,21 @@
 	    player has no Tycoon to ask. Two mirrors of one formula drift; asserting
 	    each term separately is what makes the drift land on a named line.
 
-	The last spec is the file's stated invariant and nothing else in the repo can
-	check it: the rebirth multiplier and the generator ARE banked while you are
-	logged out, and an active boost is NOT. A boost is bought with presence.
-	Banking it is the exact opposite of the point, and the code that excludes it
-	is an ABSENCE — no line mentions the boost at all — so only a test that turns
-	a boost on and watches the number not move can defend it.
+	Then the file's stated invariant, which nothing else in the repo can check:
+	the rebirth multiplier and the generator ARE banked while you are logged out,
+	and an active boost is NOT. A boost is bought with presence. Banking it is the
+	exact opposite of the point, and the code that excludes it is an ABSENCE — no
+	line mentions the boost at all — so only a test that turns a boost on and
+	watches the number not move can defend it.
+
+	THE VAULT TIMER is the last family here, and it is new. The cap upgrade was
+	advertised on the welcome-back panel for two rounds with no way to buy it:
+	`offlineCapLevel` was clamped on read and read on payout and WRITTEN BY
+	NOTHING in the repo, so the panel named a product that did not exist. The
+	specs below drive the purchase through the real RequestClaim remote and pin
+	the four things a purchase has to get right — it charges the configured
+	price, it charges it once, it refuses when the money is not there, and it
+	changes the payout it was sold on.
 ]]
 
 return function(T)
@@ -256,6 +265,141 @@ T.spec("an active boost does NOT reach the offline rate", function(t)
 
 	t:near(Session.incomePerSecondFor(profile), unboosted, 1e-9,
 		"an active boost leaked into the offline mirror — presence-bought income is being banked while logged out")
+end)
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- the Vault Timer
+-- ─────────────────────────────────────────────────────────────────────────────
+
+--- Push the purchase through the real remote. The client sends an INTENT with
+--- no level and no price in it, which is the property most worth having a test
+--- hold: everything about what this costs is decided server-side.
+local function buyVaultTimer(w, player)
+	local folder = w.replicatedStorage:FindFirstChild("TungNet")
+	local remote = folder and folder:FindFirstChild("RequestClaim")
+	assert(remote, "harness: no RequestClaim remote in TungNet")
+	w.clock:advance(0.5)          -- clear the 0.25s per-player flood guard
+	remote.OnServerEvent:Fire(player, { kind = "capUpgrade" })
+end
+
+--- A running server with one live session, which the claim path needs.
+local function shopping(w, name: string)
+	local Data = w.req("DataService")
+	local Session = w.req("SessionService")
+	Session.start()
+	local player = w.join(name)
+	local profile = Data.load(player)
+	Session.onPlayer(player)
+	return player, profile
+end
+
+T.spec("the panel offers the next Vault Timer, and buying it charges the configured price", function(t)
+	local w = T.retention()
+	local Session = w.req("SessionService")
+	local Economy = w.req("Economy")
+	local Config = w.config
+	local player, profile = shopping(w, "buyer")
+
+	local cost = Config.Offline.CapUpgradeCost[1]
+	t:eq(cost, 250000, "the price this spec pins has moved")
+
+	-- the offer is part of the replicated state, not a line in a modal
+	local offered = Session.stateFor(player).capUpgrade
+	t:notNil(offered, "the session panel is not offering a Vault Timer at cap level 0")
+	t:eq(offered.level, 1, "the panel is offering the wrong rung")
+	t:eq(offered.cost, cost, "the panel is quoting a price the server does not charge")
+	t:eq(Session.stateFor(player).capHours, Config.Offline.CapHours,
+		"the panel is quoting a cap the payout does not use")
+
+	profile.cash = cost + 7
+	buyVaultTimer(w, player)
+
+	t:eq(profile.sessions.offlineCapLevel, 1,
+		"the purchase did not raise offlineCapLevel — the field still has no writer")
+	t:eq(Economy.get(player), 7, "the Vault Timer charged something other than its price")
+	t:eq(Session.offlineCapHours(profile), Config.Offline.CapUpgradeHours[1],
+		"the bought cap is not the cap the payout uses")
+	t:eq(Session.stateFor(player).capUpgrade.level, 2,
+		"the panel is still offering the rung that was just bought")
+end)
+
+T.spec("a Vault Timer nobody can afford is refused and charges nothing", function(t)
+	local w = T.retention()
+	local Session = w.req("SessionService")
+	local Economy = w.req("Economy")
+	local Config = w.config
+	local player, profile = shopping(w, "broke")
+
+	profile.cash = Config.Offline.CapUpgradeCost[1] - 1
+	buyVaultTimer(w, player)
+
+	t:eq(profile.sessions.offlineCapLevel, 0,
+		"a player one tung short bought the Vault Timer anyway")
+	t:eq(Economy.get(player), Config.Offline.CapUpgradeCost[1] - 1,
+		"a refused purchase still moved the wallet")
+	t:eq(Session.offlineCapHours(profile), Config.Offline.CapHours,
+		"a refused purchase still extended the cap")
+end)
+
+T.spec("the ladder runs out rather than wrapping, and the top rung stops being offered", function(t)
+	local w = T.retention()
+	local Session = w.req("SessionService")
+	local Economy = w.req("Economy")
+	local Config = w.config
+	local player, profile = shopping(w, "collector")
+
+	local top = #Config.Offline.CapUpgradeHours
+	profile.sessions.offlineCapLevel = top
+	profile.cash = 1e15
+
+	t:isNil(Session.stateFor(player).capUpgrade,
+		"the panel is upselling a Vault Timer past the end of the ladder")
+
+	buyVaultTimer(w, player)
+	t:eq(profile.sessions.offlineCapLevel, top,
+		"a purchase past the top of the ladder incremented the level anyway")
+	t:eq(Economy.get(player), 1e15, "a purchase past the top of the ladder still took the money")
+end)
+
+T.spec("a bought Vault Timer survives a save and changes the next payout", function(t)
+	-- The purchase only means anything if it reaches the DataStore and then
+	-- reaches the ARITHMETIC. `offlineCapLevel` already rode along in
+	-- profile.sessions before anything could write it, so this is the spec that
+	-- says the write and the persistence line up.
+	local w = T.retention()
+	local Data = w.req("DataService")
+	local Session = w.req("SessionService")
+	local Config = w.config
+	Data.start()
+	local player, profile = shopping(w, "commuter")
+
+	profile.owned.dropper1 = true
+	profile.cash = Config.Offline.CapUpgradeCost[1]
+	buyVaultTimer(w, player)
+	t:eq(profile.sessions.offlineCapLevel, 1, "the fixture never bought the timer")
+
+	-- Leaving is what saves, and it is also what ends the live session — which
+	-- matters, because a session that is still ticking keeps stamping lastSeen
+	-- and there would be no absence to pay for.
+	local userId = player.UserId
+	profile.lastSeen = os.time()
+	w.leave(player)
+
+	local stored = w.store():raw("player_" .. userId)
+	t:eq(stored.sessions.offlineCapLevel, 1, "the bought cap level did not reach the DataStore")
+
+	-- and back in, twenty hours later: the 8-hour cap would have clipped this
+	w.clock:skip(20 * 3600)
+	local rejoined = w.join("commuter", userId)
+	Data.load(rejoined)
+	Session.onPlayer(rejoined)
+	local offline = Session.stateFor(rejoined).offline
+	t:notNil(offline, "twenty hours away paid nothing at all")
+	t:eq(offline.capHours, Config.Offline.CapUpgradeHours[1],
+		"the payout used the default cap, not the one that was bought and saved")
+	t:isTrue(offline.clipped, "a 20-hour absence against a 12-hour cap did not clip")
+	t:eq(offline.creditedSeconds, Config.Offline.CapUpgradeHours[1] * 3600,
+		"the credited hours are not the hours the Vault Timer bought")
 end)
 
 end

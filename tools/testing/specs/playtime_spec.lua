@@ -19,15 +19,34 @@
 
 	Assert them together and either one alone is green.
 
-	The last spec pins a KNOWN FARM rather than a defect: `claimedPlaytime` lives
-	on the per-session Live entry and is never written to the profile, so leaving
-	and rejoining re-opens the whole ladder. It is asserted as TRUE because that
-	is what ships today; see the comment on it before "fixing" the spec.
+	THE LAST TWO SPECS USED TO BE ONE, AND IT PINNED A FARM. `claimedPlaytime`
+	lived on the per-session Live entry and was never written to the profile, so
+	leaving and rejoining re-opened the whole ladder: five minutes of walking was
+	worth 1200 tung as many times as you cared to press Leave. That spec asserted
+	the farm as shipping behaviour and said, in as many words, that closing it
+	meant changing the spec LOUDLY. This is that change.
+
+	The claimed rungs are persisted into `profile.sessions` now and bucketed by
+	UTC day — the same `floor(os.time() / 86400)` the streak uses — so the ladder
+	is a DAILY loop rather than a per-session one. Which means two boundaries
+	worth pinning from both sides, and they pull in opposite directions:
+
+	  * a rejoin inside the same day must NOT re-open a claimed rung (the farm);
+	  * the next day MUST re-open the whole ladder (the feature).
+
+	Assert only the first and the fix is indistinguishable from deleting the
+	ladder after one use.
+
+	The stored form is a BITMASK, not a `{ [index] = true }` set, and the spec
+	reads the raw DataStore blob to say so. A sparse numeric-keyed table goes
+	through a JSON round trip as an object with STRING keys, and `claimed["2"]`
+	never matches `claimed[2]` again — the ladder would silently re-open on every
+	load, which is the exact bug the field exists to close.
 ]]
 
 return function(T)
 
-T.family("playtime", "the ladder accrues on activity, and resets when the session does")
+T.family("playtime", "the ladder accrues on activity, and resets daily rather than per session")
 
 --- Push a claim through the real remote. The 0.5s nudge clears the 0.25s
 --- per-player flood guard, which reads 0 on both sides on a brand new world.
@@ -164,17 +183,12 @@ T.spec("MoveDirection alone counts as activity, with the position pinned", funct
 		"a player holding a direction into a wall read as idle — MoveDirection is not being sampled")
 end)
 
-T.spec("the ladder resets across a rejoin, because claimedPlaytime is never saved", function(t)
-	-- KNOWN FARM, asserted as it ships. `claimedPlaytime` lives on the Live
-	-- entry, which is per-session state and is deliberately never persisted, so
-	-- leave/rejoin re-opens every rung: five minutes of walking is worth 1200
-	-- tung as many times as you care to reconnect.
-	--
-	-- This is pinned rather than reported as a defect because "the ladder resets
-	-- when you leave" is what the claim notification itself says, and the fix is
-	-- a design decision (persist per-day, or shrink the rewards) rather than a
-	-- correctness one. If that decision is ever made, this spec is the one that
-	-- has to change, and it should change LOUDLY.
+T.spec("a rejoin does not re-open a claimed rung, and the claim is on the save", function(t)
+	-- THE FARM, CLOSED. This spec is the rewrite of one that asserted the
+	-- opposite: `claimedPlaytime` used to live on the per-session Live entry, so
+	-- leave/rejoin re-opened every rung and five minutes of walking paid 1200
+	-- tung as many times as you cared to reconnect. The claimed set is persisted
+	-- into profile.sessions now and this is the assertion that says so.
 	local w = T.retention()
 	local Data = w.req("DataService")
 	local Session = w.req("SessionService")
@@ -195,21 +209,63 @@ T.spec("the ladder resets across a rejoin, because claimedPlaytime is never save
 
 	local stored = w.store():raw("player_" .. userId)
 	t:notNil(stored, "the leave did not save, so the rejoin below reads nothing")
-	t:isNil(stored.claimedPlaytime, "claimedPlaytime reached the top level of the save")
-	t:isNil(stored.sessions.claimedPlaytime,
-		"claimedPlaytime is now persisted — the rejoin assertion below is testing the wrong thing")
+	t:isNil(stored.claimedPlaytime, "the claimed set reached the TOP level of the save")
+	-- A BITMASK, and a number rather than a table on purpose: `{ [1] = true }`
+	-- comes back from a JSON round trip as `{ ["1"] = true }` and stops matching
+	-- the numeric index, which re-opens the ladder without anything erroring.
+	t:eq(stored.sessions.playtimeClaimed, 1,
+		"rung one is not stored as bit 1 of sessions.playtimeClaimed")
+	t:eq(stored.sessions.playtimeDay, math.floor(os.time() / 86400),
+		"the claimed set was stored without the day bucket that expires it")
 
 	local rejoined = seated(w, "farmer", userId)
-	t:eq(playtimeState(w, rejoined).rungs[1].status, "locked",
-		"the ladder carried across a rejoin; the spec below no longer describes the code")
+	t:eq(playtimeState(w, rejoined).rungs[1].status, "claimed",
+		"a rejoin re-opened a rung that was already claimed today — the farm is back")
 
 	w.walk(rejoined, true)
 	w.clock:advance(300)
 
 	before = Economy.get(rejoined)
 	claim(w, rejoined, { kind = "playtime", index = 1 })
-	t:eq(Economy.get(rejoined) - before, 1200,
-		"the rejoin farm has been closed — update this spec rather than deleting it")
+	t:eq(Economy.get(rejoined) - before, 0,
+		"the first rung paid a second time after a rejoin on the same day")
+end)
+
+T.spec("the whole ladder re-opens in the next UTC day bucket", function(t)
+	-- The other side of the boundary. A ladder that is claimed once and never
+	-- comes back is not a daily loop, it is a one-off bonus with a countdown on
+	-- it, and closing the farm by making the claim permanent would look exactly
+	-- like this spec failing.
+	local w = T.retention()
+	local Session = w.req("SessionService")
+	local Economy = w.req("Economy")
+	Session.start()
+
+	local player, profile = seated(w, "returner")
+	w.walk(player, true)
+	w.clock:advance(300)
+	claim(w, player, { kind = "playtime", index = 1 })
+	t:eq(playtimeState(w, player).rungs[1].status, "claimed", "the fixture never claimed rung one")
+
+	local bucket = profile.sessions.playtimeDay
+	t:eq(bucket, math.floor(os.time() / 86400), "the claim was not stamped into today's bucket")
+
+	-- still the same day, twenty-three hours later
+	w.clock:skip(23 * 3600)
+	t:eq(math.floor(os.time() / 86400), bucket, "the fixture crossed midnight before it meant to")
+	t:eq(playtimeState(w, player).rungs[1].status, "claimed",
+		"the ladder re-opened inside the same UTC day")
+
+	-- and over the boundary
+	w.clock:skip(3600)
+	t:eq(math.floor(os.time() / 86400), bucket + 1, "the fixture did not cross into the next bucket")
+	t:eq(playtimeState(w, player).rungs[1].status, "ready",
+		"the new day did not re-open the ladder — the claim is permanent, not daily")
+
+	local before = Economy.get(player)
+	claim(w, player, { kind = "playtime", index = 1 })
+	t:eq(Economy.get(player) - before, 1200, "the re-opened rung paid nothing")
+	t:eq(profile.sessions.playtimeDay, bucket + 1, "the rollover did not restamp the bucket")
 end)
 
 end

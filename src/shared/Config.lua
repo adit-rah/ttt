@@ -1581,28 +1581,38 @@ for _, floor in ipairs(Config.Floors) do
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- PROTOTYPES
+-- PROTOTYPES, and the graduates that used to be here
 --
--- Everything below this line is unshipped. Each block is gated by a flag in
--- Config.Prototypes and every one of them defaults to OFF, so a build with all
--- the flags false is byte-for-byte the game that ships today. That is the whole
--- contract: a prototype you cannot turn off is not a prototype, it is a
--- half-finished feature you have to finish before you can ship anything else.
+-- A flag in Config.Prototypes gates something UNSHIPPED, and every one of them
+-- defaults to OFF, so a build with all the flags false is byte-for-byte the game
+-- that ships today. That is the whole contract: a prototype you cannot turn off
+-- is not a prototype, it is a half-finished feature you have to finish before
+-- you can ship anything else.
+--
+-- The tables BELOW the flag table are a mix now. Config.PlayerUpgrades,
+-- Config.Utilities and Config.RebirthPerks are still prototype data; the offline
+-- and session families under them ship, and are ordinary Config like
+-- Config.Economy.
 --
 -- The rationale for each of these — what shipped where, and what players said
 -- about it — is in IDEAS.md. Numbers here are first drafts, not balance.
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- `Floors` is gone from this table rather than set true: the check below asserts
--- every prototype flag ships off, so graduating one means it stops being a
--- prototype, not that it becomes the exception. The second floor is a purchase
--- on the factory track now, gated by owning its button like everything else.
+-- GRADUATING DELETES THE FLAG, IT DOES NOT SET IT TRUE. The check in
+-- tools/verify_config.lua asserts every prototype flag ships off, so a feature
+-- that ships stops being a prototype rather than becoming the exception to the
+-- rule. `Floors`, `Offline` and `Sessions` all left this table that way, and the
+-- verifier now asserts by name that they do not come back.
+--
+--   Floors    the second floor is a purchase on the factory track, gated by
+--             owning its button like everything else.
+--   Offline   offline earnings, the welcome-back panel and the Vault Timer.
+--   Sessions  the daily streak, the playtime ladder, the boost button and the
+--             weekend bonus.
 Config.Prototypes = {
 	PlayerUpgrades = false,-- walkspeed / magnet / cash multiplier shop
 	Utilities = false,     -- a second weapon slot holding a verb, not a stat
 	RebirthPerks = false,  -- rebirth grants four things instead of one number
-	Offline = false,       -- offline earnings and the welcome-back panel
-	Sessions = false,      -- daily streak, playtime ladder, boost cooldown
 	Sound = false,         -- the engine-asset sound layer
 }
 
@@ -1670,20 +1680,38 @@ Config.RebirthPerks = {
 	StartingCashGrowth = 3.2,
 	-- every Nth rebirth grants a permanent extra machine slot
 	SlotEveryRebirths = 3,
-	-- milestone unlocks: rebirth -> what opens up
+	-- Milestone unlocks: rebirth -> what opens up. A milestone must name
+	-- something NOTHING ELSE SELLS, and the verifier asserts that against both
+	-- Config.Floors and Config.Buttons.
+	--
+	-- `[2] = { unlock = "mezzanine" }` used to sit at the top of this table and
+	-- was stale from the day the second floor graduated: the mezzanine became
+	-- the floor2 button on the factory track, so the milestone was either a
+	-- second way to get something you had already bought or a promise of
+	-- something you could not be given. Rebirth 2 grants the multiplier and the
+	-- starting cash, and no unlock, until there is a real thing to unlock there.
 	Milestones = {
-		[2] = { unlock = "mezzanine", label = "Second floor" },
 		[4] = { unlock = "utility2", label = "Utility slot II" },
 		[8] = { unlock = "goldplot", label = "Golden plot theme" },
 	},
 }
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SHIPPED: offline earnings and the session loops
+--
+-- These two families used to be Config.Prototypes.Offline and .Sessions. They
+-- are ordinary config now — SessionService reads them unconditionally and every
+-- number below is live in front of players.
+-- ─────────────────────────────────────────────────────────────────────────────
+
 -- ── offline earnings ─────────────────────────────────────────────────────────
 Config.Offline = {
 	Rate = 0.25,             -- fraction of your live income per second
 	CapHours = 8,
-	-- extending the cap is a purchase, which turns the cap into a goal rather
-	-- than a wall you resent
+	-- Extending the cap is a PURCHASE — the Vault Timer — which turns the cap
+	-- into a goal rather than a wall you resent. Priced like a side-track rung:
+	-- the verifier checks each tier against the income the factory has at the
+	-- moment it can first bank that many tung.
 	CapUpgradeHours = { 12, 16, 24 },
 	CapUpgradeCost = { 250000, 5000000, 120000000 },
 	MinimumSeconds = 120,    -- below this, don't bother with the panel
@@ -1700,6 +1728,11 @@ Config.Sessions = {
 	-- Pet Sim 99's ladder, and note the deliberately decaying cadence: close
 	-- together early so the first one arrives while you are still deciding
 	-- whether to stay.
+	--
+	-- The rungs are claimed once per UTC DAY, not once per session, so these
+	-- rewards are a recurring daily income rather than a one-off. The verifier
+	-- checks the ladder's running total against what the factory produces over
+	-- the same minutes: it must supplement the plot, never out-earn it.
 	PlaytimeMinutes = { 5, 10, 15, 20, 30, 40, 50, 60, 75, 90, 120, 180 },
 	PlaytimeRewardBase = 1200,
 	PlaytimeRewardGrowth = 1.9,

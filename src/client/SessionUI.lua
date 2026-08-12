@@ -14,11 +14,12 @@
 
 	Everything is presentation. The server sends the whole state on the
 	SessionState remote and decides every claim; this file's only outbound
-	messages are "I pressed the button".
+	messages are "I pressed the button". Note that the Vault Timer button sends
+	`{ kind = "capUpgrade" }` and NOT a level or a price — the server owns which
+	rung is next and what it costs.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
-local Config = Req("Config")
 local Style = Req("Style")
 local Util = Req("Util")
 local Net = Req("Net")
@@ -31,7 +32,6 @@ local TweenService = game:GetService("TweenService")
 
 local SessionUI = {}
 
-local P = Config.Prototypes
 local UI = Config.UI
 local PALETTE = UiKit.PALETTE
 
@@ -42,8 +42,15 @@ local state = {
 	receivedAt = 0,
 }
 
-local root, overlay, panel, dailyRow, playtimeRow, boostButton, offlineRow, weekendBadge
+local root, overlay, panel, dailyRow, playtimeRow, boostButton, vaultRow, offlineRow, weekendBadge
 local playtimeFill, modalOpen = nil, false
+
+-- The panel is a fixed stack down to the boost button; everything below it is
+-- optional (the Vault Timer disappears at the top of the ladder, the offline row
+-- only exists while a grant is pending), so the tail is laid out at render time.
+local STACK_TOP = 200
+local ROW_HEIGHT, ROW_GAP = 46, 6
+local PANEL_BASE_HEIGHT = 216
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- builders
@@ -200,7 +207,7 @@ function SessionUI.showOfflineModal(offline)
 		capText = ("<b>Capped at %dh.</b> %s of tung went uncollected."):format(
 			offline.capHours, Util.abbreviate(offline.lost or 0))
 		if upgrade then
-			capText ..= ("\n<b>%s</b> banks %dh instead — %s."):format(
+			capText ..= ("\n<b>%s</b> banks %dh instead — %s, in the session panel."):format(
 				upgrade.name, upgrade.hours, Util.abbreviate(upgrade.cost))
 		else
 			capText ..= "\nYou already own the longest vault timer."
@@ -354,7 +361,13 @@ local function buildPanel()
 		TextSize = 18,
 	})
 
-	offlineRow = buildRow(panel, 200, 46, "OFFLINE TUNG")
+	-- Both of these are positioned by layoutTail() rather than here: they come
+	-- and go independently and a fixed y for each leaves a hole in the panel.
+	vaultRow = buildRow(panel, STACK_TOP, ROW_HEIGHT, "VAULT TIMER")
+	vaultRow.row.Visible = false
+	vaultRow.action.BackgroundColor3 = PALETTE.gold
+
+	offlineRow = buildRow(panel, STACK_TOP, ROW_HEIGHT, "OFFLINE TUNG")
 	offlineRow.row.Visible = false
 	offlineRow.action.Text = "OPEN"
 	offlineRow.action.BackgroundColor3 = PALETTE.gold
@@ -382,6 +395,14 @@ local function buildPanel()
 	boostButton.Activated:Connect(function()
 		click()
 		Net.event("RequestBoost"):FireServer()
+	end)
+
+	vaultRow.action.Activated:Connect(function()
+		click()
+		-- INTENT ONLY. No level, no price: the server reads both from Config and
+		-- spends through Economy, so a client that sends a different number gets
+		-- charged the real one.
+		Net.event("RequestClaim"):FireServer({ kind = "capUpgrade" })
 	end)
 
 	offlineRow.action.Activated:Connect(function()
@@ -465,11 +486,31 @@ local function renderPlaytime(playtime)
 		playtimeFill.Size = UDim2.fromScale(math.clamp((active - previous) / span, 0, 1), 1)
 	else
 		playtimeRow.title.Text = "PLAYTIME"
-		playtimeRow.sub.Text = "whole ladder claimed this session"
+		-- The ladder is claimed per UTC DAY now, not per session, so this line
+		-- has to say when it comes back rather than implying a reconnect does it.
+		playtimeRow.sub.Text = ("whole ladder claimed  •  resets in %s"):format(
+			describe(math.max(0, (playtime.resetIn or 0) - elapsed())))
 		playtimeRow.sub.TextColor3 = PALETTE.muted
 		playtimeRow.action.Visible = false
 		playtimeFill.Size = UDim2.fromScale(1, 1)
 	end
+end
+
+--- The Vault Timer, as a row you can press. The panel used to name this upgrade
+--- in the welcome-back modal and offer no way to buy it.
+local function renderVault(payload)
+	local upgrade = payload.capUpgrade
+	if not upgrade then
+		vaultRow.row.Visible = false     -- the longest timer is already owned
+		return
+	end
+	vaultRow.row.Visible = true
+	vaultRow.title.Text = upgrade.name:upper()
+	vaultRow.sub.Text = ("banks %dh offline, up from %dh"):format(
+		upgrade.hours, payload.capHours or upgrade.hours)
+	vaultRow.sub.TextColor3 = PALETTE.muted
+	vaultRow.action.Visible = true
+	vaultRow.action.Text = Util.abbreviate(upgrade.cost)
 end
 
 local function renderBoost(boost)
@@ -494,6 +535,22 @@ local function renderBoost(boost)
 	weekendBadge.Text = boost.weekend and ("WEEKEND x%g"):format(boost.weekendMultiplier) or ""
 end
 
+--- Stack whichever optional rows are showing, and size the panel to them.
+local function layoutTail()
+	local y = STACK_TOP
+	for _, row in ipairs({ vaultRow, offlineRow }) do
+		if row.row.Visible then
+			row.row.Position = UDim2.fromOffset(14, y)
+			y += ROW_HEIGHT + ROW_GAP
+		end
+	end
+	if y == STACK_TOP then
+		panel.Size = UDim2.fromOffset(PANEL_W, PANEL_BASE_HEIGHT)
+	else
+		panel.Size = UDim2.fromOffset(PANEL_W, y - ROW_GAP + 12)
+	end
+end
+
 local function render()
 	local payload = state.payload
 	if not payload or not panel then
@@ -504,10 +561,8 @@ local function render()
 	renderDaily(payload.daily)
 	renderPlaytime(payload.playtime)
 	renderBoost(payload.boost)
+	renderVault(payload)
 
-	-- With Sessions off the panel is nothing but the pending-offline row, so it
-	-- collapses to that row instead of framing 200px of empty purple.
-	local compact = not P.Sessions
 	if payload.offline then
 		offlineRow.row.Visible = true
 		offlineRow.sub.Text = ("%s from %s away"):format(
@@ -521,15 +576,11 @@ local function render()
 		panel.Visible = not compact
 		panel.Size = UDim2.fromOffset(PANEL_W, UI.SessionPanel.Height)
 	end
+
+	layoutTail()
 end
 
 function SessionUI.start()
-	-- Sessions drives the panel, Offline drives the welcome-back modal; with
-	-- both off there is nothing to build and nothing to listen to.
-	if not (P.Sessions or P.Offline) then
-		return
-	end
-
 	root = HUD.root()
 	if not root then
 		-- HUD.start() runs first in Main.client.lua, but a prototype that
@@ -550,14 +601,6 @@ function SessionUI.start()
 	overlay = HUD.overlay()
 
 	buildPanel()
-	if not P.Sessions then
-		-- offline-only build: keep the panel for the pending row, drop the
-		-- rows that have no server state behind them
-		dailyRow.row.Visible = false
-		playtimeRow.row.Visible = false
-		boostButton.Visible = false
-		offlineRow.row.Position = UDim2.fromOffset(14, 28)
-	end
 
 	Net.event("SessionState").OnClientEvent:Connect(function(payload)
 		if type(payload) ~= "table" then
