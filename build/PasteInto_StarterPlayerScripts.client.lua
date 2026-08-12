@@ -741,6 +741,42 @@ __MODULES["Config"] = function()
 		AttackCooldown = 1.35,
 		AttackKnockback = 28,
 		BossWindUpScale = 1.35,     -- bosses telegraph LONGER; they hit much harder
+
+		-- RAIDER AI. Every raider used to call nearestPlayer(position, 500) every
+		-- 0.6 seconds — a radius bigger than the whole map — so all 26 of them
+		-- beelined the same player from anywhere, forever, with no wander, no
+		-- aggro range and no way to break contact. They now spawn on the rim, walk
+		-- in to a home patch in the arena, mill around it, and only commit to a
+		-- player who comes close enough.
+		--
+		-- The whole design rests on the raiders being SLOWER than the players
+		-- (13-17 against 22). Without that gap, de-aggro is unreachable and the
+		-- leash is the only thing that ever fires. The verifier asserts it.
+		AggroRadius = 55,           -- a raider notices you across its own patch...
+		DeAggroRadius = 85,         -- ...and needs a real run to lose you again
+		-- Measured from the raider's HOME PATCH, not from where it spawned and not
+		-- from the world origin. Home patches are scattered within HomeSpread of
+		-- the arena centre, so the furthest a leashed raider can ever swing at
+		-- something is HomeSpread + LeashRadius + AttackRange = 124 studs — against
+		-- a nearest plot EDGE of 140 (MinPlotRadius 210 less half a plot depth).
+		-- That 16-stud clearance is what makes plots provably safe, and it is
+		-- asserted rather than commented.
+		LeashRadius = 72,
+		HomeSpread = 44,            -- home patches fill the arena, clear of the wall
+		WanderRadius = 18,          -- 44 + 18 = 62 < ArenaRadius 70
+		WanderDwellMin = 2.5,
+		WanderDwellMax = 5.0,
+		WanderSpeedScale = 0.55,    -- idling is visibly slower; that reads the flip
+		ReturnSpeedScale = 1.2,     -- and going home is brisk, so the arena refills
+		HomeArrive = 8,
+		-- A returning raider must get most of the way back before it can bite
+		-- again, or a player parked on the leash line yo-yos it forever.
+		ReAggroFrac = 0.6,
+		RepathChase = 0.35,         -- a 22 studs/s player covers 7.7 studs; at 0.6 it was 13
+		RepathWander = 1.2,
+		RepathReturn = 0.8,
+		AggroCheck = 0.25,          -- how often an idling raider looks around
+		SnapshotInterval = 0.1,     -- how often the shared player snapshot rebuilds
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
