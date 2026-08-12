@@ -685,7 +685,12 @@ aggregator alone would fail at load with `module not found in spec bundle: Class
 | `FloorService` | not in the list |
 | `GateService` | not in the list — and it needs `TweenService`, a `Character` and a physics position to mean anything |
 | `AdminService` | not in the list |
-| **all of `src/client`** | the collector only walks `src/shared` and `SERVER_MODULES` |
+| `HUD.toast`, the rebirth modal, the welcome-back modal | no tween advances. Deliberately not faked: a tween mock that jumps to its goal makes those paths look tested while proving the opposite |
+| rotation, resize, the device emulator | the viewport never changes after boot, so `applyViewport` runs once |
+| the client's `WaitForChild`-for-a-remote path | `RunService:IsServer()` is still true in the harness, so `Net` takes its server branch |
+| `CombatClient`'s bat watching and respawn handling | `ChildAdded`/`CharacterAdded` are inert |
+| `UpgradeUI.buildPanel` | both prototype flags are off, so `start()` returns before building anything |
+| any overlap or fit between two rectangles | a `UDim2` is stored and never resolved. That stays `tools/verify_config.lua`'s job, which can see the whole column at once |
 
 Widening that list is real work and should be its own PR, not a quiet addition
 to someone else's.
@@ -715,7 +720,8 @@ listed so the next reader does not trust the wrong sentence.
    "now execute outside Roblox". **It does not** — it is not in
    `SERVER_MODULES`. The same passage says only `NPCService` and `PlotService`
    "are still out"; `UpgradeService`, `VaultService`, `FloorService`,
-   `AdminService` and all of `src/client` are also out.
+   `AdminService` are also out. `src/client` USED to be in that list and is not
+   any more — all five modules and `Main.client.lua` execute as of round 7.
 4. **`Net.lua:56`** documents `RequestClaim` as
    `{ kind = "daily" | "playtime" | "offline", index }`. `SessionService`
    accepts a fourth kind, `"capUpgrade"` (`SessionService.lua:922`), and

@@ -834,6 +834,25 @@ specced — they need `Touched` and a physics step.
   drives os.time, and os.date reads the fake epoch", `weekend_spec.lua` "Monday does not".
 - **`_G` is readonly under the `luau` CLI**, so harness globals are assigned directly.
   `[nothing]`
+- **All of `src/client` executes under the harness, and `CLIENT_MODULES` is exhaustive by
+  lint.** `client_sources()` fails the run if a file in `src/client` is missing from the list,
+  and `client_manifest()` generates the list into the bundle so the boot smoke covers a new
+  panel the moment it is listed rather than when somebody remembers to edit a spec. Before
+  this, no client module had ever executed anywhere but Roblox — which is half of why
+  `SessionUI.lua` shipped raising at require time with a green CI. `[lint]` + `[spec]`
+  `hud_spec.lua`.
+- **`Main.client.lua` is in `CLIENT_MODULES` even though it is an entry script.** `pack.py`
+  treats a `.client` stem as an entry point, but the harness can hand it a `Req` like any
+  other module — and requiring it is what makes the client's boot ORDER covered rather than
+  transcribed into a spec that would not notice a reordering. `[spec]`
+- **Two branches of the next-purchase ranking cannot change the answer with today's Config,
+  and are specced somewhere they can.** The track gate only hides the two cabinets while
+  `mezzanine` is unowned — and `mezzanine` is a factory rung, which outranks anything the gate
+  could hide; the price tie-break only applies within one track, and a track is a chain, so
+  exactly one rung is ever available. Two hand-maintained copies of a branch that cannot
+  change the answer can drift forever with the game looking fine. `hud_spec.lua` gates the
+  POWER track and ties two `TrackRank` values to put each branch somewhere it decides.
+  `[spec]`
 - **The pass list in `verify.py`'s docstring must stay in step with `main()`.** It has said
   five, seven and eight while `main()` ran nine, and a pass count nobody can trust is a pass
   somebody can quietly delete. `[nothing]`
