@@ -270,6 +270,33 @@ for _, path in ipairs(Config.BeltPaths) do
 	end
 end
 
+-- A PATH STATES THE HEIGHT IT RUNS AT, and the ground floor runs at zero.
+--
+-- These are the config half of "a buy button honours its own height". The other
+-- half - whether the part that got built is where buttonPosition said - is a
+-- Studio-only self-test in Tycoon:buildButtons, because the verifier sees data
+-- and this is a question about instances. Until the mezzanine's path is data
+-- these are trivially true, which is the point: they are the regression guard
+-- for the moment it stops being trivial.
+for index, path in ipairs(Config.BeltPaths) do
+	check(type(path.y) == "number",
+		("BeltPaths.%s has no y; a path that does not state its height gets built at 0")
+			:format(tostring(path.id)))
+	if index == 1 then
+		check(path.y == 0,
+			("BeltPaths.%s is the ground floor and must run at y=0, not %.1f"):format(path.id, path.y))
+	end
+end
+
+-- ...and a hand-placed button coordinate is a FLOOR coordinate. Its height
+-- comes from the pedestal it stands on, not from the table, so a stray Y here
+-- would be a button hovering for no stated reason.
+for id, spot in pairs(Config.Layout.MiscButtons) do
+	check(spot.Y == 0,
+		("Layout.MiscButtons.%s carries y=%.1f; misc buttons stand on the plot floor and take their height from the pedestal")
+			:format(id, spot.Y))
+end
+
 -- Floors. The deck must clear everything the ground floor stands up, and the
 -- unlock must be a real button — a floor gated on a typo never opens.
 local plotHalfX, plotHalfZ = Config.World.PlotSize.X / 2, Config.World.PlotSize.Z / 2

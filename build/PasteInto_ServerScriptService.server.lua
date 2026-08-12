@@ -6979,6 +6979,8 @@ __MODULES["Tycoon"] = function()
 	local CombatService = Req("CombatService")
 	local MapBuilder = Req("MapBuilder")
 
+	local RunService = game:GetService("RunService")
+
 	local L = Config.Layout
 	local BTN = Config.Style.Button
 	local BTN_LOCKED = Config.Style.ButtonLocked
@@ -7830,10 +7832,27 @@ __MODULES["Tycoon"] = function()
 		return MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
 	end
 
+	--- Where a buy button's pedestal actually stands, height included.
+	---
+	--- This exists because the conversion from "button position" to "CFrame" was
+	--- written twice, and both copies threw the Y away — `self:at(pos.X, 0, pos.Z)`.
+	--- `buttonPosition` has always returned the right height for a machine on any
+	--- belt path (pointOnLeg bakes in `path.y`), so the floors prototype could
+	--- never have a purchasable thing standing on it: everything it priced would
+	--- have been built on the ground floor underneath the deck. One line, and it
+	--- was the single blocker for a real second storey.
+	---
+	--- No-op today. Every source of a button position returns Y = 0 while there is
+	--- one ground-level path: BeltPaths[1].y is 0, trackButtonPosition hardcodes
+	--- its Y, and every Layout.MiscButtons entry is on the floor.
+	function Tycoon:buttonBaseCF(def): CFrame
+		local pos = self:buttonPosition(def)
+		return self:at(pos.X, pos.Y, pos.Z)
+	end
+
 	function Tycoon:buildButtons()
 		for _, def in ipairs(Config.Buttons) do
-			local pos = self:buttonPosition(def)
-			local base = self:at(pos.X, 0, pos.Z)
+			local base = self:buttonBaseCF(def)
 
 			local holder = Instance.new("Model")
 			holder.Name = "Btn_" .. def.id
@@ -7927,6 +7946,17 @@ __MODULES["Tycoon"] = function()
 					self:tryPurchase(player, def.id)
 				end
 			end)
+
+			-- The half of "buttons honour their height" that no config check can
+			-- reach: whether the part that got built is actually where
+			-- buttonPosition said. Free in production, and it fails loudly the day
+			-- somebody reintroduces the flattening on a floor that has content.
+			if RunService:IsStudio() then
+				local want = (self:buttonBaseCF(def)).Position.Y
+				assert(math.abs(pad.Position.Y - want) < L.ButtonHeight + 0.01,
+					("[Tung] button %s built at y=%.2f but buttonPosition says y=%.2f")
+						:format(def.id, pad.Position.Y, want))
+			end
 
 			self.objects[def.id] = {
 				def = def,
@@ -8276,9 +8306,11 @@ __MODULES["Tycoon"] = function()
 		end
 
 		if not silent then
-			local pos = self:buttonPosition(def)
+			-- The twin of the bug buttonBaseCF fixes: the purchase confetti used a
+			-- literal world 5 rather than five studs above the button, so a
+			-- mezzanine purchase would have burst on the ground floor underneath it.
 			local variant = Config.Variants[def.variant or "classic"]
-			Fx.burst((self:at(pos.X, 5, pos.Z)).Position, variant.wood, 18, self.model)
+			Fx.burst((self:buttonBaseCF(def) * CFrame.new(0, 5, 0)).Position, variant.wood, 18, self.model)
 		end
 
 		self:refreshButtons()
