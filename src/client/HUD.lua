@@ -26,13 +26,18 @@ local PALETTE = {
 	bad     = Color3.fromRGB(255, 110, 110),
 	text    = Color3.fromRGB(238, 232, 250),
 	muted   = Color3.fromRGB(160, 150, 180),
+	-- Promoted out of KIND_COLOR, where they were toast-only: the wave banner
+	-- had its own inline literals of the same two colours, so the raid read as
+	-- two different oranges depending on which widget you were looking at.
+	wave    = Color3.fromRGB(255, 150, 60),
+	boss    = Color3.fromRGB(255, 90, 60),
 }
 
 local KIND_COLOR = {
 	buy      = PALETTE.good,
 	warn     = PALETTE.bad,
-	wave     = Color3.fromRGB(255, 150, 60),
-	boss     = Color3.fromRGB(255, 90, 60),
+	wave     = PALETTE.wave,
+	boss     = PALETTE.boss,
 	rebirth  = PALETTE.accent,
 	gear     = PALETTE.gold,
 	ko       = Color3.fromRGB(255, 230, 140),
@@ -475,26 +480,67 @@ function HUD.applyStats(payload)
 	rebirthButton.BackgroundColor3 = state.cash >= state.rebirthCost and PALETTE.accent or Color3.fromRGB(90, 84, 104)
 end
 
+--- The last wave packet, plus the wall-clock deadline derived from its
+--- `seconds`. The server sends `seconds` ONCE per phase and the client counts
+--- it down locally, so a ticking banner costs no extra remote traffic.
+local wave = { phase = "idle", deadline = 0 }
+
 function HUD.applyWave(payload)
 	if not waveFrame then
 		return
 	end
-	if payload.phase == "warning" then
+	wave = payload
+	wave.deadline = os.clock() + (payload.seconds or 0)
+	HUD.renderWave()
+end
+
+--- Redrawn every frame from the RenderStepped connection that already exists
+--- for the cash counter — no second connection, and no `task.delay`.
+---
+--- The old `clear` branch hid the banner with an unguarded task.delay(4), so a
+--- wave that started inside that window had its fresh banner blanked by a
+--- stale timer. Visibility is now derived from state that any newer packet
+--- overwrites, which makes that failure unreachable rather than guarded.
+function HUD.renderWave()
+	if not waveFrame then
+		return
+	end
+	local phase = wave.phase
+	local left = math.max(0, math.ceil(wave.deadline - os.clock()))
+	local boss = wave.boss == true
+
+	if phase == "idle" or phase == nil then
+		waveFrame.Visible = false
+		return
+	end
+
+	if phase == "resting" then
+		-- Broadcast rather than left blank: 20 seconds of dead air with
+		-- nothing on screen is most of why the old gap felt long.
+		waveFrame.Visible = left > 0
+		waveLabel.Text = ("NEXT RAID IN %ds"):format(left)
+		waveLabel.TextColor3 = PALETTE.muted
+		waveFrame.BackgroundColor3 = PALETTE.panel
+	elseif phase == "warning" then
 		waveFrame.Visible = true
-		waveLabel.Text = ("SAHUR RAID %d IN %ds"):format(payload.wave, payload.seconds or 10)
-		waveLabel.TextColor3 = Color3.fromRGB(255, 190, 120)
-	elseif payload.phase == "active" then
+		waveLabel.Text = boss
+			and ("BOSS RAID %d IN %ds"):format(wave.wave, left)
+			or ("SAHUR RAID %d IN %ds"):format(wave.wave, left)
+		waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
+		waveFrame.BackgroundColor3 = Color3.fromRGB(48, 18, 18)
+	elseif phase == "spawning" or phase == "active" then
 		waveFrame.Visible = true
-		waveLabel.Text = ("WAVE %d  •  %d RAIDERS LEFT"):format(payload.wave, payload.remaining or 0)
-		waveLabel.TextColor3 = Color3.fromRGB(255, 140, 110)
-	elseif payload.phase == "clear" then
-		waveLabel.Text = ("WAVE %d CLEARED"):format(payload.wave)
-		waveLabel.TextColor3 = PALETTE.good
-		task.delay(4, function()
-			if waveFrame then
-				waveFrame.Visible = false
-			end
-		end)
+		waveLabel.Text = ("WAVE %d  •  %d / %d RAIDERS"):format(
+			wave.wave, wave.remaining or 0, wave.total or 0)
+		waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
+		waveFrame.BackgroundColor3 = Color3.fromRGB(48, 18, 18)
+	elseif phase == "clear" then
+		waveFrame.Visible = left > 0
+		waveLabel.Text = wave.forced
+			and ("WAVE %d TIMED OUT"):format(wave.wave)
+			or ("WAVE %d CLEARED"):format(wave.wave)
+		waveLabel.TextColor3 = wave.forced and PALETTE.muted or PALETTE.good
+		waveFrame.BackgroundColor3 = Color3.fromRGB(18, 40, 26)
 	end
 end
 
@@ -523,7 +569,8 @@ function HUD.start()
 	Net.event("Stats").OnClientEvent:Connect(HUD.applyStats)
 	Net.event("WaveState").OnClientEvent:Connect(HUD.applyWave)
 
-	-- smooth counting cash so big numbers feel good
+	-- smooth counting cash so big numbers feel good, and tick the raid
+	-- countdown off the same connection
 	RunService.RenderStepped:Connect(function(dt)
 		if math.abs(displayedCash - state.cash) < 0.5 then
 			displayedCash = state.cash
@@ -531,6 +578,7 @@ function HUD.start()
 			displayedCash += (state.cash - displayedCash) * math.min(dt * 9, 1)
 		end
 		cashLabel.Text = Util.abbreviate(displayedCash)
+		HUD.renderWave()
 	end)
 
 	return gui

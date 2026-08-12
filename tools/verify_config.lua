@@ -400,8 +400,57 @@ for tier, bat in ipairs(Config.Bats) do
 			:format(tier, bat.name, latency * 1000, MAX_STRIKE_LATENCY * 1000))
 end
 
--- ── raider telegraph ────────────────────────────────────────────────────────
+-- ── raid pacing ─────────────────────────────────────────────────────────────
+-- Waves used to run on a fixed timer with no check that the last one had been
+-- cleared. These assert the relationships the new schedule depends on, and the
+-- first of them is the one that stops a future tuning pass "closing the gap"
+-- by shortening the wrong number.
 local WV = Config.Waves
+
+-- WarningTime is not decoration: it is how long you have to get home. A player
+-- on the inner plot ring is MinPlotRadius studs from the arena and moves at
+-- Combat.WalkSpeed, so the warning has to cover that walk or the raid starts
+-- without whoever it is aimed at.
+check(WV.WarningTime * Config.Combat.WalkSpeed >= Config.World.MinPlotRadius,
+	("Waves.WarningTime is %ds: a player on the inner plot ring is %d studs out and walks %d studs/s, so they cover only %.0f studs before the raiders land")
+		:format(WV.WarningTime, Config.World.MinPlotRadius, Config.Combat.WalkSpeed,
+			WV.WarningTime * Config.Combat.WalkSpeed))
+
+check(WV.ClearBannerTime < WV.RestTime,
+	("ClearBannerTime %ds is not shorter than RestTime %ds — the CLEARED banner would still be up when the next warning replaced it")
+		:format(WV.ClearBannerTime, WV.RestTime))
+check(WV.RestTimeAfterBoss >= WV.RestTime,
+	"RestTimeAfterBoss should not be shorter than an ordinary rest; a boss is the wave you need to re-bank after")
+
+-- The complaint, asserted from both ends.
+local deadAir = WV.RestTime + WV.WarningTime
+check(deadAir <= 45,
+	("%.0fs of dead air between a wave clearing and the next one landing; the raid is meant to read as pressure, not as a timer")
+		:format(deadAir))
+check(deadAir >= 20,
+	("only %.0fs between waves — no window to bank, buy or heal"):format(deadAir))
+
+-- The deadline is a deadlock breaker, so it must not be able to fire during
+-- the spawn drip it is meant to backstop.
+local spawnSeconds = WV.MaxCount * WV.SpawnGap
+check(WV.MaxWaveTime > spawnSeconds * 4,
+	("MaxWaveTime is %ds but a full wave takes %.1fs just to spawn; the deadline would fire during the fight")
+		:format(WV.MaxWaveTime, spawnSeconds))
+check(WV.StragglerGrace > 0,
+	"StragglerGrace must be positive, or the per-raider despawn competes with MaxWaveTime instead of backstopping it")
+check(WV.FirstWaveDelay >= WV.WarningTime,
+	("FirstWaveDelay %ds is shorter than the warning it has to contain"):format(WV.FirstWaveDelay))
+check(WV.BroadcastInterval > 0 and WV.BroadcastInterval <= 2,
+	("BroadcastInterval is %.2fs; past ~2s the raider counter visibly lags the kills")
+		:format(WV.BroadcastInterval))
+check(WV.SpawnGap > 0 and WV.SpawnGap < 1,
+	("SpawnGap is %.2fs; a full wave would take %.0fs to arrive"):format(WV.SpawnGap, WV.MaxCount * WV.SpawnGap))
+check(WV.JoinGrace > 0, "JoinGrace must be positive so a joining player's character can load before the first raid")
+check(WV.EmptyResetAfter > 0, "EmptyResetAfter must be positive")
+check(WV.Interval == nil,
+	"Waves.Interval is gone — waves are paced by RestTime from the previous clear, not by a wall clock")
+
+-- ── raider telegraph ────────────────────────────────────────────────────────
 
 -- The wind-up is the only warning a player gets. Below human reaction time it
 -- is decoration; the raider may as well hit instantly.

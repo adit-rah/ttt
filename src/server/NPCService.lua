@@ -35,8 +35,26 @@ local CONTACT_PITCH = 22
 
 local active: { [Model]: any } = {}
 local folder: Folder
+
+--- THE SCHEDULE.
+---
+--- `waveNumber` is only ever read to mint a record. Everything a wave needs to
+--- know about itself lives on the record, and every raider holds a reference to
+--- the one that spawned it — which is what makes `remaining` per-wave instead
+--- of a global count of every living raider on the map.
+---
+--- phase ∈ idle | resting | warning | spawning | active | clear
+---
+--- `spawning` is a separate phase from `active` on purpose: it makes the clear
+--- test `spawnFinished and alive <= 0`, so the moment mid-drip when the count
+--- legitimately touches zero is structurally unreachable rather than guarded
+--- against.
 local waveNumber = 0
-local aliveCount = 0
+local phase = "idle"
+local phaseUntil = 0
+local liveWave: any = nil
+local emptySince: number? = nil
+local nextBroadcast = 0
 
 -- raider flavour escalates with the wave number
 local WAVE_VARIANTS = { "classic", "oak", "ash", "crimson", "neon", "void", "eclipse", "galaxy", "infinity" }
@@ -49,8 +67,33 @@ local function variantForWave(wave: number, boss: boolean): string
 	return WAVE_VARIANTS[index]
 end
 
+--- The packet describing where the raid currently is. Built from the live
+--- record rather than passed around, so there is one description of the truth
+--- and a late joiner can be handed exactly what everyone else last saw.
+local function wavePacket()
+	local seconds = math.max(0, math.ceil(phaseUntil - os.clock()))
+	if phase == "idle" then
+		return { phase = "idle" }
+	elseif phase == "resting" then
+		return { phase = "resting", wave = waveNumber + 1, seconds = seconds }
+	end
+	local w = liveWave
+	if not w then
+		return { phase = "idle" }
+	end
+	return {
+		phase = phase,
+		wave = w.number,
+		boss = w.boss,
+		remaining = w.alive,
+		total = w.expected,
+		forced = w.forced,
+		seconds = (phase == "warning" or phase == "clear") and seconds or nil,
+	}
+end
+
 local function broadcast(payload)
-	waveRemote:FireAllClients(payload)
+	waveRemote:FireAllClients(payload or wavePacket())
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -83,7 +126,14 @@ local function onRaiderDied(npc: Model, entry)
 		return
 	end
 	entry.dead = true
-	aliveCount = math.max(0, aliveCount - 1)
+	-- Decrement THIS raider's own wave. A straggler from wave N therefore
+	-- decrements wave N, and because that record is not the live one it emits
+	-- nothing at all — which is what stops leftovers being counted against,
+	-- and labelled with, the wave that came after them.
+	local record = entry.waveRecord
+	if record then
+		record.alive = math.max(0, record.alive - 1)
+	end
 
 	local humanoid = npc:FindFirstChildOfClass("Humanoid")
 	local tag = humanoid and humanoid:FindFirstChild("creator") :: ObjectValue?
@@ -120,14 +170,18 @@ local function onRaiderDied(npc: Model, entry)
 	Debris:AddItem(npc, 4)
 	active[npc] = nil
 
-	if aliveCount <= 0 then
-		broadcast({ phase = "clear", wave = waveNumber, remaining = 0 })
-	else
-		broadcast({ phase = "active", wave = waveNumber, remaining = aliveCount })
+	-- No FireAllClients here. This used to send one packet per death — up to 27
+	-- a wave, and a whole burst on a single frame when an AoE lands. Mark the
+	-- record dirty instead and let the tick flush at most every
+	-- BroadcastInterval; the driver sends phase changes immediately, so the
+	-- kill that ENDS a wave is still instant.
+	if record == liveWave then
+		record.dirty = true
 	end
 end
 
-local function spawnRaider(wave: number, index: number, count: number, boss: boolean)
+local function spawnRaider(record, index: number, count: number, boss: boolean)
+	local wave = record.number
 	local variantName = variantForWave(wave, boss)
 	local health = WV.BaseHealth * (WV.HealthGrowth ^ (wave - 1)) * (boss and WV.BossHealthMultiplier or 1)
 	-- The cap is absolute. It used to be scaled by the boss multiplier along
@@ -161,6 +215,12 @@ local function spawnRaider(wave: number, index: number, count: number, boss: boo
 	local arm = core and core:FindFirstChild("TungArm")
 	local entry = {
 		wave = wave,
+		waveRecord = record,
+		-- Strictly later than the wave's own deadline, so the wave-level
+		-- timeout always fires first and this only ever catches a raider whose
+		-- record was somehow lost. It used to be a hardcoded 420, which was
+		-- longer than the whole wave interval and is why waves overlapped.
+		despawnAt = os.clock() + WV.MaxWaveTime + WV.StragglerGrace,
 		boss = boss,
 		damage = damage,
 		nextAttack = 0,
@@ -186,7 +246,8 @@ local function spawnRaider(wave: number, index: number, count: number, boss: boo
 	end
 
 	active[npc] = entry
-	aliveCount += 1
+	record.alive += 1
+	record.spawned += 1
 
 	humanoid.Died:Connect(function()
 		onRaiderDied(npc, entry)
@@ -315,40 +376,98 @@ local function tick(dt: number)
 		end
 
 		-- despawn stragglers so a wave can't hang forever
-		if now - entry.spawnedAt > 420 then
+		if now >= entry.despawnAt then
 			humanoid.Health = 0
 		end
+	end
+
+	-- Flush the coalesced counter update. Two comparisons a frame, against one
+	-- FireAllClients per death before.
+	if liveWave and liveWave.dirty and now >= nextBroadcast then
+		liveWave.dirty = false
+		nextBroadcast = now + WV.BroadcastInterval
+		broadcast()
 	end
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
 
-function NPCService.startWave()
-	if #Players:GetPlayers() == 0 then
-		return
-	end
+local function setPhase(newPhase: string, seconds: number?)
+	phase = newPhase
+	phaseUntil = os.clock() + (seconds or 0)
+	-- Phase changes bypass the broadcast throttle. These are the packets that
+	-- must never be late: a banner that says "1 RAIDER LEFT" for half a second
+	-- after you killed the last one is worse than no banner.
+	broadcast()
+end
+
+--- Mints the record for the next wave and puts the warning up.
+local function beginWave()
 	waveNumber += 1
 	local count = math.min(WV.BaseCount + (waveNumber - 1) * WV.CountPerWave, WV.MaxCount)
 	local boss = (waveNumber % WV.BossEvery == 0)
 
-	broadcast({ phase = "warning", wave = waveNumber, seconds = WV.WarningTime, boss = boss })
+	liveWave = {
+		number = waveNumber,
+		boss = boss,
+		count = count,
+		expected = count + (boss and 1 or 0),
+		spawned = 0,
+		alive = 0,
+		spawnFinished = false,
+		cleared = false,
+		forced = false,
+		dirty = false,
+		deadline = math.huge,
+		-- Generous: the drip itself is count * SpawnGap, and this only exists
+		-- so a thread that dies mid-drip cannot wedge the schedule.
+		spawnDeadline = os.clock() + WV.WarningTime + count * WV.SpawnGap * 4 + 10,
+	}
+
+	setPhase("warning", WV.WarningTime)
 	notifyRemote:FireAllClients({
-		kind = "wave",
+		kind = boss and "boss" or "wave",
 		title = ("SAHUR RAID %d INCOMING"):format(waveNumber),
-		body = boss and "A BOSS is coming. tung tung tung." or ("%d raiders in %d seconds."):format(count, WV.WarningTime),
+		body = boss and "A BOSS is coming. tung tung tung."
+			or ("%d raiders in %d seconds."):format(count, WV.WarningTime),
 	})
+end
 
-	task.wait(WV.WarningTime)
+--- Drips the wave in. Runs in its OWN thread and only sets a flag the driver
+--- polls, so the driver itself never blocks — the old loop ran the warning wait
+--- and the whole drip inside the pcall'd startWave, which meant an error
+--- anywhere in there took the schedule down with it.
+local function spawnWave(record)
+	task.spawn(function()
+		for i = 1, record.count do
+			if record ~= liveWave then
+				return
+			end
+			spawnRaider(record, i, record.count, false)
+			task.wait(WV.SpawnGap)
+		end
+		if record.boss and record == liveWave then
+			spawnRaider(record, 0, record.count, true)
+		end
+		record.spawnFinished = true
+		record.deadline = os.clock() + WV.MaxWaveTime
+	end)
+end
 
-	for i = 1, count do
-		spawnRaider(waveNumber, i, count, false)
-		task.wait(0.12)
+--- Kills whatever is left of a wave that has run out of time.
+local function forceEnd(record)
+	record.forced = true
+	for npc, entry in pairs(active) do
+		if entry.waveRecord == record and not entry.dead then
+			local humanoid = npc:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				-- Through Died, so the flop and the Debris cleanup still run.
+				-- No creator tag, so no reward is paid for a wave nobody
+				-- finished — which is correct, not an oversight.
+				humanoid.Health = 0
+			end
+		end
 	end
-	if boss then
-		spawnRaider(waveNumber, 0, count, true)
-	end
-
-	broadcast({ phase = "active", wave = waveNumber, remaining = aliveCount })
 end
 
 function NPCService.clearAll()
@@ -356,7 +475,92 @@ function NPCService.clearAll()
 		npc:Destroy()
 	end
 	active = {}
-	aliveCount = 0
+	liveWave = nil
+end
+
+--- One step of the schedule. Polled rather than driven by signals: at 4 Hz the
+--- cost is nothing, and it keeps every transition in one readable place
+--- instead of spread across a death handler and three timers.
+local function step()
+	local now = os.clock()
+	local populated = #Players:GetPlayers() > 0
+
+	-- An empty server runs no raid, and does not burn a wave number doing it.
+	if not populated and phase ~= "idle" then
+		NPCService.clearAll()
+		emptySince = now
+		setPhase("idle")
+		return
+	end
+
+	if phase == "idle" then
+		if populated then
+			-- A server that sat empty long enough resets, so someone joining a
+			-- stale one is not met by a wave-30 raider with 2.9k health.
+			if emptySince and now - emptySince >= WV.EmptyResetAfter then
+				waveNumber = 0
+			end
+			emptySince = nil
+			setPhase("resting", WV.JoinGrace)
+		end
+		return
+	end
+
+	if phase == "resting" then
+		if now >= phaseUntil then
+			beginWave()
+		end
+		return
+	end
+
+	if phase == "warning" then
+		if now >= phaseUntil then
+			setPhase("spawning")
+			spawnWave(liveWave)
+		end
+		return
+	end
+
+	if phase == "spawning" then
+		-- The drip runs in its own thread, so an error inside it kills that
+		-- thread and nothing else — `spawnFinished` would simply never arrive
+		-- and the schedule would sit here forever. Time it out into `active`
+		-- with whatever did spawn; if that is nothing, `active` clears it on
+		-- the next step and the raid moves on.
+		if liveWave.spawnFinished or now >= liveWave.spawnDeadline then
+			liveWave.spawnFinished = true
+			liveWave.deadline = math.min(liveWave.deadline, now + WV.MaxWaveTime)
+			setPhase("active")
+		end
+		return
+	end
+
+	if phase == "active" then
+		-- `spawnFinished` is what makes this safe. Without it the moment
+		-- mid-drip when alive legitimately touches zero would read as a clear.
+		if liveWave.alive <= 0 then
+			setPhase("clear", WV.ClearBannerTime)
+		elseif now >= liveWave.deadline then
+			forceEnd(liveWave)
+			setPhase("clear", WV.ClearBannerTime)
+		end
+		return
+	end
+
+	if phase == "clear" then
+		if now >= phaseUntil then
+			local rest = liveWave.boss and WV.RestTimeAfterBoss or WV.RestTime
+			liveWave = nil
+			setPhase("resting", rest)
+		end
+		return
+	end
+end
+
+--- Hands a joining client the packet everyone else last saw, so a mid-wave
+--- joiner does not stare at a blank banner until the next death.
+function NPCService.pushTo(player: Player)
+	waveRemote:FireClient(player, wavePacket())
 end
 
 function NPCService.start()
@@ -371,6 +575,10 @@ function NPCService.start()
 		end
 	end)
 
+	Players.PlayerAdded:Connect(function(player)
+		task.defer(NPCService.pushTo, player)
+	end)
+
 	if not WV.Enabled then
 		return
 	end
@@ -378,17 +586,23 @@ function NPCService.start()
 	task.spawn(function()
 		task.wait(WV.FirstWaveDelay)
 		while true do
-			local ok, err = pcall(NPCService.startWave)
+			local ok, err = pcall(step)
 			if not ok then
-				warn("[Tung] wave error: " .. tostring(err))
+				warn("[Tung] wave step error: " .. tostring(err))
 			end
-			task.wait(WV.Interval)
+			task.wait(0.25)
 		end
 	end)
 end
 
 function NPCService.currentWave(): number
-	return waveNumber
+	return liveWave and liveWave.number or waveNumber
+end
+
+--- How many raiders of the CURRENT wave are still standing. Nil when no wave
+--- is running, which is different from zero.
+function NPCService.remaining(): number?
+	return liveWave and liveWave.alive or nil
 end
 
 return NPCService
