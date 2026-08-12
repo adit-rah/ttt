@@ -206,20 +206,38 @@ local function buildNextPanel(root)
 	return frame
 end
 
-local function buildWaveBanner(root)
-	waveFrame = panel(root, UDim2.fromOffset(420, 62), UDim2.new(0.5, 0, 0, 18), Vector2.new(0.5, 0))
-	waveFrame.Name = "Wave"
-	waveFrame.Visible = false
-	waveFrame.BackgroundColor3 = Color3.fromRGB(48, 18, 18)
+--- The raid banner is a SIGN IN THE WORLD, not a bar across your screen.
+---
+--- It hangs over the Tung statue in the middle of the arena, which is where
+--- the raid is and which is visible from every plot. One line, big, no box —
+--- readable at a glance and ignorable the rest of the time, which a panel
+--- pinned to the top of the screen never manages.
+---
+--- CLIENT-OWNED ON PURPOSE. The billboard is created here, on the client,
+--- parented to an anchor the server stood up. That is what lets the countdown
+--- keep ticking locally off a `seconds` the server sends once per phase,
+--- instead of costing a remote every second — which was one of the three
+--- properties of the old banner worth carrying over, and the cheapest to lose
+--- by accident if the server had drawn this.
+local function buildWaveBanner()
+	local world = workspace:FindFirstChild("TungWorld")
+	local arena = world and world:WaitForChild("Arena", 10)
+	local anchor = arena and arena:WaitForChild("RaidAnchor", 10)
+	if not anchor then
+		-- No banner rather than a broken one. Every read of waveFrame is
+		-- already nil-guarded because the HUD used to build it lazily.
+		warn("[Tung] no RaidAnchor in the arena; the raid banner has nowhere to hang")
+		return
+	end
 
-	waveLabel = text(waveFrame, {
-		Size = UDim2.fromScale(1, 1),
-		Font = Style.Font.title,
-		Text = "SAHUR RAID",
-		TextSize = 26,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		TextColor3 = Color3.fromRGB(255, 170, 110),
+	waveFrame = Style.billboard(anchor, {
+		name = "RaidSign",
+		width = 60, height = Config.Style.RaidSignHeight,
+		distance = "world",
 	})
+	waveFrame.Enabled = false
+
+	waveLabel = Style.text(waveFrame, { name = "Line", text = "", color = PALETTE.wave })
 end
 
 local function buildToasts(root)
@@ -510,38 +528,38 @@ function HUD.renderWave()
 	local left = math.max(0, math.ceil(wave.deadline - os.clock()))
 	local boss = wave.boss == true
 
+	-- `Enabled` rather than `Visible`, and no background writes: the banner is a
+	-- billboard hanging over the statue now, and the box is gone. Colour is the
+	-- only thing left carrying tone, which is what "one line, big, nothing
+	-- fancy" costs and buys.
 	if phase == "idle" or phase == nil then
-		waveFrame.Visible = false
+		waveFrame.Enabled = false
 		return
 	end
 
 	if phase == "resting" then
-		-- Broadcast rather than left blank: 20 seconds of dead air with
+		-- Broadcast rather than left blank: eighteen seconds of dead air with
 		-- nothing on screen is most of why the old gap felt long.
-		waveFrame.Visible = left > 0
+		waveFrame.Enabled = left > 0
 		waveLabel.Text = ("NEXT RAID IN %ds"):format(left)
 		waveLabel.TextColor3 = PALETTE.muted
-		waveFrame.BackgroundColor3 = PALETTE.panel
 	elseif phase == "warning" then
-		waveFrame.Visible = true
+		waveFrame.Enabled = true
 		waveLabel.Text = boss
 			and ("BOSS RAID %d IN %ds"):format(wave.wave, left)
 			or ("SAHUR RAID %d IN %ds"):format(wave.wave, left)
 		waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
-		waveFrame.BackgroundColor3 = Color3.fromRGB(48, 18, 18)
 	elseif phase == "spawning" or phase == "active" then
-		waveFrame.Visible = true
+		waveFrame.Enabled = true
 		waveLabel.Text = ("WAVE %d  •  %d / %d RAIDERS"):format(
 			wave.wave, wave.remaining or 0, wave.total or 0)
 		waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
-		waveFrame.BackgroundColor3 = Color3.fromRGB(48, 18, 18)
 	elseif phase == "clear" then
-		waveFrame.Visible = left > 0
+		waveFrame.Enabled = left > 0
 		waveLabel.Text = wave.forced
 			and ("WAVE %d TIMED OUT"):format(wave.wave)
 			or ("WAVE %d CLEARED"):format(wave.wave)
 		waveLabel.TextColor3 = wave.forced and PALETTE.muted or PALETTE.good
-		waveFrame.BackgroundColor3 = Color3.fromRGB(18, 40, 26)
 	end
 end
 
@@ -555,7 +573,8 @@ function HUD.start()
 
 	buildCashPanel(gui)
 	buildNextPanel(gui)
-	buildWaveBanner(gui)
+	-- no `gui`: this one hangs in the world, not on the screen
+	buildWaveBanner()
 	buildToasts(gui)
 	buildActions(gui)
 

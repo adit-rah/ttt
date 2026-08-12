@@ -1041,6 +1041,34 @@ check(BTN.lift + BTN.height / 2 <= 20,
 	("the buy-button label's top edge is at y=%.1f, which is through the roof at y=20")
 		:format(BTN.lift + BTN.height / 2))
 
+-- THE TWO SIGNS OVER THE ARENA STATUE. The raid line takes the head height and
+-- the game's own name sits above it; the failure this guards is the two of them
+-- ending up on top of each other, which is exactly what the title was doing to
+-- the statue before it moved.
+check(ST.RaidSignY > Config.World.ArenaWallHeight,
+	("the raid sign is at y=%.0f and the arena wall is %d tall — the sign has to clear it or half the arena cannot read it")
+		:format(ST.RaidSignY, Config.World.ArenaWallHeight))
+local raidTop = ST.RaidSignY + ST.RaidSignHeight / 2
+local titleBottom = ST.ArenaTitleY - ST.ArenaTitleHeight / 2
+check(titleBottom >= raidTop,
+	("the arena title's bottom edge is at y=%.0f and the raid sign's top edge is at y=%.0f — they would overlap over the statue")
+		:format(titleBottom, raidTop))
+
+-- ...and the raid sign has to be readable from every plot, because that is the
+-- reason it stands over the statue rather than on your screen. Measured from
+-- the arena centre to the far edge of the furthest plot, over the supported
+-- player range.
+for count = Config.World.MinPlots, Config.World.MaxPlots do
+	local placements = Config.plotPlacements(count)
+	local farthest = 0
+	for _, p in ipairs(placements) do
+		farthest = math.max(farthest, p.radius + Config.World.PlotSize.Z / 2)
+	end
+	check(ST.Distance.world >= farthest,
+		("the raid sign draws to %.0f studs but at %d plots the far edge of a plot is %.0f studs from the arena centre; the raid would be invisible from the plots it is warning")
+			:format(ST.Distance.world, count, farthest))
+end
+
 -- `plot` has to carry your own factory: corner to corner, and from the arena
 -- rim, because the vault sign and the roof sign are both read from outside.
 local plotDiagonal = math.sqrt(Config.World.PlotSize.X ^ 2 + Config.World.PlotSize.Z ^ 2)
