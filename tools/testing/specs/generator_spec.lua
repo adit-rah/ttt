@@ -34,6 +34,18 @@ T.family("generator", "buying power must move belt speed and drop rate, not just
 --- A plot with the state INSTALLERS.Power touches and nothing else.
 --- Everything that would need a BasePart is stubbed on the instance, which
 --- shadows the class method without changing it.
+---
+--- THE STUB LIST IS A DEPENDENCY, and it has already drifted once. The yard
+--- rework replaced `buildYardMachine` (one machine per rung, four in a row)
+--- with `refreshGenerator` (one machine, rebuilt in place when the tier
+--- changes), and this spec went from green to raising `attempt to index nil
+--- with 'FindFirstChild'` -- because refreshGenerator reaches for
+--- self.machines, which a stub plot does not have.
+---
+--- Both are stubbed now: the one the installer calls today, and the one it used
+--- to call. Keeping the dead one costs nothing and means a revert does not
+--- break this file. If a third appears, the failure is this comment's fault,
+--- not the installer's.
 local function fakePlot(w)
 	local Tycoon = w.req("Tycoon")
 	local Config = w.config
@@ -44,7 +56,8 @@ local function fakePlot(w)
 	plot.owned = {}
 	plot.drops = { GetChildren = function() return {} end }
 	plot.eachBeltSurface = function() end
-	plot.buildYardMachine = function() end
+	plot.refreshGenerator = function() end   -- current: the yard's single stand
+	plot.buildYardMachine = function() end   -- historical: one machine per rung
 	plot.buildShelfDisplay = function() end
 	return plot, Tycoon, Config
 end
