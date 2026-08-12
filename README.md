@@ -225,11 +225,25 @@ A few decisions in here are load-bearing and look arbitrary until they bite:
   constraint — still no per-frame work.
 - **Swings are procedural `Motor6D.Transform` writes, not uploaded animations.**
   Roblox animations are assets, and this game has none. `SwingAnim.lua` writes
-  the joints directly from a bound render step *after*
-  `Enum.RenderPriority.Character` — bind before it and the Animator overwrites
-  every joint in the same frame. Poses are expressed in **torso space** and
-  conjugated by each joint's own `C0` rotation, which is what lets one set of
-  angles drive both R6 and R15 rigs.
+  the joints directly.
+- **Those writes must happen on `RunService.PreSimulation`, and nowhere else.**
+  The frame runs `PreRender` → render → `PreAnimation` → *Animator writes joint
+  transforms* → `PreSimulation` → *transforms applied to parts*. `PreSimulation`
+  is the last Luau event before that apply. This shipped broken once: it used
+  `BindToRenderStep`, which binds to `PreRender`, so every write was overwritten
+  by the Animator later in the same frame and **nothing moved at all**.
+  `Enum.RenderPriority` is a bare ordering constant with no engine meaning —
+  `Character = 300` does not mark where characters are animated.
+- **Multiply into `Transform`, don't assign it.** Assigning deletes the
+  Animator's pose for that joint and the arm snaps out of the tool-hold with no
+  blending. `SwingAnim` also remembers what it wrote, because the Animator does
+  *not* reset `Transform` when it's throttled or when no track is playing, and
+  an unguarded multiply would compound into a windmill.
+- Poses are expressed in **torso space** and conjugated by each joint's own `C0`
+  rotation, which is what lets one set of angles drive both R6 and R15. Joints
+  are looked up by name and accepted as either `Motor6D` *or*
+  `AnimationConstraint` — R15 characters are migrating to the latter under the
+  Avatar Joint Upgrade, and an upgraded character has no `Motor6D`s at all.
 - **Swings are drawn by every client, not by the server.** `Motor6D.Transform`
   doesn't replicate. The attacker predicts their own swing from `Tool.Activated`
   (which fires client-side too) and everyone else plays it from the `SwingFx`

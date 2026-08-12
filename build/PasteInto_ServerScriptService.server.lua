@@ -1566,18 +1566,40 @@ __MODULES["SwingAnim"] = function()
 		WHY NOT AN AnimationTrack? Roblox animations are uploaded assets. This game
 		has zero uploads by design (see README), and an animation asset would also
 		have to be authored twice, once per rig type. Writing the joints directly
-		costs one bound render step and works on R6 and R15 from the same pose data.
+		costs one PreSimulation connection and works on R6 and R15 from the same
+		pose data.
 
-		THE THREE THINGS THAT MAKE THIS WORK
+		THE FOUR THINGS THAT MAKE THIS WORK
 		  1. We write Motor6D.Transform, not C0. Transform is the channel the
-		     Animator itself writes into every frame, so setting it replaces the
-		     playing animation's contribution for that joint and leaves the rig's
-		     rest pose (C0/C1) untouched. Stop writing and Roblox's own Animate
-		     script takes the limb straight back over.
-		  2. We bind AFTER Enum.RenderPriority.Character. That is the point in the
-		     frame where character animations are applied; anything written before
-		     it is overwritten in the same frame.
-		  3. Poses are expressed in TORSO space, not joint space, and converted per
+		     Animator itself writes into every frame, so it composes with the
+		     playing animation and leaves the rig's rest pose (C0/C1) untouched.
+		     Stop writing and Roblox's own Animate script takes the limb straight
+		     back over, with no restore step. (C0 is also becoming read-only on
+		     character joints under the Avatar Joint Upgrade, so it is a dead end.)
+		  2. We write on RunService.PreSimulation, and ONLY there. This is the part
+		     that was wrong for the whole first version of this file, which used
+		     BindToRenderStep at Enum.RenderPriority.Character + 1 and was
+		     consequently a no-op: nothing moved, ever.
+
+		     BindToRenderStep binds to PreRender, and the frame goes
+
+		         PreRender -> render -> PreAnimation -> [Animator writes joint
+		         transforms] -> PreSimulation -> [transforms applied to parts]
+
+		     so a PreRender write is overwritten by the Animator later in the same
+		     frame and is discarded before it ever reaches a part. PreSimulation is
+		     the last Luau event before the batch apply. Enum.RenderPriority is a
+		     bare ordering constant with no engine meaning; `Character = 300` does
+		     not mark where characters are animated, and reading it that way is
+		     what produced the bug. The reasoning was imported from the camera
+		     shake in CombatClient, where binding at `RenderPriority.Camera + 1`
+		     genuinely does work — because the default camera module really IS a
+		     BindToRenderStep binding, so priority ordering applies to it. The
+		     Animator is not, so no priority value could ever have won.
+		  3. We MULTIPLY into Transform rather than assigning it. Assigning throws
+		     away the Animator's pose for that joint, so the arm snaps out of the
+		     tool-hold with no blending.
+		  4. Poses are expressed in TORSO space, not joint space, and converted per
 		     joint by conjugating with that joint's own C0 rotation:
 
 		         Transform = C0.Rotation:Inverse() * Q * C0.Rotation
@@ -1655,6 +1677,21 @@ __MODULES["SwingAnim"] = function()
 		return CFrame.Angles(math.rad(v.X), math.rad(v.Y), math.rad(v.Z))
 	end
 
+	--- A rig joint by name, accepting either class.
+	---
+	--- R15 characters are migrating from Motor6D to AnimationConstraint under the
+	--- Avatar Joint Upgrade, and an upgraded character has no Motor6Ds at all.
+	--- Both classes carry C0 and Transform with the same meaning, so everything
+	--- here works on either — but only if we never filter on Motor6D. The name
+	--- check alone is not enough: a rig part can hold other children.
+	local function jointNamed(parent: Instance?, name: string): Instance?
+		local joint = parent and parent:FindFirstChild(name)
+		if joint and (joint:IsA("Motor6D") or joint:IsA("AnimationConstraint")) then
+			return joint
+		end
+		return nil
+	end
+
 	--- The rig's joints, found once per swing. Named by ROLE, not by rig: `arm` is
 	--- whichever joint swings the weapon, `torso` is whichever one twists the upper
 	--- body relative to the root.
@@ -1671,15 +1708,15 @@ __MODULES["SwingAnim"] = function()
 				return nil
 			end
 			return {
-				arm = torso:FindFirstChild("Right Shoulder"),
-				offArm = torso:FindFirstChild("Left Shoulder"),
+				arm = jointNamed(torso, "Right Shoulder"),
+				offArm = jointNamed(torso, "Left Shoulder"),
 				-- R6 has no waist. RootJoint is the closest thing, but it is NOT
 				-- equivalent to R15's Waist: every R6 limb joint hangs off the
 				-- Torso, so a rotation here carries the arms, legs and head with
 				-- it and the character bodily leans rather than twisting at the
 				-- middle. Yaw only, and damped — that reads as a shoulder turn,
 				-- where the raw pose would swing the feet.
-				torso = rootPart:FindFirstChild("RootJoint"),
+				torso = jointNamed(rootPart, "RootJoint"),
 				torsoGain = Vector3.new(0, 0.45, 0),
 			}
 		end
@@ -1688,17 +1725,28 @@ __MODULES["SwingAnim"] = function()
 		local leftUpperArm = character:FindFirstChild("LeftUpperArm")
 		local upperTorso = character:FindFirstChild("UpperTorso")
 		return {
-			arm = rightUpperArm and rightUpperArm:FindFirstChild("RightShoulder"),
-			offArm = leftUpperArm and leftUpperArm:FindFirstChild("LeftShoulder"),
+			arm = jointNamed(rightUpperArm, "RightShoulder"),
+			offArm = jointNamed(leftUpperArm, "LeftShoulder"),
 			-- R15's Waist joins LowerTorso to UpperTorso, so the legs stay put
-			torso = upperTorso and upperTorso:FindFirstChild("Waist"),
+			torso = jointNamed(upperTorso, "Waist"),
 			torsoGain = Vector3.new(1, 1, 1),
 		}
 	end
 
-	--- Apply a torso-space rotation to a joint. See the header: conjugating by the
-	--- joint's own C0 rotation is what makes one set of angles work on both rigs.
-	local function applyJoint(joint: Motor6D?, rotation: Vector3, weight: number)
+	--- Apply a torso-space rotation to a joint, layered on top of whatever the
+	--- Animator put there this frame. See the header: conjugating by the joint's
+	--- own C0 rotation is what makes one set of angles work on both rigs.
+	---
+	--- `state` carries, per joint, the Transform we wrote last frame and the pose
+	--- we layered it onto. That pair is what stops the offset compounding. Normally
+	--- the Animator resets Transform before every PreSimulation, so `current` is a
+	--- fresh pose and there is nothing to undo — but it does NOT reset when the
+	--- Animator is throttled (it reuses the previous frame's pose for distant
+	--- characters, see Animator.EvaluationThrottled) or when no track is playing at
+	--- all. In those frames Transform is still exactly what we wrote, so without
+	--- this check we would multiply our own offset into itself every frame and the
+	--- arm would wind away like a propeller.
+	local function applyJoint(state, joint: Instance?, rotation: Vector3, weight: number)
 		if not joint or not joint.Parent then
 			return
 		end
@@ -1706,8 +1754,17 @@ __MODULES["SwingAnim"] = function()
 		if weight < 1 then
 			target = CFrame.identity:Lerp(target, weight)
 		end
-		local basis = joint.C0.Rotation
-		joint.Transform = basis:Inverse() * target * basis
+
+		local current = (joint :: any).Transform
+		if state.written[joint] == current then
+			current = state.baseline[joint]
+		end
+		state.baseline[joint] = current
+
+		local basis = (joint :: any).C0.Rotation
+		local result = (basis:Inverse() * target * basis) * current
+		;(joint :: any).Transform = result
+		state.written[joint] = result
 	end
 
 	local function lerpPose(a, b, alpha: number)
@@ -1766,6 +1823,10 @@ __MODULES["SwingAnim"] = function()
 			elapsed = 0,
 			duration = math.max(0.15, duration),
 			freeze = 0,
+			-- per-joint memory of what we wrote and what we layered onto; see
+			-- applyJoint for why both are needed
+			written = {},
+			baseline = {},
 		}
 	end
 
@@ -1807,9 +1868,9 @@ __MODULES["SwingAnim"] = function()
 					end
 					if joints then
 						local pose, weight = evaluate(entry.swing, entry.elapsed, entry.duration)
-						applyJoint(joints.arm, pose.arm, weight)
-						applyJoint(joints.offArm, pose.offArm, weight)
-						applyJoint(joints.torso, pose.torso * (joints.torsoGain or ZERO), weight * 0.8)
+						applyJoint(entry, joints.arm, pose.arm, weight)
+						applyJoint(entry, joints.offArm, pose.offArm, weight)
+						applyJoint(entry, joints.torso, pose.torso * (joints.torsoGain or ZERO), weight * 0.8)
 					end
 				end
 			end
@@ -1821,9 +1882,17 @@ __MODULES["SwingAnim"] = function()
 			return
 		end
 		bound = true
-		-- Enum.RenderPriority.Character is where the engine applies character
-		-- animation. Bind before it and every write is overwritten the same frame.
-		RunService:BindToRenderStep("TungSwingAnim", Enum.RenderPriority.Character.Value + 1, step)
+		-- PreSimulation, and nothing else. See the header: this is the last Luau
+		-- event before Motor6D transforms are applied to part CFrames, and the
+		-- first one after the Animator has written its own. A render-step binding
+		-- here does nothing at all — that was the original bug.
+		--
+		-- Do NOT "modernise" this to its deprecated alias Stepped. PreSimulation
+		-- passes (deltaTime); Stepped passes (timeSinceStart, deltaTime). With
+		-- Stepped, `step` would take the elapsed run time as its dt and every swing
+		-- would blow past its duration on the first frame — invisible again, for a
+		-- completely different reason.
+		RunService.PreSimulation:Connect(step)
 	end
 
 	return SwingAnim
