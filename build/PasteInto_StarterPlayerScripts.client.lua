@@ -488,11 +488,42 @@ __MODULES["Config"] = function()
 
 	Config.Combat = {
 		ComboWindow = 1.6,          -- seconds to chain a swing
-		ComboMaxStacks = 4,
+		-- One more swing animation than there are combo stacks, because stack 0 is
+		-- the first swing of a chain. Stacks 0,1,2,3 map to SwingAnim.SWINGS 1..4,
+		-- so the chain plays diagonal / backhand / sweep / slam and then repeats.
+		ComboMaxStacks = 3,
+		SwingSteps = 4,             -- must equal #SwingAnim.SWINGS; both sides assert it
 		ComboDamagePerStack = 0.18, -- +18% per stack
 		HitboxSize = Vector3.new(7, 7, 1),
 		ArenaPvP = true,            -- PvP only inside the arena ring
 		RespawnCash = 0,            -- cash lost on death (0 = friendly)
+
+		-- SWING TIMING, as fractions of the bat's cooldown. The hitbox used to be
+		-- evaluated on the same frame the swing started, i.e. a whole animation
+		-- BEFORE the bat visibly reached the target — which is most of why the old
+		-- combat read as clicking rather than as hitting. Damage now lands on the
+		-- strike frame.
+		SwingWindUp = 0.26,         -- fraction spent winding up
+		SwingStrikeAt = 0.40,       -- fraction at which the bat is at the end of its arc
+		-- The strike is a moving arc, so one instantaneous box misses targets that
+		-- are a few frames early or late. Sample twice, this far apart.
+		SwingSampleGap = 0.07,
+		HitStop = 0.07,             -- seconds the swing freezes on a landed hit
+
+		CritMultiplier = 2,
+		CritKnockback = 1.6,
+
+		-- The last step of a combo is the overhead slam. It is slower to reach (it
+		-- is the fourth click) so it pays out.
+		FinisherDamage = 1.5,
+		FinisherKnockback = 1.8,
+		FinisherReach = 1.25,
+
+		-- Roblox's default is 16. The plot grew by a third, and 22 keeps the walk
+		-- from the gateway to the last dropper at about six seconds. Above ~32 a
+		-- humanoid starts clipping through 4-stud walls.
+		WalkSpeed = 22,
+		JumpPower = 52,
 	}
 
 	Config.Waves = {
@@ -507,7 +538,12 @@ __MODULES["Config"] = function()
 		HealthGrowth = 1.20,        -- wave 20 raider ~2.9k HP: ~13s for one player
 		BaseDamage = 9,
 		DamageGrowth = 1.07,
-		MaxDamage = 34,             -- a player has 100 HP; never let a raider 2-shot
+		-- A player has 100 HP. These are ABSOLUTE ceilings: the boss multiplier used
+		-- to be applied to the cap as well as to the damage, so a wave-20 boss hit
+		-- for 61 and killed a full-health player in two swings — exactly what the
+		-- cap was written to prevent.
+		MaxDamage = 34,
+		MaxBossDamage = 45,
 		BossHealthMultiplier = 6,
 		BossDamageMultiplier = 1.8,
 		WalkSpeed = 13,
@@ -515,6 +551,224 @@ __MODULES["Config"] = function()
 		RewardGrowth = 2.3,         -- reward scales with wave number
 		StealPerHit = 0.006,        -- fraction of a player's cash a raider steals on hit
 		BossEvery = 5,
+
+		-- RAIDER ATTACKS. Damage used to land on the same tick the raider decided
+		-- to attack, with no wind-up and no animation, so being hit was pure
+		-- proximity: you could not see it coming and you could not step out of it.
+		-- Raiders now raise the bat, hold, and only then swing — and they stand
+		-- still while they do it, which is the window you punish.
+		AttackRange = 8,
+		AttackWindUp = 0.45,        -- seconds of telegraph before the hit lands
+		AttackRecover = 0.35,       -- seconds rooted after swinging
+		AttackCooldown = 1.35,
+		AttackKnockback = 28,
+		BossWindUpScale = 1.35,     -- bosses telegraph LONGER; they hit much harder
+	}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- PROTOTYPES
+	--
+	-- Everything below this line is unshipped. Each block is gated by a flag in
+	-- Config.Prototypes and every one of them defaults to OFF, so a build with all
+	-- the flags false is byte-for-byte the game that ships today. That is the whole
+	-- contract: a prototype you cannot turn off is not a prototype, it is a
+	-- half-finished feature you have to finish before you can ship anything else.
+	--
+	-- The rationale for each of these — what shipped where, and what players said
+	-- about it — is in IDEAS.md. Numbers here are first drafts, not balance.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.Prototypes = {
+		Floors = false,        -- a second storey with its own dropper -> belt -> vault loop
+		PlayerUpgrades = false,-- walkspeed / magnet / cash multiplier shop
+		Utilities = false,     -- a second weapon slot holding a verb, not a stat
+		RebirthPerks = false,  -- rebirth grants four things instead of one number
+		Offline = false,       -- offline earnings and the welcome-back panel
+		Sessions = false,      -- daily streak, playtime ladder, boost cooldown
+		Sound = false,         -- the engine-asset sound layer
+	}
+
+	-- ── multi-leg belt and floors ────────────────────────────────────────────────
+	--
+	-- The shipped belt is hardcoded as an L: two legs, one turn sensor, a 1->2
+	-- transition written into onTurn. A path is just a list of corners, and every
+	-- piece of belt geometry already derives from leg(i) — so generalising is
+	-- mostly deleting the assumption that i is 1 or 2.
+	--
+	-- Ground floor path is derived from the shipped Layout keys rather than
+	-- duplicated, so the two cannot drift.
+	--- `outboard` carries which SIDE of each leg the machines stand on, +1 or -1.
+	--- It used to be inferred, by taking the perpendicular that points away from
+	--- the plot origin — which works only while every leg hugs an outer edge. An
+	--- upper floor's return leg runs back across the middle of its own deck, where
+	--- the inferred side flips and puts the machines over the walkway and the buy
+	--- buttons out in space. One entry per leg, so one fewer than `points`.
+	Config.BeltPaths = {
+		{
+			id = "ground",
+			y = 0,
+			points = { Config.Layout.BeltStart, Config.Layout.BeltCorner, Config.Layout.BeltEnd },
+			outboard = { 1, 1 },
+			collectorAt = Config.Layout.CollectorAt,
+		},
+	}
+
+	--- The upper floor. NOT stacked on the ground floor: a ceiling is the one thing
+	--- Roblox's camera has no good answer for (opaque snaps the camera to head
+	--- height, transparent lets it pop through, and LocalTransparencyModifier is
+	--- overwritten by the default camera scripts every frame). An open mezzanine
+	--- over the BACK half of the plot leaves the aisle you walk open to the sky.
+	Config.Floors = {
+		{
+			id = "mezzanine",
+			-- unlocked by the LAST button of the ground floor, in the same currency.
+			-- Buying floor 2 before you have finished floor 1 is the single most
+			-- complained-about thing in multi-floor tycoons.
+			requires = "dropper10",
+			height = 22,             -- floor top, plot-local
+			-- deck covers the back half only, so it does not roof the walkway
+			deckSize = Vector3.new(112, 1.6, 60),
+			deckAt = Vector3.new(0, 0, -38),
+			-- teleport pads. Shipped elevators in this genre are pad pairs, not
+			-- moving platforms: TweenService lifts jitter and slide players off.
+			padDown = Vector3.new(40, 0, -14),
+			padUp = Vector3.new(40, 0, -14),
+			railHeight = 5,          -- falling off is the obvious new failure mode
+		},
+	}
+
+	-- ── player upgrades ──────────────────────────────────────────────────────────
+	--
+	-- Deliberately small. Pet Sim 99's whole walkspeed track is +25% over two
+	-- tiers, and its biggest stat track is +54% over eight. The large multipliers
+	-- belong to rebirth; this shop is for shaving friction off the loop.
+	Config.PlayerUpgrades = {
+		{
+			id = "speed", name = "Sahur Sprint",
+			stat = "WalkSpeed", levels = 8,
+			base = 22, perLevel = 1.1,        -- caps at 30.8, under the ~32 wall-clip ceiling
+			cost = 250, costGrowth = 4,
+			blurb = "Move %s studs/sec.",
+		},
+		{
+			id = "magnet", name = "Tung Magnet",
+			stat = "CollectRadius", levels = 7,
+			base = 0, perLevel = 4,
+			cost = 400, costGrowth = 3.4,
+			blurb = "Pull drops in from %s studs.",
+		},
+		{
+			id = "payout", name = "Vault Skimmer",
+			stat = "CashMultiplier", levels = 7,
+			base = 1, perLevel = 0.08,
+			cost = 800, costGrowth = 5,
+			blurb = "All income x%s.",
+		},
+		{
+			id = "autocollect", name = "Auto Collector",
+			stat = "AutoCollect", levels = 1,
+			base = 0, perLevel = 1,
+			cost = 60000, costGrowth = 1,
+			blurb = "The vault collects itself.",
+		},
+	}
+
+	-- ── the utility slot ─────────────────────────────────────────────────────────
+	--
+	-- Steal a Brainrot's weapon ladder is one archetype reskinned eleven times,
+	-- scaling exactly one stat. All of its VARIETY lives in a second slot where
+	-- every item is a new verb with one duration number. That split is the thing
+	-- worth copying: progression in the weapon, variety in the utility.
+	--- `radius` and `force` are per-verb, not global: how far a shove reaches is a
+	--- property of the shove, and the moment they are shared constants the next
+	--- utility has to fight them.
+	Config.Utilities = {
+		{ id = "freeze", name = "Sahur Freeze", verb = "freeze", duration = 4, cooldown = 18,
+		  price = 40000, requires = "batforge", radius = 34 },
+		{ id = "shove", name = "Tung Shove", verb = "shove", duration = 0, cooldown = 12,
+		  price = 300000, requires = "upgrader3", radius = 26, force = 130 },
+		{ id = "decoy", name = "Sahur Decoy", verb = "decoy", duration = 10, cooldown = 30,
+		  price = 4000000, requires = "batforge2", radius = 6 },
+	}
+
+	-- ── rebirth perks ────────────────────────────────────────────────────────────
+	--
+	-- Four rewards per rebirth instead of one. The multiplier is the headline but
+	-- the other three are what stop the re-grind feeling like a punishment, and
+	-- what give MaxRebirths = 25 something on every rung.
+	Config.RebirthPerks = {
+		StartingCashPerRebirth = 2500,     -- compounding is handled by the multiplier
+		StartingCashGrowth = 3.2,
+		-- every Nth rebirth grants a permanent extra machine slot
+		SlotEveryRebirths = 3,
+		-- milestone unlocks: rebirth -> what opens up
+		Milestones = {
+			[2] = { unlock = "mezzanine", label = "Second floor" },
+			[4] = { unlock = "utility2", label = "Utility slot II" },
+			[8] = { unlock = "goldplot", label = "Golden plot theme" },
+		},
+	}
+
+	-- ── offline earnings ─────────────────────────────────────────────────────────
+	Config.Offline = {
+		Rate = 0.25,             -- fraction of your live income per second
+		CapHours = 8,
+		-- extending the cap is a purchase, which turns the cap into a goal rather
+		-- than a wall you resent
+		CapUpgradeHours = { 12, 16, 24 },
+		CapUpgradeCost = { 250000, 5000000, 120000000 },
+		MinimumSeconds = 120,    -- below this, don't bother with the panel
+	}
+
+	-- ── session loops ────────────────────────────────────────────────────────────
+	Config.Sessions = {
+		-- 7-day loop with milestones. 48h of grace, because losing a 20-day streak
+		-- to one missed evening is how you lose the player instead of the streak.
+		DailyRewards = { 500, 1500, 4000, 10000, 25000, 60000, 150000 },
+		DailyGraceHours = 48,
+		DailyMilestones = { [7] = 250000, [14] = 750000, [30] = 3000000 },
+
+		-- Pet Sim 99's ladder, and note the deliberately decaying cadence: close
+		-- together early so the first one arrives while you are still deciding
+		-- whether to stay.
+		PlaytimeMinutes = { 5, 10, 15, 20, 30, 40, 50, 60, 75, 90, 120, 180 },
+		PlaytimeRewardBase = 1200,
+		PlaytimeRewardGrowth = 1.9,
+
+		-- The rewarded-video-ad shape with the ad removed: a big multiplier over a
+		-- short window, which forces an active session rather than being banked.
+		BoostMultiplier = 2,
+		BoostSeconds = 600,
+		BoostCooldown = 2400,
+
+		-- near-zero code, real concurrency effect
+		WeekendMultiplier = 2,
+		WeekendDays = { [1] = true, [7] = true },   -- os.date("!*t").wday, Sun and Sat
+	}
+
+	-- ── sound ────────────────────────────────────────────────────────────────────
+	--
+	-- Every one of these ships INSIDE the Roblox client. No upload, no moderation,
+	-- and they cannot be taken down. The old handoff assumed audio was blocked
+	-- until someone uploads samples; it is not, and this is the cheapest quality
+	-- win on the list.
+	Config.Sound = {
+		Library = {
+			collect  = "rbxasset://sounds/electronicpingshort.wav",
+			purchase = "rbxasset://sounds/switch3.wav",
+			ui       = "rbxasset://sounds/button.wav",
+			impact   = "rbxasset://sounds/impact_water.mp3",
+			swing    = "rbxasset://sounds/swoosh.wav",
+			rebirth  = "rbxasset://sounds/victory.wav",
+			siren    = "rbxasset://sounds/action.wav",
+		},
+		-- Pool and round-robin; never Instance.new per drop. ~400 live Sound
+		-- instances is where audio/video desync starts.
+		PoolSize = 8,
+		MinRepeatSeconds = 0.04,
+		RollOffMaxDistance = 60,   -- so a neighbour's factory doesn't blare at you
+		PitchPerCombo = 0.06,
+		MaxPitch = 2,
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -560,6 +814,10 @@ __MODULES["Fx"] = function()
 		particle sprites (rbxasset://textures/particles/*) which ship with the
 		engine and are always available, so nothing here can be moderated away.
 	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Sound = Req("Sound")
 
 	local TweenService = game:GetService("TweenService")
 	local Debris = game:GetService("Debris")
@@ -824,10 +1082,19 @@ __MODULES["Fx"] = function()
 
 	--- Procedural "tung" percussion. Generated from engine default sound ids that
 	--- ship with Studio, pitched by index so each variant sounds different.
+	---
+	--- With Config.Prototypes.Sound on, both of these hand off to Sound.lua, which
+	--- plays them out of a fixed pool instead of allocating one Sound per drop.
+	--- With it off they keep the shipped behaviour exactly, down to the volumes
+	--- and roll-off distances — the prototype has to be switchable, not merged.
 	local TUNG_SOUND = "rbxasset://sounds/electronicpingshort.wav"
 	local IMPACT_SOUND = "rbxasset://sounds/impact_water.mp3"
 
 	function Fx.tung(part: BasePart, pitch: number?, volume: number?)
+		if Config.Prototypes.Sound then
+			Sound.playAt("collect", part, { pitch = pitch, volume = volume or 0.35 })
+			return
+		end
 		local sound = Instance.new("Sound")
 		sound.SoundId = TUNG_SOUND
 		sound.PlaybackSpeed = pitch or 1
@@ -839,6 +1106,12 @@ __MODULES["Fx"] = function()
 	end
 
 	function Fx.impact(part: BasePart, pitch: number?)
+		if Config.Prototypes.Sound then
+			-- combo is passed by callers that track one (bat swings); without it
+			-- this is just the pitch they asked for
+			Sound.playAt("impact", part, { pitch = pitch, volume = 0.6, rollOff = 120 })
+			return
+		end
 		local sound = Instance.new("Sound")
 		sound.SoundId = IMPACT_SOUND
 		sound.PlaybackSpeed = pitch or 1
@@ -847,6 +1120,19 @@ __MODULES["Fx"] = function()
 		sound.Parent = part
 		sound:Play()
 		Debris:AddItem(sound, 3)
+	end
+
+	--- Named passthroughs for the rest of the library, so callers outside Fx do
+	--- not have to know the asset keys. All no-ops with the flag off.
+	function Fx.sfx(name: string, position: Vector3?, opts)
+		if not Config.Prototypes.Sound then
+			return
+		end
+		if position then
+			Sound.playAt(name, position, opts)
+		else
+			Sound.play(name, opts)
+		end
 	end
 
 	--- Trail between two attachments, used on bats mid-swing.
@@ -905,12 +1191,23 @@ __MODULES["Net"] = function()
 		"PlotAssigned",  -- S->C  plotIndex
 		"Purchased",     -- S->C  { id, name, price }
 		"WaveState",     -- S->C  { phase, wave, remaining, seconds }
-		"Swing",         -- C->S  (fired when the player swings a bat)
-		"HitFeedback",   -- S->C  { damage, crit, position }
+		"SwingFx",       -- S->C  { character, combo, duration } — play a swing on that rig
+		"HitFeedback",   -- S->C  { damage, crit, killed, position }
 		"Knockback",     -- S->C  impulse Vector3, applied by the owning client
 		"RequestRebirth",-- C->S
 		"RequestReset",  -- C->S  (leave plot)
 		"Sfx",           -- S->C  { name, position }
+
+		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
+		-- demand so a client that connects with a flag off still resolves them and
+		-- never sits in WaitForChild for 30 seconds.
+		"UpgradeState",   -- S->C  { levels = {id = level}, costs = {id = price} }
+		"RequestUpgrade", -- C->S  upgrade id
+		"UseUtility",     -- C->S  (fire the equipped utility)
+		"SessionState",   -- S->C  { daily, playtime, boost, offline }
+		"RequestClaim",   -- C->S  { kind = "daily" | "playtime" | "offline", index }
+		"RequestBoost",   -- C->S
+		"FloorState",     -- S->C  { unlocked = boolean }
 	}
 
 	if RunService:IsServer() then
@@ -949,6 +1246,587 @@ __MODULES["Net"] = function()
 	end
 
 	return Net
+end
+
+
+__MODULES["Sound"] = function()
+	--[[
+		Sound.lua — the whole audio layer, built on sounds that ship INSIDE the
+		Roblox client (`rbxasset://sounds/*`). No upload, no moderation queue, and
+		nothing here can 404 or be taken down, which is the same contract every
+		other asset in this project honours.
+
+		Three rules drive the shape of this file, and all three are failure modes
+		rather than preferences:
+
+		  * **Never `Instance.new` a Sound per event.** Around 400 live Sound
+		    instances is where audio/video desync starts, and ten plots dropping a
+		    Tung every 0.4s reach that inside a minute. Every sound name owns a
+		    fixed pool of `Config.Sound.PoolSize` instances handed out round-robin;
+		    the 9th overlapping play steals the oldest slot instead of allocating.
+		  * **Server-side sound spam can take a 20-player server down.** Anything
+		    the client can play for itself, it plays for itself — the server never
+		    broadcasts audio it does not have to.
+		  * **Everything goes through one SoundGroup.** "There is no way to turn
+		    the sound off" is a recurring playtest complaint, and with a group the
+		    fix is one property write.
+
+		Gated on `Config.Prototypes.Sound`: with the flag off every entry point
+		returns nil before touching a single instance, so a shipping build is
+		byte-for-byte the audio it has today.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+
+	local RunService = game:GetService("RunService")
+	local SoundService = game:GetService("SoundService")
+
+	local Sound = {}
+
+	local CFG = Config.Sound
+	local GROUP_NAME = "TungSfx"
+	local ANCHOR_FOLDER = "TungSfxAnchors"
+
+	local IS_SERVER = RunService:IsServer()
+
+	export type PlayOptions = {
+		pitch: number?,       -- multiplies the resolved playback speed
+		volume: number?,
+		combo: number?,       -- pitch-stacks: 1 + combo * PitchPerCombo, clamped
+		rollOff: number?,     -- override RollOffMaxDistance for one play
+		looped: boolean?,
+	}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- lazily-built plumbing
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local group: SoundGroup? = nil
+	local groupVolume = 1
+
+	--- One group for every sound in the game. Found-or-created rather than always
+	--- created: the server's group replicates, so a client that arrives late must
+	--- adopt the existing one instead of stacking a second.
+	local function soundGroup(): SoundGroup
+		if group and group.Parent then
+			return group :: SoundGroup
+		end
+		local existing = SoundService:FindFirstChild(GROUP_NAME)
+		if existing and existing:IsA("SoundGroup") then
+			group = existing :: SoundGroup
+		else
+			local made = Instance.new("SoundGroup")
+			made.Name = GROUP_NAME
+			made.Volume = groupVolume
+			made.Parent = SoundService
+			group = made
+		end
+		return group :: SoundGroup
+	end
+
+	local anchorFolder: Folder? = nil
+
+	local function anchors(): Folder
+		if anchorFolder and anchorFolder.Parent then
+			return anchorFolder :: Folder
+		end
+		local existing = workspace:FindFirstChild(ANCHOR_FOLDER)
+		if existing then
+			anchorFolder = existing :: Folder
+		else
+			local made = Instance.new("Folder")
+			made.Name = ANCHOR_FOLDER
+			made.Parent = workspace
+			anchorFolder = made
+		end
+		return anchorFolder :: Folder
+	end
+
+	--- A pooled positional sound needs somewhere permanent to live. Parenting it
+	--- to the thing that made the noise looks obvious and is wrong: a drop being
+	--- collected destroys its children, so the pool would quietly decay back into
+	--- allocate-per-drop. Each slot owns a 0.2-stud invisible anchor we teleport
+	--- to the emitter instead.
+	local function newAnchor(): BasePart
+		local part = Instance.new("Part")
+		part.Name = "SfxAnchor"
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.CastShadow = false
+		part.Locked = true
+		part.Transparency = 1
+		part.Size = Vector3.one * 0.2
+		part.Parent = anchors()
+		return part
+	end
+
+	type Slot = { sound: Sound, anchor: BasePart? }
+	type Pool = { slots: { Slot }, cursor: number, lastPlay: number }
+
+	local pools: { [string]: Pool } = {}
+	local warned: { [string]: boolean } = {}
+
+	local function buildPool(name: string, assetId: string, positional: boolean): Pool
+		local pool: Pool = { slots = {}, cursor = 0, lastPlay = -math.huge }
+		for i = 1, math.max(1, CFG.PoolSize) do
+			local sound = Instance.new("Sound")
+			sound.Name = ("%s_%d"):format(name, i)
+			sound.SoundId = assetId
+			sound.SoundGroup = soundGroup()
+			sound.Volume = 0.5
+			if positional then
+				local anchor = newAnchor()
+				-- RollOffMaxDistance is the whole reason a neighbour's factory
+				-- does not blare across the ring: a plot is ~120 studs wide and
+				-- the gap between plots is 44, so 60 studs dies out at the fence.
+				sound.RollOffMode = Enum.RollOffMode.InverseTapered
+				sound.RollOffMinDistance = 8
+				sound.RollOffMaxDistance = CFG.RollOffMaxDistance
+				sound.Parent = anchor
+				table.insert(pool.slots, { sound = sound, anchor = anchor })
+			else
+				-- parented to a non-BasePart, a Sound is 2D and plays at full
+				-- volume wherever the listener is — which is what UI wants
+				sound.Parent = SoundService
+				table.insert(pool.slots, { sound = sound })
+			end
+		end
+		return pool
+	end
+
+	--- Round-robin, with the repeat-rate guard applied per sound NAME. Two drops
+	--- landing in the same frame is one audible "tung", not two stacked into a
+	--- clipped mush — and the guard is what stops a ten-plot server machine-gunning
+	--- the same 40ms sample.
+	---
+	--- os.clock() here, not os.time(): this is a sub-second monotonic timer, and
+	--- os.time() has 1-second resolution which would silence everything.
+	local function acquire(name: string, positional: boolean): Slot?
+		local assetId = CFG.Library[name]
+		if not assetId then
+			if not warned[name] then
+				warned[name] = true
+				warn(("[Tung] no sound named %q in Config.Sound.Library"):format(name))
+			end
+			return nil
+		end
+
+		local key = name .. (positional and "@3d" or "@2d")
+		local pool = pools[key]
+		if not pool then
+			pool = buildPool(name, assetId, positional)
+			pools[key] = pool
+		end
+
+		local now = os.clock()
+		if now - pool.lastPlay < CFG.MinRepeatSeconds then
+			return nil
+		end
+		pool.lastPlay = now
+
+		pool.cursor = (pool.cursor % #pool.slots) + 1
+		return pool.slots[pool.cursor]
+	end
+
+	--- `PlaybackSpeed = min(1 + combo * PitchPerCombo, MaxPitch)` — the combo
+	--- pitch-stack. Rising pitch on a repeated hit is the single cheapest way to
+	--- make one stock sample read as a streak instead of a stutter.
+	function Sound.comboPitch(combo: number?): number
+		return math.min(1 + (combo or 0) * CFG.PitchPerCombo, CFG.MaxPitch)
+	end
+
+	local function resolvePitch(opts: PlayOptions?): number
+		local speed = (opts and opts.pitch) or 1
+		if opts and opts.combo then
+			speed *= Sound.comboPitch(opts.combo)
+		end
+		return math.clamp(speed, 0.2, CFG.MaxPitch)
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- public
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- 2D one-shot: UI clicks, stings, anything that is not happening at a place.
+	--- On the client this goes through `PlayLocalSound`, which never replicates and
+	--- never asks the server for anything.
+	function Sound.play(name: string, opts: PlayOptions?): Sound?
+		if not Config.Prototypes.Sound then
+			return nil
+		end
+		local slot = acquire(name, false)
+		if not slot then
+			return nil
+		end
+
+		local sound = slot.sound
+		sound.PlaybackSpeed = resolvePitch(opts)
+		sound.Volume = (opts and opts.volume) or 0.5
+		sound.Looped = (opts and opts.looped) or false
+
+		if IS_SERVER then
+			sound:Play()
+		else
+			SoundService:PlayLocalSound(sound)
+		end
+		return sound
+	end
+
+	--- Positional one-shot at a part or a raw position.
+	---
+	--- Called from the server this replicates a *bounded* number of instances
+	--- (PoolSize per name for the whole server), which is the point: the shipped
+	--- code allocates one Sound per drop and lets Debris clean up after it.
+	function Sound.playAt(name: string, where: any, opts: PlayOptions?): Sound?
+		if not Config.Prototypes.Sound then
+			return nil
+		end
+
+		local position: Vector3?
+		if typeof(where) == "Vector3" then
+			position = where
+		elseif typeof(where) == "Instance" and where:IsA("BasePart") then
+			position = where.Position
+		elseif typeof(where) == "CFrame" then
+			position = where.Position
+		end
+		if not position then
+			return nil
+		end
+
+		local slot = acquire(name, true)
+		if not slot or not slot.anchor then
+			return nil
+		end
+
+		local anchor = slot.anchor :: BasePart
+		anchor.CFrame = CFrame.new(position)
+
+		local sound = slot.sound
+		sound.PlaybackSpeed = resolvePitch(opts)
+		sound.Volume = (opts and opts.volume) or 0.5
+		sound.Looped = (opts and opts.looped) or false
+		sound.RollOffMaxDistance = (opts and opts.rollOff) or CFG.RollOffMaxDistance
+		sound:Play()
+		return sound
+	end
+
+	--- The mute toggle a HUD checkbox would drive. Volume rather than
+	--- SoundGroup.Parent = nil so a muted group still tracks playback position.
+	function Sound.setVolume(volume: number)
+		groupVolume = math.clamp(volume, 0, 1)
+		if Config.Prototypes.Sound then
+			soundGroup().Volume = groupVolume
+		end
+	end
+
+	function Sound.setMuted(muted: boolean)
+		Sound.setVolume(muted and 0 or 1)
+	end
+
+	function Sound.group(): SoundGroup?
+		if not Config.Prototypes.Sound then
+			return nil
+		end
+		return soundGroup()
+	end
+
+	--- Warms every pool up front so the first drop of the session is not the one
+	--- that pays for eight instantiations. Safe to call more than once.
+	function Sound.preload(positional: boolean?)
+		if not Config.Prototypes.Sound then
+			return
+		end
+		for name, assetId in pairs(CFG.Library) do
+			local wants3d = positional ~= false
+			local key = name .. (wants3d and "@3d" or "@2d")
+			if not pools[key] then
+				pools[key] = buildPool(name, assetId, wants3d)
+			end
+		end
+	end
+
+	return Sound
+end
+
+
+__MODULES["SwingAnim"] = function()
+	--[[
+		SwingAnim.lua — procedural melee swings that move the CHARACTER, not just
+		the bat.
+
+		The old swing tweened Tool.Grip, which is the offset of the engine's
+		RightGrip weld. That rotates the bat inside a motionless hand: the arm, the
+		shoulders and the torso never moved, so a "swing" read as the bat pivoting
+		in mid-air. This drives the rig itself.
+
+		WHY NOT AN AnimationTrack? Roblox animations are uploaded assets. This game
+		has zero uploads by design (see README), and an animation asset would also
+		have to be authored twice, once per rig type. Writing the joints directly
+		costs one bound render step and works on R6 and R15 from the same pose data.
+
+		THE THREE THINGS THAT MAKE THIS WORK
+		  1. We write Motor6D.Transform, not C0. Transform is the channel the
+		     Animator itself writes into every frame, so setting it replaces the
+		     playing animation's contribution for that joint and leaves the rig's
+		     rest pose (C0/C1) untouched. Stop writing and Roblox's own Animate
+		     script takes the limb straight back over.
+		  2. We bind AFTER Enum.RenderPriority.Character. That is the point in the
+		     frame where character animations are applied; anything written before
+		     it is overwritten in the same frame.
+		  3. Poses are expressed in TORSO space, not joint space, and converted per
+		     joint by conjugating with that joint's own C0 rotation:
+
+		         Transform = C0.Rotation:Inverse() * Q * C0.Rotation
+
+		     R6 and R15 bake completely different rotations into their shoulder C0s,
+		     so a raw joint-space angle that raises an R15 arm forwards swings an R6
+		     arm out sideways. Conjugating makes "rotate the arm 90 degrees about
+		     the torso's X axis" mean the same thing on both rigs, and means this
+		     file never has to know a single rig convention.
+
+		This module runs on the CLIENT ONLY. Motor6D.Transform is not replicated, so
+		every client plays every swing locally: the attacker predicts their own on
+		Tool.Activated and everyone else plays it from the SwingFx broadcast.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+
+	local RunService = game:GetService("RunService")
+
+	local SwingAnim = {}
+
+	local ZERO = Vector3.new(0, 0, 0)
+
+	--- Poses are torso-space Euler angles in DEGREES: (pitch, yaw, roll).
+	---
+	--- The arms hang along -Y at rest and the character faces -Z, so:
+	---   pitch +90  = arm straight forward       pitch +180 = arm straight up
+	---   roll  +90  = right arm out to the side  roll  -90  = across the body
+	---   yaw        = twist
+	---
+	--- Choreography lives here rather than in Config because these are drawings,
+	--- not balance. The timings that damage depends on ARE in Config.
+	local function P(arm: Vector3, offArm: Vector3?, torso: Vector3?)
+		return { arm = arm, offArm = offArm or ZERO, torso = torso or ZERO }
+	end
+
+	--- One entry per step of the combo. `Config.Combat.SwingSteps` (which is
+	--- ComboMaxStacks + 1, because stack 0 is the first swing of a chain) selects
+	--- among these. Alternating the direction is what makes a chain read as a combo
+	--- instead of as the same swing played four times.
+	SwingAnim.SWINGS = {
+		{   -- 1. overhead diagonal, right shoulder down to left hip
+			name = "diagonal",
+			windUp = P(Vector3.new(158, 0, 34), Vector3.new(24, 0, -18), Vector3.new(0, -32, 0)),
+			strike = P(Vector3.new(52, 0, -42), Vector3.new(38, 0, 16), Vector3.new(6, 28, 0)),
+		},
+		{   -- 2. backhand, low left sweeping up to the right
+			name = "backhand",
+			windUp = P(Vector3.new(44, 0, -72), Vector3.new(20, 0, 14), Vector3.new(0, 34, 0)),
+			strike = P(Vector3.new(104, 0, 58), Vector3.new(34, 0, -12), Vector3.new(-4, -30, 0)),
+		},
+		{   -- 3. flat horizontal sweep across the body
+			name = "sweep",
+			windUp = P(Vector3.new(96, 0, 74), Vector3.new(28, 0, 10), Vector3.new(0, -40, 0)),
+			strike = P(Vector3.new(92, 0, -66), Vector3.new(46, 0, -20), Vector3.new(0, 38, 0)),
+		},
+		{   -- 4. two-handed overhead slam; the combo finisher
+			name = "slam",
+			windUp = P(Vector3.new(176, 0, 12), Vector3.new(170, 0, -12), Vector3.new(-18, 0, 0)),
+			strike = P(Vector3.new(26, 0, -6), Vector3.new(32, 0, 6), Vector3.new(26, 0, 0)),
+		},
+	}
+
+	-- The server times its hitbox off the same two numbers, so they live in Config
+	-- rather than here. If they drift apart, damage stops landing when the bat
+	-- looks like it connects.
+	assert(#SwingAnim.SWINGS == Config.Combat.SwingSteps,
+		"SwingAnim.SWINGS and Config.Combat.SwingSteps disagree; the combo would repeat a swing")
+
+	local active: { [Model]: any } = {}
+	local bound = false
+
+	local function angles(v: Vector3): CFrame
+		return CFrame.Angles(math.rad(v.X), math.rad(v.Y), math.rad(v.Z))
+	end
+
+	--- The rig's joints, found once per swing. Named by ROLE, not by rig: `arm` is
+	--- whichever joint swings the weapon, `torso` is whichever one twists the upper
+	--- body relative to the root.
+	local function jointsFor(character: Model)
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if not humanoid then
+			return nil
+		end
+
+		if humanoid.RigType == Enum.HumanoidRigType.R6 then
+			local torso = character:FindFirstChild("Torso")
+			local rootPart = character:FindFirstChild("HumanoidRootPart")
+			if not torso or not rootPart then
+				return nil
+			end
+			return {
+				arm = torso:FindFirstChild("Right Shoulder"),
+				offArm = torso:FindFirstChild("Left Shoulder"),
+				-- R6 has no waist. RootJoint is the closest thing, but it is NOT
+				-- equivalent to R15's Waist: every R6 limb joint hangs off the
+				-- Torso, so a rotation here carries the arms, legs and head with
+				-- it and the character bodily leans rather than twisting at the
+				-- middle. Yaw only, and damped — that reads as a shoulder turn,
+				-- where the raw pose would swing the feet.
+				torso = rootPart:FindFirstChild("RootJoint"),
+				torsoGain = Vector3.new(0, 0.45, 0),
+			}
+		end
+
+		local rightUpperArm = character:FindFirstChild("RightUpperArm")
+		local leftUpperArm = character:FindFirstChild("LeftUpperArm")
+		local upperTorso = character:FindFirstChild("UpperTorso")
+		return {
+			arm = rightUpperArm and rightUpperArm:FindFirstChild("RightShoulder"),
+			offArm = leftUpperArm and leftUpperArm:FindFirstChild("LeftShoulder"),
+			-- R15's Waist joins LowerTorso to UpperTorso, so the legs stay put
+			torso = upperTorso and upperTorso:FindFirstChild("Waist"),
+			torsoGain = Vector3.new(1, 1, 1),
+		}
+	end
+
+	--- Apply a torso-space rotation to a joint. See the header: conjugating by the
+	--- joint's own C0 rotation is what makes one set of angles work on both rigs.
+	local function applyJoint(joint: Motor6D?, rotation: Vector3, weight: number)
+		if not joint or not joint.Parent then
+			return
+		end
+		local target = angles(rotation)
+		if weight < 1 then
+			target = CFrame.identity:Lerp(target, weight)
+		end
+		local basis = joint.C0.Rotation
+		joint.Transform = basis:Inverse() * target * basis
+	end
+
+	local function lerpPose(a, b, alpha: number)
+		return {
+			arm = a.arm:Lerp(b.arm, alpha),
+			offArm = a.offArm:Lerp(b.offArm, alpha),
+			torso = a.torso:Lerp(b.torso, alpha),
+		}
+	end
+
+	local REST = P(ZERO, ZERO, ZERO)
+
+	--- Where the rig should be, `t` seconds into a swing of length `duration`.
+	--- Returns the pose plus a blend weight that fades the whole thing in over the
+	--- first few frames and out over the tail, so nothing pops when Roblox's own
+	--- animation takes the limbs back.
+	local function evaluate(swing, t: number, duration: number)
+		local f = math.clamp(t / duration, 0, 1)
+		local windUpEnd = Config.Combat.SwingWindUp
+		local strikeEnd = Config.Combat.SwingStrikeAt
+
+		local pose
+		if f < windUpEnd then
+			-- decelerating into the top of the wind-up
+			local a = f / windUpEnd
+			pose = lerpPose(REST, swing.windUp, 1 - (1 - a) * (1 - a))
+		elseif f < strikeEnd then
+			-- accelerating through the strike: this is the fast part
+			local a = (f - windUpEnd) / (strikeEnd - windUpEnd)
+			pose = lerpPose(swing.windUp, swing.strike, a * a)
+		else
+			local a = (f - strikeEnd) / (1 - strikeEnd)
+			pose = lerpPose(swing.strike, REST, 1 - (1 - a) * (1 - a))
+		end
+
+		-- ease in over 60ms, ease out over the last 25% of the swing
+		local weight = math.min(1, t / 0.06)
+		if f > 0.75 then
+			weight = math.min(weight, (1 - f) / 0.25)
+		end
+		return pose, weight
+	end
+
+	--- Start (or restart) a swing on `character`.
+	function SwingAnim.play(character: Model?, comboIndex: number, duration: number)
+		if not character or not character.Parent then
+			return
+		end
+		local swing = SwingAnim.SWINGS[((comboIndex - 1) % #SwingAnim.SWINGS) + 1]
+		if not swing then
+			return
+		end
+		active[character] = {
+			swing = swing,
+			joints = jointsFor(character),
+			elapsed = 0,
+			duration = math.max(0.15, duration),
+			freeze = 0,
+		}
+	end
+
+	--- Freeze the pose for a moment. Called on a landed hit: stopping the arc dead
+	--- for two or three frames is most of what makes a hit feel like it connected
+	--- with something solid rather than passing through it.
+	function SwingAnim.hitStop(character: Model?, seconds: number?)
+		local entry = character and active[character]
+		if entry then
+			entry.freeze = math.max(entry.freeze, seconds or 0.07)
+		end
+	end
+
+	function SwingAnim.stop(character: Model?)
+		if character then
+			active[character] = nil
+		end
+	end
+
+	local function step(dt: number)
+		for character, entry in pairs(active) do
+			if not character.Parent then
+				active[character] = nil
+			else
+				if entry.freeze > 0 then
+					entry.freeze -= dt
+				else
+					entry.elapsed += dt
+				end
+
+				if entry.elapsed >= entry.duration then
+					active[character] = nil
+				else
+					local joints = entry.joints
+					if not joints or not joints.arm or not joints.arm.Parent then
+						-- the character can respawn mid-swing
+						joints = jointsFor(character)
+						entry.joints = joints
+					end
+					if joints then
+						local pose, weight = evaluate(entry.swing, entry.elapsed, entry.duration)
+						applyJoint(joints.arm, pose.arm, weight)
+						applyJoint(joints.offArm, pose.offArm, weight)
+						applyJoint(joints.torso, pose.torso * (joints.torsoGain or ZERO), weight * 0.8)
+					end
+				end
+			end
+		end
+	end
+
+	function SwingAnim.start()
+		if bound then
+			return
+		end
+		bound = true
+		-- Enum.RenderPriority.Character is where the engine applies character
+		-- animation. Bind before it and every write is overwritten the same frame.
+		RunService:BindToRenderStep("TungSwingAnim", Enum.RenderPriority.Character.Value + 1, step)
+	end
+
+	return SwingAnim
 end
 
 
@@ -1188,23 +2066,34 @@ __MODULES["TungModels"] = function()
 		face.Transparency = 1
 		TungModels.paintFace(face, v, o.mood)
 
-		-- arms
-		for i, sign in ipairs({ -1, 1 }) do
+		-- Arms. The RIGHT one — the one holding the bat — is built into its own
+		-- sub-model so it can hang off a Motor6D instead of being welded rigidly to
+		-- the body. Without that joint there is no way to raise a raider's bat:
+		-- the R6 rig underneath is entirely invisible, so animating its shoulder
+		-- rotates a stick nobody can see.
+		local rightArm = Instance.new("Model")
+		rightArm.Name = "RightArm"
+		rightArm.Parent = model
+
+		local shoulderCF, armRoot
+		for _, sign in ipairs({ -1, 1 }) do
+			local parent = (sign > 0) and rightArm or model
 			local shoulder = origin * CFrame.new(sign * 0.72 * s, 1.15 * s, 0) * CFrame.Angles(0, 0, math.rad(sign * -34))
-			local arm = cylinder(model, "Arm" .. i, 1.30 * s, 0.22 * s, shoulder * CFrame.new(0, -0.55 * s, 0),
+			local arm = cylinder(parent, "Arm", 1.30 * s, 0.22 * s, shoulder * CFrame.new(0, -0.55 * s, 0),
 				Color3.fromRGB(232, 214, 186), Enum.Material.SmoothPlastic)
 			arm.Name = (sign < 0) and "ArmLeft" or "ArmRight"
-			local hand = ball(model, (sign < 0) and "HandLeft" or "HandRight", 0.34 * s,
+			local hand = ball(parent, "Hand", 0.34 * s,
 				shoulder * CFrame.new(0, -1.25 * s, 0), Color3.fromRGB(240, 226, 200), Enum.Material.SmoothPlastic)
 			hand.Name = (sign < 0) and "HandLeft" or "HandRight"
-		end
 
-		-- little held bat
-		if o.holdBat ~= false then
-			local hand = model:FindFirstChild("HandRight") :: BasePart
-			if hand then
-				local grip = CFrame.new(hand.Position) * CFrame.Angles(math.rad(-58), 0, math.rad(-18))
-				TungModels.buildBatBody(model, variantName, 0.34 * (o.scale or 1), grip * CFrame.new(0, 0.55 * s, 0))
+			if sign > 0 then
+				shoulderCF = shoulder
+				armRoot = arm
+				-- the held bat rides with the arm, so it goes in the same sub-model
+				if o.holdBat ~= false then
+					local grip = CFrame.new(hand.Position) * CFrame.Angles(math.rad(-58), 0, math.rad(-18))
+					TungModels.buildBatBody(rightArm, variantName, 0.34 * (o.scale or 1), grip * CFrame.new(0, 0.55 * s, 0))
+				end
 			end
 		end
 
@@ -1213,12 +2102,28 @@ __MODULES["TungModels"] = function()
 			Fx.applyVariant(barrel, v)
 		end
 
-		-- assemble
+		-- Assemble. Everything is welded rigidly to the core except the right arm,
+		-- whose parts weld to each other and then join the body on one Motor6D —
+		-- the only articulated joint on the visible model.
 		for _, p in ipairs(model:GetDescendants()) do
-			if p:IsA("BasePart") and p ~= core then
+			if p:IsA("BasePart") and p ~= core and p ~= armRoot then
 				p.Anchored = true
-				Util.weld(core, p)
+				Util.weld(p:IsDescendantOf(rightArm) and armRoot or core, p)
 			end
+		end
+
+		if armRoot then
+			armRoot.Anchored = true
+			local joint = Instance.new("Motor6D")
+			joint.Name = "TungArm"
+			joint.Part0 = core
+			joint.Part1 = armRoot
+			-- Pivot at the shoulder. Both C-frames are expressed relative to the
+			-- same world point, so an identity Transform reproduces the pose the
+			-- parts were built in.
+			joint.C0 = core.CFrame:Inverse() * shoulderCF
+			joint.C1 = armRoot.CFrame:Inverse() * shoulderCF
+			joint.Parent = core
 		end
 
 		if not o.anchored then
@@ -1426,6 +2331,11 @@ __MODULES["TungModels"] = function()
 		tool.RequiresHandle = true
 		tool.CanBeDropped = false
 		tool.ToolTip = ("%d dmg  •  click to swing"):format(batDef.damage)
+		-- Held like a sword rather than straight up out of the fist: the grip drops
+		-- the bat into the palm and cants it forward so the barrel reads as a blade
+		-- you're about to swing. Grip is the offset of the engine's RightGrip weld,
+		-- so this is a pose, not an animation, and it costs nothing.
+		tool.Grip = CFrame.new(0, -0.15, 0.1) * CFrame.Angles(math.rad(-18), 0, math.rad(-8))
 
 		local handle = Instance.new("Part")
 		handle.Name = "Handle"
@@ -1646,6 +2556,116 @@ __MODULES["Util"] = function()
 end
 
 
+__MODULES["Utilities"] = function()
+	--[[
+		Utilities.lua — shared maths and lookups for the two player-progression
+		prototypes: the upgrade shop (Config.PlayerUpgrades) and the utility slot
+		(Config.Utilities).
+
+		Why one module for both: the server prices a purchase and the client draws
+		the price, and if those two ever disagree the shop shows a number you can't
+		actually buy at. Every formula the UI needs lives here so there is exactly
+		one copy of it, and the server treats its own result as the authority.
+
+		Pure data + maths only — no Instances, no remotes, so it is safe on both
+		sides of the wire.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+
+	local Utilities = {}
+
+	export type UpgradeDef = {
+		id: string, name: string, stat: string, levels: number,
+		base: number, perLevel: number, cost: number, costGrowth: number,
+		blurb: string,
+	}
+
+	export type UtilityDef = {
+		id: string, name: string, verb: string,
+		duration: number, cooldown: number, price: number, requires: string,
+	}
+
+	-- Config ships the two tables as arrays; index them once here rather than
+	-- looping over four entries on every remote call.
+	Utilities.UpgradeById = {} :: { [string]: UpgradeDef }
+	for _, def in ipairs(Config.PlayerUpgrades) do
+		Utilities.UpgradeById[def.id] = def
+	end
+
+	Utilities.UtilityById = {} :: { [string]: UtilityDef }
+	for _, def in ipairs(Config.Utilities) do
+		Utilities.UtilityById[def.id] = def
+	end
+
+	--- The value of an upgrade's stat at `level` (level 0 = unpurchased).
+	function Utilities.valueAt(def, level: number): number
+		return def.base + def.perLevel * math.clamp(level, 0, def.levels)
+	end
+
+	--- What the NEXT level costs, or nil at max. Geometric, per IDEAS.md §7:
+	--- x4–6 per tier for a ~7-level premium stat.
+	function Utilities.costAt(def, level: number): number?
+		if level >= def.levels then
+			return nil
+		end
+		return math.floor(def.cost * (def.costGrowth ^ level))
+	end
+
+	--- Trims trailing zeros so "23.10 studs/sec" reads as "23.1 studs/sec" without
+	--- turning the payout multiplier into a bare "x1".
+	function Utilities.formatValue(value: number): string
+		if value == math.floor(value) then
+			return tostring(math.floor(value))
+		end
+		local s = ("%.2f"):format(value)
+		s = s:gsub("0$", "")
+		return s
+	end
+
+	--- The blurb with the current stat value substituted in. Some blurbs (the
+	--- autocollect toggle) have no placeholder, hence the find().
+	function Utilities.describe(def, level: number): string
+		if not def.blurb:find("%%s") then
+			return def.blurb
+		end
+		return def.blurb:format(Utilities.formatValue(Utilities.valueAt(def, level)))
+	end
+
+	--- What each verb actually does, for the shop row. Config.Utilities carries a
+	--- verb and a duration but no player-facing description, and the wording has
+	--- to match what UpgradeService's implementation really does — so it lives
+	--- next to the maths rather than in the UI, where it would be one more thing
+	--- that can quietly stop being true.
+	local VERB_BLURB = {
+		freeze = "Roots nearby raiders for %ds. They can still swing.",
+		shove = "Heavy knockback on everything nearby. No damage.",
+		decoy = "Drops a decoy for %ds. PROTOTYPE: raiders ignore it.",
+	}
+
+	function Utilities.verbBlurb(def): string
+		local blurb = VERB_BLURB[def.verb] or ("%s nearby."):format(def.verb)
+		if blurb:find("%%d") then
+			return blurb:format(def.duration)
+		end
+		return blurb
+	end
+
+	--- Utilities are one-shot purchases, so their "level" is 0 or 1 and their cost
+	--- is flat. Expressed through the same two functions as the upgrades so the
+	--- shop UI can draw both kinds of row with one code path.
+	function Utilities.utilityCostAt(def, level: number): number?
+		if level >= 1 then
+			return nil
+		end
+		return def.price
+	end
+
+	return Utilities
+end
+
+
 __MODULES["CombatClient"] = function()
 	--[[
 		CombatClient.lua — local feel for combat: hitmarkers, camera shake and
@@ -1654,8 +2674,10 @@ __MODULES["CombatClient"] = function()
 	]]
 
 	local Req = __Req
+	local Config = Req("Config")
 	local Net = Req("Net")
 	local HUD = Req("HUD")
+	local SwingAnim = Req("SwingAnim")
 
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
@@ -1696,6 +2718,80 @@ __MODULES["CombatClient"] = function()
 		return marker
 	end
 
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- swings
+	--
+	-- The server is still the only thing that decides whether a swing HIT. All we
+	-- do here is draw it, and draw our own immediately instead of waiting for the
+	-- round trip — a wind-up that starts 100ms after the click feels broken even
+	-- though the damage timing is identical.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local localSwing = { at = 0, combo = 0 }
+
+	--- Mirrors the server's combo bookkeeping in CombatService.swing. A drifted
+	--- prediction only ever picks the wrong swing ANIMATION, never the wrong
+	--- damage, so it is allowed to be approximate.
+	local function predictSwing(tool: Tool)
+		local now = os.clock()
+		local cooldown = tool:GetAttribute("Cooldown") or 0.55
+		if now - localSwing.at < cooldown then
+			return
+		end
+		if now - localSwing.at <= Config.Combat.ComboWindow then
+			localSwing.combo = (localSwing.combo + 1) % (Config.Combat.ComboMaxStacks + 1)
+		else
+			localSwing.combo = 0
+		end
+		localSwing.at = now
+		SwingAnim.play(player.Character, localSwing.combo + 1, cooldown)
+	end
+
+	local watched: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
+	local function watchTool(tool: Instance)
+		-- A tool moves Backpack -> Character on equip and back on unequip, so it
+		-- turns up in ChildAdded on both containers. Connect once.
+		if watched[tool] or not tool:IsA("Tool") or not tool:GetAttribute("BatId") then
+			return
+		end
+		watched[tool] = true
+		tool.Activated:Connect(function()
+			predictSwing(tool)
+		end)
+	end
+
+	--- Bats are handed out by the server into the Backpack, and moved into the
+	--- character on equip, so watch both containers and everything already in them.
+	local function watchBats()
+		local function attach(container: Instance?)
+			if not container then
+				return
+			end
+			container.ChildAdded:Connect(watchTool)
+			for _, child in ipairs(container:GetChildren()) do
+				watchTool(child)
+			end
+		end
+
+		attach(player:FindFirstChildOfClass("Backpack"))
+		player.ChildAdded:Connect(function(child)
+			if child:IsA("Backpack") then
+				attach(child)
+			end
+		end)
+
+		local function onCharacter(character: Model)
+			SwingAnim.stop(character)
+			localSwing.combo = 0
+			attach(character)
+		end
+		if player.Character then
+			onCharacter(player.Character)
+		end
+		player.CharacterAdded:Connect(onCharacter)
+	end
+
 	function CombatClient.start()
 		local gui = HUD.screenGui()
 		if not gui then
@@ -1710,10 +2806,33 @@ __MODULES["CombatClient"] = function()
 			hideAt = os.clock() + 0.16
 			for _, tick in ipairs(marker:GetChildren()) do
 				if tick:IsA("Frame") then
-					tick.BackgroundColor3 = payload.killed and Color3.fromRGB(255, 120, 90) or Color3.fromRGB(255, 245, 200)
+					tick.BackgroundColor3 = payload.killed and Color3.fromRGB(255, 120, 90)
+						or payload.crit and Color3.fromRGB(255, 190, 90)
+						or Color3.fromRGB(255, 245, 200)
 				end
 			end
-			shake = math.min(shake + (payload.killed and 1.1 or 0.55), 2)
+			shake = math.min(shake + (payload.killed and 1.1 or payload.crit and 0.85 or 0.55), 2)
+			-- Stopping the arc dead for two or three frames is most of what makes a
+			-- hit feel like it connected with something solid.
+			SwingAnim.hitStop(player.Character, Config.Combat.HitStop)
+		end)
+
+		-- Everyone else's swings. Motor6D.Transform is a local visual, so each
+		-- client draws every character's swing itself; skip our own, which we
+		-- already predicted on Tool.Activated.
+		Net.event("SwingFx").OnClientEvent:Connect(function(payload)
+			if typeof(payload) ~= "table" or not payload.character then
+				return
+			end
+			-- Skip our own swing only if we really did predict it. The two cooldown
+			-- gates run on different clocks, so a pair of clicks near the boundary
+			-- can be refused locally and accepted by the server — and an
+			-- unconditional skip would leave the attacker dealing damage with no
+			-- swing drawn at all.
+			if payload.character == player.Character and (os.clock() - localSwing.at) < 0.3 then
+				return
+			end
+			SwingAnim.play(payload.character, payload.combo or 1, payload.duration or 0.5)
 		end)
 
 		-- knockback is applied here, not on the server: this client owns its own
@@ -1753,7 +2872,11 @@ __MODULES["CombatClient"] = function()
 
 		-- No custom swing button and no auto-equip: the bat is a plain Tool, so
 		-- Roblox's built-in hotbar equips it and its built-in activation (click,
-		-- tap, or the mobile fire button) triggers Tool.Activated for us.
+		-- tap, or the mobile fire button) triggers Tool.Activated for us — on the
+		-- client as well as on the server, which is what makes local prediction
+		-- free rather than something we'd have to send a remote for.
+		SwingAnim.start()
+		watchBats()
 	end
 
 	return CombatClient
@@ -1813,7 +2936,7 @@ __MODULES["HUD"] = function()
 		rebirthCost = Config.Rebirth.BaseCost,
 	}
 
-	local gui, cashLabel, multLabel, waveFrame, waveLabel, toastList, nextLabel, rebirthButton
+	local gui, cashLabel, multLabel, waveFrame, waveLabel, toastList, nextLabel, nextDetail, rebirthButton
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- builders
@@ -1927,7 +3050,7 @@ __MODULES["HUD"] = function()
 	end
 
 	local function buildNextPanel(root)
-		local frame = panel(root, UDim2.fromOffset(280, 64), UDim2.fromOffset(18, 124))
+		local frame = panel(root, UDim2.fromOffset(280, 74), UDim2.fromOffset(18, 124))
 		frame.Name = "NextUp"
 
 		text(frame, {
@@ -1940,12 +3063,24 @@ __MODULES["HUD"] = function()
 		})
 
 		nextLabel = text(frame, {
-			Size = UDim2.fromOffset(252, 30),
-			Position = UDim2.fromOffset(14, 26),
+			Size = UDim2.fromOffset(252, 26),
+			Position = UDim2.fromOffset(14, 24),
 			Font = Enum.Font.FredokaOne,
 			Text = "Tung Dropper — 50",
 			TextSize = 18,
 			TextColor3 = PALETTE.text,
+		})
+
+		-- The gap to the next purchase, and how far through the build you are. A
+		-- price on its own doesn't tell you whether to keep grinding or go and
+		-- fight a wave for the bounty.
+		nextDetail = text(frame, {
+			Size = UDim2.fromOffset(252, 18),
+			Position = UDim2.fromOffset(14, 48),
+			Font = Enum.Font.GothamMedium,
+			Text = "",
+			TextSize = 13,
+			TextColor3 = PALETTE.muted,
 		})
 
 		return frame
@@ -2186,14 +3321,28 @@ __MODULES["HUD"] = function()
 			state.multiplier, state.rebirths, state.rebirths == 1 and "" or "s",
 			state.kills, state.kills == 1 and "" or "s")
 
+		local owned = 0
+		for _, def in ipairs(Config.Buttons) do
+			if state.owned[def.id] then
+				owned += 1
+			end
+		end
+
 		local next_ = cheapestAvailable()
 		if next_ then
 			local affordable = state.cash >= next_.price
 			nextLabel.Text = ("%s — %s"):format(next_.name, Util.abbreviate(next_.price))
 			nextLabel.TextColor3 = affordable and PALETTE.good or PALETTE.text
+			nextDetail.Text = affordable
+				and ("step %d of %d  •  affordable now"):format(owned + 1, #Config.Buttons)
+				or ("step %d of %d  •  %s to go"):format(owned + 1, #Config.Buttons,
+					Util.abbreviate(next_.price - state.cash))
+			nextDetail.TextColor3 = affordable and PALETTE.good or PALETTE.muted
 		else
 			nextLabel.Text = "Factory complete. Rebirth?"
 			nextLabel.TextColor3 = PALETTE.accent
+			nextDetail.Text = ("all %d steps built"):format(#Config.Buttons)
+			nextDetail.TextColor3 = PALETTE.muted
 		end
 
 		rebirthButton.Text = ("REBIRTH  %s"):format(Util.abbreviate(state.rebirthCost))
@@ -2269,6 +3418,1213 @@ __MODULES["HUD"] = function()
 end
 
 
+__MODULES["SessionUI"] = function()
+	--[[
+		SessionUI.lua — the welcome-back panel, the daily / playtime claims and the
+		boost button.
+
+		Built into HUD.screenGui() rather than a second ScreenGui so there is one
+		place the game's UI lives, one ZIndex space, and one thing to hide. The
+		palette and the panel/text/button helpers are deliberately re-stated here
+		instead of exported from HUD.lua: this is a prototype, and a prototype that
+		widens another module's public API is a prototype you cannot delete.
+
+		Everything is presentation. The server sends the whole state on the
+		SessionState remote and decides every claim; this file's only outbound
+		messages are "I pressed the button".
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Util = Req("Util")
+	local Net = Req("Net")
+	local HUD = Req("HUD")
+	local Sound = Req("Sound")
+
+	local RunService = game:GetService("RunService")
+	local TweenService = game:GetService("TweenService")
+
+	local SessionUI = {}
+
+	local P = Config.Prototypes
+
+	-- lifted from HUD.lua so the two panels read as one product
+	local PALETTE = {
+		panel   = Color3.fromRGB(22, 18, 32),
+		panel2  = Color3.fromRGB(32, 26, 46),
+		accent  = Color3.fromRGB(190, 130, 255),
+		gold    = Color3.fromRGB(255, 205, 90),
+		good    = Color3.fromRGB(120, 235, 160),
+		bad     = Color3.fromRGB(255, 110, 110),
+		text    = Color3.fromRGB(238, 232, 250),
+		muted   = Color3.fromRGB(160, 150, 180),
+		dead    = Color3.fromRGB(90, 84, 104),
+	}
+
+	local PANEL_X, PANEL_Y, PANEL_W = 18, 210, 280
+
+	local state = {
+		payload = nil :: any,
+		receivedAt = 0,
+	}
+
+	local gui, panel, dailyRow, playtimeRow, boostButton, offlineRow, weekendBadge
+	local playtimeFill, modalOpen = nil, false
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- builders (same shapes as HUD.lua)
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function corner(parent: Instance, radius: number)
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, radius)
+		c.Parent = parent
+		return c
+	end
+
+	local function stroke(parent: Instance, color: Color3, thickness: number?)
+		local s = Instance.new("UIStroke")
+		s.Color = color
+		s.Thickness = thickness or 2
+		s.Transparency = 0.35
+		s.Parent = parent
+		return s
+	end
+
+	local function frame(parent: Instance, size: UDim2, position: UDim2, anchor: Vector2?)
+		local f = Instance.new("Frame")
+		f.Size = size
+		f.Position = position
+		f.AnchorPoint = anchor or Vector2.zero
+		f.BackgroundColor3 = PALETTE.panel
+		f.BackgroundTransparency = 0.12
+		f.BorderSizePixel = 0
+		f.Parent = parent
+		corner(f, 14)
+		stroke(f, PALETTE.accent, 2)
+
+		local gradient = Instance.new("UIGradient")
+		gradient.Color = ColorSequence.new(PALETTE.panel2, PALETTE.panel)
+		gradient.Rotation = 90
+		gradient.Parent = f
+		return f
+	end
+
+	local function text(parent: Instance, props)
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.Font = Enum.Font.GothamBold
+		l.TextColor3 = PALETTE.text
+		l.TextXAlignment = Enum.TextXAlignment.Left
+		l.RichText = true
+		for k, v in pairs(props) do
+			(l :: any)[k] = v
+		end
+		l.Parent = parent
+		return l
+	end
+
+	local function button(parent: Instance, label: string, color: Color3, props)
+		local b = Instance.new("TextButton")
+		b.BackgroundColor3 = color
+		b.BackgroundTransparency = 0.1
+		b.BorderSizePixel = 0
+		b.AutoButtonColor = true
+		b.Font = Enum.Font.FredokaOne
+		b.Text = label
+		b.TextColor3 = Color3.fromRGB(20, 16, 28)
+		b.TextScaled = false
+		b.TextSize = 15
+		for k, v in pairs(props or {}) do
+			(b :: any)[k] = v
+		end
+		b.Parent = parent
+		corner(b, 10)
+		return b
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- formatting
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- "6h 12m" — the welcome-back panel has to say how long you were gone, and a
+	--- raw second count is not an answer to that question.
+	local function describe(seconds: number): string
+		seconds = math.max(0, math.floor(seconds))
+		local days = seconds // 86400
+		local hours = (seconds % 86400) // 3600
+		local minutes = (seconds % 3600) // 60
+		if days > 0 then
+			return ("%dd %dh"):format(days, hours)
+		elseif hours > 0 then
+			return ("%dh %dm"):format(hours, minutes)
+		elseif minutes > 0 then
+			return ("%dm"):format(minutes)
+		end
+		return ("%ds"):format(seconds)
+	end
+
+	--- mm:ss for anything under an hour, h:mm:ss above it
+	local function clockText(seconds: number): string
+		seconds = math.max(0, math.floor(seconds))
+		if seconds >= 3600 then
+			return ("%d:%02d:%02d"):format(seconds // 3600, (seconds % 3600) // 60, seconds % 60)
+		end
+		return ("%d:%02d"):format(seconds // 60, seconds % 60)
+	end
+
+	--- Seconds elapsed since the last server push, so every countdown ticks
+	--- smoothly between pushes instead of stepping once every five seconds.
+	local function elapsed(): number
+		if state.receivedAt == 0 then
+			return 0
+		end
+		return os.clock() - state.receivedAt
+	end
+
+	local function click()
+		Sound.play("ui", { volume = 0.4 })
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- welcome-back modal
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- The panel is half the value of offline earnings, and the claim IS the
+	--- reward: nothing is ever credited silently, so the number counts up in front
+	--- of you and you press the button.
+	function SessionUI.showOfflineModal(offline)
+		if not gui or modalOpen or not offline then
+			return
+		end
+		modalOpen = true
+
+		local shade = Instance.new("Frame")
+		shade.Name = "OfflineModal"
+		shade.Size = UDim2.fromScale(1, 1)
+		shade.BackgroundColor3 = Color3.new(0, 0, 0)
+		shade.BackgroundTransparency = 0.45
+		shade.BorderSizePixel = 0
+		shade.ZIndex = 30
+		shade.Parent = gui
+
+		local card = frame(shade, UDim2.fromOffset(470, 330), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+		card.ZIndex = 31
+		for _, child in ipairs(card:GetDescendants()) do
+			if child:IsA("GuiObject") then
+				child.ZIndex = 31
+			end
+		end
+
+		text(card, {
+			Size = UDim2.fromOffset(430, 34),
+			Position = UDim2.fromOffset(22, 18),
+			Font = Enum.Font.FredokaOne,
+			Text = "WELCOME BACK",
+			TextSize = 28,
+			TextColor3 = PALETTE.accent,
+			ZIndex = 32,
+		})
+
+		text(card, {
+			Size = UDim2.fromOffset(430, 20),
+			Position = UDim2.fromOffset(22, 54),
+			Font = Enum.Font.GothamMedium,
+			Text = ("Away for <b>%s</b> — your factory kept running."):format(describe(offline.seconds)),
+			TextSize = 14,
+			TextColor3 = PALETTE.muted,
+			ZIndex = 32,
+		})
+
+		local amount = text(card, {
+			Size = UDim2.fromOffset(430, 60),
+			Position = UDim2.fromOffset(22, 82),
+			Font = Enum.Font.FredokaOne,
+			Text = "0",
+			TextSize = 46,
+			TextColor3 = PALETTE.gold,
+			ZIndex = 32,
+		})
+
+		text(card, {
+			Size = UDim2.fromOffset(430, 20),
+			Position = UDim2.fromOffset(22, 142),
+			Font = Enum.Font.Gotham,
+			Text = ("%d%% of %s/sec for %s"):format(
+				math.floor((offline.rate or 0) * 100 + 0.5),
+				Util.abbreviate(offline.perSecond or 0),
+				describe(offline.creditedSeconds or offline.seconds)),
+			TextSize = 13,
+			TextColor3 = PALETTE.muted,
+			ZIndex = 32,
+		})
+
+		-- The cap line. If it clipped you, saying so and naming the fix is the
+		-- whole difference between a cap that reads as a goal and one that reads
+		-- as a confiscation.
+		local capText, capColor
+		if offline.clipped then
+			local upgrade = offline.upgrade
+			capText = ("<b>Capped at %dh.</b> %s of tung went uncollected."):format(
+				offline.capHours, Util.abbreviate(offline.lost or 0))
+			if upgrade then
+				capText ..= ("\n<b>%s</b> banks %dh instead — %s."):format(
+					upgrade.name, upgrade.hours, Util.abbreviate(upgrade.cost))
+			else
+				capText ..= "\nYou already own the longest vault timer."
+			end
+			capColor = PALETTE.bad
+		else
+			capText = ("Well inside your %dh offline cap."):format(offline.capHours)
+			capColor = PALETTE.good
+		end
+
+		text(card, {
+			Size = UDim2.fromOffset(430, 50),
+			Position = UDim2.fromOffset(22, 166),
+			Font = Enum.Font.GothamMedium,
+			Text = capText,
+			TextSize = 13,
+			TextColor3 = capColor,
+			TextWrapped = true,
+			ZIndex = 32,
+		})
+
+		local collect = button(card, ("COLLECT %s"):format(Util.abbreviate(offline.earned)), PALETTE.good, {
+			Size = UDim2.fromOffset(426, 52),
+			Position = UDim2.fromOffset(22, 250),
+			TextSize = 22,
+			ZIndex = 32,
+		})
+
+		-- count-up: the number arriving instantly is a fact, the number climbing is
+		-- a payout
+		local shown = 0
+		local connection
+		connection = RunService.RenderStepped:Connect(function(dt)
+			if not amount.Parent then
+				connection:Disconnect()
+				return
+			end
+			shown += (offline.earned - shown) * math.min(dt * 4, 1)
+			if offline.earned - shown < 1 then
+				shown = offline.earned
+				connection:Disconnect()
+			end
+			amount.Text = Util.abbreviate(shown)
+		end)
+
+		collect.Activated:Connect(function()
+			click()
+			Sound.play("purchase", { volume = 0.6 })
+			Net.event("RequestClaim"):FireServer({ kind = "offline" })
+			modalOpen = false
+			shade:Destroy()
+		end)
+
+		card.Position = UDim2.fromScale(0.5, 0.56)
+		TweenService:Create(card, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Position = UDim2.fromScale(0.5, 0.5),
+		}):Play()
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- the session panel
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function buildRow(parent: Instance, y: number, height: number, title: string)
+		local row = Instance.new("Frame")
+		row.Size = UDim2.fromOffset(PANEL_W - 28, height)
+		row.Position = UDim2.fromOffset(14, y)
+		row.BackgroundColor3 = PALETTE.panel2
+		row.BackgroundTransparency = 0.25
+		row.BorderSizePixel = 0
+		row.Parent = parent
+		corner(row, 10)
+
+		local titleLabel = text(row, {
+			Size = UDim2.fromOffset(150, 18),
+			Position = UDim2.fromOffset(12, 8),
+			Font = Enum.Font.FredokaOne,
+			Text = title,
+			TextSize = 15,
+			TextColor3 = PALETTE.text,
+		})
+		local subLabel = text(row, {
+			Size = UDim2.fromOffset(170, 16),
+			Position = UDim2.fromOffset(12, 27),
+			Font = Enum.Font.GothamMedium,
+			Text = "",
+			TextSize = 12,
+			TextColor3 = PALETTE.muted,
+		})
+		local action = button(row, "CLAIM", PALETTE.good, {
+			Size = UDim2.fromOffset(66, 30),
+			Position = UDim2.fromOffset(PANEL_W - 28 - 78, 10),
+			TextSize = 14,
+			Visible = false,
+		})
+
+		return { row = row, title = titleLabel, sub = subLabel, action = action }
+	end
+
+	local function buildPanel()
+		panel = frame(gui, UDim2.fromOffset(PANEL_W, 216), UDim2.fromOffset(PANEL_X, PANEL_Y))
+		panel.Name = "Session"
+		panel.Visible = false
+
+		text(panel, {
+			Size = UDim2.fromOffset(150, 16),
+			Position = UDim2.fromOffset(14, 8),
+			Font = Enum.Font.GothamBold,
+			Text = "SESSION",
+			TextSize = 12,
+			TextColor3 = PALETTE.muted,
+		})
+
+		-- the weekend bonus is server-wide and invisible unless something says so
+		weekendBadge = text(panel, {
+			Size = UDim2.fromOffset(110, 16),
+			Position = UDim2.fromOffset(PANEL_W - 124, 8),
+			Font = Enum.Font.GothamBold,
+			Text = "",
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextColor3 = PALETTE.gold,
+		})
+
+		dailyRow = buildRow(panel, 28, 50, "DAILY STREAK")
+		playtimeRow = buildRow(panel, 84, 56, "PLAYTIME")
+
+		-- a thin progress bar along the bottom of the playtime row: the ladder is
+		-- the only part of this panel with a "how far to go" answer
+		local track = Instance.new("Frame")
+		track.Size = UDim2.fromOffset(PANEL_W - 52, 4)
+		track.Position = UDim2.fromOffset(12, 44)
+		track.BackgroundColor3 = PALETTE.panel
+		track.BorderSizePixel = 0
+		track.Parent = playtimeRow.row
+		corner(track, 2)
+
+		playtimeFill = Instance.new("Frame")
+		playtimeFill.Size = UDim2.fromScale(0, 1)
+		playtimeFill.BackgroundColor3 = PALETTE.accent
+		playtimeFill.BorderSizePixel = 0
+		playtimeFill.Parent = track
+		corner(playtimeFill, 2)
+
+		boostButton = button(panel, "BOOST", PALETTE.gold, {
+			Size = UDim2.fromOffset(PANEL_W - 28, 44),
+			Position = UDim2.fromOffset(14, 148),
+			TextSize = 18,
+		})
+
+		offlineRow = buildRow(panel, 200, 46, "OFFLINE TUNG")
+		offlineRow.row.Visible = false
+		offlineRow.action.Text = "OPEN"
+		offlineRow.action.BackgroundColor3 = PALETTE.gold
+
+		dailyRow.action.Activated:Connect(function()
+			click()
+			Net.event("RequestClaim"):FireServer({ kind = "daily" })
+		end)
+
+		playtimeRow.action.Activated:Connect(function()
+			click()
+			local payload = state.payload
+			local rungs = payload and payload.playtime and payload.playtime.rungs
+			if not rungs then
+				return
+			end
+			for _, rung in ipairs(rungs) do
+				if rung.status == "ready" then
+					Net.event("RequestClaim"):FireServer({ kind = "playtime", index = rung.index })
+					return
+				end
+			end
+		end)
+
+		boostButton.Activated:Connect(function()
+			click()
+			Net.event("RequestBoost"):FireServer()
+		end)
+
+		offlineRow.action.Activated:Connect(function()
+			click()
+			local payload = state.payload
+			if payload and payload.offline then
+				SessionUI.showOfflineModal(payload.offline)
+			end
+		end)
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- rendering
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function renderDaily(daily)
+		if not daily then
+			dailyRow.row.Visible = false
+			return
+		end
+		dailyRow.row.Visible = true
+
+		if daily.available then
+			dailyRow.title.Text = ("DAILY  •  DAY %d"):format(daily.nextStreak)
+			dailyRow.sub.Text = daily.milestone
+				and ("%s  +  %s milestone"):format(Util.abbreviate(daily.reward - daily.milestone), Util.abbreviate(daily.milestone))
+				or ("%s waiting"):format(Util.abbreviate(daily.reward))
+			dailyRow.sub.TextColor3 = PALETTE.good
+			dailyRow.action.Visible = true
+			dailyRow.action.Text = "CLAIM"
+			dailyRow.action.BackgroundColor3 = PALETTE.good
+		else
+			dailyRow.title.Text = ("DAILY  •  %d DAY STREAK"):format(daily.streak)
+			dailyRow.sub.Text = ("next in %s  •  %dh grace"):format(
+				describe(math.max(0, (daily.resetIn or 0) - elapsed())), daily.graceHours)
+			dailyRow.sub.TextColor3 = PALETTE.muted
+			dailyRow.action.Visible = false
+		end
+	end
+
+	local function renderPlaytime(playtime)
+		if not playtime then
+			playtimeRow.row.Visible = false
+			return
+		end
+		playtimeRow.row.Visible = true
+
+		-- the server only counts ACTIVE seconds, so this clock is allowed to run
+		-- ahead of it locally but must never claim on its own
+		local active = playtime.activeSeconds + elapsed()
+
+		local ready, nextRung
+		for _, rung in ipairs(playtime.rungs) do
+			if rung.status == "ready" and not ready then
+				ready = rung
+			elseif rung.status == "locked" and not nextRung then
+				nextRung = rung
+			end
+		end
+
+		if ready then
+			playtimeRow.title.Text = ("PLAYTIME  •  %d MIN"):format(ready.minutes)
+			playtimeRow.sub.Text = ("%s ready to claim"):format(Util.abbreviate(ready.reward))
+			playtimeRow.sub.TextColor3 = PALETTE.good
+			playtimeRow.action.Visible = true
+			playtimeFill.Size = UDim2.fromScale(1, 1)
+		elseif nextRung then
+			local target = nextRung.minutes * 60
+			playtimeRow.title.Text = "PLAYTIME"
+			playtimeRow.sub.Text = ("%s at %d min  •  %s to go"):format(
+				Util.abbreviate(nextRung.reward), nextRung.minutes, clockText(target - active))
+			playtimeRow.sub.TextColor3 = PALETTE.muted
+			playtimeRow.action.Visible = false
+			local previous = 0
+			for _, rung in ipairs(playtime.rungs) do
+				if rung.index < nextRung.index then
+					previous = rung.minutes * 60
+				end
+			end
+			local span = math.max(1, target - previous)
+			playtimeFill.Size = UDim2.fromScale(math.clamp((active - previous) / span, 0, 1), 1)
+		else
+			playtimeRow.title.Text = "PLAYTIME"
+			playtimeRow.sub.Text = "whole ladder claimed this session"
+			playtimeRow.sub.TextColor3 = PALETTE.muted
+			playtimeRow.action.Visible = false
+			playtimeFill.Size = UDim2.fromScale(1, 1)
+		end
+	end
+
+	local function renderBoost(boost)
+		if not boost then
+			boostButton.Visible = false
+			return
+		end
+		boostButton.Visible = true
+
+		local since = elapsed()
+		if boost.active then
+			boostButton.Text = ("x%g BOOST  •  %s"):format(boost.multiplier, clockText(boost.secondsLeft - since))
+			boostButton.BackgroundColor3 = PALETTE.good
+		elseif boost.cooldownLeft - since > 0 then
+			boostButton.Text = ("BOOST READY IN %s"):format(clockText(boost.cooldownLeft - since))
+			boostButton.BackgroundColor3 = PALETTE.dead
+		else
+			boostButton.Text = ("CLAIM x%g BOOST  •  %d MIN"):format(boost.multiplier, boost.duration // 60)
+			boostButton.BackgroundColor3 = PALETTE.gold
+		end
+
+		weekendBadge.Text = boost.weekend and ("WEEKEND x%g"):format(boost.weekendMultiplier) or ""
+	end
+
+	local function render()
+		local payload = state.payload
+		if not payload or not panel then
+			return
+		end
+		panel.Visible = true
+
+		renderDaily(payload.daily)
+		renderPlaytime(payload.playtime)
+		renderBoost(payload.boost)
+
+		-- With Sessions off the panel is nothing but the pending-offline row, so it
+		-- collapses to that row instead of framing 200px of empty purple.
+		local compact = not P.Sessions
+		if payload.offline then
+			offlineRow.row.Visible = true
+			offlineRow.sub.Text = ("%s from %s away"):format(
+				Util.abbreviate(payload.offline.earned), describe(payload.offline.seconds))
+			offlineRow.sub.TextColor3 = PALETTE.gold
+			offlineRow.action.Visible = true
+			panel.Size = UDim2.fromOffset(PANEL_W, compact and 88 or 258)
+		else
+			offlineRow.row.Visible = false
+			panel.Visible = not compact
+			panel.Size = UDim2.fromOffset(PANEL_W, 216)
+		end
+	end
+
+	function SessionUI.start()
+		-- Sessions drives the panel, Offline drives the welcome-back modal; with
+		-- both off there is nothing to build and nothing to listen to.
+		if not (P.Sessions or P.Offline) then
+			return
+		end
+
+		gui = HUD.screenGui()
+		if not gui then
+			-- HUD.start() runs first in Main.client.lua, but a prototype that
+			-- assumes boot order is a prototype that breaks when the boot order
+			-- changes
+			for _ = 1, 100 do
+				task.wait(0.1)
+				gui = HUD.screenGui()
+				if gui then
+					break
+				end
+			end
+			if not gui then
+				warn("[Tung] SessionUI: no HUD ScreenGui to build into")
+				return
+			end
+		end
+
+		buildPanel()
+		if not P.Sessions then
+			-- offline-only build: keep the panel for the pending row, drop the
+			-- rows that have no server state behind them
+			dailyRow.row.Visible = false
+			playtimeRow.row.Visible = false
+			boostButton.Visible = false
+			offlineRow.row.Position = UDim2.fromOffset(14, 28)
+		end
+
+		Net.event("SessionState").OnClientEvent:Connect(function(payload)
+			if type(payload) ~= "table" then
+				return
+			end
+			local hadOffline = state.payload and state.payload.offline
+			state.payload = payload
+			state.receivedAt = os.clock()
+			render()
+
+			-- first sight of a pending offline grant opens the panel by itself;
+			-- after that it lives in the row so a mis-click cannot lose it
+			if payload.offline and not hadOffline then
+				SessionUI.showOfflineModal(payload.offline)
+			end
+		end)
+
+		-- countdowns tick locally between pushes; the server still owns every
+		-- number this reads from
+		task.spawn(function()
+			while true do
+				task.wait(1)
+				if state.payload then
+					render()
+				end
+			end
+		end)
+	end
+
+	return SessionUI
+end
+
+
+__MODULES["UpgradeUI"] = function()
+	--[[
+		UpgradeUI.lua — PROTOTYPE. The shop panel for Config.PlayerUpgrades and the
+		utility slot for Config.Utilities.
+
+		It draws into HUD's own ScreenGui (HUD.screenGui()) rather than making a
+		second one, so the two share a z-order and one ResetOnSpawn = false.
+
+		The panel builders below are a deliberate local copy of HUD's palette and
+		its corner/stroke/panel/text/button helpers: HUD doesn't export them, and
+		the brief for this prototype is not to touch HUD.lua. If this ships, the
+		right move is to lift those five functions into a shared UiKit module and
+		have both files call it — right now the palette exists twice and the two
+		copies can drift.
+
+		The client is a renderer here. It never decides what you own, what a level
+		costs or whether a utility is off cooldown; it draws the last UpgradeState
+		the server sent and asks for things.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Util = Req("Util")
+	local Net = Req("Net")
+	local Utilities = Req("Utilities")
+
+	local RunService = game:GetService("RunService")
+	local UserInputService = game:GetService("UserInputService")
+
+	local UpgradeUI = {}
+
+	local SHOP_ON = Config.Prototypes.PlayerUpgrades
+	local UTILITY_ON = Config.Prototypes.Utilities
+	local ENABLED = SHOP_ON or UTILITY_ON
+
+	-- Should move to Config alongside the utility rows if this ships. Q is chosen
+	-- because 1..9 belong to Roblox's hotbar and E is the ProximityPrompt default.
+	local USE_KEY = Enum.KeyCode.Q
+	local SEND_THROTTLE = 0.2
+
+	local PALETTE = {
+		panel   = Color3.fromRGB(22, 18, 32),
+		panel2  = Color3.fromRGB(32, 26, 46),
+		accent  = Color3.fromRGB(190, 130, 255),
+		gold    = Color3.fromRGB(255, 205, 90),
+		good    = Color3.fromRGB(120, 235, 160),
+		bad     = Color3.fromRGB(255, 110, 110),
+		text    = Color3.fromRGB(238, 232, 250),
+		muted   = Color3.fromRGB(160, 150, 180),
+		dead    = Color3.fromRGB(90, 84, 104),
+	}
+
+	local state = {
+		cash = 0,
+		-- Nothing is drawn as a real price until the server has spoken once: an
+		-- empty costs table and a maxed-out upgrade look identical, and guessing
+		-- wrong paints every row "MAX" for the first second of the session.
+		received = false,
+		levels = {} :: { [string]: number },
+		costs = {} :: { [string]: number },
+		locked = {} :: { [string]: string },
+		equipped = "",
+		cooldownTotal = 0,
+		-- os.clock() on THIS machine. The server sends seconds-remaining, never a
+		-- timestamp, because the two clocks have no relationship to each other.
+		readyAt = 0,
+	}
+
+	local rows: { [string]: any } = {}
+	local panelFrame, toggleButton, chipButton, chipLabel
+	local lastSend = 0
+	local flashUntil = 0
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- builders (local copies of HUD's — see the header)
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function corner(parent: Instance, radius: number)
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, radius)
+		c.Parent = parent
+		return c
+	end
+
+	local function stroke(parent: Instance, color: Color3, thickness: number?)
+		local s = Instance.new("UIStroke")
+		s.Color = color
+		s.Thickness = thickness or 2
+		s.Transparency = 0.35
+		s.Parent = parent
+		return s
+	end
+
+	local function panel(parent: Instance, size: UDim2, position: UDim2, anchor: Vector2?)
+		local f = Instance.new("Frame")
+		f.Size = size
+		f.Position = position
+		f.AnchorPoint = anchor or Vector2.zero
+		f.BackgroundColor3 = PALETTE.panel
+		f.BackgroundTransparency = 0.12
+		f.BorderSizePixel = 0
+		f.Parent = parent
+		corner(f, 14)
+		stroke(f, PALETTE.accent, 2)
+
+		local gradient = Instance.new("UIGradient")
+		gradient.Color = ColorSequence.new(PALETTE.panel2, PALETTE.panel)
+		gradient.Rotation = 90
+		gradient.Parent = f
+		return f
+	end
+
+	local function text(parent: Instance, props): TextLabel
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.Font = Enum.Font.GothamBold
+		l.TextColor3 = PALETTE.text
+		l.TextXAlignment = Enum.TextXAlignment.Left
+		l.RichText = true
+		for k, v in pairs(props) do
+			(l :: any)[k] = v
+		end
+		l.Parent = parent
+		return l
+	end
+
+	local function button(parent: Instance, label: string, color: Color3, props): TextButton
+		local b = Instance.new("TextButton")
+		b.BackgroundColor3 = color
+		b.BackgroundTransparency = 0.1
+		b.BorderSizePixel = 0
+		b.AutoButtonColor = true
+		b.Font = Enum.Font.FredokaOne
+		b.Text = label
+		b.TextColor3 = Color3.fromRGB(20, 16, 28)
+		b.TextScaled = true
+		for k, v in pairs(props or {}) do
+			(b :: any)[k] = v
+		end
+		b.Parent = parent
+		corner(b, 10)
+		return b
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- rows
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function sectionLabel(parent: Instance, label: string, order: number)
+		local holder = Instance.new("Frame")
+		holder.BackgroundTransparency = 1
+		holder.Size = UDim2.new(1, 0, 0, 22)
+		holder.LayoutOrder = order
+		holder.Parent = parent
+
+		text(holder, {
+			Size = UDim2.fromScale(1, 1),
+			Font = Enum.Font.GothamBold,
+			Text = label,
+			TextSize = 12,
+			TextColor3 = PALETTE.muted,
+		})
+	end
+
+	--- One row is a single TextButton with labels laid on top, so the whole strip
+	--- is the hit target. Tapping a 90px pill on a phone is a coin flip.
+	local function buildRow(parent: Instance, id: string, name: string, order: number)
+		local row = Instance.new("TextButton")
+		row.Name = id
+		row.Text = ""
+		row.AutoButtonColor = false
+		row.BackgroundColor3 = PALETTE.panel2
+		row.BackgroundTransparency = 0.25
+		row.BorderSizePixel = 0
+		row.Size = UDim2.new(1, -6, 0, 62)   -- -6 leaves the scrollbar its lane
+		row.LayoutOrder = order
+		row.Parent = parent
+		corner(row, 10)
+		local edge = stroke(row, PALETTE.accent, 1.5)
+		edge.Transparency = 0.7
+
+		local title = text(row, {
+			Size = UDim2.new(1, -118, 0, 20),
+			Position = UDim2.fromOffset(12, 8),
+			Font = Enum.Font.FredokaOne,
+			Text = name,
+			TextSize = 16,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+		})
+
+		local blurb = text(row, {
+			Size = UDim2.new(1, -118, 0, 28),
+			Position = UDim2.fromOffset(12, 28),
+			Font = Enum.Font.GothamMedium,
+			Text = "",
+			TextSize = 12,
+			TextColor3 = PALETTE.muted,
+			TextWrapped = true,
+			TextYAlignment = Enum.TextYAlignment.Top,
+		})
+
+		local pill = Instance.new("Frame")
+		pill.AnchorPoint = Vector2.new(1, 0.5)
+		pill.Position = UDim2.new(1, -10, 0.5, 0)
+		pill.Size = UDim2.fromOffset(92, 32)
+		pill.BackgroundColor3 = PALETTE.good
+		pill.BackgroundTransparency = 0.12
+		pill.BorderSizePixel = 0
+		pill.Parent = row
+		corner(pill, 8)
+
+		local pillLabel = text(pill, {
+			Size = UDim2.fromScale(1, 1),
+			Font = Enum.Font.FredokaOne,
+			Text = "",
+			TextSize = 15,
+			TextScaled = false,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextColor3 = Color3.fromRGB(20, 16, 28),
+		})
+
+		row.Activated:Connect(function()
+			Net.event("RequestUpgrade"):FireServer(id)
+		end)
+
+		rows[id] = { row = row, title = title, blurb = blurb, pill = pill, pillLabel = pillLabel, edge = edge }
+		return rows[id]
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- redraw
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function paint(entry, opts)
+		entry.blurb.Text = opts.blurb
+		entry.title.Text = opts.title
+		entry.title.TextColor3 = opts.dim and PALETTE.muted or PALETTE.text
+		entry.pill.BackgroundColor3 = opts.pillColor
+		entry.pillLabel.Text = opts.pillText
+		entry.pillLabel.TextColor3 = opts.pillTextColor or Color3.fromRGB(20, 16, 28)
+		entry.row.BackgroundTransparency = opts.dim and 0.55 or 0.25
+		entry.edge.Transparency = opts.dim and 0.9 or 0.7
+	end
+
+	local function paintPending(entry, name: string)
+		paint(entry, {
+			title = name,
+			blurb = "…",
+			pillText = "…",
+			pillColor = PALETTE.dead,
+			pillTextColor = PALETTE.muted,
+			dim = true,
+		})
+	end
+
+	local function refreshUpgrades()
+		for _, def in ipairs(Config.PlayerUpgrades) do
+			local entry = rows[def.id]
+			if entry and not state.received then
+				paintPending(entry, def.name)
+			elseif entry then
+				local level = state.levels[def.id] or 0
+				local cost = state.costs[def.id]
+				local maxed = cost == nil
+				local affordable = not maxed and state.cash >= (cost or 0)
+
+				paint(entry, {
+					title = ("%s  <font color=\"#8f86a8\">Lv %d/%d</font>"):format(def.name, level, def.levels),
+					-- the CURRENT effect, then what the next level moves it to: a
+					-- price with no delta doesn't tell you whether to buy
+					blurb = maxed and Utilities.describe(def, level)
+						or ("%s  →  %s"):format(
+							Utilities.describe(def, level),
+							Utilities.formatValue(Utilities.valueAt(def, level + 1))),
+					pillText = maxed and "MAX" or Util.abbreviate(cost or 0),
+					pillColor = maxed and PALETTE.accent or (affordable and PALETTE.good or PALETTE.dead),
+					pillTextColor = (not maxed and not affordable) and PALETTE.muted or nil,
+					dim = not maxed and not affordable,
+				})
+			end
+		end
+	end
+
+	local function refreshUtilities()
+		for _, def in ipairs(Config.Utilities) do
+			local entry = rows[def.id]
+			if entry and not state.received then
+				paintPending(entry, def.name)
+			elseif entry then
+				local owned = (state.levels[def.id] or 0) >= 1
+				local lockedBy = state.locked[def.id]
+				local equipped = state.equipped == def.id
+				local affordable = state.cash >= def.price
+
+				local pillText, pillColor, dim
+				if equipped then
+					pillText, pillColor, dim = "EQUIPPED", PALETTE.accent, false
+				elseif owned then
+					pillText, pillColor, dim = "EQUIP", PALETTE.gold, false
+				elseif lockedBy then
+					pillText, pillColor, dim = "LOCKED", PALETTE.dead, true
+				else
+					pillText = Util.abbreviate(def.price)
+					pillColor = affordable and PALETTE.good or PALETTE.dead
+					dim = not affordable
+				end
+
+				paint(entry, {
+					title = ("%s  <font color=\"#8f86a8\">%ds cd</font>"):format(def.name, def.cooldown),
+					blurb = lockedBy and ("Needs %s."):format(lockedBy) or Utilities.verbBlurb(def),
+					pillText = pillText,
+					pillColor = pillColor,
+					pillTextColor = dim and PALETTE.muted or nil,
+					dim = dim,
+				})
+			end
+		end
+	end
+
+	local function refresh()
+		if SHOP_ON then
+			refreshUpgrades()
+		end
+		if UTILITY_ON then
+			refreshUtilities()
+		end
+	end
+
+	--- The chip is both the readout and the touch button for the utility, so a
+	--- phone player never needs a keyboard. Desktop gets the same thing plus Q.
+	local function refreshChip()
+		if not chipButton then
+			return
+		end
+		if state.equipped == "" then
+			chipButton.Visible = false
+			return
+		end
+		chipButton.Visible = true
+
+		local def = Utilities.UtilityById[state.equipped]
+		local remaining = math.max(0, state.readyAt - os.clock())
+		if os.clock() < flashUntil then
+			-- a mistimed press reads as "not yet" rather than as a dropped input
+			chipButton.BackgroundColor3 = PALETTE.bad
+			chipLabel.Text = ("%.0fs"):format(math.ceil(remaining))
+			chipLabel.TextColor3 = Color3.fromRGB(30, 12, 12)
+		elseif remaining > 0 then
+			chipButton.BackgroundColor3 = PALETTE.dead
+			chipLabel.Text = ("%s  •  %.0fs"):format(def and def.name or "?", math.ceil(remaining))
+			chipLabel.TextColor3 = PALETTE.muted
+		else
+			chipButton.BackgroundColor3 = PALETTE.accent
+			chipLabel.Text = ("Q   %s"):format(def and def.name or "?")
+			chipLabel.TextColor3 = Color3.fromRGB(20, 16, 28)
+		end
+	end
+
+	local function fireUtility()
+		if not UTILITY_ON or state.equipped == "" then
+			return
+		end
+		local now = os.clock()
+		-- Local gates only stop us spamming the wire; the server owns the real
+		-- cooldown and will refuse anything early regardless.
+		if now < state.readyAt or now - lastSend < SEND_THROTTLE then
+			flashUntil = now + 0.25
+			refreshChip()
+			return
+		end
+		lastSend = now
+		Net.event("UseUtility"):FireServer()
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- construction
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local function buildPanel(gui: ScreenGui)
+		-- bottom-left: HUD owns top-left (cash / next-up), top-centre (wave),
+		-- top-right (toasts) and bottom-right (rebirth / leave)
+		local anchorY = UTILITY_ON and -118 or -70
+
+		panelFrame = panel(gui, UDim2.new(0, 340, 0.58, 0), UDim2.new(0, 18, 1, anchorY), Vector2.new(0, 1))
+		panelFrame.Name = "UpgradeShop"
+		panelFrame.Visible = false
+
+		local sizeLimit = Instance.new("UISizeConstraint")
+		sizeLimit.MaxSize = Vector2.new(340, 460)
+		sizeLimit.MinSize = Vector2.new(340, 180)
+		sizeLimit.Parent = panelFrame
+
+		text(panelFrame, {
+			Size = UDim2.new(1, -28, 0, 26),
+			Position = UDim2.fromOffset(14, 10),
+			Font = Enum.Font.FredokaOne,
+			Text = "TUNG UPGRADES",
+			TextSize = 20,
+			TextColor3 = PALETTE.accent,
+		})
+
+		local scroll = Instance.new("ScrollingFrame")
+		scroll.Name = "List"
+		scroll.BackgroundTransparency = 1
+		scroll.BorderSizePixel = 0
+		scroll.Position = UDim2.fromOffset(14, 42)
+		scroll.Size = UDim2.new(1, -28, 1, -56)
+		scroll.CanvasSize = UDim2.new()
+		scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		-- XY is the default and lets a row that is one pixel too wide start
+		-- scrolling sideways, which looks like a bug rather than like a list
+		scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+		scroll.ScrollBarThickness = 4
+		scroll.ScrollBarImageColor3 = PALETTE.accent
+		scroll.Parent = panelFrame
+
+		local layout = Instance.new("UIListLayout")
+		layout.Padding = UDim.new(0, 8)
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Parent = scroll
+
+		local order = 0
+		if SHOP_ON then
+			order += 1
+			sectionLabel(scroll, "PLAYER UPGRADES", order)
+			for _, def in ipairs(Config.PlayerUpgrades) do
+				order += 1
+				buildRow(scroll, def.id, def.name, order)
+			end
+		end
+		if UTILITY_ON then
+			order += 1
+			sectionLabel(scroll, "UTILITY SLOT  •  ONE EQUIPPED", order)
+			for _, def in ipairs(Config.Utilities) do
+				order += 1
+				buildRow(scroll, def.id, def.name, order)
+			end
+		end
+	end
+
+	local function buildToggle(gui: ScreenGui)
+		toggleButton = button(gui, "UPGRADES", PALETTE.accent, {
+			Name = "UpgradeToggle",
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 18, 1, -18),
+			Size = UDim2.fromOffset(200, 44),
+			TextSize = 18,
+		})
+		toggleButton.Activated:Connect(function()
+			panelFrame.Visible = not panelFrame.Visible
+			if panelFrame.Visible then
+				refresh()
+			end
+		end)
+	end
+
+	local function buildChip(gui: ScreenGui)
+		chipButton = button(gui, "", PALETTE.accent, {
+			Name = "UtilityChip",
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 18, 1, -70),
+			Size = UDim2.fromOffset(200, 40),
+			Visible = false,
+		})
+		chipLabel = text(chipButton, {
+			Size = UDim2.fromScale(1, 1),
+			Font = Enum.Font.FredokaOne,
+			Text = "",
+			TextSize = 16,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextColor3 = Color3.fromRGB(20, 16, 28),
+		})
+		chipButton.Activated:Connect(fireUtility)
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	function UpgradeUI.start()
+		if not ENABLED then
+			return
+		end
+
+		local HUD = Req("HUD")
+		local gui = HUD.screenGui()
+		if not gui then
+			-- Main.client calls HUD.start() first, so this only fires if that order
+			-- changes; better a warning than a silent half-built shop.
+			warn("[Tung] UpgradeUI: HUD.screenGui() is nil, shop not built")
+			return
+		end
+
+		buildPanel(gui)
+		if UTILITY_ON then
+			buildChip(gui)
+		end
+		buildToggle(gui)
+
+		Net.event("UpgradeState").OnClientEvent:Connect(function(payload)
+			if typeof(payload) ~= "table" then
+				return
+			end
+			state.received = true
+			state.levels = payload.levels or {}
+			state.costs = payload.costs or {}
+			state.locked = payload.locked or {}
+			state.equipped = payload.equipped or ""
+			state.cooldownTotal = payload.cooldownTotal or 0
+			state.readyAt = os.clock() + (payload.cooldown or 0)
+			refresh()
+			refreshChip()
+		end)
+
+		-- Cash comes from the same broadcast HUD reads; a second listener on one
+		-- RemoteEvent is free and beats coupling the two panels together.
+		Net.event("Stats").OnClientEvent:Connect(function(payload)
+			if typeof(payload) ~= "table" then
+				return
+			end
+			local cash = payload.cash or 0
+			if cash ~= state.cash then
+				state.cash = cash
+				if panelFrame and panelFrame.Visible then
+					refresh()
+				end
+			end
+		end)
+
+		-- The server pushes state as soon as the profile loads, which can land
+		-- before this LocalScript has connected its handler — a RemoteEvent fired
+		-- at a client with no listener is simply gone, there is no replay. So ask
+		-- for it. An id the server doesn't recognise buys nothing and still gets a
+		-- push back, which makes RequestUpgrade("") a resync with no new remote.
+		task.spawn(function()
+			for _ = 1, 6 do
+				if state.received then
+					return
+				end
+				Net.event("RequestUpgrade"):FireServer("")
+				task.wait(1.5)
+			end
+		end)
+
+		if UTILITY_ON then
+			UserInputService.InputBegan:Connect(function(input, processed)
+				-- processed = the player is typing in the chat box
+				if not processed and input.KeyCode == USE_KEY then
+					fireUtility()
+				end
+			end)
+
+			-- Only the cooldown readout needs a clock, and only ~10x a second.
+			local accumulator = 0
+			RunService.Heartbeat:Connect(function(dt)
+				accumulator += dt
+				if accumulator < 0.1 then
+					return
+				end
+				accumulator = 0
+				if chipButton and chipButton.Visible then
+					refreshChip()
+				end
+			end)
+		end
+
+		refresh()
+	end
+
+	return UpgradeUI
+end
+
+
 -- ── entry point ───────────────────────────────────────────────
 
 
@@ -2277,10 +4633,17 @@ end
 local Req = __Req
 local HUD = Req("HUD")
 local CombatClient = Req("CombatClient")
+local UpgradeUI = Req("UpgradeUI")
+local SessionUI = Req("SessionUI")
 
 -- The default Backpack CoreGui stays ON: the bat is an ordinary Tool, so
 -- Roblox's own hotbar and inventory handle equipping it.
 HUD.start()
 CombatClient.start()
+
+-- Prototype panels. Both return immediately unless their Config.Prototypes
+-- flag is on.
+UpgradeUI.start()
+SessionUI.start()
 
 print("[Tung] client ready")

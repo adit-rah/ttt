@@ -30,6 +30,15 @@ local W = Config.World
 local Tycoon = {}
 Tycoon.__index = Tycoon
 
+--- Every plot built this session, in plot order. PlotService owns the plots and
+--- hands them out by player; a service that has to walk ALL of them (like
+--- FloorService) has nowhere else to get the list.
+local INSTANCES: { any } = {}
+
+function Tycoon.all(): { any }
+	return INSTANCES
+end
+
 -- Buttons that aren't attached to a belt machine sit in a row on the open
 -- floor, spaced further apart than a button is wide. Positions live in Config
 -- so they scale with the plot instead of drifting into the wall when it grows.
@@ -42,6 +51,7 @@ local COLORS = {
 	beltLine  = Color3.fromRGB(255, 176, 60),
 	buttonOn  = Color3.fromRGB(110, 235, 150),
 	buttonOff = Color3.fromRGB(230, 90, 90),
+	preview   = Color3.fromRGB(126, 122, 146),
 	vault     = Color3.fromRGB(146, 110, 72),
 	gold      = Color3.fromRGB(255, 205, 90),
 }
@@ -65,6 +75,100 @@ local function newPart(parent, name, size, cf, color, material, collide)
 	return p
 end
 
+-- ── machine geometry ─────────────────────────────────────────────────────────
+
+--- The masses a belt machine is made of: { name, size, offset, y, collide }.
+--- Offset is outboard of the belt, y is the centre height, both in the leg's
+--- own frame (see Tycoon:segmentCF).
+---
+--- This exists so the GHOST PREVIEW and the real machine are built from one
+--- description. A silhouette hand-copied from the installer is a silhouette
+--- that stops matching the machine the first time either is touched.
+local MACHINE_MASSES = {
+	Dropper = function()
+		-- Sized to Layout.MachineFootprint so neighbouring droppers can never
+		-- overlap. The arm hangs directly over the running surface, so it is
+		-- non-collidable: a tall drop has to pass under it untouched.
+		local depth = L.MachineFootprint
+		return {
+			{ "Base", Vector3.new(depth, 3.6, depth), L.MachineOffset, 1.8, true },
+			{ "Core", Vector3.new(depth - 1.4, 2.2, depth - 1.4), L.MachineOffset, 4.7, true },
+			{ "Arm", Vector3.new(L.MachineOffset, 1, 1.4), L.MachineOffset / 2, L.BeltY + 5, false },
+			{ "Spout", Vector3.new(2.4, 1.8, 2.4), 0, L.BeltY + 4.2, false },
+			{ "Nozzle", Vector3.new(1.8, 0.5, 1.8), 0, L.BeltY + 3.2, false },
+		}
+	end,
+	Upgrader = function()
+		-- Single post on the OUTBOARD side with a cantilevered beam, rather
+		-- than an arch straddling the belt: keeps the inboard walkway clear.
+		local reach = L.MachineOffset + L.BeltWidth / 2
+		return {
+			{ "Post", Vector3.new(1.8, 6, 1.8), L.MachineOffset, 3, true },
+			{ "Beam", Vector3.new(reach, 1.5, 2.2), (L.MachineOffset - L.BeltWidth / 2) / 2, L.BeltY + 4.6, false },
+			{ "Scanner", Vector3.new(L.BeltWidth, 3.6, 1), 0, L.BeltY + 1.8, false },
+		}
+	end,
+}
+
+-- ── belt paths ───────────────────────────────────────────────────────────────
+
+--- Turns a path definition ({ id, y, points, outboard, collectorAt }) into
+--- resolved legs.
+---
+--- `outboard` is the SIDE each leg's machines stand on: its outboard normal is
+--- sign * (-dir.Z, 0, dir.X). It used to be inferred with
+--- `normal:Dot(midpoint) < 0` — "point away from the plot origin" — which holds
+--- only while every leg hugs an outer edge, and silently inverts for any leg
+--- whose midpoint doesn't. An upper floor's return leg runs back across the
+--- middle of its own deck, where the inferred side flips and puts the machines
+--- over the walkway and the buy buttons out in space. So the side is carried,
+--- not guessed. Both ground legs are +1, which is exactly what the old
+--- heuristic produced.
+local function resolvePath(def, outboard: { number }?)
+	outboard = outboard or def.outboard
+	local points = def.points
+	assert(points and #points >= 2, "a belt path needs at least two points")
+
+	local legs = {}
+	for index = 1, #points - 1 do
+		local a, b = points[index], points[index + 1]
+		local delta = b - a
+		local dir = delta.Unit
+		local sign = (outboard and outboard[index]) or 1
+		legs[index] = {
+			a = a,
+			b = b,
+			dir = dir,
+			length = delta.Magnitude,
+			normal = Vector3.new(-dir.Z, 0, dir.X) * sign,
+		}
+	end
+
+	return {
+		id = def.id,
+		y = def.y or 0,
+		legs = legs,
+		collectorAt = def.collectorAt,
+		surfaces = {},
+	}
+end
+
+--- Builds a machine's masses into `parent` and returns them keyed by name.
+function Tycoon:buildMasses(def, parent: Instance, color: Color3, material: Enum.Material)
+	local shape = MACHINE_MASSES[def.kind]
+	if not shape then
+		return {}
+	end
+	local legIndex, distance, pathIndex = self:legOf(def)
+	local parts = {}
+	for _, mass in ipairs(shape()) do
+		local name, size, offset, y, collide = mass[1], mass[2], mass[3], mass[4], mass[5]
+		parts[name] = newPart(parent, name, size,
+			self:segmentCF(legIndex, distance, offset, y, pathIndex), color, material, collide)
+	end
+	return parts, legIndex, distance, pathIndex
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
 
 function Tycoon.new(index: number, parent: Instance)
@@ -78,6 +182,16 @@ function Tycoon.new(index: number, parent: Instance)
 	self.beltSpeed = L.BeltSpeed
 	self.dropCount = 0
 
+	-- Folders that come and go with the factory. Registered as they are built
+	-- rather than listed in setFactoryVisible; see registerFactoryFolder.
+	self.factoryFolders = {}
+	self.factoryShown = true
+
+	-- Belt paths. Path 1 is the ground floor and is always present; anything
+	-- above it registers its own through addBeltPath.
+	self.paths = {}
+	self:addBeltPath(Config.BeltPaths[1])
+
 	local model, cf = MapBuilder.buildPlotPad(parent, index)
 	self.model = model
 	self.cf = cf
@@ -86,6 +200,7 @@ function Tycoon.new(index: number, parent: Instance)
 	self.machines = Instance.new("Folder")
 	self.machines.Name = "Machines"
 	self.machines.Parent = model
+	self:registerFactoryFolder(self.machines)
 
 	self.buttonsFolder = Instance.new("Folder")
 	self.buttonsFolder.Name = "Buttons"
@@ -95,8 +210,8 @@ function Tycoon.new(index: number, parent: Instance)
 	self.drops.Name = "Drops"
 	self.drops.Parent = model
 
-	self:buildBelt()
-	self:buildCollector()
+	self:buildBelt(1)
+	self:buildCollector(1, nil, true)
 	self:buildRebirthPad()
 	self:buildClaimPad()
 
@@ -107,7 +222,28 @@ function Tycoon.new(index: number, parent: Instance)
 	self:setFactoryVisible(false)
 	self:updateSign()
 
+	table.insert(INSTANCES, self)
 	return self
+end
+
+--- Listener for "what this plot owns has changed" — a purchase, a claim, a
+--- release, a rebirth. FloorService hangs the mezzanine off this rather than
+--- polling every plot on a timer. One listener, because there is exactly one
+--- consumer; make it a list the day there are two.
+function Tycoon:onOwnedChanged(fn: ((any) -> ())?)
+	self.ownedChanged = fn
+end
+
+function Tycoon:fireOwnedChanged()
+	local fn = self.ownedChanged
+	if not fn then
+		return
+	end
+	-- pcall'd: a listener that throws must not take a purchase down with it
+	local ok, err = pcall(fn, self)
+	if not ok then
+		warn("[Tung] owned-changed listener error on plot " .. self.index .. ": " .. tostring(err))
+	end
 end
 
 --- Buy buttons are built on first claim, not at server start: every plot x 21
@@ -120,16 +256,27 @@ function Tycoon:ensureButtons()
 	self:buildButtons()
 end
 
+--- Adds a folder to the set that appears and disappears with the factory.
+---
+--- Registration rather than a literal list, because setFactoryVisible used to
+--- walk `for i = 1, 4` over one: the fifth folder anyone added was silently
+--- left standing on an unclaimed plot, which is the exact bug the hidden
+--- factory exists to prevent. A folder registered while the factory is hidden
+--- is hidden immediately, so late arrivals (an upper floor) can't leak either.
+function Tycoon:registerFactoryFolder(folder: Instance)
+	table.insert(self.factoryFolders, folder)
+	if not self.factoryShown then
+		folder.Parent = nil
+	end
+end
+
 --- Shows/hides the whole factory. Machinery lives in folders so this is a
 --- reparent rather than a rebuild.
 function Tycoon:setFactoryVisible(visible: boolean)
+	self.factoryShown = visible
 	local target = visible and self.model or nil
-	local folders = { self.beltFolder, self.collectorFolder, self.rebirthFolder, self.machines }
-	for i = 1, 4 do
-		local folder = folders[i]
-		if folder then
-			folder.Parent = target
-		end
+	for _, folder in ipairs(self.factoryFolders) do
+		folder.Parent = target
 	end
 end
 
@@ -148,18 +295,26 @@ end
 
 -- ── belt ─────────────────────────────────────────────────────────────────────
 
-function Tycoon:buildBelt()
-	local folder = Instance.new("Folder")
-	folder.Name = "Belt"
-	folder.Parent = self.model
-	self.beltFolder = folder
+--- Builds the running surface, the corner sensors and the flow markers for one
+--- belt path. Called once for the ground floor at construction, and once more
+--- per floor above it — `parent` lets a floor keep its belt in its own folder
+--- so tearing the floor down takes the belt with it.
+function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
+	pathIndex = pathIndex or 1
+
+	local folder = parent
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "Belt"
+		folder.Parent = self.model
+		self.beltFolder = folder
+		self:registerFactoryFolder(folder)
+	end
 
 	local width = L.BeltWidth
 	local half = width / 2
 	local surfaceY = L.BeltY
-
-	local _, _, _, leg1Len = self:leg(1)
-	local _, _, _, leg2Len = self:leg(2)
+	local legs = self:legCount(pathIndex)
 
 	--[[
 		SEAMLESS CORNER, AND NOTHING SOLID NEAR THE BELT.
@@ -173,19 +328,19 @@ function Tycoon:buildBelt()
 		what the drops were piling up against.
 
 		So: the running surface is the only collidable thing here. The edge
-		trim is decoration with CanCollide off, and leg 1's surface runs
-		THROUGH the corner square so there is no separate plate to seam
-		against — leg 2 simply starts a little way inside it.
+		trim is decoration with CanCollide off, and every leg's surface runs
+		THROUGH its corner square so there is no separate plate to seam
+		against — the next leg simply starts a little way inside it.
 	]]
 	local function buildRun(index, fromDist, toDist)
 		local length = toDist - fromDist
 		local mid = (fromDist + toDist) / 2
 
 		newPart(folder, "BeltBase" .. index, Vector3.new(width + 1.2, surfaceY - 0.2, length),
-			self:segmentCF(index, mid, 0, (surfaceY - 0.2) / 2), COLORS.frame, Enum.Material.DiamondPlate)
+			self:segmentCF(index, mid, 0, (surfaceY - 0.2) / 2, pathIndex), COLORS.frame, Enum.Material.DiamondPlate)
 
 		local surface = newPart(folder, "BeltSurface" .. index, Vector3.new(width, 0.4, length),
-			self:segmentCF(index, mid, 0, surfaceY - 0.2), COLORS.belt, Enum.Material.SmoothPlastic)
+			self:segmentCF(index, mid, 0, surfaceY - 0.2, pathIndex), COLORS.belt, Enum.Material.SmoothPlastic)
 		surface.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.02, 0.05, 1, 1)
 
 		local texture = Instance.new("Texture")
@@ -201,50 +356,103 @@ function Tycoon:buildBelt()
 		-- collidable. The inner side is left completely open so the two legs
 		-- flow into each other.
 		local trim = newPart(folder, "Trim" .. index, Vector3.new(0.5, 0.5, length),
-			self:segmentCF(index, mid, half + 0.25, surfaceY + 0.15),
+			self:segmentCF(index, mid, half + 0.25, surfaceY + 0.15, pathIndex),
 			COLORS.beltLine, Enum.Material.Neon, false)
 		trim.CanQuery = false
 
 		return surface
 	end
 
-	-- leg 1 owns the corner square: it runs half a belt-width past the bend
-	local surface1 = buildRun(1, -1, leg1Len + half)
-	-- leg 2 starts just inside that square, overlapping slightly so the two
-	-- surfaces share a face rather than meeting at a hairline seam
-	local surface2 = buildRun(2, half - 0.6, leg2Len)
-	self.beltSurfaces = { surface1, surface2 }
-	self.beltSurface = surface1
+	local path = self:beltPath(pathIndex)
+	local surfaces = {}
+	for index = 1, legs do
+		local _, _, _, length = self:leg(index, pathIndex)
+		-- The first leg starts a stud behind the first dropper; every other one
+		-- starts just INSIDE the corner square its predecessor already covers,
+		-- overlapping slightly so the two surfaces share a face rather than
+		-- meeting at a hairline seam.
+		local fromDist = (index == 1) and -1 or (half - 0.6)
+		-- Every leg but the last owns the square at its far end: it runs half a
+		-- belt-width past the bend so there is no separate corner plate.
+		local toDist = (index == legs) and length or (length + half)
+		surfaces[index] = buildRun(index, fromDist, toDist)
+	end
+	path.surfaces = surfaces
 
 	-- Visual end cap behind the first dropper. Non-collidable: nothing should
 	-- ever reach it, and if something does we want it to slide off, not wedge.
 	local cap = newPart(folder, "BeltCap", Vector3.new(width + 1.2, 1.6, 0.6),
-		self:segmentCF(1, -1.2, 0, surfaceY + 0.8), COLORS.metal, Enum.Material.Metal, false)
+		self:segmentCF(1, -1.2, 0, surfaceY + 0.8, pathIndex), COLORS.metal, Enum.Material.Metal, false)
 	cap.CanQuery = false
 
-	-- The bend: a trigger spanning the belt at the corner that hands a drop
-	-- from leg 1's direction to leg 2's. No geometry, just a retarget.
-	local turn = newPart(folder, "TurnSensor", Vector3.new(width + 1, 6, 2.5),
-		self:segmentCF(1, leg1Len, 0, surfaceY + 3),
-		Color3.new(1, 1, 1), Enum.Material.Neon, false)
-	turn.Transparency = 1
-	turn.CanQuery = false
-	turn.CanTouch = true
-	turn.Touched:Connect(function(hit)
-		self:onTurn(hit)
-	end)
+	-- One trigger per bend, spanning the belt, handing a drop from leg i's
+	-- direction to leg i+1's. No geometry, just a retarget — so an N-legged
+	-- path costs N-1 triggers and still no per-frame work.
+	for index = 1, legs - 1 do
+		local _, _, _, length = self:leg(index, pathIndex)
+		local turn = newPart(folder, "TurnSensor" .. index, Vector3.new(width + 1, 6, 2.5),
+			self:segmentCF(index, length, 0, surfaceY + 3, pathIndex),
+			Color3.new(1, 1, 1), Enum.Material.Neon, false)
+		turn.Transparency = 1
+		turn.CanQuery = false
+		turn.CanTouch = true
+		turn.Touched:Connect(function(hit)
+			self:onTurn(hit, pathIndex, index)
+		end)
+	end
+
+	self:buildFlowMarkers(folder, pathIndex)
 end
 
---- Hands a drop from leg 1 onto leg 2 at the corner.
-function Tycoon:onTurn(hit: BasePart)
+--- Chevrons painted on the floor beside the belt, pointing downstream.
+---
+--- An L-shaped conveyor with machinery on both sides does not tell you which
+--- end is the start. Following the arrows takes you from the first dropper to
+--- the vault, which is also the order the buy buttons come in — so "walk the
+--- arrows" is the whole tutorial for reading a plot.
+function Tycoon:buildFlowMarkers(parent: Instance, pathIndex: number?)
+	local SPACING = 18
+	local INBOARD = -(L.BeltWidth / 2 + 2.5)   -- clear of the belt, clear of the buttons
+
+	for legIndex = 1, self:legCount(pathIndex) do
+		local _, _, _, length = self:leg(legIndex, pathIndex)
+		local at = SPACING * 0.5
+		while at < length do
+			-- two bars meeting at a point: a wedge read from above is just a
+			-- rectangle, so the arrowhead has to be drawn rather than modelled
+			for _, side in ipairs({ 1, -1 }) do
+				local bar = newPart(parent, "Flow", Vector3.new(0.7, 0.25, 4),
+					self:segmentCF(legIndex, at, INBOARD, 0.12, pathIndex)
+						* CFrame.new(side * 1.1, 0, -1.1)
+						* CFrame.Angles(0, math.rad(side * 32), 0),
+					COLORS.beltLine, Enum.Material.Neon, false)
+				bar.Transparency = 0.25
+				bar.CanQuery = false
+				bar.CanTouch = false
+			end
+			at += SPACING
+		end
+	end
+end
+
+--- Hands a drop from leg `fromLeg` of a path onto leg `fromLeg + 1`. Every
+--- corner on every floor shares this; the sensor closes over which one it is,
+--- so nothing here knows how many legs the path has.
+function Tycoon:onTurn(hit: BasePart, pathIndex: number, fromLeg: number)
 	local drop = hit.Parent
 	if not drop or not drop:IsA("Model") then
 		return
 	end
-	if drop:GetAttribute("PlotIndex") ~= self.index or drop:GetAttribute("Leg") ~= 1 then
+	if drop:GetAttribute("PlotIndex") ~= self.index then
 		return
 	end
-	drop:SetAttribute("Leg", 2)
+	-- Drops that predate multi-floor have no Path attribute; treat them as the
+	-- ground floor rather than dropping them on the corner.
+	if (drop:GetAttribute("Path") or 1) ~= pathIndex or drop:GetAttribute("Leg") ~= fromLeg then
+		return
+	end
+	local toLeg = fromLeg + 1
+	drop:SetAttribute("Leg", toLeg)
 
 	local body = drop.PrimaryPart
 	if not body then
@@ -252,11 +460,11 @@ function Tycoon:onTurn(hit: BasePart)
 	end
 	local mover = body:FindFirstChild("BeltMover")
 	local upkeep = body:FindFirstChild("StayUpright")
-	local direction = self:legDirectionWorld(2)
+	local direction = self:legDirectionWorld(toLeg, pathIndex)
 
 	if mover and mover:IsA("LinearVelocity") then
 		mover.PrimaryTangentAxis = direction
-		mover.SecondaryTangentAxis = self:legNormalWorld(2)
+		mover.SecondaryTangentAxis = self:legNormalWorld(toLeg, pathIndex)
 		mover.PlaneVelocity = Vector2.new(self.beltSpeed, 0)
 	end
 	if upkeep and upkeep:IsA("AlignOrientation") then
@@ -265,94 +473,144 @@ function Tycoon:onTurn(hit: BasePart)
 end
 
 -- ── belt geometry ────────────────────────────────────────────────────────────
--- The run is an L: leg 1 along the back edge, leg 2 along the left edge.
--- Everything (machines, buttons, rails, the corner) is derived from these two
--- segments, so moving the belt is a Config edit.
+-- A belt is a POLYLINE, not an L. `points` is the corner list and everything —
+-- runs, corner sensors, machines, buttons, flow markers — derives from leg(i),
+-- so a path with five corners builds exactly like the shipped two-legged one.
+-- The ground floor is Config.BeltPaths[1], which is itself written in terms of
+-- Layout.BeltStart / BeltCorner / BeltEnd so the two cannot drift apart.
+
+--- Registers a belt path and returns its index. Idempotent by id, because a
+--- floor that is torn down and rebuilt must not stack up a second copy of its
+--- own geometry — the path is pure maths, only the parts get rebuilt.
+function Tycoon:addBeltPath(def, outboard: { number }?): number
+	for index, existing in ipairs(self.paths) do
+		if existing.id == def.id then
+			return index
+		end
+	end
+	table.insert(self.paths, resolvePath(def, outboard or def.outboard))
+	return #self.paths
+end
+
+function Tycoon:beltPath(pathIndex: number?)
+	return self.paths[pathIndex or 1]
+end
+
+function Tycoon:legCount(pathIndex: number?): number
+	return #self:beltPath(pathIndex).legs
+end
 
 --- start, finish, unit direction, length and the outboard normal of a leg,
---- all in PLOT-LOCAL space.
-function Tycoon:leg(index: number)
-	local a = (index == 1) and L.BeltStart or L.BeltCorner
-	local b = (index == 1) and L.BeltCorner or L.BeltEnd
-	local delta = b - a
-	local length = delta.Magnitude
-	local dir = delta.Unit
-
-	-- horizontal perpendicular, flipped to point AWAY from the plot centre
-	local normal = Vector3.new(-dir.Z, 0, dir.X)
-	local midpoint = (a + b) * 0.5
-	if normal:Dot(midpoint) < 0 then
-		normal = -normal
-	end
-
-	return a, b, dir, length, normal
+--- all in PLOT-LOCAL space, plus the path it belongs to.
+function Tycoon:leg(index: number, pathIndex: number?)
+	local path = self:beltPath(pathIndex)
+	local leg = path.legs[index]
+	return leg.a, leg.b, leg.dir, leg.length, leg.normal, path
 end
 
 --- A point `distance` along a leg, offset sideways. Positive offset is
 --- outboard (toward the plot edge), negative is inboard (toward the floor).
-function Tycoon:pointOnLeg(index: number, distance: number, offset: number): Vector3
-	local a, _, dir, _, normal = self:leg(index)
-	return a + dir * distance + normal * (offset or 0)
+--- The path's own height is baked in, so a leg on the mezzanine lands on the
+--- mezzanine without every caller having to know which floor it is on.
+function Tycoon:pointOnLeg(index: number, distance: number, offset: number, pathIndex: number?): Vector3
+	local a, _, dir, _, normal, path = self:leg(index, pathIndex)
+	return a + dir * distance + normal * (offset or 0) + Vector3.new(0, path.y, 0)
 end
 
-function Tycoon:legDirectionWorld(index: number): Vector3
-	local _, _, dir = self:leg(index)
+function Tycoon:legDirectionWorld(index: number, pathIndex: number?): Vector3
+	local _, _, dir = self:leg(index, pathIndex)
 	return self.cf:VectorToWorldSpace(dir).Unit
 end
 
-function Tycoon:legNormalWorld(index: number): Vector3
-	local _, _, _, _, normal = self:leg(index)
+function Tycoon:legNormalWorld(index: number, pathIndex: number?): Vector3
+	local _, _, _, _, normal = self:leg(index, pathIndex)
 	return self.cf:VectorToWorldSpace(normal).Unit
 end
 
---- Which leg a machine slot lives on: droppers on the back edge, upgraders
---- on the left edge.
-function Tycoon:legOf(def): (number, number)
-	if def.kind == "Dropper" then
-		return 1, L.DropperDist[def.slot]
+--- Which leg (and which floor's belt) a machine lives on: droppers on the back
+--- edge of the ground floor, upgraders on its left edge.
+---
+--- A def may pin itself instead, which is how FloorService stands a dropper on
+--- an upper floor without inventing a second slot table.
+function Tycoon:legOf(def): (number, number, number)
+	if def.legIndex then
+		return def.legIndex, def.legDistance or 0, def.pathIndex or 1
 	end
-	return 2, L.UpgraderDist[def.slot]
+	if def.kind == "Dropper" then
+		return 1, L.DropperDist[def.slot], 1
+	end
+	return 2, L.UpgraderDist[def.slot], 1
 end
 
 --- World CFrame of a box lying along a leg.
-function Tycoon:segmentCF(index: number, distance: number, offset: number, y: number): CFrame
-	local _, _, dir = self:leg(index)
-	local point = self:pointOnLeg(index, distance, offset) + Vector3.new(0, y, 0)
+function Tycoon:segmentCF(index: number, distance: number, offset: number, y: number, pathIndex: number?): CFrame
+	local _, _, dir = self:leg(index, pathIndex)
+	local point = self:pointOnLeg(index, distance, offset, pathIndex) + Vector3.new(0, y, 0)
 	return self.cf * CFrame.lookAt(point, point + dir)
+end
+
+--- Every live belt surface on the plot, on every floor. Skips destroyed ones:
+--- tearing a floor down leaves its surfaces referenced but dead, and writing a
+--- property on a destroyed part throws.
+function Tycoon:eachBeltSurface(fn: (BasePart) -> ())
+	for _, path in ipairs(self.paths) do
+		for _, surface in ipairs(path.surfaces) do
+			if surface.Parent then
+				fn(surface)
+			end
+		end
+	end
 end
 
 -- ── collector ────────────────────────────────────────────────────────────────
 
-function Tycoon:buildCollector()
-	local folder = Instance.new("Folder")
-	folder.Name = "Collector"
-	folder.Parent = self.model
-	self.collectorFolder = folder
+--- Run-off ramp, collect sensor and the body that catches the drops, at the end
+--- of a path's last leg.
+---
+--- `headline` adds the vault dressing — gold trim, statue, income sign. Only
+--- the ground floor gets it: a second statue on every upper floor is noise, and
+--- the income readout on it would be wrong anyway (it reports the whole plot).
+function Tycoon:buildCollector(pathIndex: number?, parent: Instance?, headline: boolean?)
+	pathIndex = pathIndex or 1
+	local path = self:beltPath(pathIndex)
 
-	-- The vault sits past the end of leg 2. Its shell must stay entirely
-	-- DOWNSTREAM of the sensor: a solid body overlapping the run-off walls
-	-- the belt off and nothing can ever be collected.
-	local _, beltEnd, dir2 = self:leg(2)
-	local vaultDepth = 10
-	local vaultCentre = L.CollectorAt
-	local runOff = (vaultCentre - beltEnd).Magnitude
-	assert(runOff > vaultDepth / 2 + 3,
-		"Collector vault overlaps the belt run-off; move Layout.CollectorAt further out")
-
-	local function alongExit(distance, y, lateral)
-		local point = beltEnd + dir2 * distance + Vector3.new(0, y, 0)
-			+ Vector3.new(-dir2.Z, 0, dir2.X) * (lateral or 0)
-		return self.cf * CFrame.lookAt(point, point + dir2)
+	local folder = parent
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "Collector"
+		folder.Parent = self.model
+		self.collectorFolder = folder
+		self:registerFactoryFolder(folder)
 	end
 
-	newPart(folder, "VaultBase", Vector3.new(18, 9, vaultDepth), alongExit(runOff, 4.5, 0),
-		COLORS.vault, Enum.Material.WoodPlanks)
-	newPart(folder, "VaultTrim", Vector3.new(19, 1.2, vaultDepth + 1), alongExit(runOff, 9.4, 0),
-		COLORS.gold, Enum.Material.Metal)
+	-- The catcher sits past the end of the last leg. Its shell must stay
+	-- entirely DOWNSTREAM of the sensor: a solid body overlapping the run-off
+	-- walls the belt off and nothing can ever be collected.
+	local _, beltEnd, exitDir = self:leg(self:legCount(pathIndex), pathIndex)
+	local bodyDepth = headline and 10 or 8
+	local bodyWidth = headline and 18 or 13
+	local bodyHeight = headline and 9 or 6.5
+	local centre = path.collectorAt
+	local runOff = (centre - beltEnd).Magnitude
+	assert(runOff > bodyDepth / 2 + 3,
+		("Collector body overlaps the belt run-off on path %q; move its collectorAt further out"):format(tostring(path.id)))
+
+	-- Path-local: `y` is measured from the floor this belt runs on, exactly as
+	-- it is everywhere else on the path.
+	local function alongExit(distance, y, lateral)
+		local point = beltEnd + exitDir * distance + Vector3.new(0, y + path.y, 0)
+			+ Vector3.new(-exitDir.Z, 0, exitDir.X) * (lateral or 0)
+		return self.cf * CFrame.lookAt(point, point + exitDir)
+	end
+
+	newPart(folder, "VaultBase", Vector3.new(bodyWidth, bodyHeight, bodyDepth),
+		alongExit(runOff, bodyHeight / 2, 0), COLORS.vault, Enum.Material.WoodPlanks)
+	newPart(folder, "VaultTrim", Vector3.new(bodyWidth + 1, 1.2, bodyDepth + 1),
+		alongExit(runOff, bodyHeight + 0.4, 0), COLORS.gold, Enum.Material.Metal)
 
 	-- funnel mouth facing back down the belt
-	local mouth = newPart(folder, "Mouth", Vector3.new(12, 6, 1.5),
-		alongExit(runOff - vaultDepth / 2 - 0.5, L.BeltY + 3, 0),
+	local mouth = newPart(folder, "Mouth", Vector3.new(bodyWidth - 6, 6, 1.5),
+		alongExit(runOff - bodyDepth / 2 - 0.5, L.BeltY + 3, 0),
 		Color3.fromRGB(30, 24, 40), Enum.Material.Neon, false)
 	mouth.Transparency = 0.5
 
@@ -365,6 +623,14 @@ function Tycoon:buildCollector()
 		Color3.fromRGB(255, 255, 255), Enum.Material.Neon, false)
 	sensor.Transparency = 1
 	sensor.CanTouch = true
+
+	sensor.Touched:Connect(function(hit)
+		self:onCollect(hit)
+	end)
+
+	if not headline then
+		return
+	end
 
 	-- sign
 	local signAnchor = newPart(folder, "SignAnchor", Vector3.new(1, 1, 1), alongExit(runOff, 12, 0), COLORS.vault, nil, false)
@@ -391,10 +657,6 @@ function Tycoon:buildCollector()
 	statue:PivotTo(alongExit(runOff, 13.5, 0) * CFrame.Angles(0, math.pi, 0))
 	statue.Parent = folder
 	self.vaultStatue = statue
-
-	sensor.Touched:Connect(function(hit)
-		self:onCollect(hit)
-	end)
 end
 
 function Tycoon:onCollect(hit: BasePart)
@@ -494,6 +756,7 @@ function Tycoon:buildRebirthPad()
 	folder.Name = "Rebirth"
 	folder.Parent = self.model
 	self.rebirthFolder = folder
+	self:registerFactoryFolder(folder)
 
 	local spot = L.RebirthPadAt
 	local pad = newPart(folder, "RebirthPad", Vector3.new(12, 1.2, 12),
@@ -551,8 +814,8 @@ end
 --- build, so the row you walk along is the row you buy from.
 function Tycoon:buttonPosition(def): Vector3
 	if def.kind == "Dropper" or def.kind == "Upgrader" then
-		local legIndex, distance = self:legOf(def)
-		return self:pointOnLeg(legIndex, distance, -L.ButtonOffset)
+		local legIndex, distance, pathIndex = self:legOf(def)
+		return self:pointOnLeg(legIndex, distance, -L.ButtonOffset, pathIndex)
 	end
 	return MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
 end
@@ -587,9 +850,14 @@ function Tycoon:buildButtons()
 
 		local billboard = Instance.new("BillboardGui")
 		billboard.Name = "Info"
-		billboard.Size = UDim2.fromScale(15, 7)
-		billboard.StudsOffsetWorldSpace = Vector3.new(0, 5.5, 0)
-		billboard.MaxDistance = 190
+		billboard.Size = UDim2.fromScale(16, 9)
+		billboard.StudsOffsetWorldSpace = Vector3.new(0, 6, 0)
+		billboard.MaxDistance = 220
+		-- Readable through your own machinery. Without this the label for the
+		-- button you are walking towards disappears behind the dropper next to
+		-- it exactly when you need it.
+		billboard.AlwaysOnTop = true
+		billboard.LightInfluence = 0
 		billboard.Parent = pad
 
 		local frame = Instance.new("Frame")
@@ -605,38 +873,51 @@ function Tycoon:buildButtons()
 		stroke.Thickness = 2.5
 		stroke.Parent = frame
 
+		-- Four lines, in the order you ask the questions: where am I in the
+		-- build, what is this, what does it do for me, what does it cost.
+		local step = Instance.new("TextLabel")
+		step.Name = "Step"
+		step.BackgroundTransparency = 1
+		step.Size = UDim2.fromScale(0.94, 0.18)
+		step.Position = UDim2.fromScale(0.03, 0.02)
+		step.Font = Enum.Font.GothamBold
+		step.Text = ("STEP %d OF %d"):format(def.order, #Config.Buttons)
+		step.TextColor3 = Color3.fromRGB(150, 142, 172)
+		step.TextScaled = true
+		step.Parent = frame
+
 		local title = Instance.new("TextLabel")
 		title.Name = "Title"
 		title.BackgroundTransparency = 1
-		title.Size = UDim2.fromScale(0.94, 0.4)
-		title.Position = UDim2.fromScale(0.03, 0.05)
+		title.Size = UDim2.fromScale(0.94, 0.32)
+		title.Position = UDim2.fromScale(0.03, 0.2)
 		title.Font = Enum.Font.FredokaOne
 		title.Text = def.name
 		title.TextColor3 = Color3.fromRGB(255, 240, 210)
 		title.TextScaled = true
 		title.Parent = frame
 
+		local effect = Instance.new("TextLabel")
+		effect.Name = "Effect"
+		effect.BackgroundTransparency = 1
+		effect.Size = UDim2.fromScale(0.94, 0.22)
+		effect.Position = UDim2.fromScale(0.03, 0.52)
+		effect.Font = Enum.Font.GothamBold
+		effect.Text = def.blurb or ""
+		effect.TextColor3 = Color3.fromRGB(150, 235, 190)
+		effect.TextScaled = true
+		effect.Parent = frame
+
 		local price = Instance.new("TextLabel")
 		price.Name = "Price"
 		price.BackgroundTransparency = 1
-		price.Size = UDim2.fromScale(0.94, 0.3)
-		price.Position = UDim2.fromScale(0.03, 0.44)
+		price.Size = UDim2.fromScale(0.94, 0.24)
+		price.Position = UDim2.fromScale(0.03, 0.74)
 		price.Font = Enum.Font.GothamBold
 		price.Text = "$" .. Util.abbreviate(def.price)
 		price.TextColor3 = COLORS.buttonOn
 		price.TextScaled = true
 		price.Parent = frame
-
-		local blurb = Instance.new("TextLabel")
-		blurb.Name = "Blurb"
-		blurb.BackgroundTransparency = 1
-		blurb.Size = UDim2.fromScale(0.94, 0.22)
-		blurb.Position = UDim2.fromScale(0.03, 0.74)
-		blurb.Font = Enum.Font.Gotham
-		blurb.Text = def.blurb or ""
-		blurb.TextColor3 = Color3.fromRGB(180, 168, 200)
-		blurb.TextScaled = true
-		blurb.Parent = frame
 
 		local lastTouch = 0
 		pad.Touched:Connect(function(hit)
@@ -654,10 +935,15 @@ function Tycoon:buildButtons()
 			def = def,
 			holder = holder,
 			pad = pad,
+			pedestal = holder:FindFirstChild("Pedestal"),
 			stroke = stroke,
 			priceLabel = price,
+			effectLabel = effect,
+			stepLabel = step,
+			titleLabel = title,
 			light = light,
 			machine = nil,
+			ghost = nil,
 		}
 	end
 end
@@ -675,19 +961,180 @@ function Tycoon:requirementsMet(id: string): boolean
 	return true
 end
 
+--- A translucent stand-in for a machine you haven't bought yet, built from the
+--- same MACHINE_MASSES description as the real thing.
+---
+--- Showing the next few purchases as ghosts turns the plot into a plan you are
+--- filling in, rather than a row of anonymous pads with prices on them. It also
+--- answers the standing complaint about tycoon infrastructure — "why am I
+--- buying walls before I can buy upgraders" stops being a fair question once
+--- you can see the upgraders standing there waiting.
+function Tycoon:buildGhost(def)
+	if not MACHINE_MASSES[def.kind] then
+		return nil
+	end
+	local variant = Config.Variants[def.variant] or Config.Variants.classic
+
+	local model = Instance.new("Model")
+	model.Name = "Ghost_" .. def.id
+
+	local parts = self:buildMasses(def, model, variant.wood, Enum.Material.ForceField)
+	for _, part in pairs(parts) do
+		part.Transparency = 0.72
+		-- A ghost must never be walked into, stood on, or hit by a drop: it is
+		-- a drawing, and the belt has to run through where it will stand.
+		part.CanCollide = false
+		part.CanTouch = false
+		part.CanQuery = false
+		part.CastShadow = false
+	end
+	return model
+end
+
+--- Buy buttons have three states, because the two obvious designs both fail:
+--- showing every button at once gives the plot no focal point, and showing
+--- only the next one hides the shape of the build from you.
+---
+---   available   full colour, lit, touchable, and the cheapest one wears a
+---               Highlight and a beacon so it is findable from anywhere
+---   preview     the next few steps: dimmed, inert, with a ghost of the
+---               machine standing where it will go
+---   hidden      everything further out, and everything already owned
+local PREVIEW_AHEAD = 3
+
 function Tycoon:refreshButtons()
-	for id, entry in pairs(self.objects) do
-		local visible = (self.owner ~= nil) and (not self.owned[id]) and self:requirementsMet(id)
-		entry.holder.Parent = visible and self.buttonsFolder or nil
-		if visible then
-			local affordable = self.owner and Economy.get(self.owner) >= entry.def.price
-			local color = affordable and COLORS.buttonOn or COLORS.buttonOff
-			entry.pad.Color = color
-			entry.light.Color = color
-			entry.stroke.Color = color
-			entry.priceLabel.TextColor3 = color
+	if not self.owner then
+		for _, entry in pairs(self.objects) do
+			entry.holder.Parent = nil
+			if entry.ghost then
+				entry.ghost:Destroy()
+				entry.ghost = nil
+			end
+		end
+		if self.marker then
+			self:pointAt(nil)
+		end
+		return
+	end
+
+	local cash = Economy.get(self.owner)
+
+	-- how far along the linear chain the player has got
+	local nextOrder = #Config.Buttons + 1
+	for _, def in ipairs(Config.Buttons) do
+		if not self.owned[def.id] then
+			nextOrder = def.order
+			break
 		end
 	end
+
+	local target, targetPrice = nil, math.huge
+
+	for id, entry in pairs(self.objects) do
+		local def = entry.def
+		local owned = self.owned[id] == true
+		local available = (not owned) and self:requirementsMet(id)
+		local preview = (not owned) and (not available) and (def.order <= nextOrder + PREVIEW_AHEAD)
+
+		entry.holder.Parent = (available or preview) and self.buttonsFolder or nil
+
+		if preview then
+			-- inert: a preview pad you can buy from would just spam "you can't
+			-- afford that yet" every time you crossed it
+			entry.pad.CanTouch = false
+			entry.pad.Color = COLORS.preview
+			entry.pad.Transparency = 0.45
+			if entry.pedestal then
+				entry.pedestal.Transparency = 0.55
+				entry.pedestal.CanCollide = false
+			end
+			entry.light.Enabled = false
+			entry.stroke.Color = COLORS.preview
+			entry.stepLabel.TextColor3 = COLORS.preview
+			entry.titleLabel.TextColor3 = COLORS.preview
+			entry.effectLabel.Text = "locked — finish step " .. (def.order - 1)
+			entry.effectLabel.TextColor3 = COLORS.preview
+			entry.priceLabel.Text = "$" .. Util.abbreviate(def.price)
+			entry.priceLabel.TextColor3 = COLORS.preview
+		elseif available then
+			local affordable = cash >= def.price
+			local color = affordable and COLORS.buttonOn or COLORS.buttonOff
+			entry.pad.CanTouch = true
+			entry.pad.Transparency = 0
+			entry.pad.Color = color
+			if entry.pedestal then
+				entry.pedestal.Transparency = 0
+				entry.pedestal.CanCollide = true
+			end
+			entry.light.Enabled = true
+			entry.light.Color = color
+			entry.stroke.Color = color
+			entry.stepLabel.TextColor3 = Color3.fromRGB(150, 142, 172)
+			entry.titleLabel.TextColor3 = Color3.fromRGB(255, 240, 210)
+			entry.effectLabel.Text = self:effectLine(def)
+			entry.effectLabel.TextColor3 = Color3.fromRGB(150, 235, 190)
+			entry.priceLabel.TextColor3 = color
+			entry.priceLabel.Text = affordable
+				and ("$" .. Util.abbreviate(def.price))
+				or ("NEED " .. Util.abbreviate(def.price - cash) .. " MORE")
+
+			if def.price < targetPrice then
+				target, targetPrice = entry, def.price
+			end
+		end
+
+		-- ghosts stand for anything not yet built, available or previewed
+		local wantsGhost = (available or preview) and MACHINE_MASSES[def.kind] ~= nil
+		if wantsGhost and not entry.ghost then
+			entry.ghost = self:buildGhost(def)
+			if entry.ghost then
+				entry.ghost.Parent = self.machines
+			end
+		elseif not wantsGhost and entry.ghost then
+			entry.ghost:Destroy()
+			entry.ghost = nil
+		end
+	end
+
+	self:pointAt(target)
+end
+
+--- Moves the "buy this next" marker onto `entry`. One Highlight and one light
+--- column per plot, reparented, rather than one of each per button: Highlight
+--- is capped at 255 per client and disabled ones still occupy a slot.
+function Tycoon:pointAt(entry)
+	if not self.marker then
+		local marker = Instance.new("Model")
+		marker.Name = "NextMarker"
+
+		local beam = newPart(marker, "Beam", Vector3.new(4, 26, 4), CFrame.new(),
+			COLORS.gold, Enum.Material.Neon, false)
+		beam.Transparency = 0.75
+		beam.CanQuery = false
+
+		local highlight = Instance.new("Highlight")
+		highlight.FillColor = COLORS.gold
+		highlight.FillTransparency = 0.65
+		highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+		-- through your own machinery: the point of the marker is that you can
+		-- find it from the far end of a plot you have already half filled
+		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		highlight.Parent = marker
+
+		self.marker = marker
+		self.markerBeam = beam
+		self.markerHighlight = highlight
+	end
+
+	if not entry then
+		self.marker.Parent = nil
+		self.markerHighlight.Adornee = nil
+		return
+	end
+
+	self.markerHighlight.Adornee = entry.holder
+	self.markerBeam.CFrame = entry.pad.CFrame * CFrame.new(0, 13, 0)
+	self.marker.Parent = self.buttonsFolder
 end
 
 -- ── purchasing ───────────────────────────────────────────────────────────────
@@ -768,45 +1215,39 @@ function Tycoon:install(id: string, silent: boolean?)
 	end
 
 	self:refreshButtons()
+	self:fireOwnedChanged()
 end
 
 -- ── installers ───────────────────────────────────────────────────────────────
 
 Tycoon.INSTALLERS = {}
 
-Tycoon.INSTALLERS.Dropper = function(self, def, silent)
-	local legIndex, distance = self:legOf(def)
+--- The dropper machine itself: masses, dressing, nameplate. Shared by the buy
+--- button installer and by FloorService, which stands one on each upper floor —
+--- a floor's dropper is not a button, so it cannot go through INSTALLERS.
+--- Returns the model, its nozzle, and the leg and path it feeds.
+function Tycoon:buildDropperMachine(def, parent: Instance)
 	local variant = Config.Variants[def.variant] or Config.Variants.classic
 
 	local model = Instance.new("Model")
 	model.Name = "Dropper_" .. def.id
-	model.Parent = self.machines
+	model.Parent = parent
 
-	-- Machine body, outboard of the belt against the plot edge. Sized to
-	-- Layout.MachineFootprint so neighbouring droppers can never overlap.
-	local depth = L.MachineFootprint
-	newPart(model, "Base", Vector3.new(depth, 3.6, depth),
-		self:segmentCF(legIndex, distance, L.MachineOffset, 1.8), COLORS.frame, Enum.Material.DiamondPlate)
+	local parts, legIndex, _, pathIndex = self:buildMasses(def, model, COLORS.frame, Enum.Material.DiamondPlate)
 
-	local core = newPart(model, "Core", Vector3.new(depth - 1.4, 2.2, depth - 1.4),
-		self:segmentCF(legIndex, distance, L.MachineOffset, 4.7), variant.wood, variant.material)
+	local core = parts.Core
+	core.Color = variant.wood
+	core.Material = variant.material
 	Fx.applyVariant(core, variant)
 
-	-- arm reaching inboard over the belt
-	local reach = L.MachineOffset
-	-- non-collidable: it hangs directly over the running surface, and a tall
-	-- drop must be able to pass under it without ever touching anything
-	newPart(model, "Arm", Vector3.new(reach, 1, 1.4),
-		self:segmentCF(legIndex, distance, reach / 2, L.BeltY + 5), COLORS.metal, Enum.Material.Metal, false)
+	parts.Arm.Color = COLORS.metal
+	parts.Arm.Material = Enum.Material.Metal
+	parts.Spout.Color = COLORS.metal
+	parts.Spout.Material = Enum.Material.Metal
 
-	local spout = newPart(model, "Spout", Vector3.new(2.4, 1.8, 2.4),
-		self:segmentCF(legIndex, distance, 0, L.BeltY + 4.2), COLORS.metal, Enum.Material.Metal)
-	spout.CanCollide = false
-
-	local nozzle = newPart(model, "Nozzle", Vector3.new(1.8, 0.5, 1.8),
-		self:segmentCF(legIndex, distance, 0, L.BeltY + 3.2),
-		variant.light and variant.light.color or variant.wood, Enum.Material.Neon)
-	nozzle.CanCollide = false
+	local nozzle = parts.Nozzle
+	nozzle.Color = variant.light and variant.light.color or variant.wood
+	nozzle.Material = Enum.Material.Neon
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Size = UDim2.fromScale(9, 2.6)
@@ -824,44 +1265,55 @@ Tycoon.INSTALLERS.Dropper = function(self, def, silent)
 	label.TextScaled = true
 	label.Parent = billboard
 
-	local entry = self.objects[def.id]
-	if entry then
-		entry.machine = model
-	end
+	return model, nozzle, legIndex, pathIndex
+end
 
+--- Starts a dropper's drop loop. `alive` is polled each cycle so the caller
+--- decides what ends it: a bought dropper dies when its button is wiped by a
+--- rebirth, a floor's dropper dies when the floor is torn down (its model is
+--- destroyed, which the model.Parent check catches on its own).
+function Tycoon:startDropLoop(def, model: Model, nozzle: BasePart, legIndex: number, pathIndex: number?, alive: (() -> boolean)?)
 	local generation = self.generation
 	task.spawn(function()
 		-- stagger so ten droppers don't fire on the same frame
 		task.wait(math.random() * def.dropRate)
-		while self.generation == generation and self.owned[def.id] and model.Parent do
-			self:spawnDrop(def, nozzle, legIndex)
+		while self.generation == generation and model.Parent and (alive == nil or alive()) do
+			self:spawnDrop(def, nozzle, legIndex, pathIndex)
 			task.wait(def.dropRate)
 		end
 	end)
 end
 
+Tycoon.INSTALLERS.Dropper = function(self, def, silent)
+	local model, nozzle, legIndex, pathIndex = self:buildDropperMachine(def, self.machines)
+
+	local entry = self.objects[def.id]
+	if entry then
+		entry.machine = model
+	end
+
+	self:startDropLoop(def, model, nozzle, legIndex, pathIndex, function()
+		return self.owned[def.id] == true
+	end)
+end
+
 Tycoon.INSTALLERS.Upgrader = function(self, def, silent)
-	local legIndex, distance = self:legOf(def)
 	local variant = Config.Variants[def.variant] or Config.Variants.classic
 
 	local model = Instance.new("Model")
 	model.Name = "Upgrader_" .. def.id
 	model.Parent = self.machines
 
-	-- Single post on the OUTBOARD side with a cantilevered beam, rather than
-	-- an arch straddling the belt: keeps the inboard walkway completely clear.
-	newPart(model, "Post", Vector3.new(1.8, 6, 1.8),
-		self:segmentCF(legIndex, distance, L.MachineOffset, 3), COLORS.metal, Enum.Material.Metal)
+	local parts = self:buildMasses(def, model, COLORS.metal, Enum.Material.Metal)
 
-	local reach = L.MachineOffset + L.BeltWidth / 2
-	local beam = newPart(model, "Beam", Vector3.new(reach, 1.5, 2.2),
-		self:segmentCF(legIndex, distance, (L.MachineOffset - L.BeltWidth / 2) / 2, L.BeltY + 4.6),
-		variant.wood, variant.material, false)
+	local beam = parts.Beam
+	beam.Color = variant.wood
+	beam.Material = variant.material
 	Fx.applyVariant(beam, variant)
 
-	local scanner = newPart(model, "Scanner", Vector3.new(L.BeltWidth, 3.6, 1),
-		self:segmentCF(legIndex, distance, 0, L.BeltY + 1.8),
-		variant.light and variant.light.color or variant.wood, Enum.Material.Neon, false)
+	local scanner = parts.Scanner
+	scanner.Color = variant.light and variant.light.color or variant.wood
+	scanner.Material = Enum.Material.Neon
 	scanner.Transparency = 0.55
 	scanner.CanTouch = true
 
@@ -914,9 +1366,10 @@ end
 
 Tycoon.INSTALLERS.Belt = function(self, def, silent)
 	self.beltSpeed += def.speedBonus
-	for _, surface in ipairs(self.beltSurfaces or {}) do
+	-- one speed for the whole plot, every floor included
+	self:eachBeltSurface(function(surface)
 		surface.Color = Color3.fromRGB(92, 70, 40)
-	end
+	end)
 	-- retro-apply to drops already rolling
 	for _, drop in ipairs(self.drops:GetChildren()) do
 		local mover = drop:FindFirstChildWhichIsA("LinearVelocity", true)
@@ -986,8 +1439,21 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 				self.cf * spec[2] * CFrame.new(0, h / 2, 0), COLORS.beltLine, Enum.Material.Neon, false)
 		end
 	elseif def.structure == "roof" then
-		local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, 1.4, W.PlotSize.Z),
-			self:at(0, 20, 0), Color3.fromRGB(138, 88, 58), Enum.Material.WoodPlanks)
+		-- With the Floors prototype on, the mezzanine deck IS the roof of the
+		-- back half of the plot. Roofing it twice interpenetrates two slabs a
+		-- third of a stud apart and hides a floor under a roof nobody can see,
+		-- so the roof stops short of the deck with a couple of studs of
+		-- daylight between them. Flag off, this is the full-plot roof it has
+		-- always been.
+		local front = W.PlotSize.Z / 2
+		local back = -W.PlotSize.Z / 2
+		local floorDef = Config.Prototypes.Floors and Config.Floors[1]
+		if floorDef then
+			back = floorDef.deckAt.Z + floorDef.deckSize.Z / 2 + 2
+		end
+
+		local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, 1.4, front - back),
+			self:at(0, 20, (front + back) / 2), Color3.fromRGB(138, 88, 58), Enum.Material.WoodPlanks)
 		roof.CanCollide = true
 		for _, sign in ipairs({ -1, 1 }) do
 			for _, signZ in ipairs({ -1, 1 }) do
@@ -1023,7 +1489,8 @@ end
 
 -- ── drops ────────────────────────────────────────────────────────────────────
 
-function Tycoon:spawnDrop(def, nozzle: BasePart, legIndex: number)
+function Tycoon:spawnDrop(def, nozzle: BasePart, legIndex: number, pathIndex: number?)
+	pathIndex = pathIndex or 1
 	if not self.owner then
 		return
 	end
@@ -1037,11 +1504,15 @@ function Tycoon:spawnDrop(def, nozzle: BasePart, legIndex: number)
 	drop:SetAttribute("PlotIndex", self.index)
 	drop:SetAttribute("Variant", def.variant)
 
+	-- Which belt, and how far along it: the corner sensors and the collector
+	-- all filter on these, so a drop on the mezzanine is invisible to the
+	-- ground floor's geometry and vice versa.
 	drop:SetAttribute("Leg", legIndex)
+	drop:SetAttribute("Path", pathIndex)
 
 	local body = drop.PrimaryPart :: BasePart
-	local direction = self:legDirectionWorld(legIndex)
-	local across = self:legNormalWorld(legIndex)
+	local direction = self:legDirectionWorld(legIndex, pathIndex)
+	local across = self:legNormalWorld(legIndex, pathIndex)
 	local jitter = (math.random() - 0.5) * (L.BeltWidth * 0.35)
 
 	-- NOTE: the model's pivot is the body, so PivotTo overwrites the body's
@@ -1099,23 +1570,44 @@ end
 -- ── income readout ───────────────────────────────────────────────────────────
 
 --- Estimated Tung/second with everything currently installed.
-function Tycoon:incomePerSecond(): number
-	local upgradeMult = 1
-	for id, owned in pairs(self.owned) do
-		local def = Config.ButtonById[id]
-		if owned and def and def.kind == "Upgrader" then
-			upgradeMult *= def.multiplier
-		end
+---
+--- `extraId` pretends one more button is owned, which is how a buy button can
+--- advertise "+$28/sec" instead of only a price. A price alone is a cost with
+--- no stated benefit, and for an Upgrader the benefit is not even guessable —
+--- x1.85 of an unknown number is not information.
+function Tycoon:incomePerSecond(extraId: string?): number
+	local function has(id: string): boolean
+		return self.owned[id] == true or id == extraId
 	end
+
+	local upgradeMult = 1
 	local total = 0
-	for id, owned in pairs(self.owned) do
-		local def = Config.ButtonById[id]
-		if owned and def and def.kind == "Dropper" then
-			total += (def.dropValue / def.dropRate)
+	for id, def in pairs(Config.ButtonById) do
+		if has(id) then
+			if def.kind == "Upgrader" then
+				upgradeMult *= def.multiplier
+			elseif def.kind == "Dropper" then
+				total += (def.dropValue / def.dropRate)
+			end
 		end
 	end
 	local rebirthMult = self.owner and Economy.multiplier(self.owner) or 1
 	return total * upgradeMult * rebirthMult
+end
+
+--- One line of plain English for what a button actually does for you. Income
+--- kinds get the measured delta; the rest get their blurb, because "walls" has
+--- no income to quote.
+function Tycoon:effectLine(def): string
+	if def.kind == "Dropper" or def.kind == "Upgrader" then
+		local delta = self:incomePerSecond(def.id) - self:incomePerSecond()
+		if delta > 0 then
+			return ("+%s/sec"):format(Util.abbreviate(delta))
+		end
+	elseif def.kind == "Belt" then
+		return ("belt +%d studs/sec"):format(def.speedBonus)
+	end
+	return def.blurb or ""
 end
 
 function Tycoon:updateSign()
@@ -1177,6 +1669,7 @@ function Tycoon:assign(player: Player)
 
 	self:refreshButtons()
 	self:updateSign()
+	self:fireOwnedChanged()
 	return true
 end
 
@@ -1196,13 +1689,14 @@ function Tycoon:release()
 	self:clearDrops()
 	self:setFactoryVisible(false)
 
-	for _, surface in ipairs(self.beltSurfaces or {}) do
+	self:eachBeltSurface(function(surface)
 		surface.Color = COLORS.belt
-	end
+	end)
 	self.roofSign = nil
 
 	self:refreshButtons()
 	self:updateSign()
+	self:fireOwnedChanged()
 end
 
 --- Wipes the factory but keeps the player, and hands out a rebirth.
@@ -1243,6 +1737,7 @@ function Tycoon:rebirth(player: Player): boolean
 
 	self:refreshButtons()
 	self:updateSign()
+	self:fireOwnedChanged()
 	Economy.push(player)
 
 	Economy.notify(player, {
@@ -1257,5 +1752,10 @@ function Tycoon:rebirth(player: Player): boolean
 	end
 	return true
 end
+
+--- The plot's own part constructor, exposed so FloorService builds its deck out
+--- of the same defaults (anchored, smooth surfaces, collidable unless told
+--- otherwise) instead of a second near-identical local copy that drifts.
+Tycoon.part = newPart
 
 return Tycoon

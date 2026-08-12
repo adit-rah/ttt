@@ -16,6 +16,12 @@ local CombatService = Req("CombatService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 
+-- Prototype services. Each one is a no-op unless its Config.Prototypes flag is
+-- on, so this list costs nothing in a shipping build.
+local UpgradeService = Req("UpgradeService")
+local SessionService = Req("SessionService")
+local FloorService = Req("FloorService")
+
 local Players = game:GetService("Players")
 
 local START = os.clock()
@@ -37,7 +43,12 @@ PlotService.start()
 -- 4. raids
 NPCService.start()
 
--- 5. players
+-- 5. prototypes, each gated on its own flag
+UpgradeService.start()
+SessionService.start()
+FloorService.start()
+
+-- 6. players
 local function onCharacterAdded(player: Player, character: Model)
 	-- keep players from clipping into the belt machinery on spawn
 	character:WaitForChild("HumanoidRootPart", 10)
@@ -49,6 +60,7 @@ local function onCharacterAdded(player: Player, character: Model)
 	task.defer(PlotService.teleportToPlot, player)
 
 	CombatService.onCharacter(player, character)
+	UpgradeService.onCharacter(player, character)
 	Economy.push(player)
 end
 
@@ -56,6 +68,8 @@ local function onPlayerAdded(player: Player)
 	DataService.load(player)
 	Economy.setupLeaderstats(player)
 	Economy.push(player)
+	UpgradeService.onPlayer(player)
+	SessionService.onPlayer(player)
 
 	player.CharacterAdded:Connect(function(character)
 		task.spawn(onCharacterAdded, player, character)

@@ -28,6 +28,11 @@ local notifyRemote = Net.event("Notify")
 
 local WV = Config.Waves
 
+-- Raider swing poses, in body space: arm overhead, then swung through to just
+-- past the target. See SwingAnim for why these are expressed this way.
+local TOP_PITCH = 158
+local CONTACT_PITCH = 22
+
 local active: { [Model]: any } = {}
 local folder: Folder
 local waveNumber = 0
@@ -125,9 +130,12 @@ end
 local function spawnRaider(wave: number, index: number, count: number, boss: boolean)
 	local variantName = variantForWave(wave, boss)
 	local health = WV.BaseHealth * (WV.HealthGrowth ^ (wave - 1)) * (boss and WV.BossHealthMultiplier or 1)
+	-- The cap is absolute. It used to be scaled by the boss multiplier along
+	-- with the damage, which meant the ceiling written to stop a raider two-
+	-- shotting a 100 HP player let a late boss hit for 61.
 	local damage = math.min(
 		WV.BaseDamage * (WV.DamageGrowth ^ (wave - 1)) * (boss and WV.BossDamageMultiplier or 1),
-		WV.MaxDamage * (boss and WV.BossDamageMultiplier or 1))
+		boss and WV.MaxBossDamage or WV.MaxDamage)
 
 	local npc = TungModels.buildNPC(variantName, {
 		scale = boss and 2.1 or (0.9 + math.random() * 0.35),
@@ -144,17 +152,39 @@ local function spawnRaider(wave: number, index: number, count: number, boss: boo
 	npc.Parent = folder
 
 	local humanoid = npc:FindFirstChildOfClass("Humanoid") :: Humanoid
+	local torso = npc:FindFirstChild("Torso")
+	-- The VISIBLE arm, not the R6 rig's. Every rig part is Transparency = 1
+	-- (the rig exists so Humanoid/MoveTo/damage work); the guy you actually see
+	-- is the Visual model, and TungArm is its one articulated joint.
+	local visual = npc:FindFirstChild("Visual")
+	local core = visual and visual.PrimaryPart
+	local arm = core and core:FindFirstChild("TungArm")
 	local entry = {
 		wave = wave,
 		boss = boss,
 		damage = damage,
 		nextAttack = 0,
 		nextRepath = 0,
-		sway = npc:FindFirstChild("Torso") and npc.Torso:FindFirstChild("TungSway"),
+		sway = torso and torso:FindFirstChild("TungSway"),
 		phase = math.random() * math.pi * 2,
 		spawnedAt = os.clock(),
 		dead = false,
+		-- attack telegraph. Raiders are server-owned, so unlike player swings
+		-- these Motor6D writes replicate on their own and no remote is needed.
+		arm = arm,
+		armBase = arm and arm.C0,
+		walkSpeed = humanoid.WalkSpeed,
+		windUp = WV.AttackWindUp * (boss and WV.BossWindUpScale or 1),
+		swingAt = nil,
+		rootedUntil = 0,
 	}
+	-- The waddle used to rewrite the sway joint's C0 from a hardcoded 0.7, but
+	-- buildNPC sets it to 0.7 * scale — so a 2.1x boss dropped a stud and a half
+	-- into its own legs on the first frame it moved.
+	if entry.sway then
+		entry.swayBase = entry.sway.C0
+	end
+
 	active[npc] = entry
 	aliveCount += 1
 
@@ -189,14 +219,46 @@ local function tick(dt: number)
 		end
 
 		-- waddle
-		if entry.sway and entry.sway:IsA("Motor6D") then
+		if entry.sway and entry.swayBase then
 			entry.phase += dt * (6 + humanoid.WalkSpeed * 0.25)
 			local lean = math.sin(entry.phase) * 0.18
 			local bob = math.abs(math.cos(entry.phase)) * 0.22
-			entry.sway.C0 = CFrame.new(0, 0.7 + bob, 0) * CFrame.Angles(0, 0, lean)
+			entry.sway.C0 = entry.swayBase * CFrame.new(0, bob, 0) * CFrame.Angles(0, 0, lean)
 		end
 
-		if now >= entry.nextRepath then
+		-- Raise the bat over the wind-up, hold at the top for an instant, then
+		-- chop down through the hit. The shape matters more than the numbers:
+		-- what makes a raider fair is that the arm is visibly UP before the
+		-- damage lands, and that they are rooted while it is.
+		if entry.arm and entry.armBase then
+			-- Raise, hold, chop — and the chop has to finish BEFORE the damage
+			-- lands, not after it. The whole point of a telegraph is that the
+			-- bat is visibly on its way down when it connects.
+			local pitch = 0
+			if entry.swingAt then
+				local w = 1 - math.clamp((entry.swingAt - now) / entry.windUp, 0, 1)
+				if w < 0.55 then
+					pitch = TOP_PITCH * (w / 0.55)                 -- raise
+				elseif w < 0.72 then
+					pitch = TOP_PITCH                              -- hold at the top
+				else
+					-- chop, arriving at the contact pose exactly on the hit
+					local k = (w - 0.72) / 0.28
+					pitch = TOP_PITCH + (CONTACT_PITCH - TOP_PITCH) * (k ^ 0.6)
+				end
+			elseif now < entry.rootedUntil then
+				-- follow-through settling back to rest
+				pitch = CONTACT_PITCH * math.clamp((entry.rootedUntil - now) / WV.AttackRecover, 0, 1)
+			end
+			-- The pitch is in BODY space; conjugating by the joint's own C0
+			-- rotation converts it, so this reads the same way as the player
+			-- swing poses in SwingAnim and doesn't depend on how the shoulder
+			-- happens to be oriented. +X pitch raises the arm forward.
+			local basis = entry.armBase.Rotation
+			entry.arm.C0 = entry.armBase * (basis:Inverse() * CFrame.Angles(math.rad(pitch), 0, 0) * basis)
+		end
+
+		if now >= entry.nextRepath and now >= entry.rootedUntil then
 			entry.nextRepath = now + 0.6
 			local _, targetChar = nearestPlayer(root.Position, 500)
 			if targetChar then
@@ -213,26 +275,43 @@ local function tick(dt: number)
 			entry.lastPosition = root.Position
 		end
 
-		local target = entry.target
-		if target and target.Parent then
-			local targetRoot = target:FindFirstChild("HumanoidRootPart")
-			if targetRoot then
-				local distance = (targetRoot.Position - root.Position).Magnitude
-				if distance <= 8 and now >= entry.nextAttack then
-					entry.nextAttack = now + 1.15
-					CombatService.npcAttack(npc, target, entry.damage)
-					Fx.impact(root, 0.85)
+		-- Rooted while winding up and recovering. This is the window a player
+		-- punishes: before, the raider closed and dealt damage on the same
+		-- tick, so being hit was pure proximity and there was nothing to read.
+		humanoid.WalkSpeed = (now < entry.rootedUntil) and 0 or entry.walkSpeed
 
-					local victim = Players:GetPlayerFromCharacter(target)
-					if victim then
-						local stolen = Economy.steal(victim, WV.StealPerHit)
-						if stolen > 0 then
-							Fx.floatingText(targetRoot.Position + Vector3.new(0, 4, 0),
-								"-" .. Util.abbreviate(stolen), Color3.fromRGB(255, 110, 110), workspace)
-						end
+		local target = entry.target
+		local targetRoot = target and target.Parent and target:FindFirstChild("HumanoidRootPart")
+		local inRange = targetRoot
+			and (targetRoot.Position - root.Position).Magnitude <= WV.AttackRange
+
+		if entry.swingAt and now >= entry.swingAt then
+			entry.swingAt = nil
+			-- The hit only lands if the target is STILL in range: walking out of
+			-- a telegraphed swing has to actually work or the telegraph is a lie.
+			if inRange then
+				CombatService.npcAttack(npc, target, entry.damage)
+				Fx.impact(root, 0.85)
+
+				local victim = Players:GetPlayerFromCharacter(target)
+				if victim then
+					local stolen = Economy.steal(victim, WV.StealPerHit)
+					if stolen > 0 then
+						Fx.floatingText(targetRoot.Position + Vector3.new(0, 4, 0),
+							"-" .. Util.abbreviate(stolen), Color3.fromRGB(255, 110, 110), workspace)
 					end
 				end
 			end
+		elseif not entry.swingAt and inRange and now >= entry.nextAttack then
+			entry.swingAt = now + entry.windUp
+			entry.rootedUntil = entry.swingAt + WV.AttackRecover
+			entry.nextAttack = entry.rootedUntil + WV.AttackCooldown
+			if targetRoot then
+				-- face the target so the wind-up reads as aimed at you
+				root.CFrame = CFrame.lookAt(root.Position,
+					Vector3.new(targetRoot.Position.X, root.Position.Y, targetRoot.Position.Z))
+			end
+			Fx.impact(root, 1.5)
 		end
 
 		-- despawn stragglers so a wave can't hang forever

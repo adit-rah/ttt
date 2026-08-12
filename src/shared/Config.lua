@@ -456,11 +456,42 @@ Config.Bats = {
 
 Config.Combat = {
 	ComboWindow = 1.6,          -- seconds to chain a swing
-	ComboMaxStacks = 4,
+	-- One more swing animation than there are combo stacks, because stack 0 is
+	-- the first swing of a chain. Stacks 0,1,2,3 map to SwingAnim.SWINGS 1..4,
+	-- so the chain plays diagonal / backhand / sweep / slam and then repeats.
+	ComboMaxStacks = 3,
+	SwingSteps = 4,             -- must equal #SwingAnim.SWINGS; both sides assert it
 	ComboDamagePerStack = 0.18, -- +18% per stack
 	HitboxSize = Vector3.new(7, 7, 1),
 	ArenaPvP = true,            -- PvP only inside the arena ring
 	RespawnCash = 0,            -- cash lost on death (0 = friendly)
+
+	-- SWING TIMING, as fractions of the bat's cooldown. The hitbox used to be
+	-- evaluated on the same frame the swing started, i.e. a whole animation
+	-- BEFORE the bat visibly reached the target — which is most of why the old
+	-- combat read as clicking rather than as hitting. Damage now lands on the
+	-- strike frame.
+	SwingWindUp = 0.26,         -- fraction spent winding up
+	SwingStrikeAt = 0.40,       -- fraction at which the bat is at the end of its arc
+	-- The strike is a moving arc, so one instantaneous box misses targets that
+	-- are a few frames early or late. Sample twice, this far apart.
+	SwingSampleGap = 0.07,
+	HitStop = 0.07,             -- seconds the swing freezes on a landed hit
+
+	CritMultiplier = 2,
+	CritKnockback = 1.6,
+
+	-- The last step of a combo is the overhead slam. It is slower to reach (it
+	-- is the fourth click) so it pays out.
+	FinisherDamage = 1.5,
+	FinisherKnockback = 1.8,
+	FinisherReach = 1.25,
+
+	-- Roblox's default is 16. The plot grew by a third, and 22 keeps the walk
+	-- from the gateway to the last dropper at about six seconds. Above ~32 a
+	-- humanoid starts clipping through 4-stud walls.
+	WalkSpeed = 22,
+	JumpPower = 52,
 }
 
 Config.Waves = {
@@ -475,7 +506,12 @@ Config.Waves = {
 	HealthGrowth = 1.20,        -- wave 20 raider ~2.9k HP: ~13s for one player
 	BaseDamage = 9,
 	DamageGrowth = 1.07,
-	MaxDamage = 34,             -- a player has 100 HP; never let a raider 2-shot
+	-- A player has 100 HP. These are ABSOLUTE ceilings: the boss multiplier used
+	-- to be applied to the cap as well as to the damage, so a wave-20 boss hit
+	-- for 61 and killed a full-health player in two swings — exactly what the
+	-- cap was written to prevent.
+	MaxDamage = 34,
+	MaxBossDamage = 45,
 	BossHealthMultiplier = 6,
 	BossDamageMultiplier = 1.8,
 	WalkSpeed = 13,
@@ -483,6 +519,224 @@ Config.Waves = {
 	RewardGrowth = 2.3,         -- reward scales with wave number
 	StealPerHit = 0.006,        -- fraction of a player's cash a raider steals on hit
 	BossEvery = 5,
+
+	-- RAIDER ATTACKS. Damage used to land on the same tick the raider decided
+	-- to attack, with no wind-up and no animation, so being hit was pure
+	-- proximity: you could not see it coming and you could not step out of it.
+	-- Raiders now raise the bat, hold, and only then swing — and they stand
+	-- still while they do it, which is the window you punish.
+	AttackRange = 8,
+	AttackWindUp = 0.45,        -- seconds of telegraph before the hit lands
+	AttackRecover = 0.35,       -- seconds rooted after swinging
+	AttackCooldown = 1.35,
+	AttackKnockback = 28,
+	BossWindUpScale = 1.35,     -- bosses telegraph LONGER; they hit much harder
+}
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- PROTOTYPES
+--
+-- Everything below this line is unshipped. Each block is gated by a flag in
+-- Config.Prototypes and every one of them defaults to OFF, so a build with all
+-- the flags false is byte-for-byte the game that ships today. That is the whole
+-- contract: a prototype you cannot turn off is not a prototype, it is a
+-- half-finished feature you have to finish before you can ship anything else.
+--
+-- The rationale for each of these — what shipped where, and what players said
+-- about it — is in IDEAS.md. Numbers here are first drafts, not balance.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+Config.Prototypes = {
+	Floors = false,        -- a second storey with its own dropper -> belt -> vault loop
+	PlayerUpgrades = false,-- walkspeed / magnet / cash multiplier shop
+	Utilities = false,     -- a second weapon slot holding a verb, not a stat
+	RebirthPerks = false,  -- rebirth grants four things instead of one number
+	Offline = false,       -- offline earnings and the welcome-back panel
+	Sessions = false,      -- daily streak, playtime ladder, boost cooldown
+	Sound = false,         -- the engine-asset sound layer
+}
+
+-- ── multi-leg belt and floors ────────────────────────────────────────────────
+--
+-- The shipped belt is hardcoded as an L: two legs, one turn sensor, a 1->2
+-- transition written into onTurn. A path is just a list of corners, and every
+-- piece of belt geometry already derives from leg(i) — so generalising is
+-- mostly deleting the assumption that i is 1 or 2.
+--
+-- Ground floor path is derived from the shipped Layout keys rather than
+-- duplicated, so the two cannot drift.
+--- `outboard` carries which SIDE of each leg the machines stand on, +1 or -1.
+--- It used to be inferred, by taking the perpendicular that points away from
+--- the plot origin — which works only while every leg hugs an outer edge. An
+--- upper floor's return leg runs back across the middle of its own deck, where
+--- the inferred side flips and puts the machines over the walkway and the buy
+--- buttons out in space. One entry per leg, so one fewer than `points`.
+Config.BeltPaths = {
+	{
+		id = "ground",
+		y = 0,
+		points = { Config.Layout.BeltStart, Config.Layout.BeltCorner, Config.Layout.BeltEnd },
+		outboard = { 1, 1 },
+		collectorAt = Config.Layout.CollectorAt,
+	},
+}
+
+--- The upper floor. NOT stacked on the ground floor: a ceiling is the one thing
+--- Roblox's camera has no good answer for (opaque snaps the camera to head
+--- height, transparent lets it pop through, and LocalTransparencyModifier is
+--- overwritten by the default camera scripts every frame). An open mezzanine
+--- over the BACK half of the plot leaves the aisle you walk open to the sky.
+Config.Floors = {
+	{
+		id = "mezzanine",
+		-- unlocked by the LAST button of the ground floor, in the same currency.
+		-- Buying floor 2 before you have finished floor 1 is the single most
+		-- complained-about thing in multi-floor tycoons.
+		requires = "dropper10",
+		height = 22,             -- floor top, plot-local
+		-- deck covers the back half only, so it does not roof the walkway
+		deckSize = Vector3.new(112, 1.6, 60),
+		deckAt = Vector3.new(0, 0, -38),
+		-- teleport pads. Shipped elevators in this genre are pad pairs, not
+		-- moving platforms: TweenService lifts jitter and slide players off.
+		padDown = Vector3.new(40, 0, -14),
+		padUp = Vector3.new(40, 0, -14),
+		railHeight = 5,          -- falling off is the obvious new failure mode
+	},
+}
+
+-- ── player upgrades ──────────────────────────────────────────────────────────
+--
+-- Deliberately small. Pet Sim 99's whole walkspeed track is +25% over two
+-- tiers, and its biggest stat track is +54% over eight. The large multipliers
+-- belong to rebirth; this shop is for shaving friction off the loop.
+Config.PlayerUpgrades = {
+	{
+		id = "speed", name = "Sahur Sprint",
+		stat = "WalkSpeed", levels = 8,
+		base = 22, perLevel = 1.1,        -- caps at 30.8, under the ~32 wall-clip ceiling
+		cost = 250, costGrowth = 4,
+		blurb = "Move %s studs/sec.",
+	},
+	{
+		id = "magnet", name = "Tung Magnet",
+		stat = "CollectRadius", levels = 7,
+		base = 0, perLevel = 4,
+		cost = 400, costGrowth = 3.4,
+		blurb = "Pull drops in from %s studs.",
+	},
+	{
+		id = "payout", name = "Vault Skimmer",
+		stat = "CashMultiplier", levels = 7,
+		base = 1, perLevel = 0.08,
+		cost = 800, costGrowth = 5,
+		blurb = "All income x%s.",
+	},
+	{
+		id = "autocollect", name = "Auto Collector",
+		stat = "AutoCollect", levels = 1,
+		base = 0, perLevel = 1,
+		cost = 60000, costGrowth = 1,
+		blurb = "The vault collects itself.",
+	},
+}
+
+-- ── the utility slot ─────────────────────────────────────────────────────────
+--
+-- Steal a Brainrot's weapon ladder is one archetype reskinned eleven times,
+-- scaling exactly one stat. All of its VARIETY lives in a second slot where
+-- every item is a new verb with one duration number. That split is the thing
+-- worth copying: progression in the weapon, variety in the utility.
+--- `radius` and `force` are per-verb, not global: how far a shove reaches is a
+--- property of the shove, and the moment they are shared constants the next
+--- utility has to fight them.
+Config.Utilities = {
+	{ id = "freeze", name = "Sahur Freeze", verb = "freeze", duration = 4, cooldown = 18,
+	  price = 40000, requires = "batforge", radius = 34 },
+	{ id = "shove", name = "Tung Shove", verb = "shove", duration = 0, cooldown = 12,
+	  price = 300000, requires = "upgrader3", radius = 26, force = 130 },
+	{ id = "decoy", name = "Sahur Decoy", verb = "decoy", duration = 10, cooldown = 30,
+	  price = 4000000, requires = "batforge2", radius = 6 },
+}
+
+-- ── rebirth perks ────────────────────────────────────────────────────────────
+--
+-- Four rewards per rebirth instead of one. The multiplier is the headline but
+-- the other three are what stop the re-grind feeling like a punishment, and
+-- what give MaxRebirths = 25 something on every rung.
+Config.RebirthPerks = {
+	StartingCashPerRebirth = 2500,     -- compounding is handled by the multiplier
+	StartingCashGrowth = 3.2,
+	-- every Nth rebirth grants a permanent extra machine slot
+	SlotEveryRebirths = 3,
+	-- milestone unlocks: rebirth -> what opens up
+	Milestones = {
+		[2] = { unlock = "mezzanine", label = "Second floor" },
+		[4] = { unlock = "utility2", label = "Utility slot II" },
+		[8] = { unlock = "goldplot", label = "Golden plot theme" },
+	},
+}
+
+-- ── offline earnings ─────────────────────────────────────────────────────────
+Config.Offline = {
+	Rate = 0.25,             -- fraction of your live income per second
+	CapHours = 8,
+	-- extending the cap is a purchase, which turns the cap into a goal rather
+	-- than a wall you resent
+	CapUpgradeHours = { 12, 16, 24 },
+	CapUpgradeCost = { 250000, 5000000, 120000000 },
+	MinimumSeconds = 120,    -- below this, don't bother with the panel
+}
+
+-- ── session loops ────────────────────────────────────────────────────────────
+Config.Sessions = {
+	-- 7-day loop with milestones. 48h of grace, because losing a 20-day streak
+	-- to one missed evening is how you lose the player instead of the streak.
+	DailyRewards = { 500, 1500, 4000, 10000, 25000, 60000, 150000 },
+	DailyGraceHours = 48,
+	DailyMilestones = { [7] = 250000, [14] = 750000, [30] = 3000000 },
+
+	-- Pet Sim 99's ladder, and note the deliberately decaying cadence: close
+	-- together early so the first one arrives while you are still deciding
+	-- whether to stay.
+	PlaytimeMinutes = { 5, 10, 15, 20, 30, 40, 50, 60, 75, 90, 120, 180 },
+	PlaytimeRewardBase = 1200,
+	PlaytimeRewardGrowth = 1.9,
+
+	-- The rewarded-video-ad shape with the ad removed: a big multiplier over a
+	-- short window, which forces an active session rather than being banked.
+	BoostMultiplier = 2,
+	BoostSeconds = 600,
+	BoostCooldown = 2400,
+
+	-- near-zero code, real concurrency effect
+	WeekendMultiplier = 2,
+	WeekendDays = { [1] = true, [7] = true },   -- os.date("!*t").wday, Sun and Sat
+}
+
+-- ── sound ────────────────────────────────────────────────────────────────────
+--
+-- Every one of these ships INSIDE the Roblox client. No upload, no moderation,
+-- and they cannot be taken down. The old handoff assumed audio was blocked
+-- until someone uploads samples; it is not, and this is the cheapest quality
+-- win on the list.
+Config.Sound = {
+	Library = {
+		collect  = "rbxasset://sounds/electronicpingshort.wav",
+		purchase = "rbxasset://sounds/switch3.wav",
+		ui       = "rbxasset://sounds/button.wav",
+		impact   = "rbxasset://sounds/impact_water.mp3",
+		swing    = "rbxasset://sounds/swoosh.wav",
+		rebirth  = "rbxasset://sounds/victory.wav",
+		siren    = "rbxasset://sounds/action.wav",
+	},
+	-- Pool and round-robin; never Instance.new per drop. ~400 live Sound
+	-- instances is where audio/video desync starts.
+	PoolSize = 8,
+	MinRepeatSeconds = 0.04,
+	RollOffMaxDistance = 60,   -- so a neighbour's factory doesn't blare at you
+	PitchPerCombo = 0.06,
+	MaxPitch = 2,
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────

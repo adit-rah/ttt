@@ -39,6 +39,22 @@ local function defaultProfile()
 		batTier = 1,
 		kills = 0,
 		playtime = 0,
+		-- PROTOTYPE fields (Offline / Sessions / RebirthPerks). reconcile()
+		-- merges a saved value onto this default only when the TYPES match, so
+		-- adding a field here is what makes every existing save keep loading:
+		-- an old profile simply arrives with the default.
+		--
+		-- lastSeen is 0 rather than os.time() deliberately. A profile that has
+		-- never stored one has no knowable logout time, and seeding it with
+		-- "now" would look like a zero-second session; seeding it with 0 means
+		-- SessionService skips the offline payout for that first session and
+		-- starts counting from the logout after it.
+		lastSeen = 0,
+		sessions = {},     -- streak / boost / cap state, shaped by SessionService
+		unlocks = {},      -- { [unlockId] = label } granted by rebirth milestones
+		upgrades = {},     -- { [upgradeId] = level }, shaped by UpgradeService
+		utilityEquipped = "",  -- a Config.Utilities id; "" rather than nil so the
+		                       -- type-matched reconcile can merge a saved value
 		version = 1,
 	}
 end
@@ -144,6 +160,11 @@ function DataService.save(player: Player, release: boolean?)
 		batTier = profile.batTier,
 		kills = profile.kills,
 		playtime = profile.playtime,
+		lastSeen = profile.lastSeen,
+		sessions = profile.sessions,
+		unlocks = profile.unlocks,
+		upgrades = profile.upgrades,
+		utilityEquipped = profile.utilityEquipped,
 		version = profile.version,
 	}
 

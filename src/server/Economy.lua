@@ -19,6 +19,20 @@ local notifyRemote = Net.event("Notify")
 
 local dirty: { [Player]: boolean } = {}
 
+--- PROTOTYPE HOOKS. Timed boosts, the weekend bonus and (eventually) the
+--- player-upgrade cash multiplier all stack on top of rebirth, but Economy
+--- must not depend on any of them — they depend on Economy, and Req refuses a
+--- circular require. Each registers a named function here at boot and Economy
+--- stays ignorant of what they do.
+---
+--- Keyed rather than a single slot so two prototypes can both stack without
+--- silently overwriting each other.
+local multiplierHooks: { [string]: (Player) -> number } = {}
+
+function Economy.setMultiplierHook(name: string, fn: ((Player) -> number)?)
+	multiplierHooks[name] = fn
+end
+
 function Economy.multiplier(player: Player): number
 	local profile = DataService.get(player)
 	if not profile then
@@ -27,7 +41,11 @@ function Economy.multiplier(player: Player): number
 	-- compounding, not linear: rebirth cost grows geometrically (CostGrowth^n)
 	-- so a linear payout bonus would make each rebirth strictly worse than the
 	-- last and the prestige loop would dead-end after two or three.
-	return Config.Rebirth.MultiplierPerRebirth ^ profile.rebirths
+	local base = Config.Rebirth.MultiplierPerRebirth ^ profile.rebirths
+	for _, hook in pairs(multiplierHooks) do
+		base *= hook(player)
+	end
+	return base
 end
 
 function Economy.get(player: Player): number
@@ -154,6 +172,43 @@ function Economy.rebirthCost(player: Player): number
 	local profile = DataService.get(player)
 	local n = profile and profile.rebirths or 0
 	return math.floor(Config.Rebirth.BaseCost * (Config.Rebirth.CostGrowth ^ n))
+end
+
+--- PROTOTYPE (Config.Prototypes.RebirthPerks). A rebirth pays four things, not
+--- one number. `Tycoon:rebirth()` owns two of them — it bumps profile.rebirths
+--- (the multiplier) and resets cash to Config.Economy.StartingCash — and it is
+--- owned by another track, so the other two are applied here, from the one
+--- module allowed to create cash.
+---
+--- `perks` comes from SessionService.rebirthPerksFor(profile). Passing it in
+--- rather than computing it keeps the dependency arrow pointing one way.
+---
+--- Idempotent on purpose: it tops cash UP to the grant instead of adding to
+--- it, so a double call (a retry, a re-detect) cannot be farmed.
+function Economy.applyRebirthGrants(player: Player, perks): number
+	local profile = DataService.get(player)
+	if not profile or not perks then
+		return 0
+	end
+
+	local granted = 0
+	local target = math.floor(tonumber(perks.startingCash) or 0)
+	if target > profile.cash then
+		granted = target - profile.cash
+		profile.cash = target
+	end
+
+	if type(perks.unlocks) == "table" then
+		if type(profile.unlocks) ~= "table" then
+			profile.unlocks = {}
+		end
+		for id, label in pairs(perks.unlocks) do
+			profile.unlocks[id] = label
+		end
+	end
+
+	Economy.push(player)
+	return granted
 end
 
 function Economy.notify(player: Player, payload)
