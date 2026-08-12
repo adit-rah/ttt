@@ -281,6 +281,21 @@ Config.Style = {
 		strokeThickness = 2.5,
 		distance = "prop",
 	},
+	-- THE TWO SIGNS OVER THE ARENA STATUE, in world Y.
+	--
+	-- The raid line takes the statue's head height and the game's own name
+	-- moves up above it. During a raid the sign over the statue should be the
+	-- raid; the title is furniture, and it had been sitting across the statue's
+	-- face at 34 anyway (the statue tops out around 35.6).
+	--
+	-- Putting the raid state here rather than in a bar across everyone's screen
+	-- is the point: it is where the raid IS, and the statue is visible from
+	-- every plot.
+	RaidSignY = 40,
+	RaidSignHeight = 8,
+	ArenaTitleY = 52,
+	ArenaTitleHeight = 14,
+
 	ButtonLocked = {
 		scale = 0.7,             -- smaller
 		panelAlpha = 0.78,       -- fainter panel

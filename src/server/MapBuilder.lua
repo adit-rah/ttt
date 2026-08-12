@@ -122,12 +122,25 @@ local function buildArena(parent: Instance)
 	statue:PivotTo(CFrame.new(0, daisTopY + footDrop, 0))
 	statue.Parent = arena
 
-	local sign = newPart(arena, "TitleAnchor", Vector3.new(1, 1, 1), CFrame.new(0, 34, 0), PALETTE.pad)
+	-- WHERE THE RAID IS ANNOUNCED. The client hangs its own billboard here and
+	-- writes the wave state into it; the server only stands the anchor up, so
+	-- the countdown can keep ticking locally instead of costing a remote a
+	-- second. Empty and unowned until a client claims it.
+	local raidAnchor = newPart(arena, "RaidAnchor", Vector3.new(1, 1, 1),
+		CFrame.new(0, Config.Style.RaidSignY, 0), PALETTE.pad)
+	raidAnchor.Transparency = 1
+	raidAnchor.CanCollide = false
+	raidAnchor.CanQuery = false
+
+	-- ...and the game's own name above it. This used to sit at 34, which is
+	-- across the statue's face — it tops out around 35.6.
+	local sign = newPart(arena, "TitleAnchor", Vector3.new(1, 1, 1),
+		CFrame.new(0, Config.Style.ArenaTitleY, 0), PALETTE.pad)
 	sign.Transparency = 1
 	sign.CanCollide = false
 
 	local billboard = Style.billboard(sign, {
-		name = "Title", width = 56, height = 14, distance = "world",
+		name = "Title", width = 56, height = Config.Style.ArenaTitleHeight, distance = "world",
 	})
 	Style.text(billboard, {
 		name = "Title", size = UDim2.fromScale(1, 0.62),
