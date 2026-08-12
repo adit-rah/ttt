@@ -57,7 +57,15 @@ local SessionService = Req("SessionService")
 
 local VaultService = {}
 
-local P = Config.Prototypes
+-- `local P = Config.Prototypes` used to live here, and three guards below read
+-- P.Offline. Offline earnings SHIPPED in the round this file was written, and
+-- graduating a feature DELETES its flag -- so P.Offline became nil, `not
+-- P.Offline` became true, and VaultService.start() returned before wiring
+-- anything. The vault gauge was dead on main and nothing said so: no check, no
+-- spec, no warning, and a green build.
+--
+-- The two branches never conflicted, because they touched different files. See
+-- the prototype-flag lint in tools/verify.py, which exists because of this.
 local O = Config.Offline
 local V = O.Vault
 
@@ -104,7 +112,7 @@ end
 --- Recompute one plot's gauge from its owner's saved profile. Cheap enough to
 --- call on every purchase: it is two table walks and no instances.
 function VaultService.refresh(tycoon)
-	if not P.Offline or draining[tycoon] then
+	if draining[tycoon] then
 		return
 	end
 	local player = tycoon.owner
@@ -143,7 +151,7 @@ end
 --- something you watched happen, and it is what teaches the promise on the sign
 --- is real — which is what makes it worth reading on the way out tomorrow.
 local function collect(tycoon, player: Player)
-	if not P.Offline or player ~= tycoon.owner or draining[tycoon] then
+	if player ~= tycoon.owner or draining[tycoon] then
 		return
 	end
 	local profile = DataService.get(player)
@@ -187,10 +195,6 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 
 function VaultService.start()
-	if not P.Offline then
-		return
-	end
-
 	for _, tycoon in ipairs(Tycoon.all()) do
 		if not wired[tycoon] then
 			wired[tycoon] = true
