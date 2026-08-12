@@ -41,7 +41,7 @@ local function check(condition, message)
 end
 
 -- installers that Tycoon.lua actually implements
-local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true }
+local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true }
 local KNOWN_STRUCTURES = { walls = true, roof = true }
 
 local seenIds, dropperSlots, upgraderSlots = {}, {}, {}
@@ -107,6 +107,8 @@ for index, def in ipairs(Config.Buttons) do
 		check(KNOWN_STRUCTURES[def.structure], where .. ": unknown structure " .. tostring(def.structure))
 	elseif def.kind == "Gear" then
 		check(Config.BatById[def.grants] ~= nil, where .. ": grants unknown bat " .. tostring(def.grants))
+	elseif def.kind == "Armor" then
+		check(Config.ArmorById[def.grants] ~= nil, where .. ": grants unknown armour tier " .. tostring(def.grants))
 	end
 end
 
@@ -202,6 +204,45 @@ end
 check(not grantedBats[Config.Bats[1].id],
 	("Bats[1] (%s) is the bat you spawn holding; selling it would charge for nothing")
 		:format(tostring(Config.Bats[1].name)))
+
+-- ── armour ──────────────────────────────────────────────────────────────────
+local seenArmor = {}
+for tier, armor in ipairs(Config.Armor.Tiers) do
+	check(not seenArmor[armor.id], "duplicate armour id " .. tostring(armor.id))
+	seenArmor[armor.id] = true
+	check(Config.Variants[armor.variant] ~= nil,
+		("Armor.Tiers[%d]: unknown variant %s"):format(tier, tostring(armor.variant)))
+	check(type(armor.health) == "number" and armor.health > 0,
+		("Armor.Tiers[%d]: bad health"):format(tier))
+	if tier > 1 then
+		check(armor.health > Config.Armor.Tiers[tier - 1].health,
+			("Armor.Tiers[%d] (%s) is not tougher than the tier below it"):format(tier, tostring(armor.name)))
+	end
+end
+
+-- Tier 1 IS the bare Roblox humanoid. This is what keeps the raider-telegraph
+-- assertion below honest: it measures an UNARMOURED player, and it can only
+-- keep meaning that if tier 1 grants nothing.
+check(Config.Armor.Tiers[1].health == Config.Armor.BaseHealth,
+	("Armor.Tiers[1] grants %d health but BaseHealth is %d; tier 1 is the humanoid you spawn as and must grant nothing")
+		:format(Config.Armor.Tiers[1].health, Config.Armor.BaseHealth))
+
+local grantedArmor = {}
+for _, def in ipairs(Config.Buttons) do
+	if def.kind == "Armor" then
+		check(not grantedArmor[def.grants],
+			("two Armor buttons both grant %s; the second would charge and do nothing")
+				:format(tostring(def.grants)))
+		grantedArmor[def.grants] = true
+	end
+end
+for tier = 2, #Config.Armor.Tiers do
+	check(grantedArmor[Config.Armor.Tiers[tier].id],
+		("Armor.Tiers[%d] (%s) is not granted by any button — nothing can unlock it")
+			:format(tier, tostring(Config.Armor.Tiers[tier].name)))
+end
+check(not grantedArmor[Config.Armor.Tiers[1].id],
+	"Armor.Tiers[1] is what you spawn wearing; selling it would charge for nothing")
 
 -- ── prototypes ──────────────────────────────────────────────────────────────
 -- Unshipped, but the data still has to be coherent — a prototype that only
@@ -374,15 +415,36 @@ check(WV.AttackRange > 0 and WV.AttackRange < 14,
 -- face: a boss at MaxDamage, hitting every cycle, against 100 HP.
 local cycle = WV.AttackWindUp * WV.BossWindUpScale + WV.AttackRecover + WV.AttackCooldown
 local worstHit = WV.MaxBossDamage
-local secondsToKill = (100 / worstHit) * cycle
+
+-- The 100 in these two checks used to be a literal. Armour raises MaxHealth, so
+-- it stopped being a constant and became an assumption — and the assumption
+-- worth keeping is that these measure the FLOOR of the experience, an
+-- unarmoured player. So they read the tier you spawn as, which is asserted
+-- above to be exactly BaseHealth. Do NOT repoint them at the armoured maximum:
+-- that would silently weaken the promise the comments make.
+local unarmoured = Config.Armor.Tiers[1].health
+local secondsToKill = (unarmoured / worstHit) * cycle
 check(WV.MaxBossDamage >= WV.MaxDamage, "MaxBossDamage should not be below MaxDamage")
 -- The comment on MaxDamage has always said "never let a raider 2-shot"; assert
 -- it, because the boss multiplier used to be applied to the cap as well as to
 -- the damage and quietly broke exactly that promise.
-check(worstHit * 2 < 100,
-	("the worst raider hits for %.0f — two of those kill a full-health player"):format(worstHit))
+check(worstHit * 2 < unarmoured,
+	("the worst raider hits for %.0f — two of those kill an unarmoured player (%d health)")
+		:format(worstHit, unarmoured))
 check(secondsToKill >= 5,
-	("the worst raider kills a full-health player in %.1fs of solo attention (need 5s)"):format(secondsToKill))
+	("the worst raider kills an UNARMOURED player in %.1fs of solo attention (need 5s)"):format(secondsToKill))
+
+-- ...and the other end of the same rope. Armour that makes a boss cosmetic
+-- takes away the reason the arena exists, so the top tier is bounded both as a
+-- multiple of base health and by how long a boss needs to get through it.
+local topArmor = Config.Armor.Tiers[#Config.Armor.Tiers].health
+check(topArmor <= unarmoured * Config.Armor.MaxHealthMultiple,
+	("the top armour tier is %.1fx base health (ceiling %.1fx)")
+		:format(topArmor / unarmoured, Config.Armor.MaxHealthMultiple))
+local secondsToKillArmoured = (topArmor / worstHit) * cycle
+check(secondsToKillArmoured <= 45,
+	("a boss needs %.0fs of uninterrupted attention to kill a fully-armoured player; past ~45s it is not a threat, it is scenery")
+		:format(secondsToKillArmoured))
 
 -- ── belt layout ─────────────────────────────────────────────────────────────
 -- The belt is an L: leg 1 (BeltStart -> BeltCorner) carries the droppers,

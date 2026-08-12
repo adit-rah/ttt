@@ -1565,6 +1565,22 @@ Tycoon.INSTALLERS.Gear = function(self, def, silent)
 	end
 end
 
+Tycoon.INSTALLERS.Armor = function(self, def, silent)
+	local owner = self.owner
+	if owner then
+		CombatService.grantArmor(owner, def.grants)
+	end
+
+	local tierDef = Config.ArmorById[def.grants]
+	local model = self:buildShelfDisplay(def, tierDef and tierDef.variant or "classic",
+		tierDef and tierDef.name or def.name)
+
+	local entry = self.objects[def.id]
+	if entry then
+		entry.machine = model
+	end
+end
+
 Tycoon.INSTALLERS.Structure = function(self, def, silent)
 	local model = Instance.new("Model")
 	model.Name = "Structure_" .. def.id
@@ -1771,6 +1787,12 @@ function Tycoon:effectLine(def): string
 		local bat = Config.BatById[def.grants]
 		if bat then
 			return ("%d dmg  •  %.0f%% crit"):format(bat.damage, bat.crit * 100)
+		end
+	elseif def.kind == "Armor" then
+		local tier = Config.ArmorById[def.grants]
+		if tier then
+			local previous = Config.Armor.Tiers[tier.tier - 1]
+			return ("%d max health  (+%d)"):format(tier.health, tier.health - (previous and previous.health or 0))
 		end
 	end
 	return def.blurb or ""

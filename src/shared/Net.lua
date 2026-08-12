@@ -27,7 +27,7 @@ end
 -- Every remote the game uses. Declared up front so the client never races.
 Net.NAMES = {
 	"Notify",        -- S->C  { kind, title, body, color }
-	"Stats",         -- S->C  { cash, rebirths, kills, batTier, wave }
+	"Stats",         -- S->C  { cash, rebirths, kills, batTier, armorTier, multiplier, owned, rebirthCost }
 	"PlotAssigned",  -- S->C  plotIndex
 	"Purchased",     -- S->C  { id, name, price }
 	"WaveState",     -- S->C  { phase, wave, remaining, seconds }

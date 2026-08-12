@@ -50,6 +50,7 @@ local function defaultProfile()
 		owned = {},        -- { [buttonId] = true }
 		rebirths = 0,
 		batTier = 1,
+		armorTier = 1,
 		kills = 0,
 		playtime = 0,
 		-- PROTOTYPE fields (Offline / Sessions / RebirthPerks). reconcile()
@@ -126,6 +127,7 @@ local function reconcile(saved)
 	profile.version = PROFILE_VERSION
 
 	profile.batTier = math.clamp(profile.batTier, 1, #Config.Bats)
+	profile.armorTier = math.clamp(math.floor(tonumber(profile.armorTier) or 1), 1, #Config.Armor.Tiers)
 
 	-- A weapon or armour button is the RECORD of a granted tier, so it must
 	-- never disagree with the tier itself. A save from before the weapons
@@ -140,6 +142,11 @@ local function reconcile(saved)
 		if def.kind == "Gear" then
 			local bat = Config.BatById[def.grants]
 			if bat and bat.tier <= profile.batTier then
+				profile.owned[def.id] = true
+			end
+		elseif def.kind == "Armor" then
+			local tier = Config.ArmorById[def.grants]
+			if tier and tier.tier <= profile.armorTier then
 				profile.owned[def.id] = true
 			end
 		end
@@ -200,6 +207,7 @@ function DataService.save(player: Player, release: boolean?)
 		owned = profile.owned,
 		rebirths = profile.rebirths,
 		batTier = profile.batTier,
+		armorTier = profile.armorTier,
 		kills = profile.kills,
 		playtime = profile.playtime,
 		lastSeen = profile.lastSeen,
