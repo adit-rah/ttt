@@ -586,6 +586,22 @@ __MODULES["Config"] = function()
 	-- this file, in track order, so every consumer still iterates one array.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
+	-- NO `requires` FIELD APPEARS BELOW, and that is the point.
+	--
+	-- The header above has always said the loader derives it from the row above and
+	-- that a hand-typed one is the most error-prone field here. Every row restated
+	-- it anyway, and the restating hid a fork: `dropper8` required `upgrader4`
+	-- while floor2 -> mezz_dropper1 hung off `upgrader4` too, so the mezzanine was
+	-- a dead-end branch nothing downstream needed. You could finish the entire
+	-- ground floor without ever buying the floor — and since Config.TrackUnlock
+	-- gates BOTH cabinets on floor2, without ever seeing a weapon or a suit of
+	-- armour either. The verifier's chain check counts requirement-free roots, so a
+	-- fork downstream of the root was invisible to it.
+	--
+	-- Moving the floor to position 6 is what finally makes table order and
+	-- dependency order the same thing, which is what lets the derivation stand
+	-- alone. One root, twenty links, no forks, and the order you read is the order
+	-- you buy.
 	Config.FactoryButtons = {
 		{
 			id = "dropper1", name = "Tung Dropper", price = 50,
@@ -595,87 +611,46 @@ __MODULES["Config"] = function()
 		},
 		{
 			id = "dropper2", name = "Tung Tung Dropper", price = 75,
-			kind = "Dropper", slot = 2, variant = "oak", requires = "dropper1",
+			kind = "Dropper", slot = 2, variant = "oak",
 			dropValue = 4, dropRate = 1.5,
 			blurb = "tung tung.",
 		},
 		{
 			id = "upgrader1", name = "Drum Roll Refiner", price = 250,
-			kind = "Upgrader", slot = 1, variant = "oak", requires = "dropper2",
+			kind = "Upgrader", slot = 1, variant = "oak",
 			multiplier = 1.6,
 			blurb = "A little sahur percussion. x1.6",
 		},
 		{
 			id = "dropper3", name = "Tung Tung Tung Dropper", price = 500,
-			kind = "Dropper", slot = 3, variant = "ash", requires = "upgrader1",
+			kind = "Dropper", slot = 3, variant = "ash",
 			dropValue = 12, dropRate = 1.4,
 			blurb = "tung tung tung.",
 		},
 		{
 			id = "walls", name = "Plot Walls", price = 1500,
-			kind = "Structure", requires = "dropper3", structure = "walls",
+			kind = "Structure", structure = "walls",
 			blurb = "Keeps the raiders honest.",
 		},
-		{
-			id = "dropper4", name = "Golden Tung", price = 2500,
-			kind = "Dropper", slot = 4, variant = "golden", requires = "walls",
-			dropValue = 40, dropRate = 1.4,
-			blurb = "Sahur, but expensive.",
-		},
-		{
-			id = "upgrader2", name = "Sahur Bat Upgrader", price = 8500,
-			kind = "Upgrader", slot = 2, variant = "golden", requires = "dropper4",
-			multiplier = 1.85,
-			blurb = "Whacks value into them. x1.85",
-		},
-		{
-			id = "dropper5", name = "Crimson Tung", price = 25000,
-			kind = "Dropper", slot = 5, variant = "crimson", requires = "upgrader2",
-			dropValue = 150, dropRate = 1.3,
-			blurb = "It has seen things.",
-		},
-		{
-			id = "belt1", name = "Belt Overdrive", price = 80000,
-			kind = "Belt", requires = "dropper5", speedBonus = 9,
-			blurb = "Conveyor goes brrrr.",
-		},
-		{
-			id = "upgrader3", name = "Tralalero Refiner", price = 100000,
-			kind = "Upgrader", slot = 3, variant = "crimson", requires = "belt1",
-			multiplier = 2.1,
-			blurb = "Sharks approve. x2.1",
-		},
-		{
-			id = "dropper6", name = "Neon Tung", price = 250000,
-			kind = "Dropper", slot = 6, variant = "neon", requires = "upgrader3",
-			dropValue = 620, dropRate = 1.25,
-			blurb = "3am energy drink sahur.",
-		},
-		{
-			id = "roof", name = "Sahur Roof + Sign", price = 1000000,
-			kind = "Structure", requires = "dropper6", structure = "roof",
-			blurb = "Now it's a real business.",
-		},
-		{
-			id = "dropper7", name = "Void Tung", price = 1250000,
-			kind = "Dropper", slot = 7, variant = "void", requires = "roof",
-			dropValue = 2600, dropRate = 1.2,
-			blurb = "tung from beyond.",
-		},
-		{
-			id = "upgrader4", name = "Void Furnace", price = 6000000,
-			kind = "Upgrader", slot = 4, variant = "void", requires = "dropper7",
-			multiplier = 2.4,
-			blurb = "Melts them into money. x2.4",
-		},
-		-- THE SECOND FLOOR, at roughly the halfway mark of the build.
+		-- THE SECOND FLOOR, and it is what the walls just made room for.
 		--
-		-- It used to appear free the moment you owned dropper10 — the very last
-		-- button, about eighty minutes in, which is too late for anyone to see it.
-		-- Here it costs Tung and it lands around minute forty, which is also what
-		-- GROWTH-TODO item 1 wants: the back third of the build is already too long
-		-- to count for anything, so putting the one piece of new geography in it
-		-- was putting it where nobody goes.
+		-- It has moved twice. It began as a free reward for owning dropper10 — the
+		-- very last button, eighty minutes in. #29 made it a purchase at the
+		-- halfway mark, minute forty-one. Both of those put the one piece of new
+		-- geography in the stretch of the build that GROWTH-TODO item 1 says counts
+		-- for nothing, and #29's own note conceded the floor then stayed at minute
+		-- 41 while everything around it got faster.
+		--
+		-- The deciding fact is not about the floor at all: Config.TrackUnlock gates
+		-- the weapons AND armour cabinets on this button. Parking it at the halfway
+		-- mark parked both side ladders behind it, which is how the verifier ended
+		-- up printing "opens at 41 min with 4 of 5 rungs already affordable" — a
+		-- cabinet you empty in one pass because you spent forty minutes able to
+		-- afford it and unable to reach it. Moving one button fixes three ladders.
+		--
+		-- So it lands right after the walls, around minute six, for 1750 rather
+		-- than eight million. You buy the enclosure, then you buy the storey it
+		-- encloses, and the ladder up stands by the gateway you walk in through.
 		--
 		-- Two buttons, not one. The deck is the purchase; the machine that stands
 		-- on it is the next purchase, and it is an ORDINARY Dropper row pinned to
@@ -683,48 +658,107 @@ __MODULES["Config"] = function()
 		-- can buy things rather than scenery with a free dropper on it — and it is
 		-- why the income readout can see it, which the free one never could.
 		{
-			id = "floor2", name = "The Mezzanine", price = 8000000,
-			kind = "Floor", floor = "mezzanine", requires = "upgrader4",
+			id = "floor2", name = "The Mezzanine", price = 1750,
+			kind = "Floor", floor = "mezzanine",
 			blurb = "A second storey, with its own line.",
 		},
 		{
-			id = "mezz_dropper1", name = "Mezzanine Tung", price = 11000000,
-			kind = "Dropper", variant = "eclipse", requires = "floor2",
+			id = "mezz_dropper1", name = "Mezzanine Tung", price = 2000,
+			kind = "Dropper", variant = "eclipse",
 			-- `path` is an id, not an index: pathIndex is assigned at runtime by
 			-- addBeltPath and Config cannot know it. legIndex/legDistance pin the
 			-- machine to a leg of that path, exactly as Config.Layout.DropperDist
 			-- pins one to a leg of the ground floor's.
 			path = "mezzanine", legIndex = 1, legDistance = 14,
-			dropValue = 1400, dropRate = 2.0,
+			-- dropValue was 1400, for a machine bought at minute forty-four beside
+			-- seven ground droppers. At minute eight it stands beside three, worth
+			-- 11.9 raw dps between them, and 1400 would have made the upstairs line
+			-- 98% of the plot's income the second it was bought — the ground floor
+			-- would have stopped being the thing you were playing. At 12 it is a
+			-- shade under dropper3 and a third of plot income, which is a peer of
+			-- the newest ground machine rather than a replacement for all of them.
+			dropValue = 12, dropRate = 2.0,
 			blurb = "The upstairs line.",
 		},
 		{
-			id = "dropper8", name = "Eclipse Tung", price = 18000000,
-			kind = "Dropper", slot = 8, variant = "eclipse", requires = "upgrader4",
+			id = "dropper4", name = "Golden Tung", price = 3250,
+			kind = "Dropper", slot = 4, variant = "golden",
+			dropValue = 40, dropRate = 1.4,
+			blurb = "Sahur, but expensive.",
+		},
+		{
+			id = "upgrader2", name = "Sahur Bat Upgrader", price = 9000,
+			kind = "Upgrader", slot = 2, variant = "golden",
+			multiplier = 1.85,
+			blurb = "Whacks value into them. x1.85",
+		},
+		{
+			id = "dropper5", name = "Crimson Tung", price = 21000,
+			kind = "Dropper", slot = 5, variant = "crimson",
+			dropValue = 150, dropRate = 1.3,
+			blurb = "It has seen things.",
+		},
+		{
+			id = "belt1", name = "Belt Overdrive", price = 68000,
+			kind = "Belt", speedBonus = 9,
+			blurb = "Conveyor goes brrrr.",
+		},
+		{
+			id = "upgrader3", name = "Tralalero Refiner", price = 82000,
+			kind = "Upgrader", slot = 3, variant = "crimson",
+			multiplier = 2.1,
+			blurb = "Sharks approve. x2.1",
+		},
+		{
+			id = "dropper6", name = "Neon Tung", price = 165000,
+			kind = "Dropper", slot = 6, variant = "neon",
+			dropValue = 620, dropRate = 1.25,
+			blurb = "3am energy drink sahur.",
+		},
+		{
+			id = "roof", name = "Sahur Roof + Sign", price = 760000,
+			kind = "Structure", structure = "roof",
+			blurb = "Now it's a real business.",
+		},
+		{
+			id = "dropper7", name = "Void Tung", price = 900000,
+			kind = "Dropper", slot = 7, variant = "void",
+			dropValue = 2600, dropRate = 1.2,
+			blurb = "tung from beyond.",
+		},
+		{
+			id = "upgrader4", name = "Void Furnace", price = 4500000,
+			kind = "Upgrader", slot = 4, variant = "void",
+			multiplier = 2.4,
+			blurb = "Melts them into money. x2.4",
+		},
+		{
+			id = "dropper8", name = "Eclipse Tung", price = 11000000,
+			kind = "Dropper", slot = 8, variant = "eclipse",
 			dropValue = 11000, dropRate = 1.15,
 			blurb = "Sahur at the end of the night.",
 		},
 		{
-			id = "upgrader5", name = "Eclipse Ascension", price = 80000000,
-			kind = "Upgrader", slot = 5, variant = "eclipse", requires = "dropper8",
+			id = "upgrader5", name = "Eclipse Ascension", price = 48000000,
+			kind = "Upgrader", slot = 5, variant = "eclipse",
 			multiplier = 2.8,
 			blurb = "Ascends the tung. x2.8",
 		},
 		{
-			id = "dropper9", name = "Galaxy Tung", price = 250000000,
-			kind = "Dropper", slot = 9, variant = "galaxy", requires = "upgrader5",
+			id = "dropper9", name = "Galaxy Tung", price = 140000000,
+			kind = "Dropper", slot = 9, variant = "galaxy",
 			dropValue = 48000, dropRate = 1.1,
 			blurb = "tung tung tung across the stars.",
 		},
 		{
-			id = "upgrader6", name = "Tung Singularity", price = 1200000000,
-			kind = "Upgrader", slot = 6, variant = "galaxy", requires = "dropper9",
+			id = "upgrader6", name = "Tung Singularity", price = 820000000,
+			kind = "Upgrader", slot = 6, variant = "galaxy",
 			multiplier = 3.4,
 			blurb = "Do not look directly at it. x3.4",
 		},
 		{
-			id = "dropper10", name = "INFINITY TUNG TUNG TUNG SAHUR", price = 5000000000,
-			kind = "Dropper", slot = 10, variant = "infinity", requires = "upgrader6",
+			id = "dropper10", name = "INFINITY TUNG TUNG TUNG SAHUR", price = 2800000000,
+			kind = "Dropper", slot = 10, variant = "infinity",
 			dropValue = 240000, dropRate = 1.0,
 			blurb = "TUNG TUNG TUNG TUNG TUNG TUNG SAHUR",
 		},
@@ -898,22 +932,22 @@ __MODULES["Config"] = function()
 	-- and a save that somehow holds rung 3 without rung 2 lands on a defined value.
 	Config.PowerButtons = {
 		{
-			id = "power1", name = "Diesel Generator", price = 20000,
+			id = "power1", name = "Diesel Generator", price = 17500,
 			kind = "Power", slot = 1, factor = 1.19, variant = "golden",
 			blurb = "The whole line runs 19% faster.",
 		},
 		{
-			id = "power2", name = "Twin Turbine", price = 500000,
+			id = "power2", name = "Twin Turbine", price = 650000,
 			kind = "Power", slot = 2, factor = 1.42, variant = "crimson",
 			blurb = "The whole line runs 42% faster.",
 		},
 		{
-			id = "power3", name = "Sahur Reactor", price = 6000000,
+			id = "power3", name = "Sahur Reactor", price = 3600000,
 			kind = "Power", slot = 3, factor = 1.68, variant = "void",
 			blurb = "The whole line runs 68% faster.",
 		},
 		{
-			id = "power4", name = "Tung Fusion Core", price = 300000000,
+			id = "power4", name = "Tung Fusion Core", price = 260000000,
 			kind = "Power", slot = 4, factor = 2.00, variant = "infinity",
 			blurb = "Double production. Droppers and belt alike.",
 		},
@@ -1166,8 +1200,10 @@ __MODULES["Config"] = function()
 			id = "mezzanine",
 			-- The button that BUILDS this floor. It used to be `requires =
 			-- "dropper10"` — own the last dropper and the whole deck appeared for
-			-- free, at the very end of the build. It is a purchase now, and it
-			-- lands at the halfway mark.
+			-- free, at the very end of the build. Then a purchase at the halfway
+			-- mark. It is now the purchase straight after the walls, around minute
+			-- six: the storey the enclosure made room for, and the gate on both
+			-- side-track cabinets, which is the reason it could not stay at forty.
 			button = "floor2",
 			height = 22,             -- floor top, plot-local
 			-- deck covers the back half only, so it does not roof the walkway

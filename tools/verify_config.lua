@@ -1770,16 +1770,43 @@ for _, floor in ipairs(Config.Floors) do
 	if row then
 		local at = row.at / 60
 		local fraction = at / buildMinutes
-		check(fraction >= 0.35,
-			("Floors.%s opens at minute %.0f of a %.0f-minute build (%.0f%%) — before a third of the way in, the ground floor is not yet real progress to have finished with")
-				:format(floor.id, at, buildMinutes, fraction * 100))
-		check(fraction <= 0.65,
-			("Floors.%s opens at %.0f%% of the build; past two thirds it is in the stretch nobody reaches")
+		-- WHERE THE FLOOR LANDS, now that it is early expansion space.
+		--
+		-- This replaces `fraction >= 0.35 and fraction <= 0.65`, which said
+		-- "the floor is the halfway prize". That premise is deliberately
+		-- overturned. The floor is what the walls make room for, it is bought
+		-- with the walls' money, and — the deciding fact — it is the gate on
+		-- BOTH side-track cabinets. Parking it at the halfway mark parked the
+		-- weapons and armour ladders there too, which is GROWTH-TODO item 1's
+		-- complaint about the back third of the build in its purest form: a
+		-- forty-minute button standing in front of nine other buttons.
+		--
+		-- What is still true, still falsifiable, and is now the actual defect
+		-- to guard against, is EARLY BUT NOT FIRST.
+		--
+		-- Not first is the sharper half. A deck bought before the ground line
+		-- works is a bill for empty scenery, and it invites an opener a new
+		-- player can strand themselves on — the same defect the "side tracks
+		-- must not be affordable at spawn" check above exists for, one track
+		-- over. Anchoring to `walls` names the purchase it must follow instead
+		-- of guessing at a percentage that happens to sit after it today.
+		local wallsRow = curveRow("walls")
+		check(wallsRow ~= nil and row.at > wallsRow.at,
+			("Floors.%s is bought at minute %.1f, at or before the walls at minute %.1f — the deck is the expansion the walls enclose, and a floor you can buy before the plot is enclosed is scenery you are billed for")
+				:format(floor.id, at, wallsRow and wallsRow.at / 60 or -1))
+		check(fraction >= 0.06,
+			("Floors.%s opens at %.0f%% of the build — that is inside the opening minutes, before the ground floor is a line worth extending")
 				:format(floor.id, fraction * 100))
-		-- Roblox credits the first 60 minutes of a session and nothing after,
-		-- so a floor past 50 is a floor most players never see even once.
-		check(at <= 50,
-			("Floors.%s opens %.0f minutes in; past ~50 it is outside the session anyone actually plays")
+		check(fraction <= 0.20,
+			("Floors.%s opens at %.0f%% of the build; past a fifth in it slides back toward being the mid-build wall it used to be, and it drags both cabinets it gates along with it")
+				:format(floor.id, fraction * 100))
+		-- Roblox credits the first 60 minutes of a session and nothing after.
+		-- `at <= 50` was the version of this rule that only had to cover the
+		-- floor itself. The floor gates the weapons and armour tracks now, so
+		-- this is the deadline for THREE ladders, and the question stopped
+		-- being "inside the session" and became "with a session left after it".
+		check(at <= 10,
+			("Floors.%s opens %.0f minutes in; it gates both cabinets, so past ~10 the side tracks have no session left to be climbed in")
 				:format(floor.id, at))
 
 		-- HOW MUCH THE FLOOR IS WORTH THE MINUTE YOU BUY IT. The upstairs
@@ -1804,8 +1831,22 @@ for _, floor in ipairs(Config.Floors) do
 		local share = floorDps / (groundDps + floorDps)
 		floorReport = ("floor %s:        opens at %.0f min (%.0f%% of build), worth %.0f%% of income")
 			:format(floor.id, at, fraction * 100, share * 100)
-		check(share >= 0.10 and share <= 0.30,
-			("Floors.%s's own machines are %.0f%% of plot income (want 10-30%%) — below that the floor is scenery, above it the ground floor stops mattering")
+		-- THE BAND MOVED WITH THE FLOOR, because the denominator did. This is
+		-- measured against the droppers owned AT THE MOMENT OF PURCHASE, and at
+		-- minute six that is three of them rather than the seven a minute-forty
+		-- floor stood on. Holding 10-30% here would force the upstairs machine
+		-- below dropper2 — which is the "floor is scenery" defect the lower
+		-- bound exists to catch, arrived at by way of the lower bound itself.
+		--
+		-- A third is the shape being asserted: the first upstairs machine is a
+		-- PEER of the ground floor's newest dropper, not a replacement for the
+		-- ground floor and not a decoration on top of it. Split into two checks
+		-- so each failure names the defect it is about.
+		check(share >= 0.25,
+			("Floors.%s's own machines are %.0f%% of plot income the minute you buy it (want 25-45%%) — below that the deck is a viewing platform and its dropper is a decoration")
+				:format(floor.id, share * 100))
+		check(share <= 0.45,
+			("Floors.%s's own machines are %.0f%% of plot income the minute you buy it (want 25-45%%) — above that the ground slots you have not filled yet stop being what you are playing for")
 				:format(floor.id, share * 100))
 	end
 end
@@ -1894,16 +1935,21 @@ for _, track in ipairs(Config.TrackOrder) do
 	end
 end
 
--- HOW FAST A CABINET EMPTIES ONCE IT OPENS, printed rather than asserted.
+-- HOW FAST A CABINET EMPTIES ONCE IT OPENS, and it is an assertion now.
 --
--- Gating a track behind a forty-minute button inverts its old risk. It can no
--- longer be scenery you stare at for half an hour; it can now arrive with
+-- Gating a track behind a forty-minute button inverted its old risk. It could
+-- no longer be scenery you stare at for half an hour; it arrived instead with
 -- almost every rung already affordable, which makes a ladder into a vending
--- machine. The check that would catch that fails TODAY at 4 of 5 weapon rungs,
--- and fixing it means retuning cabinet prices — which this round has
--- deliberately left alone. So it is a number on every run, and it becomes an
--- assertion in the round that retunes the curve. Landing it as one now would
--- force that retune through the back door.
+-- machine — you empty it in one pass and five tiers were one purchase.
+--
+-- The comment that stood here said this "becomes an assertion in the round that
+-- retunes the curve", and left it printed because landing it then would have
+-- forced that retune through the back door. THIS IS THAT ROUND. It went from
+-- 4 of 5 weapon rungs and 4 of 4 armour rungs to 1 of 5 and 0 of 4 without a
+-- cabinet price moving, purely because the gate button moved from minute 41 to
+-- minute 6 — so keeping it printed would now be the back-door move in the other
+-- direction.
+local VENDING_MACHINE_RUNGS = 2
 for _, track in ipairs(Config.TrackOrder) do
 	local gate = Config.TrackUnlock[track]
 	if gate then
@@ -1917,6 +1963,9 @@ for _, track in ipairs(Config.TrackOrder) do
 		end
 		print(("%s cabinet:%s opens at %.0f min with %d of %d rungs already affordable")
 			:format(track, (" "):rep(math.max(1, 12 - #track)), opensAt, ready, #Config.Tracks[track]))
+		check(ready <= VENDING_MACHINE_RUNGS,
+			("the %s cabinet opens at minute %.0f with %d of %d rungs already affordable; a ladder you can empty in one pass is a vending machine, not a track")
+				:format(track, opensAt, ready, #Config.Tracks[track]))
 	end
 end
 
