@@ -191,11 +191,18 @@ function Tycoon.new(index: number, parent: Instance)
 	-- rather than listed in setFactoryVisible; see registerFactoryFolder.
 	self.factoryFolders = {}
 	self.factoryShown = true
+	self.ownedChangedListeners = {}
 
-	-- Belt paths. Path 1 is the ground floor and is always present; anything
-	-- above it registers its own through addBeltPath.
+	-- BELT PATHS ARE REGISTERED UP FRONT, all of them, including floors nobody
+	-- has bought yet. A path is pure maths — legs, directions, normals — and
+	-- registering it builds nothing. It has to happen here because buy buttons
+	-- are built once, on first claim, and a button standing on the mezzanine
+	-- needs that path to exist to know its own height. The floor's PARTS still
+	-- wait for the purchase.
 	self.paths = {}
-	self:addBeltPath(Config.BeltPaths[1])
+	for _, path in ipairs(Config.BeltPaths) do
+		self:addBeltPath(path)
+	end
 
 	local model, cf = MapBuilder.buildPlotPad(parent, index)
 	self.model = model
@@ -246,19 +253,23 @@ end
 --- release, a rebirth. FloorService hangs the mezzanine off this rather than
 --- polling every plot on a timer. One listener, because there is exactly one
 --- consumer; make it a list the day there are two.
+--- A LIST, as the comment here has been asking for. It was one slot with
+--- "make it a list the day there are two" written over it, and FloorService
+--- held it. There are two now.
 function Tycoon:onOwnedChanged(fn: ((any) -> ())?)
-	self.ownedChanged = fn
+	if fn then
+		table.insert(self.ownedChangedListeners, fn)
+	end
 end
 
 function Tycoon:fireOwnedChanged()
-	local fn = self.ownedChanged
-	if not fn then
-		return
-	end
-	-- pcall'd: a listener that throws must not take a purchase down with it
-	local ok, err = pcall(fn, self)
-	if not ok then
-		warn("[Tung] owned-changed listener error on plot " .. self.index .. ": " .. tostring(err))
+	for _, fn in ipairs(self.ownedChangedListeners) do
+		-- pcall'd per listener: one that throws must take neither the purchase
+		-- nor the listeners after it down with it
+		local ok, err = pcall(fn, self)
+		if not ok then
+			warn("[Tung] owned-changed listener error on plot " .. self.index .. ": " .. tostring(err))
+		end
 	end
 end
 
@@ -550,12 +561,31 @@ end
 --- an upper floor without inventing a second slot table.
 function Tycoon:legOf(def): (number, number, number)
 	if def.legIndex then
-		return def.legIndex, def.legDistance or 0, def.pathIndex or 1
+		return def.legIndex, def.legDistance or 0, self:pathIndexOf(def)
 	end
 	if def.kind == "Dropper" then
 		return 1, L.DropperDist[def.slot], 1
 	end
 	return 2, L.UpgraderDist[def.slot], 1
+end
+
+--- Which registered path a def means. A button carries `path` as an ID rather
+--- than an index, because the index is assigned at runtime by addBeltPath and
+--- Config has no way to know it. Falls back to the ground floor, which is what
+--- every button without a `path` means.
+function Tycoon:pathIndexOf(def): number
+	if def.pathIndex then
+		return def.pathIndex
+	end
+	if def.path then
+		for index, path in ipairs(self.paths) do
+			if path.id == def.path then
+				return index
+			end
+		end
+		warn("[Tung] button " .. tostring(def.id) .. " names belt path " .. tostring(def.path) .. ", which is not registered")
+	end
+	return 1
 end
 
 --- World CFrame of a box lying along a leg.
@@ -671,14 +701,30 @@ function Tycoon:onCollect(hit: BasePart)
 	if not model or not model:IsA("Model") then
 		return
 	end
-	local value = model:GetAttribute("Value")
-	if not value then
+	local rawValue = model:GetAttribute("Value")
+	if not rawValue then
 		return
 	end
 	if model:GetAttribute("PlotIndex") ~= self.index then
 		return
 	end
 	model:SetAttribute("Value", nil)  -- claim it immediately, touch fires twice
+
+	-- THE MEZZANINE FEEDS THE SAME REFINERY.
+	--
+	-- Upgraders are physical scanners on the ground floor's leg 2, so a drop
+	-- from an upper floor crosses none of them and arrives at its raw value.
+	-- Left that way the second floor is an ADDITIVE term against a curve that
+	-- multiplies: modelled, the mezzanine's dropper is 17% of plot income the
+	-- minute you buy it, 4% one button later, and 0.02% by the end of the
+	-- build. You would buy a storey at minute forty and watch it become noise.
+	--
+	-- So a path with no upgraders of its own is refined by the plot's, at the
+	-- one place income is realised. Three lines, and it makes the existing
+	-- "sum the droppers, multiply by the upgraders" shape — which Tycoon,
+	-- SessionService and the verifier's economy sim each implement separately
+	-- — correct for both floors with no change to any of them.
+	local value = self:refineryMultiplierFor(model:GetAttribute("Path")) * rawValue
 
 	local owner = self.owner
 	self.dropCount = math.max(0, self.dropCount - 1)
@@ -1025,6 +1071,25 @@ function Tycoon:buildButtons()
 	end
 end
 
+--- Whether the floor a button stands on has actually been built.
+---
+--- A previewed button is a dimmed pad with a ghost of its machine standing
+--- where it will go, which is the right answer on the ground floor and a
+--- terrible one twenty-two studs up in open air: before the deck exists there
+--- is nothing under it, so it reads as a bug rather than as a plan. Buttons on
+--- an unbuilt floor are HIDDEN, and appear with the deck.
+function Tycoon:floorBuiltFor(def): boolean
+	if not def.path then
+		return true
+	end
+	for _, floor in ipairs(Config.Floors) do
+		if floor.id == def.path then
+			return self.owned[floor.button] == true
+		end
+	end
+	return true
+end
+
 function Tycoon:requirementsMet(id: string): boolean
 	local def = Config.ButtonById[id]
 	if not def then
@@ -1149,8 +1214,9 @@ function Tycoon:refreshButtons()
 	for id, entry in pairs(self.objects) do
 		local def = entry.def
 		local owned = self.owned[id] == true
-		local available = (not owned) and self:requirementsMet(id)
-		local preview = (not owned) and (not available)
+		local standing = self:floorBuiltFor(def)
+		local available = (not owned) and standing and self:requirementsMet(id)
+		local preview = (not owned) and (not available) and standing
 			and (def.trackOrder <= frontier[def.track] + (TRACK_PREVIEW[def.track] or 3))
 
 		entry.holder.Parent = (available or preview) and self.buttonsFolder or nil
@@ -1570,6 +1636,14 @@ Tycoon.INSTALLERS.Armor = function(self, def, silent)
 	end
 end
 
+--- A DOCUMENTED NO-OP. The deck is built by FloorService off the
+--- ownedChanged signal, not from here, because the deck outlives this
+--- purchase: release, rebirth and re-claim all have to rebuild or drop it and
+--- none of them go through install(). This exists so install() does not
+--- warn("no installer for kind Floor") on a button that worked perfectly.
+Tycoon.INSTALLERS.Floor = function(self, def, silent)
+end
+
 Tycoon.INSTALLERS.Structure = function(self, def, silent)
 	local model = Instance.new("Model")
 	model.Name = "Structure_" .. def.id
@@ -1603,19 +1677,39 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 				self.cf * spec[2] * CFrame.new(0, h / 2, 0), COLORS.beltLine, Enum.Material.Neon, false)
 		end
 	elseif def.structure == "roof" then
-		-- With the Floors prototype on, the mezzanine deck IS the roof of the
-		-- back half of the plot. Roofing it twice interpenetrates two slabs a
-		-- third of a stud apart and hides a floor under a roof nobody can see,
-		-- so the roof stops short of the deck with a couple of studs of
-		-- daylight between them. Flag off, this is the full-plot roof it has
-		-- always been.
-		local front = W.PlotSize.Z / 2
-		local back = -W.PlotSize.Z / 2
-		local floorDef = Config.Prototypes.Floors and Config.Floors[1]
-		if floorDef then
-			back = floorDef.deckAt.Z + floorDef.deckSize.Z / 2 + 2
-		end
+		self:buildRoofModel(model, halfX, halfZ)
+	end
 
+	local entry = self.objects[def.id]
+	if entry then
+		entry.machine = model
+	end
+end
+
+--- The roof slab, its columns and the company sign.
+---
+--- Extracted from the installer because the roof's SHAPE depends on something
+--- bought later. The mezzanine deck is the roof of the back half of the plot,
+--- so with the floor up the roof stops short of it with a couple of studs of
+--- daylight; roofing it twice interpenetrates two slabs a third of a stud apart
+--- and hides a floor under a roof nobody can see.
+---
+--- That used to key off the prototype flag, which was the same answer for
+--- everybody forever. Now that the floor is a purchase in the middle of the
+--- build, the roof at minute 28 and the floor at minute 40 are fifteen minutes
+--- apart — so the roof has to be REBUILT when the floor lands, or every player
+--- gets a half-roof over an empty back half for the gap between them.
+function Tycoon:buildRoofModel(model: Instance, halfX: number, halfZ: number)
+	model:ClearAllChildren()
+
+	local front = W.PlotSize.Z / 2
+	local back = -W.PlotSize.Z / 2
+	local floorDef = Config.Floors[1]
+	if floorDef and self.owned[floorDef.button] then
+		back = floorDef.deckAt.Z + floorDef.deckSize.Z / 2 + 2
+	end
+
+	do
 		-- Heights come from Layout now rather than being literals here, because
 		-- the mezzanine deck sits at 22 and these columns are 20 tall — a
 		-- relationship nothing was checking, on two pieces of geometry that
@@ -1641,10 +1735,14 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 		})
 		self:updateSign()
 	end
+end
 
-	local entry = self.objects[def.id]
-	if entry then
-		entry.machine = model
+--- Reshapes an already-built roof. Called when the floor lands under it.
+function Tycoon:refreshRoof()
+	local entry = self.objects.roof
+	local model = entry and entry.machine
+	if model and model.Parent then
+		self:buildRoofModel(model, W.PlotSize.X / 2 - 1, W.PlotSize.Z / 2 - 1)
 	end
 end
 
@@ -1754,6 +1852,37 @@ function Tycoon:incomePerSecond(extraId: string?): number
 	end
 	local rebirthMult = self.owner and Economy.multiplier(self.owner) or 1
 	return total * upgradeMult * rebirthMult
+end
+
+--- What a drop arriving from `pathId` is multiplied by at the vault.
+---
+--- Lives next to incomePerSecond deliberately: the pair of them are the model
+--- and the reality of the same number, and the whole reason the mezzanine is
+--- refined at all is so those two can keep agreeing. A path that carries its
+--- own upgraders would return 1 here and be multiplied on the belt like the
+--- ground floor is; today only the ground floor has any, so every other path
+--- borrows the stack.
+function Tycoon:refineryMultiplierFor(pathIndex: number?): number
+	-- a drop carries its path as the runtime INDEX (see spawnDrop); path 1 is
+	-- always the ground floor, and it crossed the scanners on the way down
+	if (pathIndex or 1) == 1 then
+		return 1
+	end
+	local path = self.paths[pathIndex]
+	local pathId = path and path.id
+	local ground = Config.BeltPaths[1].id
+
+	local mult = 1
+	for id, def in pairs(Config.ButtonById) do
+		if def.kind == "Upgrader" and self.owned[id] then
+			if (def.path or ground) == pathId then
+				-- this path has its own; it has already been refined
+				return 1
+			end
+			mult *= def.multiplier
+		end
+	end
+	return mult
 end
 
 --- One line of plain English for what a button actually does for you. Income

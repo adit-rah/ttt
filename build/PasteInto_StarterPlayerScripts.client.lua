@@ -192,9 +192,15 @@ __MODULES["Config"] = function()
 		-- Buttons with no machine on the belt stand in a row down the middle of the
 		-- open floor, in purchase order, so the aisle you walk reads as a queue.
 		MiscButtons = {
+			floor2    = Vector3.new(8, 0,  22),
 			walls     = Vector3.new(8, 0, -34),
 			belt1     = Vector3.new(8, 0,  -6),
 			roof      = Vector3.new(8, 0,   8),
+			-- The column runs in purchase order with the later steps nearer the
+			-- gate, so the floor goes at the near end. A button with no entry here
+			-- gets built at the plot origin, on top of the belt — buttonPosition
+			-- falls back to (0,0,0) and says nothing about it.
+
 		},
 		MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
 
@@ -582,6 +588,36 @@ __MODULES["Config"] = function()
 			kind = "Upgrader", slot = 4, variant = "void", requires = "dropper7",
 			multiplier = 2.4,
 			blurb = "Melts them into money. x2.4",
+		},
+		-- THE SECOND FLOOR, at roughly the halfway mark of the build.
+		--
+		-- It used to appear free the moment you owned dropper10 — the very last
+		-- button, about eighty minutes in, which is too late for anyone to see it.
+		-- Here it costs Tung and it lands around minute forty, which is also what
+		-- GROWTH-TODO item 1 wants: the back third of the build is already too long
+		-- to count for anything, so putting the one piece of new geography in it
+		-- was putting it where nobody goes.
+		--
+		-- Two buttons, not one. The deck is the purchase; the machine that stands
+		-- on it is the next purchase, and it is an ORDINARY Dropper row pinned to
+		-- the mezzanine's belt path. That is what makes the floor somewhere you
+		-- can buy things rather than scenery with a free dropper on it — and it is
+		-- why the income readout can see it, which the free one never could.
+		{
+			id = "floor2", name = "The Mezzanine", price = 8000000,
+			kind = "Floor", floor = "mezzanine", requires = "upgrader4",
+			blurb = "A second storey, with its own line.",
+		},
+		{
+			id = "mezz_dropper1", name = "Mezzanine Tung", price = 11000000,
+			kind = "Dropper", variant = "eclipse", requires = "floor2",
+			-- `path` is an id, not an index: pathIndex is assigned at runtime by
+			-- addBeltPath and Config cannot know it. legIndex/legDistance pin the
+			-- machine to a leg of that path, exactly as Config.Layout.DropperDist
+			-- pins one to a leg of the ground floor's.
+			path = "mezzanine", legIndex = 1, legDistance = 14,
+			dropValue = 1400, dropRate = 2.0,
+			blurb = "The upstairs line.",
 		},
 		{
 			id = "dropper8", name = "Eclipse Tung", price = 18000000,
@@ -979,10 +1015,11 @@ __MODULES["Config"] = function()
 	Config.Floors = {
 		{
 			id = "mezzanine",
-			-- unlocked by the LAST button of the ground floor, in the same currency.
-			-- Buying floor 2 before you have finished floor 1 is the single most
-			-- complained-about thing in multi-floor tycoons.
-			requires = "dropper10",
+			-- The button that BUILDS this floor. It used to be `requires =
+			-- "dropper10"` — own the last dropper and the whole deck appeared for
+			-- free, at the very end of the build. It is a purchase now, and it
+			-- lands at the halfway mark.
+			button = "floor2",
 			height = 22,             -- floor top, plot-local
 			-- deck covers the back half only, so it does not roof the walkway
 			deckSize = Vector3.new(112, 1.6, 60),
@@ -1100,8 +1137,11 @@ __MODULES["Config"] = function()
 	-- about it — is in IDEAS.md. Numbers here are first drafts, not balance.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
+	-- `Floors` is gone from this table rather than set true: the check below asserts
+	-- every prototype flag ships off, so graduating one means it stops being a
+	-- prototype, not that it becomes the exception. The second floor is a purchase
+	-- on the factory track now, gated by owning its button like everything else.
 	Config.Prototypes = {
-		Floors = false,        -- a second storey with its own dropper -> belt -> vault loop
 		PlayerUpgrades = false,-- walkspeed / magnet / cash multiplier shop
 		Utilities = false,     -- a second weapon slot holding a verb, not a stat
 		RebirthPerks = false,  -- rebirth grants four things instead of one number
