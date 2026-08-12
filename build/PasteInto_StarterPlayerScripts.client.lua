@@ -529,6 +529,47 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
+	-- PERSISTENCE — the numbers behind DataService's session lock.
+	--
+	-- They live here rather than as literals in DataService for the reason
+	-- everything else in this file does: tools/verify.py can see this file and
+	-- cannot see src/server, and every one of these is a number in a RELATIONSHIP
+	-- with another one. tools/verify_config.lua asserts all three of them.
+	--
+	-- THE ACQUIRE WINDOW MUST OUTLAST A SOFT SHUTDOWN.
+	-- AcquireAttempts x AcquireRetrySeconds = 32s against a ShutdownDrainSeconds of
+	-- 25. The common contention case is NOT two live servers fighting over a key —
+	-- it is a soft shutdown, where the source server has up to 25 seconds to drain
+	-- and release while the player is already landing on the destination. A
+	-- destination that gives up sooner than the source takes to let go turns every
+	-- soft shutdown into a kick storm.
+	--
+	-- A LOCK MUST OUTLIVE THREE MISSED HEARTBEATS.
+	-- The heartbeat rides the autosave — there is no second loop, because every
+	-- autosave is already an UpdateAsync and refreshing the lock in that same
+	-- transform is free — so a lock only refreshes every AutosaveSeconds.
+	-- LockStaleSeconds at 300 is three missed beats plus 30s of margin. Set it
+	-- below 3x and an ordinary DataStore throttle on a healthy server is enough for
+	-- a stranger to declare it dead and take its player's save.
+	--
+	-- AND STALENESS MUST OUTLAST A WHOLE HANDOVER (25 + 32 = 57s), or a joining
+	-- server could call a lock dead while the server holding it is still
+	-- legitimately draining — which is the two-writer race this exists to close,
+	-- reintroduced by the timings instead of by the code.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.Persistence = {
+		AutosaveSeconds = 90,
+		ShutdownDrainSeconds = 25,
+		LockStaleSeconds = 300,
+		AcquireAttempts = 8,
+		-- plus up to 2s of jitter, applied per attempt. A mass teleport lands a
+		-- dozen players on one server at once; unjittered retries arrive as a burst
+		-- against a per-key request budget.
+		AcquireRetrySeconds = 4,
+	}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
 	-- TUNG VARIANTS
 	-- Each variant is a visual + audio recipe used by both the dropper's spout
 	-- and the little bat-guy that rides the conveyor.

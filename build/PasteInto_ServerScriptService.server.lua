@@ -529,6 +529,47 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
+	-- PERSISTENCE — the numbers behind DataService's session lock.
+	--
+	-- They live here rather than as literals in DataService for the reason
+	-- everything else in this file does: tools/verify.py can see this file and
+	-- cannot see src/server, and every one of these is a number in a RELATIONSHIP
+	-- with another one. tools/verify_config.lua asserts all three of them.
+	--
+	-- THE ACQUIRE WINDOW MUST OUTLAST A SOFT SHUTDOWN.
+	-- AcquireAttempts x AcquireRetrySeconds = 32s against a ShutdownDrainSeconds of
+	-- 25. The common contention case is NOT two live servers fighting over a key —
+	-- it is a soft shutdown, where the source server has up to 25 seconds to drain
+	-- and release while the player is already landing on the destination. A
+	-- destination that gives up sooner than the source takes to let go turns every
+	-- soft shutdown into a kick storm.
+	--
+	-- A LOCK MUST OUTLIVE THREE MISSED HEARTBEATS.
+	-- The heartbeat rides the autosave — there is no second loop, because every
+	-- autosave is already an UpdateAsync and refreshing the lock in that same
+	-- transform is free — so a lock only refreshes every AutosaveSeconds.
+	-- LockStaleSeconds at 300 is three missed beats plus 30s of margin. Set it
+	-- below 3x and an ordinary DataStore throttle on a healthy server is enough for
+	-- a stranger to declare it dead and take its player's save.
+	--
+	-- AND STALENESS MUST OUTLAST A WHOLE HANDOVER (25 + 32 = 57s), or a joining
+	-- server could call a lock dead while the server holding it is still
+	-- legitimately draining — which is the two-writer race this exists to close,
+	-- reintroduced by the timings instead of by the code.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.Persistence = {
+		AutosaveSeconds = 90,
+		ShutdownDrainSeconds = 25,
+		LockStaleSeconds = 300,
+		AcquireAttempts = 8,
+		-- plus up to 2s of jitter, applied per attempt. A mass teleport lands a
+		-- dozen players on one server at once; unjittered retries arrive as a burst
+		-- against a per-key request budget.
+		AcquireRetrySeconds = 4,
+	}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
 	-- TUNG VARIANTS
 	-- Each variant is a visual + audio recipe used by both the dropper's spout
 	-- and the little bat-guy that rides the conveyor.
@@ -4737,9 +4778,28 @@ end
 
 __MODULES["DataService"] = function()
 	--[[
-		DataService.lua — DataStore persistence with retries, autosave and a
-		safe shutdown flush. Falls back to in-memory only if DataStores are
-		unavailable (Studio without API access), so the game still runs.
+		DataService.lua — DataStore persistence with SESSION LOCKING, retries,
+		autosave and a safe shutdown flush. Falls back to in-memory only if
+		DataStores are unavailable (Studio without API access), so the game still
+		runs.
+
+		THE LOCK LIVES INSIDE THE PROFILE RECORD, as `stored.__lock`, rather than
+		under a key of its own. Roblox has no cross-key transaction, so a lock in a
+		second key could only ever be CHECKED separately from the write it is meant
+		to guard — and a check that is not the write is a race with a smaller
+		window, not a fix. Keeping it in the record makes "only the lock holder may
+		write" one UpdateAsync: the transform sees the lock and the data together
+		and either writes both or writes neither. It also halves the request cost
+		and lets a server that has lost its lock discover that on its next write for
+		free, instead of by polling.
+
+		NO PROFILE_VERSION BUMP AND NO MIGRATION IS NEEDED for it, which is worth
+		knowing before someone adds one. reconcile() iterates the keys of a fresh
+		DEFAULT (`for k, v in pairs(profile)`), so a key the default does not have
+		is structurally invisible to it and `__lock` can never reach the in-memory
+		profile; and save() builds an explicit payload table rather than cloning the
+		profile, so it can never leak back out either. The `__` prefix matches the
+		existing `__loadFailed` convention: fields the save format does not own.
 	]]
 
 	local Req = __Req
@@ -4752,7 +4812,18 @@ __MODULES["DataService"] = function()
 	local DataService = {}
 
 	local STORE_NAME = "TungTungTycoon_v1"
-	local AUTOSAVE_SECONDS = 90
+
+	--- Every timing this file runs on. They are in Config because they are numbers
+	--- in relationships with each other and tools/verify_config.lua can see Config;
+	--- see the PERSISTENCE banner there for what each relationship protects.
+	local P = Config.Persistence
+
+	--- WHO THIS SERVER IS, computed once. `game.JobId` is empty in Studio, and the
+	--- fallback is the stable string "studio" rather than a fresh random id ON
+	--- PURPOSE: BindToClose early-returns in Studio, so a Studio session never
+	--- releases its lock, and a stable identity means the next Studio run walks
+	--- straight back into its own lock instead of waiting out LockStaleSeconds.
+	local SERVER_ID = (game.JobId ~= "" and game.JobId) or "studio"
 
 	--- Bumped whenever a saved value's MEANING changes rather than its shape.
 	--- reconcile() runs the migrations between the saved version and this one.
@@ -4893,8 +4964,148 @@ __MODULES["DataService"] = function()
 		return profile
 	end
 
+	--- The saved shape of a profile, listed key by key.
+	---
+	--- EXPLICIT ON PURPOSE, and a new persisted field needs BOTH this and the key
+	--- in defaultProfile() — with only the default it works all session and is gone
+	--- at next login. It is also what keeps `__lock` and `__loadFailed` out of the
+	--- save: a clone of the profile would carry whatever anyone hung off it.
+	local function payloadOf(profile)
+		return {
+			cash = profile.cash,
+			owned = profile.owned,
+			rebirths = profile.rebirths,
+			batTier = profile.batTier,
+			armorTier = profile.armorTier,
+			kills = profile.kills,
+			playtime = profile.playtime,
+			lastSeen = profile.lastSeen,
+			sessions = profile.sessions,
+			unlocks = profile.unlocks,
+			upgrades = profile.upgrades,
+			utilityEquipped = profile.utilityEquipped,
+			version = profile.version,
+		}
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- SESSION LOCKING
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- What a stored lock means to US, right now. Pure; `now` is passed in rather
+	--- than read, because every caller is inside an UpdateAsync transform that may
+	--- run more than once and must sample the clock itself.
+	---
+	--- A MISSING OR MALFORMED LOCK COUNTS AS FREE. The store is full of records
+	--- written before this feature existed, and refusing to touch them would lock
+	--- every existing player out of their own save.
+	local function lockState(lock, now: number): string
+		if type(lock) ~= "table" or type(lock.jobId) ~= "string" then
+			return "free"
+		end
+		if lock.jobId == SERVER_ID then
+			return "own"
+		end
+		if now - (tonumber(lock.heartbeat) or 0) >= P.LockStaleSeconds then
+			return "stale"
+		end
+		return "held"
+	end
+
+	--- The one write primitive. Everything this file stores goes through it.
+	---
+	--- THE TRANSFORM CAN RUN MORE THAN ONCE. UpdateAsync re-runs it when it loses
+	--- an internal conflict, so a mutator must be pure with respect to anything it
+	--- captured: it ASSIGNS its result onto `outcome` and never accumulates onto
+	--- it, and it builds the value it returns from scratch rather than editing
+	--- something a previous run touched.
+	local function transact(userId: number, mutate)
+		local outcome = {}
+		local ok, err = retry(function()
+			return (store :: DataStore):UpdateAsync(key(userId), function(stored)
+				-- os.time() SAMPLED HERE, inside the transform. A timestamp taken
+				-- outside would be stale by exactly however long the conflict that
+				-- caused the re-run cost us, which is the one case where a
+				-- heartbeat being late matters.
+				return mutate(stored, os.time(), outcome)
+			end)
+		end, 4)
+		return ok, err, outcome
+	end
+
+	--- Take the lock, and read the profile in the same round trip.
+	---
+	--- Branches in priority order. Our own lock is taken unconditionally however
+	--- old it is — that is a rejoin to the same server, and the only server that
+	--- could be racing us is us. A stale foreign lock is stolen on the FIRST
+	--- attempt, because waiting out a server that has been silent for five minutes
+	--- helps nobody. A live foreign lock aborts the write by returning nil, which
+	--- leaves the record untouched down to the byte.
+	local function acquire(stored, now: number, outcome)
+		outcome.stolen = nil
+		local state = lockState(stored and stored.__lock, now)
+
+		if state == "held" then
+			outcome.status = "held"
+			outcome.profile = nil
+			return nil
+		end
+		if state == "stale" then
+			local lock = stored.__lock
+			outcome.stolen = {
+				jobId = tostring(lock.jobId),
+				age = now - (tonumber(lock.heartbeat) or 0),
+			}
+		end
+
+		-- THE ACQUIRE IS THE READ: one round trip, no separate GetAsync. The record
+		-- written back is built from a freshly reconciled profile rather than from
+		-- `stored`, so a key no schema has mentioned in a year is dropped here
+		-- instead of riding along forever.
+		local profile = reconcile(stored)
+		outcome.status = "acquired"
+		outcome.profile = profile
+
+		local out = payloadOf(profile)
+		out.__lock = { jobId = SERVER_ID, heartbeat = now, placeId = game.PlaceId }
+		return out
+	end
+
+	--- Write `payload`, refreshing the heartbeat — or, on release, dropping the
+	--- lock entirely.
+	---
+	--- A FOREIGN LOCK MEANS WE LOST OURS, and the write is abandoned. It is the
+	--- serious case: nothing else can put another jobId there while we still hold
+	--- it, so reaching this branch means this server was frozen or throttled for
+	--- longer than LockStaleSeconds and someone else has been the owner since.
+	local function writer(payload, release: boolean)
+		return function(stored, now: number, outcome)
+			local state = lockState(stored and stored.__lock, now)
+			if state == "held" or state == "stale" then
+				outcome.status = "lost"
+				return nil
+			end
+
+			outcome.status = if release then "released" else "written"
+			local out = table.clone(payload)
+			if not release then
+				out.__lock = { jobId = SERVER_ID, heartbeat = now, placeId = game.PlaceId }
+			end
+			return out
+		end
+	end
+
 	function DataService.load(player: Player)
 		local userId = player.UserId
+
+		-- WAIT FOR A LOAD ALREADY IN FLIGHT. `loading` was written and never read.
+		-- That cost nothing while a load was a single GetAsync; it costs a second
+		-- acquire against a key this server is already queueing for now that a load
+		-- can take half a minute, because SessionService.onPlayer runs
+		-- `DataService.get(player) or DataService.load(player)`.
+		while loading[userId] do
+			task.wait(0.2)
+		end
 		if profiles[userId] then
 			return profiles[userId]
 		end
@@ -4902,15 +5113,34 @@ __MODULES["DataService"] = function()
 
 		local profile
 		if store and dataStoresUsable then
-			local ok, saved = retry(function()
-				return (store :: DataStore):GetAsync(key(userId))
-			end, 4)
-			if ok then
-				profile = reconcile(saved)
-			else
-				warn(("[Tung] load failed for %s: %s"):format(player.Name, tostring(saved)))
-				profile = reconcile(nil)
-				profile.__loadFailed = true   -- never overwrite good data with a failed read
+			for _ = 1, P.AcquireAttempts do
+				local ok, err, outcome = transact(userId, acquire)
+				if not ok then
+					warn(("[Tung] load failed for %s: %s"):format(player.Name, tostring(err)))
+					profile = reconcile(nil)
+					profile.__loadFailed = true   -- never overwrite good data with a failed read
+					break
+				end
+				if outcome.status == "acquired" then
+					if outcome.stolen then
+						warn(("[Tung] job %s took the session lock on %s from job %s, whose heartbeat is %ds old")
+							:format(SERVER_ID, player.Name, outcome.stolen.jobId, outcome.stolen.age))
+					end
+					profile = outcome.profile
+					break
+				end
+				-- Held by a live server. JITTER MATTERS: a mass teleport lands a
+				-- dozen players at once, and unjittered retries arrive as a burst
+				-- against one key's request budget.
+				task.wait(P.AcquireRetrySeconds + math.random() * 2)
+			end
+
+			if not profile then
+				warn(("[Tung] job %s could not take the session lock on %s after %d attempts; another server still holds it")
+					:format(SERVER_ID, player.Name, P.AcquireAttempts))
+				loading[userId] = nil
+				player:Kick("Your save is still in use on another server. Please rejoin in a moment.")
+				return nil
 			end
 		else
 			profile = reconcile(nil)
@@ -4940,32 +5170,25 @@ __MODULES["DataService"] = function()
 			return false
 		end
 
-		local payload = {
-			cash = profile.cash,
-			owned = profile.owned,
-			rebirths = profile.rebirths,
-			batTier = profile.batTier,
-			armorTier = profile.armorTier,
-			kills = profile.kills,
-			playtime = profile.playtime,
-			lastSeen = profile.lastSeen,
-			sessions = profile.sessions,
-			unlocks = profile.unlocks,
-			upgrades = profile.upgrades,
-			utilityEquipped = profile.utilityEquipped,
-			version = profile.version,
-		}
+		local payload = payloadOf(profile)
 
 		local saved = false
 		if store and dataStoresUsable then
-			local ok, err = retry(function()
-				return (store :: DataStore):UpdateAsync(key(userId), function()
-					return payload
-				end)
-			end, 4)
-			saved = ok
+			local ok, err, outcome = transact(userId, writer(payload, release == true))
 			if not ok then
 				warn(("[Tung] save failed for %s: %s"):format(player.Name, tostring(err)))
+			elseif outcome.status == "lost" then
+				-- WE ARE NOT THE OWNER ANY MORE. Do not write: whoever holds the
+				-- lock has been loading, playing and saving this profile while we
+				-- were frozen, and our payload is older than theirs by however long
+				-- that was. From this instant the session is unsaveable, so it also
+				-- ends — playing on is playing for nothing.
+				profile.__loadFailed = true
+				warn(("[Tung] job %s lost the session lock on %s and will not write; the session was frozen for over %ds")
+					:format(SERVER_ID, player.Name, P.LockStaleSeconds))
+				player:Kick("Your save was taken over by another server. Please rejoin.")
+			else
+				saved = true
 			end
 		end
 
@@ -4980,13 +5203,17 @@ __MODULES["DataService"] = function()
 			DataService.save(player, true)
 		end)
 
+		-- THE HEARTBEAT RIDES THIS LOOP. There is deliberately no second timer for
+		-- it: every autosave is already an UpdateAsync, and the transform refreshing
+		-- `__lock.heartbeat` on its way past costs nothing. A separate heartbeat
+		-- loop would double this game's write rate to buy nothing.
 		task.spawn(function()
 			while true do
-				task.wait(AUTOSAVE_SECONDS)
+				task.wait(P.AutosaveSeconds)
 				for _, player in ipairs(Players:GetPlayers()) do
 					local profile = profiles[player.UserId]
 					if profile then
-						profile.playtime += AUTOSAVE_SECONDS
+						profile.playtime += P.AutosaveSeconds
 						task.spawn(DataService.save, player, false)
 					end
 				end
@@ -4994,6 +5221,9 @@ __MODULES["DataService"] = function()
 		end)
 
 		game:BindToClose(function()
+			-- STUDIO WRITES NOTHING ON SHUTDOWN, which is also why SERVER_ID falls
+			-- back to a stable "studio": the lock this session took is still there
+			-- at the next run, and the next run recognises it as its own.
 			if RunService:IsStudio() then
 				return
 			end
@@ -5005,7 +5235,7 @@ __MODULES["DataService"] = function()
 					remaining -= 1
 				end)
 			end
-			local deadline = os.clock() + 25
+			local deadline = os.clock() + P.ShutdownDrainSeconds
 			while remaining > 0 and os.clock() < deadline do
 				task.wait(0.1)
 			end

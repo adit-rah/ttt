@@ -190,20 +190,30 @@ function Case:calls(store, method: string, expected: number, message: string?)
 	end
 end
 
+--- The world these two read. `self.world` is honoured if a spec set one — a
+--- spec that builds several worlds has to say which — and otherwise it is the
+--- most recently built one, which is the world every single-world spec means.
+--- Without the fallback both assertions indexed nil and the first spec to use
+--- either of them failed as a harness error rather than as a game failure.
+local function worldOf(case): any
+	return case.world or T.worldRef
+end
+
 function Case:warned(pattern: string, message: string?)
 	self:count()
-	for _, line in ipairs(self.world.warnings) do
+	local world = worldOf(self)
+	for _, line in ipairs(world.warnings) do
 		if string.find(line, pattern) then
 			return
 		end
 	end
 	fail(self, message or ("expected a warning matching %q"):format(pattern),
-		("%d warning(s) seen"):format(#self.world.warnings))
+		("%d warning(s) seen"):format(#world.warnings))
 end
 
 function Case:fired(remoteName: string, expected: number?, message: string?)
 	self:count()
-	local folder = self.world.replicatedStorage:FindFirstChild("TungNet")
+	local folder = worldOf(self).replicatedStorage:FindFirstChild("TungNet")
 	local remote = folder and folder:FindFirstChild(remoteName)
 	if not remote then
 		fail(self, message or ("no remote named %s"):format(remoteName))

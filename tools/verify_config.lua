@@ -2130,6 +2130,44 @@ check(costRatio >= 1.2 and costRatio <= 1.7,
 		"25-rung ladder is an afternoon; over 1.7 the top of it is a number nobody will see")
 		:format(costRatio))
 
+-- ── persistence and the session lock ────────────────────────────────────────
+-- DataService's lock lives INSIDE the profile record, so the check and the
+-- write are one UpdateAsync and no timing can produce two simultaneous writers
+-- by itself. What timing CAN do is produce a server that gives up too early, or
+-- one that declares a live lock dead. These three are those two failures, in
+-- both directions, and they are the only reason these numbers are in Config at
+-- all rather than being literals in a file the verifier cannot see.
+local PS = Config.Persistence
+
+for _, field in ipairs({ "AutosaveSeconds", "ShutdownDrainSeconds", "LockStaleSeconds",
+	"AcquireAttempts", "AcquireRetrySeconds" }) do
+	check(type(PS[field]) == "number" and PS[field] > 0,
+		("Persistence.%s is %s; DataService multiplies it into a retry budget and a non-number lands as an error inside an UpdateAsync transform")
+			:format(field, tostring(PS[field])))
+end
+check(PS.AcquireAttempts == math.floor(PS.AcquireAttempts),
+	("Persistence.AcquireAttempts is %.2f; it is a loop bound, and a fractional one silently truncates the window a joining player gets")
+		:format(PS.AcquireAttempts))
+
+-- The acquire window is the worst-case time a joining server will keep trying
+-- before it kicks. The soft shutdown it has to outlast is the COMMON case:
+-- the source server is draining while the player is already on the destination.
+local acquireWindow = PS.AcquireAttempts * PS.AcquireRetrySeconds
+check(acquireWindow > PS.ShutdownDrainSeconds,
+	("a joining server gives up on a held lock after %ds but a shutting-down one has %ds to drain and release it, so every soft shutdown would kick the players teleporting off it")
+		:format(acquireWindow, PS.ShutdownDrainSeconds))
+
+-- The heartbeat rides the autosave, so a lock is only refreshed that often.
+check(PS.LockStaleSeconds > 3 * PS.AutosaveSeconds,
+	("a lock is called dead after %ds but its heartbeat only lands with the autosave every %ds, so a healthy server that hits %.1f autosaves' worth of DataStore throttling has its player's save stolen out from under it")
+		:format(PS.LockStaleSeconds, PS.AutosaveSeconds, PS.LockStaleSeconds / PS.AutosaveSeconds))
+
+-- A whole handover is a drain plus the acquire window that overlaps it.
+check(PS.LockStaleSeconds > PS.ShutdownDrainSeconds + acquireWindow,
+	("a lock goes stale in %ds but a full handover takes up to %ds (%ds draining plus %ds of retries), so the joining server could declare the lock dead and start writing while the server holding it is still legitimately saving — two writers, which is the whole thing the lock exists to prevent")
+		:format(PS.LockStaleSeconds, PS.ShutdownDrainSeconds + acquireWindow,
+			PS.ShutdownDrainSeconds, acquireWindow))
+
 -- ── report ──────────────────────────────────────────────────────────────────
 print(("checks run:        %d"):format(checks))
 local trackCounts = {}
