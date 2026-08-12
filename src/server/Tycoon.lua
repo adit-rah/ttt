@@ -202,6 +202,16 @@ function Tycoon.new(index: number, parent: Instance)
 	self.machines.Parent = model
 	self:registerFactoryFolder(self.machines)
 
+	-- Side-track props: the cabinets and whatever stands on their shelves.
+	-- A SEPARATE folder from self.machines specifically because rebirth does
+	-- machines:ClearAllChildren() — putting a bat display in there would wipe
+	-- the cabinet every prestige while its purchase survived in the profile.
+	-- release() still clears this one: new owner, different tiers.
+	self.props = Instance.new("Folder")
+	self.props.Name = "Props"
+	self.props.Parent = model
+	self:registerFactoryFolder(self.props)
+
 	self.buttonsFolder = Instance.new("Folder")
 	self.buttonsFolder.Name = "Buttons"
 	self.buttonsFolder.Parent = model
@@ -214,6 +224,7 @@ function Tycoon.new(index: number, parent: Instance)
 	self:buildCollector(1, nil, true)
 	self:buildRebirthPad()
 	self:buildClaimPad()
+	self:buildCabinets()
 
 	-- An unclaimed plot shows a bare pad and a claim marker, nothing else.
 	-- Leaving the vault and belt standing on an empty plot is what makes it
@@ -751,6 +762,75 @@ end
 
 -- ── rebirth pad ──────────────────────────────────────────────────────────────
 
+--- The side-track cabinets: a display case standing behind each track's column
+--- of buy buttons.
+---
+--- These carry the wayfinding that the side tracks would otherwise have to
+--- take from `pointAt`. There is exactly ONE Highlight per plot and it belongs
+--- to the factory (Highlight is capped at 255 per client and disabled ones
+--- still occupy a slot), so a cabinet announces itself with a sign instead —
+--- which is better anyway, because a sign can say what it is and a glow
+--- cannot.
+function Tycoon:buildCabinets()
+	self.cabinetSigns = {}
+
+	for _, track in ipairs(Config.TrackOrder) do
+		if track ~= "factory" and Config.Layout.Tracks[track] then
+			local centre, size = Config.trackCabinet(track)
+			local model = Instance.new("Model")
+			model.Name = "Cabinet_" .. track
+			model.Parent = self.props
+
+			local baseCF = self:at(centre.X, 0, centre.Z)
+			newPart(model, "Back", size, baseCF * CFrame.new(0, size.Y / 2, 0),
+				COLORS.metal, Enum.Material.Metal, true)
+			newPart(model, "Trim", Vector3.new(size.X + 1.2, 0.8, size.Z + 1.2),
+				baseCF * CFrame.new(0, size.Y + 0.4, 0), COLORS.gold, Enum.Material.Metal, false)
+
+			local anchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1),
+				baseCF * CFrame.new(0, size.Y + 2.5, 0), COLORS.metal, Enum.Material.Metal, false)
+			anchor.Transparency = 1
+
+			local billboard = Instance.new("BillboardGui")
+			billboard.Name = "Sign"
+			billboard.Size = UDim2.fromScale(18, 4)
+			billboard.MaxDistance = 200
+			billboard.Parent = anchor
+
+			local label = Instance.new("TextLabel")
+			label.Name = "Label"
+			label.BackgroundTransparency = 1
+			label.Size = UDim2.fromScale(1, 1)
+			label.Font = Enum.Font.FredokaOne
+			label.Text = (Config.TrackLabel[track] or track:upper()) .. " CABINET"
+			label.TextColor3 = COLORS.gold
+			label.TextStrokeTransparency = 0.35
+			label.TextScaled = true
+			label.Parent = billboard
+
+			self.cabinetSigns[track] = label
+		end
+	end
+end
+
+--- Keeps each cabinet sign honest about how far up its track you are.
+function Tycoon:updateCabinetSigns()
+	if not self.cabinetSigns then
+		return
+	end
+	for track, label in pairs(self.cabinetSigns) do
+		local defs = Config.Tracks[track]
+		local owned = 0
+		for _, def in ipairs(defs) do
+			if self.owned[def.id] then
+				owned += 1
+			end
+		end
+		label.Text = ("%s CABINET  •  %d/%d"):format(
+			Config.TrackLabel[track] or track:upper(), owned, #defs)
+	end
+end
+
 function Tycoon:buildRebirthPad()
 	local folder = Instance.new("Folder")
 	folder.Name = "Rebirth"
@@ -817,6 +897,12 @@ function Tycoon:buttonPosition(def): Vector3
 		local legIndex, distance, pathIndex = self:legOf(def)
 		return self:pointOnLeg(legIndex, distance, -L.ButtonOffset, pathIndex)
 	end
+	-- Side tracks stand in their own derived column at their cabinet, so a new
+	-- tier needs no coordinate anywhere. Only the factory's non-belt buttons
+	-- are still hand-placed in Layout.MiscButtons.
+	if def.track and def.track ~= "factory" then
+		return Config.trackButtonPosition(def.track, def.trackOrder)
+	end
 	return MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
 end
 
@@ -881,7 +967,11 @@ function Tycoon:buildButtons()
 		step.Size = UDim2.fromScale(0.94, 0.18)
 		step.Position = UDim2.fromScale(0.03, 0.02)
 		step.Font = Enum.Font.GothamBold
-		step.Text = ("STEP %d OF %d"):format(def.order, #Config.Buttons)
+		-- The track name, not a global ordinal. "STEP 21 OF 30" on a pedestal
+		-- in front of a weapons cabinet tells you nothing; "WEAPONS 2/5" is
+		-- the whole feature explained in three words.
+		step.Text = ("%s %d/%d"):format(
+			Config.TrackLabel[def.track] or "STEP", def.trackOrder, #Config.Tracks[def.track])
 		step.TextColor3 = Color3.fromRGB(150, 142, 172)
 		step.TextScaled = true
 		step.Parent = frame
@@ -1000,7 +1090,20 @@ end
 ---   preview     the next few steps: dimmed, inert, with a ghost of the
 ---               machine standing where it will go
 ---   hidden      everything further out, and everything already owned
-local PREVIEW_AHEAD = 3
+--- How far past its own frontier each track previews.
+---
+--- 3 on the factory keeps the shipped plot exactly as it reads today. 2 on the
+--- side tracks because they are short: at 3 a five-rung cabinet would preview
+--- its entire ladder from the moment the plot is claimed, the "hidden" state
+--- would stop existing there, and the case would stop reading as something you
+--- are climbing.
+local TRACK_PREVIEW = { factory = 3, weapons = 2, armor = 2 }
+
+--- Which track the "buy this next" beacon prefers. The beacon picks the
+--- cheapest AVAILABLE button, and a cabinet's first rung is cheap — so without
+--- a track preference the marker would hop off the factory and onto a bat the
+--- moment the plot was claimed. Rank by (track, price), factory first.
+local TRACK_RANK = { factory = 1, weapons = 2, armor = 3 }
 
 function Tycoon:refreshButtons()
 	if not self.owner then
@@ -1019,22 +1122,28 @@ function Tycoon:refreshButtons()
 
 	local cash = Economy.get(self.owner)
 
-	-- how far along the linear chain the player has got
-	local nextOrder = #Config.Buttons + 1
-	for _, def in ipairs(Config.Buttons) do
-		if not self.owned[def.id] then
-			nextOrder = def.order
-			break
+	-- How far along EACH track the player has got. One frontier per track is a
+	-- strict generalisation of the old single scan: with one track it produces
+	-- exactly the numbers that loop produced.
+	local frontier = {}
+	for track, defs in pairs(Config.Tracks) do
+		frontier[track] = #defs + 1
+		for _, def in ipairs(defs) do
+			if not self.owned[def.id] then
+				frontier[track] = def.trackOrder
+				break
+			end
 		end
 	end
 
-	local target, targetPrice = nil, math.huge
+	local target, targetRank, targetPrice = nil, math.huge, math.huge
 
 	for id, entry in pairs(self.objects) do
 		local def = entry.def
 		local owned = self.owned[id] == true
 		local available = (not owned) and self:requirementsMet(id)
-		local preview = (not owned) and (not available) and (def.order <= nextOrder + PREVIEW_AHEAD)
+		local preview = (not owned) and (not available)
+			and (def.trackOrder <= frontier[def.track] + (TRACK_PREVIEW[def.track] or 3))
 
 		entry.holder.Parent = (available or preview) and self.buttonsFolder or nil
 
@@ -1052,7 +1161,21 @@ function Tycoon:refreshButtons()
 			entry.stroke.Color = COLORS.preview
 			entry.stepLabel.TextColor3 = COLORS.preview
 			entry.titleLabel.TextColor3 = COLORS.preview
-			entry.effectLabel.Text = "locked — finish step " .. (def.order - 1)
+			-- Name the thing you have to buy, not an ordinal. "step N" meant
+			-- one thing when there was one chain; with three tracks the global
+			-- order is meaningless on a pedestal and the per-track one is
+			-- ambiguous across cabinets. The requirement is right here, so say
+			-- it: "locked — buy Oak Sahur Bat first".
+			local blocker
+			for _, req in ipairs(Config.requirementsOf(def)) do
+				if not self.owned[req] then
+					blocker = Config.ButtonById[req]
+					break
+				end
+			end
+			entry.effectLabel.Text = blocker
+				and ("locked — buy %s first"):format(blocker.name)
+				or "locked"
 			entry.effectLabel.TextColor3 = COLORS.preview
 			entry.priceLabel.Text = "$" .. Util.abbreviate(def.price)
 			entry.priceLabel.TextColor3 = COLORS.preview
@@ -1078,8 +1201,12 @@ function Tycoon:refreshButtons()
 				and ("$" .. Util.abbreviate(def.price))
 				or ("NEED " .. Util.abbreviate(def.price - cash) .. " MORE")
 
-			if def.price < targetPrice then
-				target, targetPrice = entry, def.price
+			-- (track, price) lexicographically. Cheapest-overall would park the
+			-- beacon on the first cabinet rung for the whole early game, since
+			-- a bat costs less than the next dropper for most of it.
+			local rank = TRACK_RANK[def.track] or 99
+			if rank < targetRank or (rank == targetRank and def.price < targetPrice) then
+				target, targetRank, targetPrice = entry, rank, def.price
 			end
 		end
 
@@ -1097,6 +1224,7 @@ function Tycoon:refreshButtons()
 	end
 
 	self:pointAt(target)
+	self:updateCabinetSigns()
 end
 
 --- Moves the "buy this next" marker onto `entry`. One Highlight and one light
@@ -1379,26 +1507,57 @@ Tycoon.INSTALLERS.Belt = function(self, def, silent)
 	end
 end
 
+--- A bought tier's display, standing on its own shelf of the track's cabinet.
+---
+--- Parented into self.props, NOT self.machines: rebirth clears machines, and a
+--- weapon you keep across a rebirth must not lose its shelf.
+function Tycoon:buildShelfDisplay(def, variant: string, label: string)
+	local model = Instance.new("Model")
+	model.Name = "Shelf_" .. def.id
+	model.Parent = self.props
+
+	local spot = Config.trackShelfPosition(def.track, def.trackOrder)
+	local shelfCF = self:at(spot.X, spot.Y, spot.Z)
+	newPart(model, "Shelf", Vector3.new(5, 0.6, 8), shelfCF, COLORS.metal, Enum.Material.Metal)
+
+	-- 0.85 rather than the 1.1 the old free-standing anvil used: the display
+	-- now stands INSIDE a 13-stud case, and the tallest variants scale up by a
+	-- further 1.5 on top of whatever is asked for here.
+	local display = TungModels.buildStatue(variant, 0.85)
+	display:PivotTo(shelfCF * CFrame.new(0, 3.2, 0))
+	display.Parent = model
+
+	local plate = newPart(model, "Plate", Vector3.new(0.4, 1.6, 7),
+		shelfCF * CFrame.new(-2.2, 1, 0), COLORS.metal, Enum.Material.Metal, false)
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "Plate"
+	billboard.Size = UDim2.fromScale(7, 1.4)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, 1.6, 0)
+	billboard.MaxDistance = 90
+	billboard.Parent = plate
+
+	local text = Instance.new("TextLabel")
+	text.BackgroundTransparency = 1
+	text.Size = UDim2.fromScale(1, 1)
+	text.Font = Enum.Font.GothamBold
+	text.Text = label
+	text.TextColor3 = COLORS.gold
+	text.TextStrokeTransparency = 0.4
+	text.TextScaled = true
+	text.Parent = billboard
+
+	return model
+end
+
 Tycoon.INSTALLERS.Gear = function(self, def, silent)
 	local owner = self.owner
 	if owner then
 		CombatService.grantBat(owner, def.grants)
 	end
 
-	local model = Instance.new("Model")
-	model.Name = "Gear_" .. def.id
-	model.Parent = self.machines
-
-	local spot = MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
-	local anvilCF = self:at(spot.X + (spot.X < 0 and 10 or -10), 0, spot.Z)
-	newPart(model, "Anvil", Vector3.new(8, 4, 6), anvilCF * CFrame.new(0, 2, 0), COLORS.metal, Enum.Material.Metal)
-
 	local batDef = Config.BatById[def.grants]
-	if batDef then
-		local display = TungModels.buildStatue(batDef.variant, 1.1)
-		display:PivotTo(anvilCF * CFrame.new(0, 8, 0))
-		display.Parent = model
-	end
+	local model = self:buildShelfDisplay(def, batDef and batDef.variant or "classic",
+		batDef and batDef.name or def.name)
 
 	local entry = self.objects[def.id]
 	if entry then
@@ -1606,6 +1765,13 @@ function Tycoon:effectLine(def): string
 		end
 	elseif def.kind == "Belt" then
 		return ("belt +%d studs/sec"):format(def.speedBonus)
+	elseif def.kind == "Gear" then
+		-- Same rule as the income kinds: quote the measured effect, not the
+		-- flavour text. A bat's whole value is its numbers.
+		local bat = Config.BatById[def.grants]
+		if bat then
+			return ("%d dmg  •  %.0f%% crit"):format(bat.damage, bat.crit * 100)
+		end
 	end
 	return def.blurb or ""
 end
@@ -1686,6 +1852,14 @@ function Tycoon:release()
 		end
 	end
 	self.machines:ClearAllChildren()
+	-- The cabinet BODIES are permanent plot furniture; only the shelves a
+	-- previous owner filled come down. A new owner arrives with their own
+	-- tiers, and assign() replays them.
+	for _, child in ipairs(self.props:GetChildren()) do
+		if child.Name:match("^Shelf_") then
+			child:Destroy()
+		end
+	end
 	self:clearDrops()
 	self:setFactoryVisible(false)
 
@@ -1724,13 +1898,35 @@ function Tycoon:rebirth(player: Player): boolean
 
 	profile.rebirths += 1
 	profile.cash = Config.Economy.StartingCash
-	profile.owned = {}
+
+	-- A rebirth is a FACTORY reset, not an account reset. The cabinets are
+	-- bought with the same wallet but they are not part of the thing being
+	-- rebuilt, and re-earning your bat every prestige is exactly the coupling
+	-- this split exists to remove.
+	--
+	-- This also closes a live bug. Rebirth used to wipe `owned` wholesale
+	-- while leaving profile.batTier alone, and CombatService.grantBat is
+	-- monotonic — so re-buying batforge afterwards took your money and did
+	-- nothing at all.
+	local kept = {}
+	for id in pairs(profile.owned) do
+		local def = Config.ButtonById[id]
+		if def and def.track ~= "factory" then
+			kept[id] = true
+		end
+	end
+	profile.owned = kept
 
 	self.generation += 1
-	self.owned = {}
+	self.owned = Util.shallowCopy(kept)
 	self.beltSpeed = L.BeltSpeed
 	for _, entry in pairs(self.objects) do
-		entry.machine = nil
+		-- Side-track props live in self.props and are not cleared below, so
+		-- their entries must keep their handle or the model outlives its
+		-- reference and can never be cleaned up.
+		if entry.def.track == "factory" then
+			entry.machine = nil
+		end
 	end
 	self.machines:ClearAllChildren()
 	self:clearDrops()

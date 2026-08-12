@@ -402,8 +402,14 @@ function HUD.showRebirthModal(cost: number)
 	end)
 end
 
+-- Same ranking Tycoon:pointAt uses. It has to be the same, or the panel names
+-- one purchase while the beacon out on the plot glows on a different one.
+-- Factory first, then cheapest within the track: a cabinet's first rung is
+-- cheap, so cheapest-overall would point at a bat for most of the early game.
+local TRACK_RANK = { factory = 1, weapons = 2, armor = 3 }
+
 local function cheapestAvailable()
-	local best
+	local best, bestRank
 	for _, def in ipairs(Config.Buttons) do
 		if not state.owned[def.id] then
 			local ok = true
@@ -413,8 +419,9 @@ local function cheapestAvailable()
 					break
 				end
 			end
-			if ok and (not best or def.price < best.price) then
-				best = def
+			local rank = TRACK_RANK[def.track] or 99
+			if ok and (not best or rank < bestRank or (rank == bestRank and def.price < best.price)) then
+				best, bestRank = def, rank
 			end
 		end
 	end
@@ -435,25 +442,30 @@ function HUD.applyStats(payload)
 		state.multiplier, state.rebirths, state.rebirths == 1 and "" or "s",
 		state.kills, state.kills == 1 and "" or "s")
 
-	local owned = 0
-	for _, def in ipairs(Config.Buttons) do
-		if state.owned[def.id] then
-			owned += 1
-		end
-	end
-
 	local next_ = cheapestAvailable()
 	if next_ then
+		-- Count within the button's OWN track. "step 7 of 30" spanning the
+		-- factory, the weapons cabinet and the armoury is three progress bars
+		-- averaged into one meaningless number.
+		local track = Config.Tracks[next_.track]
+		local owned = 0
+		for _, def in ipairs(track) do
+			if state.owned[def.id] then
+				owned += 1
+			end
+		end
+		local label = Config.TrackLabel[next_.track] or "STEP"
+
 		local affordable = state.cash >= next_.price
 		nextLabel.Text = ("%s — %s"):format(next_.name, Util.abbreviate(next_.price))
 		nextLabel.TextColor3 = affordable and PALETTE.good or PALETTE.text
 		nextDetail.Text = affordable
-			and ("step %d of %d  •  affordable now"):format(owned + 1, #Config.Buttons)
-			or ("step %d of %d  •  %s to go"):format(owned + 1, #Config.Buttons,
+			and ("%s %d/%d  •  affordable now"):format(label, owned + 1, #track)
+			or ("%s %d/%d  •  %s to go"):format(label, owned + 1, #track,
 				Util.abbreviate(next_.price - state.cash))
 		nextDetail.TextColor3 = affordable and PALETTE.good or PALETTE.muted
 	else
-		nextLabel.Text = "Factory complete. Rebirth?"
+		nextLabel.Text = "Everything built. Rebirth?"
 		nextLabel.TextColor3 = PALETTE.accent
 		nextDetail.Text = ("all %d steps built"):format(#Config.Buttons)
 		nextDetail.TextColor3 = PALETTE.muted
