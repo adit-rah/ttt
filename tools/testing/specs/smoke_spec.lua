@@ -17,7 +17,16 @@ T.spec("loads Config and sees the real shipped numbers", function(t)
 	t:eq(Config.Economy.CurrencyName, "Tung")
 	t:gt(#Config.Buttons, 20, "the button table should be the full merged spine")
 	t:eq(Config.Rebirth.MultiplierPerRebirth, 2.25)
-	t:eq(Config.Prototypes.Offline, false, "prototypes must ship OFF; the harness flips them at runtime")
+
+	-- Graduating a feature DELETES its flag; it never sets it true, because
+	-- tools/verify_config.lua fails the build on a flag that ships on. So the
+	-- shipped offline/session families have no flag at all, and the four that
+	-- are still prototypes are all false.
+	t:isNil(Config.Prototypes.Offline,
+		"Offline graduated — the flag must be gone from Config.Prototypes, not set to false or true")
+	t:isNil(Config.Prototypes.Sessions,
+		"Sessions graduated — the flag must be gone from Config.Prototypes, not set to false or true")
+	t:eq(Config.Prototypes.RebirthPerks, false, "prototypes must ship OFF; a spec flips them at runtime")
 end)
 
 T.spec("Players.MaxPlayers is a number, so plot geometry matches the verifier", function(t)

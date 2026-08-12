@@ -1613,28 +1613,38 @@ __MODULES["Config"] = function()
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- PROTOTYPES
+	-- PROTOTYPES, and the graduates that used to be here
 	--
-	-- Everything below this line is unshipped. Each block is gated by a flag in
-	-- Config.Prototypes and every one of them defaults to OFF, so a build with all
-	-- the flags false is byte-for-byte the game that ships today. That is the whole
-	-- contract: a prototype you cannot turn off is not a prototype, it is a
-	-- half-finished feature you have to finish before you can ship anything else.
+	-- A flag in Config.Prototypes gates something UNSHIPPED, and every one of them
+	-- defaults to OFF, so a build with all the flags false is byte-for-byte the game
+	-- that ships today. That is the whole contract: a prototype you cannot turn off
+	-- is not a prototype, it is a half-finished feature you have to finish before
+	-- you can ship anything else.
+	--
+	-- The tables BELOW the flag table are a mix now. Config.PlayerUpgrades,
+	-- Config.Utilities and Config.RebirthPerks are still prototype data; the offline
+	-- and session families under them ship, and are ordinary Config like
+	-- Config.Economy.
 	--
 	-- The rationale for each of these — what shipped where, and what players said
 	-- about it — is in IDEAS.md. Numbers here are first drafts, not balance.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	-- `Floors` is gone from this table rather than set true: the check below asserts
-	-- every prototype flag ships off, so graduating one means it stops being a
-	-- prototype, not that it becomes the exception. The second floor is a purchase
-	-- on the factory track now, gated by owning its button like everything else.
+	-- GRADUATING DELETES THE FLAG, IT DOES NOT SET IT TRUE. The check in
+	-- tools/verify_config.lua asserts every prototype flag ships off, so a feature
+	-- that ships stops being a prototype rather than becoming the exception to the
+	-- rule. `Floors`, `Offline` and `Sessions` all left this table that way, and the
+	-- verifier now asserts by name that they do not come back.
+	--
+	--   Floors    the second floor is a purchase on the factory track, gated by
+	--             owning its button like everything else.
+	--   Offline   offline earnings, the welcome-back panel and the Vault Timer.
+	--   Sessions  the daily streak, the playtime ladder, the boost button and the
+	--             weekend bonus.
 	Config.Prototypes = {
 		PlayerUpgrades = false,-- walkspeed / magnet / cash multiplier shop
 		Utilities = false,     -- a second weapon slot holding a verb, not a stat
 		RebirthPerks = false,  -- rebirth grants four things instead of one number
-		Offline = false,       -- offline earnings and the welcome-back panel
-		Sessions = false,      -- daily streak, playtime ladder, boost cooldown
 		Sound = false,         -- the engine-asset sound layer
 	}
 
@@ -1702,20 +1712,38 @@ __MODULES["Config"] = function()
 		StartingCashGrowth = 3.2,
 		-- every Nth rebirth grants a permanent extra machine slot
 		SlotEveryRebirths = 3,
-		-- milestone unlocks: rebirth -> what opens up
+		-- Milestone unlocks: rebirth -> what opens up. A milestone must name
+		-- something NOTHING ELSE SELLS, and the verifier asserts that against both
+		-- Config.Floors and Config.Buttons.
+		--
+		-- `[2] = { unlock = "mezzanine" }` used to sit at the top of this table and
+		-- was stale from the day the second floor graduated: the mezzanine became
+		-- the floor2 button on the factory track, so the milestone was either a
+		-- second way to get something you had already bought or a promise of
+		-- something you could not be given. Rebirth 2 grants the multiplier and the
+		-- starting cash, and no unlock, until there is a real thing to unlock there.
 		Milestones = {
-			[2] = { unlock = "mezzanine", label = "Second floor" },
 			[4] = { unlock = "utility2", label = "Utility slot II" },
 			[8] = { unlock = "goldplot", label = "Golden plot theme" },
 		},
 	}
 
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- SHIPPED: offline earnings and the session loops
+	--
+	-- These two families used to be Config.Prototypes.Offline and .Sessions. They
+	-- are ordinary config now — SessionService reads them unconditionally and every
+	-- number below is live in front of players.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
 	-- ── offline earnings ─────────────────────────────────────────────────────────
 	Config.Offline = {
 		Rate = 0.25,             -- fraction of your live income per second
 		CapHours = 8,
-		-- extending the cap is a purchase, which turns the cap into a goal rather
-		-- than a wall you resent
+		-- Extending the cap is a PURCHASE — the Vault Timer — which turns the cap
+		-- into a goal rather than a wall you resent. Priced like a side-track rung:
+		-- the verifier checks each tier against the income the factory has at the
+		-- moment it can first bank that many tung.
 		CapUpgradeHours = { 12, 16, 24 },
 		CapUpgradeCost = { 250000, 5000000, 120000000 },
 		MinimumSeconds = 120,    -- below this, don't bother with the panel
@@ -1732,6 +1760,11 @@ __MODULES["Config"] = function()
 		-- Pet Sim 99's ladder, and note the deliberately decaying cadence: close
 		-- together early so the first one arrives while you are still deciding
 		-- whether to stay.
+		--
+		-- The rungs are claimed once per UTC DAY, not once per session, so these
+		-- rewards are a recurring daily income rather than a one-off. The verifier
+		-- checks the ladder's running total against what the factory produces over
+		-- the same minutes: it must supplement the plot, never out-earn it.
 		PlaytimeMinutes = { 5, 10, 15, 20, 30, 40, 50, 60, 75, 90, 120, 180 },
 		PlaytimeRewardBase = 1200,
 		PlaytimeRewardGrowth = 1.9,
@@ -5896,20 +5929,25 @@ __MODULES["DataService"] = function()
 			armorTier = 1,
 			kills = 0,
 			playtime = 0,
-			-- PROTOTYPE fields (Offline / Sessions / RebirthPerks). reconcile()
-			-- merges a saved value onto this default only when the TYPES match, so
-			-- adding a field here is what makes every existing save keep loading:
-			-- an old profile simply arrives with the default.
+			-- SESSION fields. reconcile() merges a saved value onto this default
+			-- only when the TYPES match, so adding a field here is what makes every
+			-- existing save keep loading: an old profile simply arrives with the
+			-- default. Every one of these must ALSO appear in the hand-listed
+			-- payload in save() below, or it is dropped on the way out.
 			--
 			-- lastSeen is 0 rather than os.time() deliberately. A profile that has
 			-- never stored one has no knowable logout time, and seeding it with
 			-- "now" would look like a zero-second session; seeding it with 0 means
 			-- SessionService skips the offline payout for that first session and
 			-- starts counting from the logout after it.
+			--
+			-- `unlocks` used to live here, holding the rebirth milestones a player
+			-- had passed. It was a saved copy of something SessionService derives
+			-- from profile.rebirths on every read, so it could only ever go stale;
+			-- it is gone, and a save that still carries one is simply ignored.
 			lastSeen = 0,
-			sessions = {},     -- streak / boost / cap state, shaped by SessionService
-			unlocks = {},      -- { [unlockId] = label } granted by rebirth milestones
-			upgrades = {},     -- { [upgradeId] = level }, shaped by UpgradeService
+			sessions = {},     -- streak / boost / cap / playtime state, shaped by SessionService
+			upgrades = {},     -- { [upgradeId] = level }, shaped by UpgradeService (PROTOTYPE)
 			utilityEquipped = "",  -- a Config.Utilities id; "" rather than nil so the
 			                       -- type-matched reconcile can merge a saved value
 
@@ -6033,7 +6071,6 @@ __MODULES["DataService"] = function()
 			playtime = profile.playtime,
 			lastSeen = profile.lastSeen,
 			sessions = profile.sessions,
-			unlocks = profile.unlocks,
 			upgrades = profile.upgrades,
 			utilityEquipped = profile.utilityEquipped,
 			-- A FIELD ADDED TO defaultProfile() AND NOT TO THIS TABLE IS NEVER
@@ -6486,11 +6523,17 @@ __MODULES["Economy"] = function()
 	--- PROTOTYPE (Config.Prototypes.RebirthPerks). A rebirth pays four things, not
 	--- one number. `Tycoon:rebirth()` owns two of them — it bumps profile.rebirths
 	--- (the multiplier) and resets cash to Config.Economy.StartingCash — and it is
-	--- owned by another track, so the other two are applied here, from the one
-	--- module allowed to create cash.
+	--- owned by another track, so the starting-cash grant is applied here, from the
+	--- one module allowed to create cash.
 	---
 	--- `perks` comes from SessionService.rebirthPerksFor(profile). Passing it in
 	--- rather than computing it keeps the dependency arrow pointing one way.
+	---
+	--- It used to copy `perks.unlocks` into `profile.unlocks` as well. That was a
+	--- saved cache of a pure function of profile.rebirths, nothing ever read it, and
+	--- the one entry it had recorded ("mezzanine") was stale — see the comment on
+	--- SessionService.rebirthPerksFor. Milestone unlocks are derived on read now and
+	--- there is nothing here to write.
 	---
 	--- Idempotent on purpose: it tops cash UP to the grant instead of adding to
 	--- it, so a double call (a retry, a re-detect) cannot be farmed.
@@ -6505,15 +6548,6 @@ __MODULES["Economy"] = function()
 		if target > profile.cash then
 			granted = target - profile.cash
 			profile.cash = target
-		end
-
-		if type(perks.unlocks) == "table" then
-			if type(profile.unlocks) ~= "table" then
-				profile.unlocks = {}
-			end
-			for id, label in pairs(perks.unlocks) do
-				profile.unlocks[id] = label
-			end
 		end
 
 		Economy.push(player)
@@ -8222,14 +8256,16 @@ end
 
 __MODULES["SessionService"] = function()
 	--[[
-		SessionService.lua — offline earnings, the three session loops (daily
-		streak, playtime ladder, boost button) and the three rebirth grants that
-		Tycoon:rebirth() does not hand out.
+		SessionService.lua — offline earnings, the four session loops (daily streak,
+		playtime ladder, boost button, weekend bonus) and the three rebirth grants
+		that Tycoon:rebirth() does not hand out.
 
-		Three Config.Prototypes flags live here — Offline, Sessions and
-		RebirthPerks — because they share one profile sub-table, one replicated
-		payload and one panel. Each is checked independently, and with all three
-		off every entry point returns before doing any work.
+		OFFLINE AND SESSIONS SHIP. They were Config.Prototypes.Offline and
+		.Sessions; graduating them meant DELETING those flags rather than setting
+		them true, because tools/verify_config.lua asserts every prototype flag is
+		false and a feature that ships stops being a prototype. Everything in this
+		file runs unconditionally now except the rebirth grants, which are still
+		gated on Config.Prototypes.RebirthPerks — the one flag left here.
 
 		TIME. Two rules, both of them bugs someone else already shipped:
 
@@ -8274,21 +8310,20 @@ __MODULES["SessionService"] = function()
 	local requestClaim = Net.event("RequestClaim")
 	local requestBoost = Net.event("RequestBoost")
 
-	--- Anything on at all? The whole file is inert otherwise.
-	local function enabled(): boolean
-		return P.Offline or P.Sessions or P.RebirthPerks
-	end
-
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- per-session runtime state (never persisted)
 	-- ─────────────────────────────────────────────────────────────────────────────
 
+	--- `claimedPlaytime` used to live here and that was the rejoin farm: the ladder
+	--- re-opened on every reconnect, so five minutes of walking was worth 1200 tung
+	--- as many times as you cared to press Leave. The claimed set is persisted with
+	--- a day bucket now (see `playtimeClaims`); only the MINUTES are session-scoped,
+	--- because a session's activity is exactly what "active seconds" means.
 	type Live = {
 		player: Player,
 		activeSeconds: number,        -- session-scoped, and only counts while active
 		lastPosition: Vector3?,
 		lastClaim: number,
-		claimedPlaytime: { [number]: boolean },
 		offline: any,                 -- pending welcome-back grant, nil once claimed
 		rebirths: number,             -- last seen count, to detect a rebirth landing
 		dirty: boolean,
@@ -8319,11 +8354,46 @@ __MODULES["SessionService"] = function()
 		s.boostUntil = math.floor(tonumber(s.boostUntil) or 0)
 		s.boostReadyAt = math.floor(tonumber(s.boostReadyAt) or 0)
 		s.offlineCapLevel = math.clamp(math.floor(tonumber(s.offlineCapLevel) or 0), 0, #O.CapUpgradeHours)
+		s.playtimeDay = math.floor(tonumber(s.playtimeDay) or 0)
+		s.playtimeClaimed = math.max(0, math.floor(tonumber(s.playtimeClaimed) or 0))
 		return s
 	end
 
 	local function dayNumber(): number
 		return math.floor(os.time() / DAY)
+	end
+
+	--- The playtime ladder's claimed rungs for TODAY, as a bitmask.
+	---
+	--- A BITMASK RATHER THAN A SET. The obvious shape is `{ [index] = true }`, and
+	--- it is the wrong one for something that has to survive a DataStore: a table
+	--- with sparse numeric keys goes through JSON as an OBJECT, so `{ [2] = true }`
+	--- comes back as `{ ["2"] = true }` and the string key never matches the numeric
+	--- index again. Nothing errors — the ladder just silently re-opens on the next
+	--- load, which is the exact bug this field exists to close. A number has one
+	--- representation and cannot round-trip into a different one.
+	---
+	--- The day bucket is the same `floor(os.time() / 86400)` the streak uses, for
+	--- the same reason: os.date("%j") restarts at 1 every January and would reset
+	--- every player in the game on the same night.
+	--- Returns the `sessions` sub-table with today's bucket already rolled over, so
+	--- every reader and the one writer go through the same expiry.
+	local function playtimeClaims(profile)
+		local s = sessions(profile)
+		local today = dayNumber()
+		if s.playtimeDay ~= today then
+			-- `~=` rather than `<`: a stored bucket in the FUTURE (a clock that went
+			-- backwards, a hand-edited save) would otherwise lock the ladder shut
+			-- until the calendar caught up with it. Re-opening costs a rung; locking
+			-- for a day costs the player the feature.
+			s.playtimeDay = today
+			s.playtimeClaimed = 0
+		end
+		return s
+	end
+
+	local function hasClaimedRung(profile, index: number): boolean
+		return bit32.btest(playtimeClaims(profile).playtimeClaimed, bit32.lshift(1, index - 1))
 	end
 
 	--- UTC, because a server-wide "weekend" that depends on where the machine is
@@ -8411,12 +8481,9 @@ __MODULES["SessionService"] = function()
 	--- What they earned while away. Returns nil when there is nothing worth
 	--- showing a panel for — that is a real answer, not a failure.
 	local function computeOffline(profile)
-		if not P.Offline then
-			return nil
-		end
 		local lastSeen = math.floor(tonumber(profile.lastSeen) or 0)
 		if lastSeen <= 0 then
-			return nil            -- no recorded logout: pre-prototype save, or a first session
+			return nil            -- no recorded logout: a save from before this shipped, or a first session
 		end
 
 		local away = os.time() - lastSeen
@@ -8509,12 +8576,19 @@ __MODULES["SessionService"] = function()
 		return math.floor(S.PlaytimeRewardBase * (S.PlaytimeRewardGrowth ^ (index - 1)))
 	end
 
-	local function playtimeState(entry: Live)
+	--- The ladder as the panel sees it.
+	---
+	--- Two different clocks, deliberately: a rung is CLAIMED for the rest of the UTC
+	--- day, but the minutes that unlock it are this session's active minutes. So a
+	--- rejoin costs you progress toward the next rung rather than handing you back
+	--- the ones you already took, which is the whole difference between a daily
+	--- engagement ladder and a reconnect button that prints money.
+	local function playtimeState(entry: Live, profile)
 		local rungs = {}
 		for index, minutes in ipairs(S.PlaytimeMinutes) do
 			local required = minutes * 60
 			local status = "locked"
-			if entry.claimedPlaytime[index] then
+			if hasClaimedRung(profile, index) then
 				status = "claimed"
 			elseif entry.activeSeconds >= required then
 				status = "ready"
@@ -8528,6 +8602,8 @@ __MODULES["SessionService"] = function()
 		end
 		return {
 			activeSeconds = math.floor(entry.activeSeconds),
+			-- seconds until the claimed set rolls over, so the panel can say when
+			resetIn = ((dayNumber() + 1) * DAY) - os.time(),
 			rungs = rungs,
 		}
 	end
@@ -8541,9 +8617,6 @@ __MODULES["SessionService"] = function()
 	--- every income/sec readout — picks it up without Economy knowing this file
 	--- exists.
 	function SessionService.incomeMultiplier(player: Player): number
-		if not P.Sessions then
-			return 1
-		end
 		local profile = DataService.get(player)
 		if not profile then
 			return 1
@@ -8626,22 +8699,24 @@ __MODULES["SessionService"] = function()
 		perks.capacityBonus = math.floor(n / RP.SlotEveryRebirths)
 
 		perks.milestone = RP.Milestones[n]
-		-- every milestone at or below the current count, so a player who somehow
-		-- skipped one (a rollback, an admin grant) still owns everything they passed
+		-- Every milestone at or below the current count, so a player who somehow
+		-- skipped one (a rollback, an admin grant) still owns everything they passed.
+		--
+		-- DERIVED, NEVER PERSISTED, and that is the whole point. There used to be a
+		-- `profile.unlocks` copy of this table, written by Economy.applyRebirthGrants
+		-- and read by a `SessionService.hasUnlock` that had no callers — a saved
+		-- cache of a pure function of `profile.rebirths`. It could not be right and
+		-- it could go wrong: it recorded "mezzanine" forever for everyone who passed
+		-- rebirth 2, long after the mezzanine became a button on the factory track,
+		-- and no migration would ever have cleared it. Whoever consumes an unlock
+		-- asks `rebirthPerksFor(profile).unlocks[id]`, which is recomputed from the
+		-- rebirth count and therefore cannot be stale.
 		for at, milestone in pairs(RP.Milestones) do
 			if n >= at then
 				perks.unlocks[milestone.unlock] = milestone.label
 			end
 		end
 		return perks
-	end
-
-	--- Has this profile been granted a milestone unlock? The persisted form is
-	--- `profile.unlocks[id] = label`, written by Economy.applyRebirthGrants — this
-	--- is the read side, for whoever consumes "mezzanine" / "utility2" /
-	--- "goldplot" (FloorService and the utility slot own those, not this file).
-	function SessionService.hasUnlock(profile, id: string): boolean
-		return type(profile) == "table" and type(profile.unlocks) == "table" and profile.unlocks[id] ~= nil
 	end
 
 	--- Detected rather than called: Tycoon:rebirth() is off limits, so the rebirth
@@ -8684,11 +8759,17 @@ __MODULES["SessionService"] = function()
 			return nil
 		end
 		return {
-			enabled = { offline = P.Offline, sessions = P.Sessions, rebirth = P.RebirthPerks },
-			daily = P.Sessions and dailyState(profile) or nil,
-			playtime = P.Sessions and playtimeState(entry) or nil,
-			boost = P.Sessions and boostState(profile) or nil,
+			-- one flag left: the rebirth grants are still a prototype
+			enabled = { rebirth = P.RebirthPerks },
+			daily = dailyState(profile),
+			playtime = playtimeState(entry, profile),
+			boost = boostState(profile),
 			offline = entry.offline,
+			-- The Vault Timer, as a thing you can buy rather than a thing the
+			-- welcome-back panel mentions once and then forgets. nil at the top of
+			-- the ladder, which is what makes the row disappear.
+			capUpgrade = nextCapUpgrade(profile),
+			capHours = SessionService.offlineCapHours(profile),
 			rebirth = P.RebirthPerks and SessionService.rebirthPerksFor(profile) or nil,
 		}
 	end
@@ -8710,7 +8791,7 @@ __MODULES["SessionService"] = function()
 
 	local function claimOffline(player: Player, entry: Live)
 		local pending = entry.offline
-		if not P.Offline or not pending then
+		if not pending then
 			return
 		end
 		-- cleared BEFORE the payout so a double-fired remote cannot pay twice
@@ -8731,10 +8812,55 @@ __MODULES["SessionService"] = function()
 		entry.dirty = true
 	end
 
-	local function claimDaily(player: Player, entry: Live, profile)
-		if not P.Sessions then
+	--- THE VAULT TIMER. The welcome-back panel has always named the upgrade that
+	--- would have prevented the clip; until now there was no way to buy it —
+	--- `offlineCapLevel` was clamped and read and never written by anything in the
+	--- repo, so the panel advertised a product that did not exist.
+	---
+	--- Server-authoritative in the same shape as every other claim: the client sends
+	--- an INTENT and never an amount, the price comes from Config, and the spend
+	--- goes through Economy so there is exactly one place cash is destroyed.
+	local function claimCapUpgrade(player: Player, entry: Live, profile)
+		local s = sessions(profile)
+		local level = s.offlineCapLevel + 1
+		local hours, cost = O.CapUpgradeHours[level], O.CapUpgradeCost[level]
+		if not hours or not cost then
+			return                      -- already own the longest vault timer
+		end
+
+		if not Economy.spend(player, cost) then
+			-- "warn" rather than a new kind: HUD.lua's KIND_COLOR is the owner of what
+			-- a toast looks like, and an unknown kind falls back to the neutral accent
+			-- — a refusal that reads like an announcement.
+			Economy.notify(player, {
+				kind = "warn",
+				title = "NOT ENOUGH TUNG",
+				body = ("Vault Timer %d costs %s."):format(level, Util.abbreviate(cost)),
+			})
 			return
 		end
+
+		s.offlineCapLevel = level
+
+		-- The pending welcome-back grant was computed against the OLD cap and stays
+		-- that way: buying a bigger vault does not retroactively refill it, and
+		-- pretending otherwise would make the purchase a way to buy back hours you
+		-- already spent. Only the upsell is refreshed, so the panel stops offering a
+		-- timer that is now owned.
+		if entry.offline then
+			entry.offline.upgrade = nextCapUpgrade(profile)
+		end
+
+		Economy.notify(player, {
+			kind = "gear",
+			title = ("VAULT TIMER %d"):format(level),
+			body = ("Your factory now banks %d hours offline instead of %d."):format(
+				hours, level > 1 and O.CapUpgradeHours[level - 1] or O.CapHours),
+		})
+		entry.dirty = true
+	end
+
+	local function claimDaily(player: Player, entry: Live, profile)
 		local s = sessions(profile)
 		local today = dayNumber()
 		if s.dailyDay >= today then
@@ -8760,34 +8886,32 @@ __MODULES["SessionService"] = function()
 		entry.dirty = true
 	end
 
-	local function claimPlaytime(player: Player, entry: Live, index: number)
-		if not P.Sessions then
-			return
-		end
+	local function claimPlaytime(player: Player, entry: Live, profile, index: number)
 		local minutes = S.PlaytimeMinutes[index]
-		if not minutes or entry.claimedPlaytime[index] then
+		if not minutes or hasClaimedRung(profile, index) then
 			return
 		end
 		if entry.activeSeconds < minutes * 60 then
 			return                      -- the client asked early; the server decides
 		end
 
-		entry.claimedPlaytime[index] = true
+		-- Written into the profile, not into the session. This is the line that
+		-- closes the rejoin farm.
+		local s = playtimeClaims(profile)
+		s.playtimeClaimed = bit32.bor(s.playtimeClaimed, bit32.lshift(1, index - 1))
+
 		local reward = playtimeReward(index)
 		Economy.add(player, reward, false)
 		Economy.push(player)
 		Economy.notify(player, {
 			kind = "claim",
 			title = ("%d MINUTES PLAYED"):format(minutes),
-			body = ("%s. The ladder resets when you leave."):format(Util.abbreviate(reward)),
+			body = ("%s. The ladder resets at midnight UTC."):format(Util.abbreviate(reward)),
 		})
 		entry.dirty = true
 	end
 
 	local function claimBoost(player: Player, entry: Live, profile)
-		if not P.Sessions then
-			return
-		end
 		local s = sessions(profile)
 		local now = os.time()
 		if s.boostReadyAt > now then
@@ -8816,7 +8940,7 @@ __MODULES["SessionService"] = function()
 	--- Two signals, because either alone has a hole: position delta misses someone
 	--- holding W into a wall, and MoveDirection misses someone being carried by a
 	--- conveyor or a knockback. Neither misses someone actually playing.
-	local function sampleActivity(entry: Live, dt: number)
+	local function sampleActivity(entry: Live, profile, dt: number)
 		local character = entry.player.Character
 		if not character then
 			entry.lastPosition = nil
@@ -8845,7 +8969,7 @@ __MODULES["SessionService"] = function()
 			-- a rung becoming claimable is the moment worth replicating
 			for index, minutes in ipairs(S.PlaytimeMinutes) do
 				local required = minutes * 60
-				if before < required and entry.activeSeconds >= required and not entry.claimedPlaytime[index] then
+				if before < required and entry.activeSeconds >= required and not hasClaimedRung(profile, index) then
 					entry.dirty = true
 					Economy.notify(entry.player, {
 						kind = "claim",
@@ -8895,9 +9019,7 @@ __MODULES["SessionService"] = function()
 		-- second of a player's banked time.
 		profile.lastSeen = os.time()
 
-		if P.Sessions then
-			sampleActivity(entry, dt)
-		end
+		sampleActivity(entry, profile, dt)
 
 		if P.RebirthPerks then
 			local rebirths = math.max(0, math.floor(tonumber(profile.rebirths) or 0))
@@ -8913,9 +9035,6 @@ __MODULES["SessionService"] = function()
 	end
 
 	function SessionService.onPlayer(player: Player)
-		if not enabled() then
-			return
-		end
 		local profile = DataService.get(player) or DataService.load(player)
 		if not profile then
 			return
@@ -8926,7 +9045,6 @@ __MODULES["SessionService"] = function()
 			activeSeconds = 0,
 			lastPosition = nil,
 			lastClaim = 0,
-			claimedPlaytime = {},
 			offline = nil,
 			rebirths = math.floor(tonumber(profile.rebirths) or 0),
 			dirty = true,
@@ -8939,14 +9057,10 @@ __MODULES["SessionService"] = function()
 		entry.offline = computeOffline(profile)
 		profile.lastSeen = os.time()
 
-		if P.RebirthPerks and entry.rebirths > 0 then
-			-- Retroactive unlock sync for a save made before this prototype
-			-- existed. startingCash is deliberately zeroed: applyRebirthGrants
-			-- tops cash UP to the number it is given, and a join must never be a
-			-- way to refill your wallet.
-			local perks = SessionService.rebirthPerksFor(profile)
-			Economy.applyRebirthGrants(player, { startingCash = 0, unlocks = perks.unlocks })
-		end
+		-- There used to be a retroactive unlock sync here, replaying every milestone
+		-- into `profile.unlocks` on join. It went with the persisted copy: unlocks
+		-- are derived from profile.rebirths on every read now, so there is nothing
+		-- to backfill and no join-time write to get wrong.
 
 		if entry.offline then
 			Economy.notify(player, {
@@ -8966,13 +9080,9 @@ __MODULES["SessionService"] = function()
 	end
 
 	function SessionService.start()
-		if not enabled() then
-			return
-		end
-
-		if P.Sessions then
-			Economy.setMultiplierHook("sessions", SessionService.incomeMultiplier)
-		end
+		-- The boost and the weekend bonus reach every payout in the game through
+		-- this one hook, so Economy never learns that this file exists.
+		Economy.setMultiplierHook("sessions", SessionService.incomeMultiplier)
 
 		requestClaim.OnServerEvent:Connect(function(player, payload)
 			local entry = live[player]
@@ -8994,7 +9104,11 @@ __MODULES["SessionService"] = function()
 				claimDaily(player, entry, profile)
 			elseif kind == "playtime" then
 				local index = math.floor(tonumber(payload.index) or 0)
-				claimPlaytime(player, entry, index)
+				claimPlaytime(player, entry, profile, index)
+			elseif kind == "capUpgrade" then
+				-- No level and no price in the payload: the server decides which rung
+				-- is next and what it costs.
+				claimCapUpgrade(player, entry, profile)
 			end
 			pushState(player)
 		end)
@@ -12576,8 +12690,10 @@ local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
 
--- Prototype services. Each one is a no-op unless its Config.Prototypes flag is
--- on, so this list costs nothing in a shipping build.
+-- SessionService (offline earnings, the session loops) and FloorService (the
+-- second storey) have graduated and always run. UpgradeService is still a
+-- prototype and is a no-op unless Config.Prototypes.PlayerUpgrades is on, so it
+-- costs nothing in a shipping build.
 local UpgradeService = Req("UpgradeService")
 local SessionService = Req("SessionService")
 local FloorService = Req("FloorService")
@@ -12614,7 +12730,7 @@ NPCService.start()
 -- because !wave and !clear drive its schedule.
 AdminService.start()
 
--- 5. prototypes, each gated on its own flag
+-- 5. sessions, floors, and the one remaining prototype
 UpgradeService.start()
 SessionService.start()
 FloorService.start()

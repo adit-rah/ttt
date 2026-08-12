@@ -365,6 +365,25 @@ for name, on in pairs(Config.Prototypes) do
 	check(on == false, ("Prototypes.%s is ON — prototypes ship off"):format(name))
 end
 
+-- ...and the other half of that rule, which the check above cannot state.
+--
+-- "Every flag must be false" has exactly one legal way to ship a feature:
+-- DELETE the flag. Setting it true fails the build, so a graduated feature stops
+-- being a prototype rather than becoming the exception. That leaves one way to
+-- undo a graduation by accident — re-adding the name as `false`, which reads as
+-- housekeeping and silently switches a shipped feature back off, in a table
+-- whose whole contract is that everything in it is unshipped.
+local GRADUATED = {
+	Floors = "the second floor is a factory-track purchase (Config.Floors)",
+	Offline = "offline earnings and the Vault Timer ship (Config.Offline)",
+	Sessions = "the streak, ladder, boost and weekend bonus ship (Config.Sessions)",
+}
+for name, why in pairs(GRADUATED) do
+	check(Config.Prototypes[name] == nil,
+		("Prototypes.%s is back in the flag table — %s. A graduated feature has no flag; setting it false switches a shipped feature off and setting it true fails the check above")
+			:format(name, why))
+end
+
 -- A belt path is a polyline with one outboard side per leg. One short entry and
 -- the last leg silently falls back to +1, which is the bug the explicit table
 -- was added to prevent.
@@ -721,11 +740,57 @@ for _, def in ipairs(Config.Utilities) do
 	check(def.radius and def.radius > 0, ("Utilities.%s has no radius"):format(def.id))
 end
 
--- Offline earnings. The cap ladder has to be monotonic in both directions or
--- there is a tier you pay more for and get less from.
+-- Rebirth perks. Still a prototype, but its ONE table of content is the sort
+-- that goes stale without anyone touching it: a milestone names a thing by id,
+-- and the rest of the game is free to start selling that thing.
+--
+-- Which is exactly what happened. `[2] = { unlock = "mezzanine" }` sat here from
+-- before the second floor graduated onto the factory track, so rebirth 2
+-- promised something you had already bought with tung — and because the grant
+-- was written into the save, it would have kept promising it forever. Nothing
+-- could have caught that except a check that knows what the rest of Config
+-- sells.
+do
+	local RP = Config.RebirthPerks
+	check(RP.SlotEveryRebirths >= 1, "RebirthPerks.SlotEveryRebirths must be at least 1")
+	check(RP.StartingCashGrowth >= 1, "RebirthPerks.StartingCashGrowth must not shrink with each rebirth")
+
+	local floorById = {}
+	for _, floor in ipairs(Config.Floors) do
+		floorById[floor.id] = floor.button
+	end
+
+	for at, milestone in pairs(RP.Milestones) do
+		local where = ("RebirthPerks.Milestones[%s]"):format(tostring(at))
+		check(type(at) == "number" and at >= 1 and at <= Config.Rebirth.MaxRebirths,
+			("%s is not a reachable rebirth count (1..%d)"):format(where, Config.Rebirth.MaxRebirths))
+		check(type(milestone.unlock) == "string" and #milestone.unlock > 0,
+			("%s has no unlock id"):format(where))
+		check(type(milestone.label) == "string" and #milestone.label > 0,
+			("%s has no label, so the rebirth notification would name nothing"):format(where))
+		check(floorById[milestone.unlock] == nil,
+			("%s grants %q, which is Floors.%s — bought with %s on the factory track. A rebirth cannot unlock something the game already sells")
+				:format(where, tostring(milestone.unlock), tostring(milestone.unlock),
+					tostring(floorById[milestone.unlock])))
+		check(Config.ButtonById[milestone.unlock] == nil,
+			("%s grants %q, which is a buy button — a rebirth cannot unlock something the game already sells")
+				:format(where, tostring(milestone.unlock)))
+	end
+end
+
+-- ── offline earnings (SHIPPED) ──────────────────────────────────────────────
+-- The cap ladder has to be monotonic in both directions or there is a tier you
+-- pay more for and get less from. The ladder is a PURCHASE now, so its prices
+-- are checked against the income curve as well — down where the curve exists.
 do
 	local O = Config.Offline
 	check(O.Rate > 0 and O.Rate <= 1, ("Offline.Rate is %.2f; it is a fraction"):format(O.Rate))
+	check(O.CapHours > 0, "Offline.CapHours must bank something")
+	-- Below this an absence pays nothing and the panel does not open. At zero
+	-- every join would open a welcome-back modal for four seconds of being away.
+	check(O.MinimumSeconds > 0, "Offline.MinimumSeconds must be positive or every join opens the panel")
+	check(O.MinimumSeconds < O.CapHours * 3600,
+		"Offline.MinimumSeconds is longer than the cap, so nothing between them is payable")
 	check(#O.CapUpgradeHours == #O.CapUpgradeCost, "Offline cap upgrade hours and costs disagree in length")
 	local previousHours, previousCost = O.CapHours, 0
 	for i, hours in ipairs(O.CapUpgradeHours) do
@@ -735,7 +800,7 @@ do
 	end
 end
 
--- Session loops.
+-- ── session loops (SHIPPED) ─────────────────────────────────────────────────
 do
 	local S = Config.Sessions
 	check(#S.DailyRewards == 7, "DailyRewards should be a 7-day loop")
@@ -743,11 +808,40 @@ do
 		check(S.DailyRewards[i] > S.DailyRewards[i - 1], ("DailyRewards day %d is not better than day %d"):format(i, i - 1))
 	end
 	check(S.DailyGraceHours >= 24, "a daily streak needs at least a day of grace or one missed evening kills it")
+	for streak, bonus in pairs(S.DailyMilestones) do
+		check(type(streak) == "number" and streak >= 1 and streak % 1 == 0,
+			("DailyMilestones is keyed on %s; the key is a whole streak count"):format(tostring(streak)))
+		check(bonus > 0, ("DailyMilestones[%s] pays nothing"):format(tostring(streak)))
+	end
 	for i = 2, #S.PlaytimeMinutes do
 		check(S.PlaytimeMinutes[i] > S.PlaytimeMinutes[i - 1], "PlaytimeMinutes must be increasing")
 	end
+	check(S.PlaytimeMinutes[1] > 0, "the first playtime rung must take longer than no time at all")
+	check(S.PlaytimeRewardGrowth >= 1,
+		"PlaytimeRewardGrowth is below 1, so every rung of the ladder pays less than the one before it")
+	-- THE CLAIMED RUNGS ARE A BIT32 MASK. They have to be a number rather than a
+	-- { [index] = true } set, because a sparse numeric-keyed table round-trips
+	-- through the DataStore's JSON as an object with STRING keys and stops
+	-- matching the index — which silently re-opens the ladder on every load. A
+	-- 33rd rung would fall off the top of that number just as silently.
+	check(#S.PlaytimeMinutes <= 32,
+		("PlaytimeMinutes has %d rungs; the claimed set is a bit32 mask and holds 32")
+			:format(#S.PlaytimeMinutes))
 	check(S.BoostCooldown > S.BoostSeconds,
 		"the boost lasts longer than its cooldown, so it would never be off")
+	check(S.BoostMultiplier > 1, "the boost button pays no more than not pressing it")
+	check(S.WeekendMultiplier > 1, "the weekend bonus pays no more than a Tuesday")
+	-- os.date("!*t").wday is 1..7, Sunday first. A key outside that range is a
+	-- weekend that never arrives, and nothing at runtime would ever say so.
+	local weekendDays = 0
+	for wday, on in pairs(S.WeekendDays) do
+		check(type(wday) == "number" and wday >= 1 and wday <= 7,
+			("Sessions.WeekendDays[%s] is not an os.date wday (1=Sunday .. 7=Saturday)"):format(tostring(wday)))
+		check(on == true, ("Sessions.WeekendDays[%s] is not true; the lookup tests == true"):format(tostring(wday)))
+		weekendDays += 1
+	end
+	check(weekendDays >= 1 and weekendDays < 7,
+		("Sessions.WeekendDays covers %d days; a weekend is neither never nor always"):format(weekendDays))
 end
 
 -- Sound. Everything must be an engine asset: an rbxassetid:// here is an upload,
@@ -2436,6 +2530,97 @@ for _, track in ipairs(Config.TrackOrder) do
 	end
 end
 
+-- ── the Vault Timer, priced against the factory ─────────────────────────────
+--
+-- The offline cap upgrade is a THING YOU BUY now — before this round
+-- `offlineCapLevel` had no writer anywhere in the repo and the welcome-back
+-- panel advertised a product that did not exist. A purchase has to be priced
+-- like one, and "priced like one" is not a number you can pick by looking at
+-- Config.Offline: it is a question about the income the player has at the moment
+-- the cap is worth fixing, which means it has to be asked down here, against the
+-- curve, exactly like the side tracks above.
+--
+-- Two things are asserted, and they are the two ways a cap upgrade fails:
+--
+--   TOO DEAR. Measured as DETOUR, the same metric and the same limit the bats
+--   and armour are held to — how many minutes of your current income it costs.
+--   Past that and buying the vault means visibly stalling the factory, which is
+--   the trade nobody makes; the cap stays where it is and the upsell on the
+--   welcome-back panel is just a second sentence about being clipped.
+--
+--   TOO LATE. The 8-hour cap first bites on the FIRST overnight, so a tier one
+--   nobody can bank inside their first session is a fix that arrives a day after
+--   the problem it fixes. 50 minutes is the same threshold the second floor is
+--   held to, and for the same reason: Roblox credits the first 60 minutes of a
+--   session and nothing after it.
+local VAULT_FIRST_TIER_BY_MINUTE = 50
+local vaultReport = {}
+do
+	local O = Config.Offline
+	local previousHours = O.CapHours
+	for tier, hours in ipairs(O.CapUpgradeHours) do
+		local cost = O.CapUpgradeCost[tier]
+		local at, income = firstAffordable(cost)
+		check(at ~= math.huge,
+			("Vault Timer %d costs %.3g, which the factory never banks across a whole build")
+				:format(tier, cost))
+		if at ~= math.huge and income > 0 then
+			local detour = cost / income / 60
+			table.insert(vaultReport, ("%dh at %.0f min (%.1f min of income)"):format(hours, at, detour))
+			check(detour <= SIDE_MAX_DETOUR_MINUTES,
+				("Vault Timer %d costs %.1f min of the income you have when you can first afford it (limit %d) — that is a wall, not a detour")
+					:format(tier, detour, SIDE_MAX_DETOUR_MINUTES))
+			if tier == 1 then
+				check(at <= VAULT_FIRST_TIER_BY_MINUTE,
+					("the first Vault Timer is unaffordable until minute %.0f (limit %d) — the %dh cap bites on the first overnight, and the fix for it has to be reachable in the first session")
+						:format(at, VAULT_FIRST_TIER_BY_MINUTE, O.CapHours))
+			end
+		end
+		previousHours = hours
+	end
+	-- and the top of the ladder has to be worth having: a cap you can never fill
+	-- is a purchase that pays nothing for the last hours it sold you
+	check(previousHours <= 24,
+		("the longest Vault Timer banks %dh; past a full day nobody is away long enough to fill it")
+			:format(previousHours))
+end
+
+-- ── the playtime ladder, against what the factory makes in the same minutes ──
+--
+-- Newly assertable, and newly worth asserting. The ladder used to reset when the
+-- session did, which made it a one-off arrival bonus; its rungs are claimed once
+-- per UTC DAY now, so every number in it is RECURRING INCOME that a player
+-- collects for walking around, forever, for as long as they keep playing.
+--
+-- The rule is that the ladder supplements the factory and never replaces it. So
+-- for each rung, everything the ladder has paid by that minute is compared with
+-- everything the plot has produced by the same minute. Above 1.0 the optimal
+-- play is to stand in a corner pressing W, which is not a tycoon.
+--
+-- The minutes are not quite the same minutes — the ladder counts ACTIVE seconds
+-- and the curve counts grind time — but a player doing the build is active by
+-- definition, so the curve is the right yardstick and the approximation runs in
+-- the conservative direction.
+local LADDER_MAX_SHARE = 1.0
+do
+	local S = Config.Sessions
+	local ladderTotal = 0
+	for index, minutes in ipairs(S.PlaytimeMinutes) do
+		ladderTotal += math.floor(S.PlaytimeRewardBase * (S.PlaytimeRewardGrowth ^ (index - 1)))
+
+		local produced = 0
+		for _, row in ipairs(curve) do
+			if row.at / 60 <= minutes then
+				produced = row.earned
+			end
+		end
+		check(produced > 0 and ladderTotal <= produced * LADDER_MAX_SHARE,
+			("the playtime ladder has paid %.3g by minute %d and the factory has produced %.3g — a daily ladder that out-earns the plot it is attached to makes standing still the optimal play")
+				:format(ladderTotal, minutes, produced))
+	end
+end
+
+-- HOW FAST A CABINET EMPTIES ONCE IT OPENS, printed rather than asserted.
 -- HOW FAST A CABINET EMPTIES ONCE IT OPENS, and it is an assertion now.
 --
 -- Gating a track behind a forty-minute button inverted its old risk. It could
@@ -2556,6 +2741,8 @@ print(("solo clear:        %.0fs with %s, %.0fs with %s (deadline %ds)")
 print(("belt:              %.0f studs, %.1fs transit, %.0f drops in flight at peak (%.0f%% full)")
 	:format(beltLength, transit, inFlight, inFlight * DROP_LENGTH / beltLength * 100))
 if floorReport then print(floorReport) end
+print(("vault timers:      %dh free, then %s")
+	:format(Config.Offline.CapHours, table.concat(vaultReport, ", ")))
 print(("trigger dwell:     %.0f ms at %.0f studs/s (30 Hz step is %.0f ms)")
 	:format(dwell * 1000, maxBeltSpeed, PHYSICS_STEP_DEMOTED * 1000))
 print(("plot drop budget:  %.0f in flight across %d belts, cap %d (%.0f%%)")

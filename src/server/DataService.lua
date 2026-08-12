@@ -83,20 +83,25 @@ local function defaultProfile()
 		armorTier = 1,
 		kills = 0,
 		playtime = 0,
-		-- PROTOTYPE fields (Offline / Sessions / RebirthPerks). reconcile()
-		-- merges a saved value onto this default only when the TYPES match, so
-		-- adding a field here is what makes every existing save keep loading:
-		-- an old profile simply arrives with the default.
+		-- SESSION fields. reconcile() merges a saved value onto this default
+		-- only when the TYPES match, so adding a field here is what makes every
+		-- existing save keep loading: an old profile simply arrives with the
+		-- default. Every one of these must ALSO appear in the hand-listed
+		-- payload in save() below, or it is dropped on the way out.
 		--
 		-- lastSeen is 0 rather than os.time() deliberately. A profile that has
 		-- never stored one has no knowable logout time, and seeding it with
 		-- "now" would look like a zero-second session; seeding it with 0 means
 		-- SessionService skips the offline payout for that first session and
 		-- starts counting from the logout after it.
+		--
+		-- `unlocks` used to live here, holding the rebirth milestones a player
+		-- had passed. It was a saved copy of something SessionService derives
+		-- from profile.rebirths on every read, so it could only ever go stale;
+		-- it is gone, and a save that still carries one is simply ignored.
 		lastSeen = 0,
-		sessions = {},     -- streak / boost / cap state, shaped by SessionService
-		unlocks = {},      -- { [unlockId] = label } granted by rebirth milestones
-		upgrades = {},     -- { [upgradeId] = level }, shaped by UpgradeService
+		sessions = {},     -- streak / boost / cap / playtime state, shaped by SessionService
+		upgrades = {},     -- { [upgradeId] = level }, shaped by UpgradeService (PROTOTYPE)
 		utilityEquipped = "",  -- a Config.Utilities id; "" rather than nil so the
 		                       -- type-matched reconcile can merge a saved value
 
@@ -220,7 +225,6 @@ local function payloadOf(profile)
 		playtime = profile.playtime,
 		lastSeen = profile.lastSeen,
 		sessions = profile.sessions,
-		unlocks = profile.unlocks,
 		upgrades = profile.upgrades,
 		utilityEquipped = profile.utilityEquipped,
 		-- A FIELD ADDED TO defaultProfile() AND NOT TO THIS TABLE IS NEVER

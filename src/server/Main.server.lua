@@ -18,8 +18,10 @@ local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
 
--- Prototype services. Each one is a no-op unless its Config.Prototypes flag is
--- on, so this list costs nothing in a shipping build.
+-- SessionService (offline earnings, the session loops) and FloorService (the
+-- second storey) have graduated and always run. UpgradeService is still a
+-- prototype and is a no-op unless Config.Prototypes.PlayerUpgrades is on, so it
+-- costs nothing in a shipping build.
 local UpgradeService = Req("UpgradeService")
 local SessionService = Req("SessionService")
 local FloorService = Req("FloorService")
@@ -56,7 +58,7 @@ NPCService.start()
 -- because !wave and !clear drive its schedule.
 AdminService.start()
 
--- 5. prototypes, each gated on its own flag
+-- 5. sessions, floors, and the one remaining prototype
 UpgradeService.start()
 SessionService.start()
 FloorService.start()
