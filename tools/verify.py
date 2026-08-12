@@ -38,6 +38,17 @@ def sources():
     return sorted(p for p in SRC.rglob("*.lua"))
 
 
+def harness_sources():
+    """The spec harness. Compiled and analysed, but NOT style-linted.
+
+    A mock is allowed to name an Enum.Font or assign a MaxDistance -- the style
+    lint is about ownership inside the shipped game, and tools/ is not shipped.
+    Syntax and analysis still apply: a mock that does not compile is worse than
+    no mock, because it fails as a spec failure and reads as a game bug.
+    """
+    return sorted(p for p in (ROOT / "tools" / "testing").rglob("*.lua"))
+
+
 def step(name):
     print(f"\n{DIM}──{RESET} {name}")
 
@@ -148,6 +159,23 @@ def check_config(luau):
     return result.returncode == 0
 
 
+def check_specs(luau):
+    """Execute the game, rather than the numbers it is configured with.
+
+    This is the pass that answers a sentence appearing in five consecutive
+    handoffs: "nothing in this round has run in Roblox". The config suite below
+    reads Config.lua and nothing else, so a defect living in a .lua file rather
+    than in a number is structurally invisible to it -- which is exactly how the
+    generator shipped for two rounds multiplying nothing.
+    """
+    step("runtime specs")
+    result = run([sys.executable, str(ROOT / "tools" / "test.py"), "--plain", "--luau", luau])
+    output = (result.stdout + result.stderr).strip()
+    for line in output.splitlines():
+        print("  " + line)
+    return result.returncode == 0
+
+
 def check_pack(compiler):
     step("packed build")
     result = run([sys.executable, str(ROOT / "tools" / "pack.py")])
@@ -173,11 +201,16 @@ def main():
             return 2
 
     files = sources()
+    harness = harness_sources()
     results = [
-        check_syntax(args.compile, files, "src"),
-        check_analysis(args.analyze, files),
+        check_syntax(args.compile, files + harness, "src + harness"),
+        check_analysis(args.analyze, files + harness),
+        # style ownership is about the SHIPPED game; tools/ is not shipped
         check_style(files),
         check_config(args.luau),
+        # The config suite must report first: a broken Config makes every spec
+        # fail in a confusing way, and the useful error is the one upstream.
+        check_specs(args.luau),
         check_pack(args.compile),
     ]
 
