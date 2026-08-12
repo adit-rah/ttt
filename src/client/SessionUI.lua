@@ -2,11 +2,15 @@
 	SessionUI.lua — the welcome-back panel, the daily / playtime claims and the
 	boost button.
 
-	Built into HUD.screenGui() rather than a second ScreenGui so there is one
-	place the game's UI lives, one ZIndex space, and one thing to hide. The
-	palette and the panel/text/button helpers are deliberately re-stated here
-	instead of exported from HUD.lua: this is a prototype, and a prototype that
-	widens another module's public API is a prototype you cannot delete.
+	Built into HUD's layers rather than a second ScreenGui so there is one place
+	the game's UI lives, one ZIndex space, one UIScale and one thing to hide:
+	the panel goes on HUD.root(), the welcome-back modal on HUD.overlay().
+
+	The palette and the panel/text/button helpers used to be re-stated here, on
+	the argument that a prototype which widens another module's public API is a
+	prototype you cannot delete. Three copies later the drift risk outweighed
+	the deletion cost, and they moved to src/client/UiKit.lua — which is not
+	HUD's API, so the original argument is satisfied rather than overruled.
 
 	Everything is presentation. The server sends the whole state on the
 	SessionState remote and decides every claim; this file's only outbound
@@ -19,6 +23,7 @@ local Style = Req("Style")
 local Util = Req("Util")
 local Net = Req("Net")
 local HUD = Req("HUD")
+local UiKit = Req("UiKit")
 local Sound = Req("Sound")
 
 local RunService = game:GetService("RunService")
@@ -27,100 +32,43 @@ local TweenService = game:GetService("TweenService")
 local SessionUI = {}
 
 local P = Config.Prototypes
+local UI = Config.UI
+local PALETTE = UiKit.PALETTE
 
--- lifted from HUD.lua so the two panels read as one product
-local PALETTE = {
-	panel   = Color3.fromRGB(22, 18, 32),
-	panel2  = Color3.fromRGB(32, 26, 46),
-	accent  = Color3.fromRGB(190, 130, 255),
-	gold    = Color3.fromRGB(255, 205, 90),
-	good    = Color3.fromRGB(120, 235, 160),
-	bad     = Color3.fromRGB(255, 110, 110),
-	text    = Color3.fromRGB(238, 232, 250),
-	muted   = Color3.fromRGB(160, 150, 180),
-	dead    = Color3.fromRGB(90, 84, 104),
-}
-
-local PANEL_X, PANEL_Y, PANEL_W = 18, 210, 280
+local PANEL_X, PANEL_Y, PANEL_W = UI.Margin, UI.SessionPanel.Y, UI.SessionPanel.Width
 
 local state = {
 	payload = nil :: any,
 	receivedAt = 0,
 }
 
-local gui, panel, dailyRow, playtimeRow, boostButton, offlineRow, weekendBadge
+local root, overlay, panel, dailyRow, playtimeRow, boostButton, offlineRow, weekendBadge
 local playtimeFill, modalOpen = nil, false
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- builders (same shapes as HUD.lua)
+-- builders
 -- ─────────────────────────────────────────────────────────────────────────────
 
-local function corner(parent: Instance, radius: number)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius)
-	c.Parent = parent
-	return c
-end
+local corner, frame, text = UiKit.corner, UiKit.panel, UiKit.text
 
-local function stroke(parent: Instance, color: Color3, thickness: number?)
-	local s = Instance.new("UIStroke")
-	s.Color = color
-	s.Thickness = thickness or 2
-	s.Transparency = 0.35
-	s.Parent = parent
-	return s
-end
-
-local function frame(parent: Instance, size: UDim2, position: UDim2, anchor: Vector2?)
-	local f = Instance.new("Frame")
-	f.Size = size
-	f.Position = position
-	f.AnchorPoint = anchor or Vector2.zero
-	f.BackgroundColor3 = PALETTE.panel
-	f.BackgroundTransparency = 0.12
-	f.BorderSizePixel = 0
-	f.Parent = parent
-	corner(f, 14)
-	stroke(f, PALETTE.accent, 2)
-
-	local gradient = Instance.new("UIGradient")
-	gradient.Color = ColorSequence.new(PALETTE.panel2, PALETTE.panel)
-	gradient.Rotation = 90
-	gradient.Parent = f
-	return f
-end
-
-local function text(parent: Instance, props)
-	local l = Instance.new("TextLabel")
-	l.BackgroundTransparency = 1
-	l.Font = Style.Font.body
-	l.TextColor3 = PALETTE.text
-	l.TextXAlignment = Enum.TextXAlignment.Left
-	l.RichText = true
-	for k, v in pairs(props) do
-		(l :: any)[k] = v
+--- THE ONE PLACE THIS PANEL DISAGREES WITH THE REST OF THE UI, and the reason
+--- the merge into UiKit was not a straight deletion. Every button in HUD and
+--- UpgradeUI is TextScaled; every button in here is sized text at 15, because
+--- these labels are long ("BOOST READY IN 12:04") in boxes that are not, and
+--- TextScaled would set each of them at a different size. Two properties
+--- pre-seeded into `props` before forwarding buys that back without touching
+--- the three call sites below — and it is deliberately NOT tidied away in the
+--- same change that moved the helpers, so that if sized text turns out to be
+--- the wrong call on a phone there is one function to look at.
+local function button(parent: Instance, label: string, color: Color3, props): TextButton
+	props = props or {}
+	if props.TextScaled == nil then
+		props.TextScaled = false
 	end
-	l.Parent = parent
-	return l
-end
-
-local function button(parent: Instance, label: string, color: Color3, props)
-	local b = Instance.new("TextButton")
-	b.BackgroundColor3 = color
-	b.BackgroundTransparency = 0.1
-	b.BorderSizePixel = 0
-	b.AutoButtonColor = true
-	b.Font = Style.Font.title
-	b.Text = label
-	b.TextColor3 = Color3.fromRGB(20, 16, 28)
-	b.TextScaled = false
-	b.TextSize = 15
-	for k, v in pairs(props or {}) do
-		(b :: any)[k] = v
+	if props.TextSize == nil then
+		props.TextSize = 15
 	end
-	b.Parent = parent
-	corner(b, 10)
-	return b
+	return UiKit.button(parent, label, color, props)
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -174,11 +122,13 @@ end
 --- reward: nothing is ever credited silently, so the number counts up in front
 --- of you and you press the button.
 function SessionUI.showOfflineModal(offline)
-	if not gui or modalOpen or not offline then
+	if not overlay or modalOpen or not offline then
 		return
 	end
 	modalOpen = true
 
+	-- HUD.overlay(), not HUD.root(): the shade has to dim the safe area it is
+	-- covering, and the root layer is padded clear of exactly that strip.
 	local shade = Instance.new("Frame")
 	shade.Name = "OfflineModal"
 	shade.Size = UDim2.fromScale(1, 1)
@@ -186,9 +136,11 @@ function SessionUI.showOfflineModal(offline)
 	shade.BackgroundTransparency = 0.45
 	shade.BorderSizePixel = 0
 	shade.ZIndex = 30
-	shade.Parent = gui
+	shade.Parent = overlay
 
-	local card = frame(shade, UDim2.fromOffset(470, 330), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	local card = frame(shade,
+		UDim2.fromOffset(UI.Modal.Offline.Width, UI.Modal.Offline.Height),
+		UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 	card.ZIndex = 31
 	for _, child in ipairs(card:GetDescendants()) do
 		if child:IsA("GuiObject") then
@@ -271,7 +223,7 @@ function SessionUI.showOfflineModal(offline)
 	})
 
 	local collect = button(card, ("COLLECT %s"):format(Util.abbreviate(offline.earned)), PALETTE.good, {
-		Size = UDim2.fromOffset(426, 52),
+		Size = UDim2.fromOffset(426, UI.Button.primary),
 		Position = UDim2.fromOffset(22, 250),
 		TextSize = 22,
 		ZIndex = 32,
@@ -338,9 +290,12 @@ local function buildRow(parent: Instance, y: number, height: number, title: stri
 		TextSize = 12,
 		TextColor3 = PALETTE.muted,
 	})
+	-- A 66x30 pill was a 41x19 physical target at MinScale, which is a coin
+	-- flip with a thumb. Full touch height, vertically centred in whatever row
+	-- it lands in — the rows are 46, 50 and 56 tall.
 	local action = button(row, "CLAIM", PALETTE.good, {
-		Size = UDim2.fromOffset(66, 30),
-		Position = UDim2.fromOffset(PANEL_W - 28 - 78, 10),
+		Size = UDim2.fromOffset(66, UI.Button.pill),
+		Position = UDim2.fromOffset(PANEL_W - 28 - 78, math.round((height - UI.Button.pill) / 2)),
 		TextSize = 14,
 		Visible = false,
 	})
@@ -349,7 +304,7 @@ local function buildRow(parent: Instance, y: number, height: number, title: stri
 end
 
 local function buildPanel()
-	panel = frame(gui, UDim2.fromOffset(PANEL_W, 216), UDim2.fromOffset(PANEL_X, PANEL_Y))
+	panel = frame(root, UDim2.fromOffset(PANEL_W, UI.SessionPanel.Height), UDim2.fromOffset(PANEL_X, PANEL_Y))
 	panel.Name = "Session"
 	panel.Visible = false
 
@@ -394,7 +349,7 @@ local function buildPanel()
 	corner(playtimeFill, 2)
 
 	boostButton = button(panel, "BOOST", PALETTE.gold, {
-		Size = UDim2.fromOffset(PANEL_W - 28, 44),
+		Size = UDim2.fromOffset(PANEL_W - 28, UI.Button.secondary),
 		Position = UDim2.fromOffset(14, 148),
 		TextSize = 18,
 	})
@@ -559,11 +514,12 @@ local function render()
 			Util.abbreviate(payload.offline.earned), describe(payload.offline.seconds))
 		offlineRow.sub.TextColor3 = PALETTE.gold
 		offlineRow.action.Visible = true
-		panel.Size = UDim2.fromOffset(PANEL_W, compact and 88 or 258)
+		panel.Size = UDim2.fromOffset(PANEL_W,
+			compact and UI.SessionPanel.CompactHeight or UI.SessionPanel.TallHeight)
 	else
 		offlineRow.row.Visible = false
 		panel.Visible = not compact
-		panel.Size = UDim2.fromOffset(PANEL_W, 216)
+		panel.Size = UDim2.fromOffset(PANEL_W, UI.SessionPanel.Height)
 	end
 end
 
@@ -574,23 +530,24 @@ function SessionUI.start()
 		return
 	end
 
-	gui = HUD.screenGui()
-	if not gui then
+	root = HUD.root()
+	if not root then
 		-- HUD.start() runs first in Main.client.lua, but a prototype that
 		-- assumes boot order is a prototype that breaks when the boot order
 		-- changes
 		for _ = 1, 100 do
 			task.wait(0.1)
-			gui = HUD.screenGui()
-			if gui then
+			root = HUD.root()
+			if root then
 				break
 			end
 		end
-		if not gui then
-			warn("[Tung] SessionUI: no HUD ScreenGui to build into")
+		if not root then
+			warn("[Tung] SessionUI: no HUD layer to build into")
 			return
 		end
 	end
+	overlay = HUD.overlay()
 
 	buildPanel()
 	if not P.Sessions then

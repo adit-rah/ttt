@@ -458,6 +458,127 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
+	-- SCREEN UI
+	--
+	-- Four out of five Roblox sessions are on a phone, and until this table existed
+	-- not one number in this file described the screen. Every panel size, margin
+	-- and button height was a literal in src/client/ — the one directory the
+	-- verifier cannot see — which is how "the upgrade shop sits on top of the NEXT
+	-- UPGRADE panel below 638 design pixels" became a defect with no owner: HUD.lua
+	-- held one of the two numbers and UpgradeUI.lua held the other, and nothing in
+	-- the repo could read both at once. Now something can.
+	--
+	-- PLAIN NUMBERS ONLY. tools/verify_config.lua stubs Color3, Vector3 and Enum
+	-- and nothing else. A single Vector2 or UDim2 in this table takes every config
+	-- check down at require time, which is a much worse failure than the one it
+	-- would be describing. Sizes are two named scalars, never a vector.
+	--
+	-- THE SCALING CONTRACT, which is what makes the rest of these numbers mean
+	-- anything. The client mounts ONE UIScale of
+	--
+	--     clamp(min(vx / ReferenceWidth, vy / ReferenceHeight), MinScale, MaxScale)
+	--
+	-- Taking the MIN of the two ratios is the whole trick: it buys a design canvas
+	-- of at least ReferenceWidth x ReferenceHeight at every aspect ratio, so every
+	-- offset below is correct by construction rather than correct on the machine it
+	-- was typed on. MinScale is the one hole in that — a landscape phone shorter
+	-- than MinScale * ReferenceHeight physical pixels gets a canvas shorter than
+	-- the reference, which is exactly the band the shop overlap lived in.
+	-- MaxScale is 1 because nobody asked for a HUD blown up to fill a 4K monitor.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.UI = {
+		ReferenceWidth = 1280,
+		ReferenceHeight = 720,
+		MinScale = 0.62,
+		MaxScale = 1.0,
+
+		-- The gutter every panel keeps from the edge of the design canvas, and the
+		-- gap between two panels stacked in one column.
+		Margin = 18,
+		Gap = 10,
+		-- Added ON TOP of whatever the device reports as its safe-area inset. A
+		-- wrong guess about a notch should cost a slightly generous gutter, not an
+		-- amputated button, so the padding errs outward.
+		SafeAreaPad = 12,
+
+		-- The floor for anything a thumb has to hit, and for anything an eye has to
+		-- read, both in DESIGN pixels — multiply by MinScale for the worst physical
+		-- case, which is what the verifier asserts.
+		MinTouchPx = 44,
+		MinTextPx = 13,
+
+		-- THREE BUTTON HEIGHTS AND NO FOURTH. `primary` is a decision you came to
+		-- the panel to make (collect, confirm, rebirth), `secondary` is the way out
+		-- of it, `pill` is a toggle or a claim sitting inside a row. Every one of
+		-- them is >= MinTouchPx: at MinScale the old 46px confirm button landed at
+		-- 28 physical pixels, under half of Apple's and Google's published minimum.
+		Button = {
+			primary = 56,
+			secondary = 46,
+			pill = 44,
+		},
+
+		-- THE TOP-LEFT COLUMN. Cash, then the next-purchase hint, then the session
+		-- panel, all one width, stacked from the top margin down. The Y of each is
+		-- derived below rather than written, because the bug this table exists to
+		-- catch was two files disagreeing about where this column ends.
+		ColumnWidth = 280,
+		CashPanel    = { Width = 280, Height = 96 },
+		NextPanel    = { Width = 280, Height = 74 },
+		-- Height is the ordinary panel, TallHeight adds the pending-offline row and
+		-- CompactHeight is the offline-only build that collapses to just that row.
+		SessionPanel = { Width = 280, Height = 216, TallHeight = 258, CompactHeight = 88 },
+
+		-- THE UPGRADE SHOP IS A SECOND COLUMN, not the bottom of the first. It is
+		-- bottom-anchored and proportionally tall, so on a short screen it grows
+		-- upwards into whatever is above it; when it shared the left column that
+		-- meant the NEXT UPGRADE panel. X is derived below to clear the column
+		-- outright, which is an invariant at every viewport height rather than a
+		-- number that happens to hold at the height it was checked on.
+		ShopPanel = {
+			Width = 340,
+			HeightScale = 0.58,
+			MinHeight = 180,
+			MaxHeight = 460,
+			RowHeight = 62,      -- the whole row is the hit target, so this is a touch size
+		},
+
+		Toast  = { Width = 320, ListHeight = 500, CardHeight = 66 },
+		-- Rebirth over leave-plot, bottom right: primary + Gap + secondary.
+		Action = { Width = 200, Height = 112 },
+
+		-- Modals are centred and live on the overlay layer, which is unpadded on
+		-- purpose: a dimming shade SHOULD cover the notch.
+		Modal = {
+			MinWidth = 300,
+			MaxWidth = 470,
+			MaxHeight = 330,
+			Offline = { Width = 470, Height = 330 },
+			Rebirth = { Width = 430, Height = 250 },
+		},
+	}
+
+	do
+		local ui = Config.UI
+
+		-- the left column, top to bottom
+		ui.CashPanel.Y = ui.Margin
+		ui.NextPanel.Y = ui.CashPanel.Y + ui.CashPanel.Height + ui.Gap
+		ui.SessionPanel.Y = ui.NextPanel.Y + ui.NextPanel.Height + ui.Gap
+		-- measured at the session panel's TALLEST, because "it fits unless you have
+		-- offline earnings waiting" is not a layout that fits
+		ui.ColumnBottom = ui.SessionPanel.Y + ui.SessionPanel.TallHeight
+
+		-- the shop's own column, starting one gap clear of the left one
+		ui.ShopPanel.X = ui.Margin + ui.ColumnWidth + ui.Gap
+		-- What the shop leaves below itself: the toggle button always, plus the
+		-- utility chip when that prototype is on.
+		ui.ShopPanel.BottomGapNoUtility = ui.Margin + ui.Button.pill + ui.Gap
+		ui.ShopPanel.BottomGap = ui.ShopPanel.BottomGapNoUtility + ui.Button.pill + ui.Gap
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
 	-- ECONOMY
 	-- ─────────────────────────────────────────────────────────────────────────────
 

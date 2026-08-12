@@ -1826,6 +1826,133 @@ for count = Config.World.MinPlots, Config.World.MaxPlots do
 			:format(ST.Distance.plot, count, rimToFarEdge))
 end
 
+-- ── screen ui ───────────────────────────────────────────────────────────────
+--
+-- Four out of five sessions are on a phone. Everything below is a relationship
+-- between two numbers that used to live in two different files in src/client,
+-- which is the one directory this harness cannot see — so none of it had an
+-- owner, and the way you found out was by opening the game on a phone.
+--
+-- The scaling contract these all lean on: the client mounts one UIScale of
+-- clamp(min(vx/ReferenceWidth, vy/ReferenceHeight), MinScale, MaxScale), so the
+-- canvas the layout is measured in is at least ReferenceWidth x ReferenceHeight
+-- design pixels except where MinScale clamps, and the physical size of anything
+-- is its design size times a scale of at worst MinScale.
+
+local UI = Config.UI
+
+check(UI.MinScale > 0 and UI.MinScale <= UI.MaxScale,
+	("UI.MinScale is %.2f and MaxScale is %.2f; a floor above the ceiling is not a clamp")
+		:format(UI.MinScale, UI.MaxScale))
+check(UI.MaxScale <= 1,
+	("UI.MaxScale is %.2f; scaling the HUD UP to fill a 4K monitor is not wanted"):format(UI.MaxScale))
+check(UI.MinScale >= 0.5,
+	("UI.MinScale is %.2f — below half size the HUD stops being legible before it stops fitting")
+		:format(UI.MinScale))
+check(UI.ReferenceWidth > UI.ReferenceHeight,
+	"the reference frame has to be landscape; the HUD is a left column, a right column and the game in between")
+
+-- THE TWO FLOORS, IN PHYSICAL PIXELS. A design-pixel minimum means nothing on
+-- its own: it is worth MinScale of itself on the smallest screen that still
+-- gets a full-size layout, and that is the number a thumb and an eye actually
+-- meet. 26px is roughly where a tap target stops being reliable; 8px is roughly
+-- where small print stops being readable at arm's length.
+check(UI.MinTouchPx * UI.MinScale >= 26,
+	("the smallest touch target is %.0f design px, which is %.0f physical px at MinScale — under the ~26 px a thumb can hit")
+		:format(UI.MinTouchPx, UI.MinTouchPx * UI.MinScale))
+check(UI.MinTextPx * UI.MinScale >= 8,
+	("the smallest text is %.0f design px, which is %.1f physical px at MinScale — small print nobody can read is decoration")
+		:format(UI.MinTextPx, UI.MinTextPx * UI.MinScale))
+
+-- Every button height in the game comes from UI.Button, so asserting the
+-- smallest of the three asserts all of them.
+check(UI.Button.pill >= UI.MinTouchPx,
+	("UI.Button.pill is %d and the touch floor is %d; the pill is the SMALLEST button the game draws, so it is the one that decides")
+		:format(UI.Button.pill, UI.MinTouchPx))
+check(UI.Button.secondary >= UI.Button.pill and UI.Button.primary >= UI.Button.secondary,
+	("the button ladder is primary %d, secondary %d, pill %d — it has to be ordered or the names mean nothing")
+		:format(UI.Button.primary, UI.Button.secondary, UI.Button.pill))
+check(UI.Action.Height >= UI.Button.primary + UI.Gap + UI.Button.secondary,
+	("the bottom-right action stack is %d tall but holds a %d button, a %d gap and a %d button")
+		:format(UI.Action.Height, UI.Button.primary, UI.Gap, UI.Button.secondary))
+-- The shop rows are one big TextButton each, which is the whole point of them.
+check(UI.ShopPanel.RowHeight >= UI.MinTouchPx,
+	("an upgrade row is %d design px tall against a touch floor of %d"):format(UI.ShopPanel.RowHeight, UI.MinTouchPx))
+
+-- THE TOP-LEFT COLUMN AND THE UPGRADE SHOP.
+--
+-- This is the check that had no owner. HUD.lua stacks cash, next-up and (via
+-- SessionUI) the session panel down the left edge; UpgradeUI.lua hangs the shop
+-- off the BOTTOM edge with a proportional height, so on a short screen the shop
+-- grows upwards into the column. It overlapped the NEXT UPGRADE panel below 638
+-- design px, and with the utility chip on it overlapped at the reference height
+-- itself. Neither file could see it: each held one of the two edges.
+--
+-- Two axes, because either one separates them. Vertical clearance is the fit
+-- the layout would need if the shop stayed in the column; horizontal clearance
+-- is what it does instead, and is the stronger property — it holds at EVERY
+-- viewport height rather than at heights above some threshold.
+local column = { UI.CashPanel, UI.NextPanel, UI.SessionPanel }
+for index, entry in ipairs(column) do
+	check(entry.Width == UI.ColumnWidth,
+		("panel %d of the left column is %d wide but the column is %d; a column of three widths is three panels")
+			:format(index, entry.Width, UI.ColumnWidth))
+end
+check(UI.SessionPanel.TallHeight >= UI.SessionPanel.Height
+		and UI.SessionPanel.Height >= UI.SessionPanel.CompactHeight,
+	"the session panel's three heights are out of order")
+check(UI.ColumnBottom + UI.Margin <= UI.ReferenceHeight,
+	("the left column ends at y=%d, past the bottom of a %d-tall reference screen")
+		:format(UI.ColumnBottom, UI.ReferenceHeight))
+
+-- Asserted BEFORE the clamp below, and the clamp is spelled out with min/max
+-- rather than math.clamp, which ERRORS when its floor is above its ceiling. A
+-- bad pair of numbers here should cost one failed check with a sentence on it,
+-- not take all of these down at once with a stack trace about math.clamp.
+check(UI.ShopPanel.MinHeight <= UI.ShopPanel.MaxHeight,
+	("the shop panel's size constraint runs %d..%d; the floor is above the ceiling")
+		:format(UI.ShopPanel.MinHeight, UI.ShopPanel.MaxHeight))
+
+local shopHeight = math.min(
+	math.max(UI.ShopPanel.HeightScale * UI.ReferenceHeight, UI.ShopPanel.MinHeight),
+	math.max(UI.ShopPanel.MaxHeight, UI.ShopPanel.MinHeight))
+local shopTop = UI.ReferenceHeight - UI.ShopPanel.BottomGap - shopHeight
+local clearsAbove = shopTop >= UI.ColumnBottom + UI.Gap
+local clearsBeside = UI.ShopPanel.X >= UI.Margin + UI.ColumnWidth + UI.Gap
+check(clearsAbove or clearsBeside,
+	("the upgrade shop starts at y=%.0f, x=%d and the top-left column runs to y=%d, x=%d — at the %dx%d reference they overlap, and every viewport shorter than that is worse")
+		:format(shopTop, UI.ShopPanel.X, UI.ColumnBottom, UI.Margin + UI.ColumnWidth,
+			UI.ReferenceWidth, UI.ReferenceHeight))
+check(UI.ShopPanel.MinHeight >= UI.ShopPanel.RowHeight * 2,
+	("the shop can shrink to %d design px, which is less than two %d-px rows and a header — a list you cannot see two of is a menu")
+		:format(UI.ShopPanel.MinHeight, UI.ShopPanel.RowHeight))
+-- ...and it must not run into the bottom-right action stack on the way across.
+check(UI.ShopPanel.X + UI.ShopPanel.Width <= UI.ReferenceWidth - UI.Margin - UI.Action.Width - UI.Gap,
+	("the shop's right edge is at x=%d and the rebirth stack starts at x=%d")
+		:format(UI.ShopPanel.X + UI.ShopPanel.Width, UI.ReferenceWidth - UI.Margin - UI.Action.Width))
+-- The toast column comes in from the other side and has to clear it too.
+check(UI.ShopPanel.X + UI.ShopPanel.Width <= UI.ReferenceWidth - UI.Margin - UI.Toast.Width - UI.Gap,
+	("the shop's right edge is at x=%d and the toast column starts at x=%d")
+		:format(UI.ShopPanel.X + UI.ShopPanel.Width, UI.ReferenceWidth - UI.Margin - UI.Toast.Width))
+
+-- MODALS FIT THE REFERENCE FRAME. They are centred and unscaled relative to the
+-- design canvas, so a card wider than the canvas is a card with its buttons off
+-- both sides of the screen — on every device, not just a phone.
+for name, card in pairs(UI.Modal) do
+	if type(card) == "table" then
+		check(card.Width >= UI.Modal.MinWidth,
+			("the %s modal is %d wide, under the %d a two-button row needs")
+				:format(name, card.Width, UI.Modal.MinWidth))
+		check(card.Width <= UI.Modal.MaxWidth and card.Height <= UI.Modal.MaxHeight,
+			("the %s modal is %dx%d, over the %dx%d ceiling")
+				:format(name, card.Width, card.Height, UI.Modal.MaxWidth, UI.Modal.MaxHeight))
+		check(card.Width + 2 * UI.Margin <= UI.ReferenceWidth
+				and card.Height + 2 * UI.Margin <= UI.ReferenceHeight,
+			("the %s modal is %dx%d, which does not fit a %dx%d reference frame with margins")
+				:format(name, card.Width, card.Height, UI.ReferenceWidth, UI.ReferenceHeight))
+	end
+end
+
 check(Config.plotCountFor(50) == Config.World.MaxPlots, "plot count should clamp up to MaxPlots")
 check(Config.plotCountFor(2) == Config.World.MinPlots, "plot count should clamp down to MinPlots")
 local midCount = math.floor((Config.World.MinPlots + Config.World.MaxPlots) / 2)
