@@ -96,12 +96,12 @@ third value neither round had guessed.
 | add a dropper / upgrader / bat tier | a row in the relevant `Config.*Buttons` table | duplicate ids, dangling `requires`, slot collisions, upstream upgraders |
 | retune the curve | `price` values | the economy simulation: build length band, per-purchase waits, the floor's position |
 | move the belt | `Config.Layout.BeltStart/BeltCorner/BeltEnd` | `inPlot`, machine spacing, trigger dwell, drop budget |
-| change the plot's walls or roof | `Tycoon.INSTALLERS.Structure`, `Config.Layout.Roof*`, `GateCentre/GateWidth` | the doorway span, the gateway vs the belt, deck-vs-roof clearance |
+| change the plot's walls or roof | `INSTALLERS.Structure` in `src/server/tycoon/Installers.lua`, `Config.Layout.Roof*`, `GateCentre/GateWidth` | the doorway span, the gateway vs the belt, deck-vs-roof clearance |
 | change the second floor | `Config.Floors[1]` | the mezzanine family: deck vs walls, belt legs vs zone, hatch vs guard |
 | add a UI panel | build into `HUD.root()`; geometry in `Config.UI` | one-ScreenGui, card-scale literals, the column fits at `MinScale` |
 | add a persisted field | **both** `defaultProfile()` and the explicit `save()` payload in `DataService` | nothing — this is in the `[nothing]` backlog. With only the first it works all session and is gone at next login |
 | add a wave behaviour | `Config.Waves` | wave part budget, clear time, aggro/leash relationships |
-| add a new kind of buyable | a row in `Tycoon.INSTALLERS` | `KNOWN_KINDS` in `verify_config.lua` |
+| add a new kind of buyable | a case in `src/server/tycoon/Installers.lua`, **and** the `kind` list in `tycoon/Tycoon.lua`'s header | `KNOWN_KINDS` in `verify_config.lua` |
 
 ---
 

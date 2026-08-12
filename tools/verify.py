@@ -4,7 +4,7 @@ verify.py — full pre-flight check for Tung Tung Tycoon.
 
     python3 tools/verify.py [--luau /path/to/luau] [--analyze /path/to/luau-analyze]
 
-Runs TEN passes, in order. Keep this list and main() in step -- it has said
+Runs ELEVEN passes, in order. Keep this list and main() in step -- it has said
 five, seven and eight while main() ran nine, and a pass count nobody can trust
 is a pass somebody can quietly delete.
 
@@ -14,11 +14,12 @@ is a pass somebody can quietly delete.
   3. style         nothing but Style.lua names a font, an outline or a view distance
   4. prototypes    every Config.Prototypes flag read is a flag that exists
   5. config paths  every Config.<path> read in src/ names a key that exists
-  6. ui geometry   no card-scale literal in src/client; it comes from Config.UI
-  7. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
-  8. config        the integrity suite in tools/verify_config.lua
-  9. specs         the runtime specs in tools/testing, via tools/test.py
- 10. packed build  regenerates build/ and syntax-checks the output
+  6. mixin folders a split class's aggregator requires every file in its folder
+  7. ui geometry   no card-scale literal in src/client; it comes from Config.UI
+  8. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
+  9. config        the integrity suite in tools/verify_config.lua
+ 10. specs         the runtime specs in tools/testing, via tools/test.py
+ 11. packed build  regenerates build/ and syntax-checks the output
 
 Exit code is non-zero if anything fails, so it drops straight into CI.
 """
@@ -268,6 +269,65 @@ def check_single_screengui(files):
             print(f"      {DIM}{text}{RESET}")
         return False
     print(f"  {GREEN}ok{RESET}  {SCREENGUI_OWNER} owns the only ScreenGui, so there is one UIScale")
+    return True
+
+
+# A MIXIN FOLDER'S AGGREGATOR MUST REQUIRE EVERY FILE IN IT.
+#
+# src/server/tycoon/ is one class split across twelve files: Class.lua builds the
+# bare table and each mixin attaches its methods to it through Tycoon.__index.
+# The aggregator's `Req("Belt")` lines are therefore load-bearing code, not
+# imports — delete one and a dozen methods quietly stop existing.
+#
+# Nothing could see that. Pass 2 looks for undeclared identifiers, and the name
+# that goes missing is a method on a table, not a local; pass 1 compiles a file
+# nobody requires perfectly happily. The first symptom is a nil call in Studio,
+# which is the same shape as the generator that shipped doing nothing for two
+# rounds: a thing that reads as wired and is not.
+#
+# So the folder's file list and the aggregator's require list must be equal, and
+# a new mixin that nobody added a line for fails the build instead of shipping
+# dead. The reverse also fails: a require naming a file that no longer exists is
+# a boot-time error in Roblox and a spec-bundle error in the harness.
+MIXIN_FOLDERS = ("src/server/tycoon",)
+MIXIN_REQ = re.compile(r'^\s*(?:local\s+\w+\s*=\s*)?Req\(\s*"(\w+)"\s*\)', re.M)
+
+
+def check_mixin_folders():
+    step("mixin folders")
+    findings = []
+    for folder in MIXIN_FOLDERS:
+        directory = ROOT / folder
+        name = Path(folder).name
+        aggregator = directory / (name[0].upper() + name[1:] + ".lua")
+        if not aggregator.exists():
+            findings.append(f"{folder} has no aggregator at {aggregator.name}")
+            continue
+        text = aggregator.read_text(encoding="utf-8")
+        # Strip the block header: it names the mixins in prose.
+        body = re.sub(r"--\[\[.*?\]\]", "", text, flags=re.S)
+        required = set(MIXIN_REQ.findall(body))
+        present = {p.stem for p in directory.glob("*.lua")} - {aggregator.stem}
+        for missing in sorted(present - required):
+            findings.append(
+                f"{folder}/{missing}.lua is in the folder but {aggregator.name} does not "
+                f"require it — its methods would silently not exist"
+            )
+        for absent in sorted(required - present):
+            # A require may legitimately name a module elsewhere in src/ (Config,
+            # Util); only a name that resolves nowhere is a finding.
+            if any((ROOT / "src").rglob(f"{absent}.lua")):
+                continue
+            findings.append(
+                f"{aggregator.name} requires {absent!r}, which resolves to no module — "
+                f"Req raises at boot, and the spec bundle raises at load"
+            )
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for text in findings:
+            print(f"    {text}")
+        return False
+    print(f"  {GREEN}ok{RESET}  every mixin in {'/'.join(MIXIN_FOLDERS)} is required by its aggregator")
     return True
 
 
@@ -666,6 +726,7 @@ def main():
         check_style(files),
         check_prototypes(files),
         check_config_paths(files),
+        check_mixin_folders(),
         check_ui_geometry(files),
         check_single_screengui(files),
         check_config(args.luau),

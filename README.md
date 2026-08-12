@@ -110,7 +110,19 @@ src/server/
   MapBuilder.lua    world, arena, lighting, plot pads
   DataService.lua   DataStore with retries, session locking, autosave, flush
   Economy.lua       the only place cash is created or spent
-  Tycoon.lua        ← the standardized tycoon. One instance per plot.
+  tycoon/           ← the standardized tycoon. One instance per plot.
+    Tycoon.lua        the aggregator: Req("Tycoon") resolves here
+    Class.lua         the class table, the shared values, the constructor
+    Parts.lua         newPart, and the masses a belt machine is made of
+    Belt.lua          the conveyor, its geometry and the plot's one speed
+    Vault.lua         the collector, the gauge, and where a drop becomes money
+    Props.lua         claim rig, rebirth pad, cabinets, yard, generator
+    Buttons.lua       the buy buttons, their three states and their ghosts
+    Purchase.lua      tryPurchase and install
+    Installers.lua    one case per `kind`, and the machines they build
+    Drops.lua         spawning what the belt carries, and the drop budget
+    Income.lua        Tung/sec, the refinery multiplier, the signs
+    Ownership.lua     assign, release, rebirth
   PlotService.lua   claiming, releasing, offline grace period
   FloorService.lua  the second storey: deck, its belt, its collector, the ladder
   VaultService.lua  the fill gauge and the number on the way out
@@ -150,7 +162,7 @@ and pulls in siblings with `Req("Config")`. Keep that line byte-identical —
 
 ## Adding content
 
-The tycoon is data driven. **You should never edit `Tycoon.lua` to add a
+The tycoon is data driven. **You should never edit `src/server/tycoon/` to add a
 dropper.** Add a row to `Config.FactoryButtons` — one of four per-track tables
 (`FactoryButtons`, `WeaponButtons`, `ArmorButtons`, `PowerButtons`) that
 `Config.Buttons` is merged from at require time:
@@ -203,7 +215,7 @@ python3 tools/verify.py
 ```
 
 Needs the [Luau CLI](https://github.com/luau-lang/luau/releases) on your PATH
-(`luau`, `luau-compile`, `luau-analyze`). It runs nine passes:
+(`luau`, `luau-compile`, `luau-analyze`). It runs eleven passes:
 
 1. **Syntax** — compiles every file in `src/` and `tools/testing/`
 2. **Static analysis** — `luau-analyze`, with the Roblox globals *named* in a
@@ -214,15 +226,20 @@ Needs the [Luau CLI](https://github.com/luau-lang/luau/releases) on your PATH
    outline or a view distance
 4. **Prototype flags** — every `Config.Prototypes` flag read is one that exists
    (a graduated flag is deleted, so a leftover guard reads `nil` forever)
-5. **UI geometry** — no card-scale literal in `src/client`; it comes from `Config.UI`
-6. **One ScreenGui** — `HUD.lua` owns it, so there is exactly one `UIScale`
-7. **Config integrity** — 2300+ assertions: duplicate ids, dangling `requires`,
+5. **Config paths** — every `Config.<path>` read in `src/` names a key that
+   exists, resolved through local aliases (`local L = Config.Layout`)
+6. **Mixin folders** — a split class's aggregator requires every file in its
+   folder, because those requires are code and deleting one silently removes a
+   dozen methods
+7. **UI geometry** — no card-scale literal in `src/client`; it comes from `Config.UI`
+8. **One ScreenGui** — `HUD.lua` owns it, so there is exactly one `UIScale`
+9. **Config integrity** — 2300+ assertions: duplicate ids, dangling `requires`,
    slot collisions, upgraders placed upstream of droppers, plots that would
    overlap on the ring, bats that aren't stronger than the tier below…
-8. **Runtime specs** — `tools/test.py` runs the game headless under `luau`
-9. **Packed build** — regenerates the paste-in scripts and compiles those too
+10. **Runtime specs** — `tools/test.py` runs the game headless under `luau`
+11. **Packed build** — regenerates the paste-in scripts and compiles those too
 
-Pass 7 also *simulates the whole economy*, purchase by purchase, and fails the
+Pass 9 also *simulates the whole economy*, purchase by purchase, and fails the
 build if the curve breaks — a first dropper you can't afford, a mid-game wall
 over 15 minutes, or a total build outside 45–150 minutes. It prints the curve:
 
@@ -310,8 +327,8 @@ A few decisions in here are load-bearing and look arbitrary until they bite:
 - **One `Highlight` per plot, reparented.** Highlights are capped at 255 per
   client and *disabled ones still occupy a slot*, so the "buy this next" marker
   is a single instance that moves rather than one per button.
-- **The vault shell must sit downstream of the collector sensor.** `Tycoon.lua`
-  asserts this at build time — if the solid body overlaps the belt run-off it
+- **The vault shell must sit downstream of the collector sensor.**
+  `tycoon/Vault.lua` asserts this at build time — if the solid body overlaps the belt run-off it
   walls the conveyor off and nothing can ever be collected.
 - **Knockback on players is applied client-side.** The victim's own client owns
   their character's physics, so a server `ApplyImpulse` is silently discarded on
