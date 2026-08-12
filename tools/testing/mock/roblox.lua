@@ -264,11 +264,39 @@ function Mock.install(deps)
 		Angles = function() return {} end,
 		lookAt = function() return {} end,
 	}, {})
+	-- ENUM ITEMS ARE OBJECTS, NOT STRINGS, AND THAT MATTERS IN ONE PLACE.
+	--
+	-- Analytics.lua keys its custom fields by
+	-- `Enum.AnalyticsCustomFieldKeys.CustomField01.Name`, because that string is
+	-- the only key Roblox reads — a field under any other key is discarded with
+	-- no error anywhere. A stub returning a plain string has no `.Name`, which
+	-- makes the one line that gets this right impossible to test.
+	--
+	-- Both levels are MEMOIZED so identity is stable: `Enum.A.B == Enum.A.B` has
+	-- to stay true, and a fresh table per access would quietly make every enum
+	-- comparison in the tree false.
+	local enumGroups = {}
 	Enum = setmetatable({}, {
 		__index = function(_self, group)
-			return setmetatable({}, {
-				__index = function(_g, name) return group .. "." .. name end,
+			local existing = enumGroups[group]
+			if existing then
+				return existing
+			end
+			local items = {}
+			local proxy = setmetatable({}, {
+				__index = function(_g, name)
+					local item = items[name]
+					if not item then
+						item = setmetatable({ Name = name, EnumType = group }, {
+							__tostring = function() return group .. "." .. name end,
+						})
+						items[name] = item
+					end
+					return item
+				end,
 			})
+			enumGroups[group] = proxy
+			return proxy
 		end,
 	})
 end

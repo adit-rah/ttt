@@ -24,6 +24,7 @@ local Economy = Req("Economy")
 local DataService = Req("DataService")
 local CombatService = Req("CombatService")
 local MapBuilder = Req("MapBuilder")
+local Analytics = Req("Analytics")
 
 local RunService = game:GetService("RunService")
 
@@ -1639,6 +1640,12 @@ function Tycoon:tryPurchase(player: Player, id: string)
 
 	self:install(id, false)
 
+	-- THE ONLY PLACE A BUTTON IS EVER BOUGHT WITH MONEY, which is why the
+	-- economy event goes here and not in install() — install() also runs for
+	-- every button of a save being replayed at assign(), and logging those would
+	-- report a returning player's whole factory as bought again this second.
+	Analytics.onPurchase(player, def, Economy.get(player))
+
 	Economy.notify(player, {
 		kind = "buy",
 		title = def.name,
@@ -2384,6 +2391,11 @@ function Tycoon:rebirth(player: Player): boolean
 	self:updateSign()
 	self:fireOwnedChanged()
 	Economy.push(player)
+
+	-- After profile.owned has been wiped, so the milestone Analytics carries
+	-- forward is the one this player now stands on rather than the one the
+	-- rebirth just took away.
+	Analytics.onRebirth(player, profile.rebirths, cost, profile.cash)
 
 	Economy.notify(player, {
 		kind = "rebirth",

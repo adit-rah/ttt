@@ -412,6 +412,196 @@ end
 check(Config.TrackUnlock.factory == nil,
 	"the factory track cannot be gated — it is the thing that pays for everything else")
 
+-- ── analytics ───────────────────────────────────────────────────────────────
+--
+-- EVERY LIMIT IN THIS SECTION FAILS SILENTLY IN ROBLOX. Not one of them raises,
+-- warns or shows up in the output window: exceed the field cap and the fourth
+-- field is discarded, pass a number and the value is discarded, exceed the
+-- combination budget and the extra combinations are simply not counted. There is
+-- no runtime symptom at all — only a chart, weeks later, that is wrong in a way
+-- that looks exactly like data.
+--
+-- So this block is the ONLY place any of it is checkable, and that is why the
+-- schema was put in Config where the verifier can see it instead of being
+-- written inline at each call site.
+
+local AN = Config.Analytics
+
+check(AN.MaxFields == 3,
+	("Analytics.MaxFields is %s; Roblox reads exactly three custom fields per event and drops the rest without saying so")
+		:format(tostring(AN.MaxFields)))
+check(AN.MaxCombinations <= 8000,
+	"Analytics.MaxCombinations is above the 8,000 the whole experience gets; the surplus combinations are counted by nothing")
+check(AN.MaxEventNames <= 100,
+	"Analytics.MaxEventNames is above the 100 custom event names an experience gets")
+check(type(AN.Enabled) == "boolean",
+	"Analytics.Enabled is not a boolean; the kill switch has to be a switch")
+check(AN.HelloTimeoutSeconds > 0 and AN.HelloTimeoutSeconds <= 30,
+	("the join waits %s seconds for the client's platform; longer than 30 and a short session logs its start after it has already ended")
+		:format(tostring(AN.HelloTimeoutSeconds)))
+check(AN.TailSize >= 1, "Analytics.TailSize below 1 leaves no way to see what the server actually sent")
+check(AN.RateBurst > 0 and AN.RatePerPlayerPerMinute > 0,
+	"a token bucket with no tokens sends nothing, and it does so silently")
+
+-- FIELDS. A field is a CLOSED set of strings. Closed, because an open one
+-- spends a fresh combination out of the experience-wide budget every time a new
+-- value appears; strings, because Roblox drops a numeric field value.
+local usedFields = {}
+for name, field in pairs(AN.Fields) do
+	local where = ("Analytics.Fields.%s"):format(name)
+
+	check(type(field.values) == "table" and #field.values > 0,
+		("%s has no values; an event carrying it would log a field Roblox discards"):format(where))
+	check(#field.values <= AN.MaxFieldValues,
+		("%s has %d values against a ceiling of %d — a set this wide multiplies through every event that carries it and eats the shared 8,000-combination budget")
+			:format(where, #field.values, AN.MaxFieldValues))
+
+	local seen = {}
+	for index, value in ipairs(field.values) do
+		check(type(value) == "string",
+			("%s[%d] is a %s; Roblox drops a custom field value that is not a string, and logs the event anyway")
+				:format(where, index, type(value)))
+		check(not seen[value],
+			("%s lists %s twice; the duplicate is invisible in the data and makes the combination count a lie")
+				:format(where, tostring(value)))
+		seen[value] = true
+	end
+
+	-- A BUCKET LADDER. #values must be #bounds + 1 exactly: one label per band
+	-- plus the open-ended top. One short and the top band silently reports as
+	-- the band below it.
+	if field.bounds then
+		check(#field.values == #field.bounds + 1,
+			("%s has %d bounds and %d labels; a ladder needs one label per band plus one for the open top, or the top band reports as the band below it")
+				:format(where, #field.bounds, #field.values))
+		local previous = nil
+		for index, bound in ipairs(field.bounds) do
+			check(type(bound) == "number",
+				("%s.bounds[%d] is not a number; the bucket it names can never be reached"):format(where, index))
+			if previous ~= nil then
+				check(type(bound) == "number" and bound > previous,
+					("%s.bounds are not ascending at index %d; every value past this point lands in the earlier bucket")
+						:format(where, index))
+			end
+			previous = bound
+		end
+	end
+end
+
+-- The two sets that are DERIVED must actually match the ladder they are derived
+-- from. A hand-edit here would go stale at the next button and log purchases
+-- under a facet that no longer names them.
+check(#AN.Fields.buttonId.values == #Config.Tracks.factory,
+	("Analytics buttonId lists %d ids against %d factory buttons; a first purchase of a missing id gets filed under someone else's button")
+		:format(#AN.Fields.buttonId.values, #Config.Tracks.factory))
+for _, id in ipairs(AN.Fields.buttonId.values) do
+	check(Config.ButtonById[id] ~= nil,
+		("Analytics buttonId names %q, which is not a button; nothing will ever be logged under it"):format(tostring(id)))
+end
+check(#AN.Fields.milestone.values == #Config.Buttons + 1,
+	("Analytics milestone lists %d values against %d buttons plus \"none\"; a session that stopped at a missing rung is filed at the wrong one")
+		:format(#AN.Fields.milestone.values, #Config.Buttons))
+local milestoneHasNone = false
+for _, id in ipairs(AN.Fields.milestone.values) do
+	milestoneHasNone = milestoneHasNone or id == "none"
+	check(id == "none" or Config.ButtonById[id] ~= nil,
+		("Analytics milestone names %q, which is not a button"):format(tostring(id)))
+end
+check(milestoneHasNone,
+	"Analytics milestone has no \"none\"; a session that bought nothing is the single most important row on session_end and it would be snapped onto a button they never touched")
+
+-- The two fallbacks the runtime reaches for when it has no answer.
+local function setHas(field, value)
+	for _, entry in ipairs(field.values) do
+		if entry == value then
+			return true
+		end
+	end
+	return false
+end
+check(setHas(AN.Fields.platform, "unknown"),
+	"Analytics platform has no \"unknown\"; a session whose client never answered would be filed as a real device")
+check(setHas(AN.Fields.entry, "unknown"),
+	"Analytics entry has no \"unknown\"; a failed GetJoinData would be filed as a direct join")
+
+-- EVENTS.
+check(#AN.Events <= AN.MaxEventNames,
+	("%d event names against a ceiling of %d for the whole experience"):format(#AN.Events, AN.MaxEventNames))
+local seenEvents = {}
+for _, event in ipairs(AN.Events) do
+	local where = ("Analytics.Events %s"):format(tostring(event.name))
+
+	-- lower_snake_case, spelled out rather than as one pattern: Lua patterns
+	-- cannot repeat a group, so `^[a-z][a-z0-9]*(_[a-z0-9]+)*$` does not mean
+	-- what it looks like it means and matches nothing.
+	local name = type(event.name) == "string" and event.name or ""
+	local snake = #name > 0
+		and name:find("[^a-z0-9_]") == nil
+		and name:match("^[a-z]") ~= nil
+		and name:match("[a-z0-9]$") ~= nil
+		and name:find("__") == nil
+	check(snake,
+		("%s is not lower_snake_case; Roblox groups events by exact name, so a stray capital or space becomes a second chart nobody looks at")
+			:format(where))
+	check(not seenEvents[event.name],
+		("%s is declared twice; the two would silently merge into one chart with both meanings in it"):format(where))
+	seenEvents[event.name] = true
+
+	check(type(event.value) == "string" and #event.value > 0,
+		("%s does not say what its `value` number means; an unlabelled aggregate is unreadable six months later"):format(where))
+
+	check(type(event.fields) == "table" and #event.fields >= 1 and #event.fields <= AN.MaxFields,
+		("%s carries %s fields; Roblox reads %d and discards the rest without a word")
+			:format(where, tostring(event.fields and #event.fields), AN.MaxFields))
+
+	local seenOnEvent = {}
+	for _, fieldName in ipairs(event.fields or {}) do
+		check(AN.Fields[fieldName] ~= nil,
+			("%s names field %q, which has no declared value set — its values would be unbounded and would eat the combination budget")
+				:format(where, tostring(fieldName)))
+		check(not seenOnEvent[fieldName],
+			("%s carries %q twice, so one of its three field slots reports nothing new"):format(where, tostring(fieldName)))
+		seenOnEvent[fieldName] = true
+		usedFields[fieldName] = true
+	end
+end
+
+-- A field nobody carries is a set that will drift out of date unnoticed and
+-- then be wrong the day somebody does carry it.
+for name in pairs(AN.Fields) do
+	check(usedFields[name],
+		("Analytics.Fields.%s is declared but no event carries it"):format(name))
+end
+
+-- THE SHARED BUDGET. Summed across events, not maxed: two events with entirely
+-- different facets each spend their own product out of one experience-wide pool
+-- of 8,000. This is the check that a well-meaning "let's also break it down by
+-- button" fails, and it is the only warning anyone will get.
+local analyticsCombinations = Config.analyticsCombinations()
+check(analyticsCombinations <= AN.MaxCombinations,
+	("the schema spends %d of the experience's %d field-value combinations; past the limit Roblox stops counting new ones and the charts flatten out with no error anywhere")
+		:format(analyticsCombinations, AN.MaxCombinations))
+
+-- ECONOMY EVENTS have their own three limits, and the SKU one is the one this
+-- game will actually reach: every button is a SKU.
+check(#Config.Buttons <= AN.MaxEconomySkus,
+	("%d buttons against a %d-SKU ceiling per experience; a fifth track reaches this, and the SKUs past it are dropped from every economy event silently")
+		:format(#Config.Buttons, AN.MaxEconomySkus))
+check(#AN.TransactionTypes <= AN.MaxTransactionTypes,
+	("%d transaction types against a ceiling of %d per experience"):format(#AN.TransactionTypes, AN.MaxTransactionTypes))
+local seenTransactions = {}
+for _, transaction in ipairs(AN.TransactionTypes) do
+	check(type(transaction) == "string" and #transaction > 0,
+		"a transaction type that is not a string is dropped from the economy event that carries it")
+	check(not seenTransactions[transaction],
+		("transaction type %q is listed twice, so the budget of 20 is being counted wrong"):format(tostring(transaction)))
+	seenTransactions[transaction] = true
+end
+check(type(AN.Currency) == "string" and #AN.Currency > 0,
+	"Analytics.Currency is empty; every economy event would aggregate under a nameless currency")
+check(AN.MaxCurrencyTypes >= 1,
+	"Analytics.MaxCurrencyTypes below 1 leaves no currency for an economy event to be denominated in")
+
 -- ...and a hand-placed button coordinate is a FLOOR coordinate. Its height
 -- comes from the pedestal it stands on, not from the table, so a stray Y here
 -- would be a button hovering for no stated reason.
@@ -2177,6 +2367,9 @@ end
 print(("buttons:           %d  (%s)"):format(#Config.Buttons, table.concat(trackCounts, ", ")))
 print(("machine slots:     %d dropper, %d upgrader")
 	:format(#Config.Layout.DropperDist, #Config.Layout.UpgraderDist))
+print(("analytics:         %d events of %d, %d combinations of %d, %d SKUs of %d")
+	:format(#AN.Events, AN.MaxEventNames, analyticsCombinations, AN.MaxCombinations,
+		#Config.Buttons, AN.MaxEconomySkus))
 print(("side tracks:       %.1f min of detour (%.0f%% of the factory build)")
 	:format(sideTotal, sideTotal / (elapsed / 60) * 100))
 print(("upgrader stack:    x%.1f"):format(upgradeMult))

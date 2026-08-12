@@ -98,6 +98,42 @@ function Util.roundedFrame(parent: Instance, radius: number): UICorner
 	return corner
 end
 
+--- Device class from a bag of input flags. One of Config.Analytics.Fields
+--- .platform.values, always.
+---
+--- HERE RATHER THAN IN Analytics.lua, and that is the one thing about this
+--- function worth arguing over. Roblox has no server-side device API at all, so
+--- the ladder has to RUN on the client — but Analytics.lua is deliberately
+--- server-only (an analytics call from a client silently does nothing forever,
+--- so the module must not be reachable from one). Written twice it would drift,
+--- and the drift would be invisible: two ladders, both plausible, disagreeing
+--- about tablets. So the pure part lives in the shared module that already
+--- exists for exactly this, takes no Roblox types, and Analytics re-exports it
+--- as `Analytics.platformFrom` so the specs pin the server's contract.
+---
+--- ORDER IS THE WHOLE FUNCTION. A VR headset and a console both report
+--- TouchEnabled in some configurations, so a `TouchEnabled` test placed first
+--- files every headset in the game under "mobile" — and the resulting chart
+--- looks completely normal. VR and console are therefore asked first, and the
+--- touch test additionally requires that there is no keyboard.
+---
+--- The tablet split is a viewport width because Roblox does not expose a device
+--- class: 900px is where a phone in landscape stops and a tablet starts. It is a
+--- judgement call and it is the only line here that is.
+function Util.platformFrom(flags): string
+	flags = flags or {}
+	if flags.vr then
+		return "vr"
+	elseif flags.tenFoot then
+		return "console"
+	elseif flags.touch and not flags.keyboard then
+		return (tonumber(flags.viewportX) or 0) >= 900 and "tablet" or "mobile"
+	elseif flags.keyboard and flags.mouse then
+		return "desktop"
+	end
+	return "unknown"
+end
+
 function Util.shallowCopy(t)
 	local out = {}
 	for k, v in pairs(t) do

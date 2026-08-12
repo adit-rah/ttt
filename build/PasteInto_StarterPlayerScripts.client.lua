@@ -1797,6 +1797,207 @@ __MODULES["Config"] = function()
 		Config.ArmorById[def.id] = def
 	end
 
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- ANALYTICS
+	--
+	-- The schema lives in Config for the same reason the fonts do: the verifier can
+	-- only check what it can see, and EVERY limit below is a silent counting
+	-- failure. Roblox does not error, warn, or drop a line in the output window when
+	-- you exceed one — the event is accepted, the field is discarded, and the chart
+	-- you look at three weeks later is simply wrong in a way that looks like data.
+	--
+	-- The four that bite, verbatim from the reference:
+	--
+	--   * THREE custom fields per event, and only under the keys
+	--     Enum.AnalyticsCustomFieldKeys.CustomField01/02/03. A fourth key of any
+	--     name is ignored.
+	--   * Field values must be STRINGS. A number is dropped.
+	--   * 8,000 unique combinations of field values PER EXPERIENCE — one shared
+	--     budget across every event, not a per-event allowance. This is the limit
+	--     that a well-meaning "let's also break it down by button" blows through,
+	--     and it is why nothing continuous is ever allowed into a field.
+	--   * 100 custom event names per experience.
+	--
+	-- The consequence of the third is the single rule this schema is built on:
+	-- EVERYTHING CONTINUOUS GOES IN `value`, NEVER IN A FIELD. `value` is a real
+	-- number Roblox aggregates for you and costs nothing from the combination
+	-- budget. A field is a facet, and a facet with a thousand values is a facet you
+	-- cannot afford.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.Analytics = {
+		-- The kill switch. Analytics.lua ANDs this with "is a server" and "is not
+		-- Studio", because the API silently no-ops on the client and in Studio.
+		Enabled = true,
+
+		-- Platform limits. Named rather than written as literals in the verifier so
+		-- the failure message can quote the number that was exceeded.
+		MaxFields = 3,
+		MaxFieldValues = 40,      -- widest single value set we will allow ourselves
+		MaxCombinations = 8000,
+		MaxEventNames = 100,
+		MaxEconomySkus = 100,
+		MaxTransactionTypes = 20,
+		MaxCurrencyTypes = 5,
+
+		-- THE RATE LIMIT IS NOT IN THE REFERENCE DOCS. A Roblox staff forum post
+		-- gives roughly 120 + 20 x CCU service calls per minute; nothing in the
+		-- published documentation confirms it. Treat these two numbers as a design
+		-- budget we chose, not as a contract Roblox has stated — if the real ceiling
+		-- is lower we will find out by losing events silently, which is exactly why
+		-- Analytics.lua counts its drops instead of assuming there are none.
+		RateBurst = 120,
+		RatePerPlayerPerMinute = 20,
+
+		-- How long the join waits for the client's platform before giving up and
+		-- logging "unknown". There is no edit path on a logged event, so a session
+		-- that fires early with a wrong platform is wrong forever.
+		HelloTimeoutSeconds = 10,
+		-- Last N events kept in memory for `Analytics.tail`, which is the only way
+		-- to answer "what did the server actually send" without a dashboard.
+		TailSize = 64,
+
+		-- The currency name Roblox aggregates economy events under. One currency, so
+		-- the 5-type limit is not in play, but it is named so the verifier can see it.
+		Currency = "Tung",
+		-- Every transaction type we ever pass to LogEconomyEvent. Limit is 20 per
+		-- experience and they are strings, so a typo is a new type, not an error.
+		TransactionTypes = { "Shop", "Gameplay", "TimedReward" },
+	}
+
+	--- A FIELD is a named, CLOSED set of strings. Two shapes:
+	---
+	---   * a plain `values` list — a label per state, e.g. clipped / within_cap
+	---   * `bounds` + `values`, which is a bucket ladder: #values == #bounds + 1,
+	---     and Analytics.bucket() picks values[i] for the first bound the number
+	---     does not exceed. Bounds are what turn a continuous quantity into a facet
+	---     the combination budget can afford; the quantity itself still goes in
+	---     `value`, so no resolution is lost.
+	---
+	--- Two of these are DERIVED from the ladder below rather than hand-listed, so a
+	--- new button cannot drift out of the schema: a hand-typed button list would go
+	--- stale the first time someone adds a dropper, and the symptom would be a
+	--- purchase logged under the wrong facet rather than an error.
+	Config.Analytics.Fields = {
+		platform = { values = { "desktop", "mobile", "tablet", "console", "vr", "unknown" } },
+		-- `unknown` is the sixth entry because GetJoinData is a network call in a
+		-- pcall: it can fail, and a failed read is not a direct join.
+		entry = { values = { "direct", "follow_friend", "referral", "teleport", "private_server", "unknown" } },
+
+		sessionIndex = {
+			bounds = { 1, 2, 5, 20 },
+			values = { "1", "2", "3-5", "6-20", "21+" },
+		},
+		-- Time to the first purchase of the account. The first two buckets are
+		-- narrow on purpose: onboarding either lands in the first minute or it is a
+		-- different conversation.
+		secondsBucket = {
+			bounds = { 30, 60, 180, 600 },
+			values = { "0-30s", "30-60s", "1-3m", "3-10m", "10m+" },
+		},
+		rebirthBand = {
+			bounds = { 0, 1, 3, 9 },
+			values = { "0", "1", "2-3", "4-9", "10+" },
+		},
+		-- Time away, both for `returned` and for what the offline vault was paying
+		-- against. The 6-24h bucket straddles Offline.CapHours 8 deliberately: the
+		-- `clipped` field on offline_claim is what answers the cap question, and
+		-- splitting this set to answer it twice would cost combinations for nothing.
+		awayBucket = {
+			bounds = { 600, 3600, 21600, 86400, 604800 },
+			values = { "<10m", "10m-1h", "1-6h", "6-24h", "1-7d", "7d+" },
+		},
+		-- Minutes into the session when a rebirth landed.
+		minutesBucket = {
+			bounds = { 10, 30, 60, 180, 480 },
+			values = { "<10m", "10-30m", "30-60m", "1-3h", "3-8h", "8h+" },
+		},
+		clipped = { values = { "within_cap", "clipped" } },
+		friendCount = {
+			bounds = { 1, 2, 3 },
+			values = { "1", "2", "3", "4+" },
+		},
+		serverKind = { values = { "public", "private" } },
+
+		-- DERIVED below from Config.Tracks.factory and Config.Buttons.
+		buttonId = { values = {} },
+		milestone = { values = {} },
+	}
+
+	-- The factory track and nothing else: a first purchase is an ONBOARDING signal,
+	-- and the side tracks are gated behind floor2 forty minutes in, so they cannot
+	-- be anybody's first button. Adding a fifth factory rung widens this set by one
+	-- and the verifier re-prices the combination budget on the next run.
+	for _, def in ipairs(Config.Tracks.factory) do
+		table.insert(Config.Analytics.Fields.buttonId.values, def.id)
+	end
+
+	-- Every button on every track, plus "none" for a session that bought nothing.
+	-- "How far did they get before they stopped" is the whole question `session_end`
+	-- exists to answer, and it has to be able to answer "nowhere".
+	for _, def in ipairs(Config.Buttons) do
+		table.insert(Config.Analytics.Fields.milestone.values, def.id)
+	end
+	table.insert(Config.Analytics.Fields.milestone.values, "none")
+
+	--- THE SEVEN EVENTS. `value` is prose: it names the number, because the number
+	--- is the part a dashboard cannot label for you.
+	---
+	--- `friends_in_server` is deliberately NOT called `friend_bonus_active`. There
+	--- is no friend bonus in this game, and an event named after a feature that does
+	--- not exist reads as a bug six months from now. Named for what it measures, it
+	--- also gives the co-play baseline BEFORE any bonus ships, which is the only
+	--- thing that will make the bonus's effect readable.
+	Config.Analytics.Events = {
+		{
+			name = "session_start", value = "session number",
+			fields = { "platform", "entry", "sessionIndex" },
+		},
+		{
+			name = "first_button_purchased", value = "seconds since join",
+			fields = { "platform", "buttonId", "secondsBucket" },
+		},
+		{
+			name = "session_end", value = "session seconds",
+			fields = { "platform", "milestone", "rebirthBand" },
+		},
+		{
+			name = "returned", value = "hours since last seen",
+			fields = { "platform", "awayBucket", "sessionIndex" },
+		},
+		{
+			name = "rebirth", value = "rebirth number",
+			fields = { "platform", "minutesBucket", "rebirthBand" },
+		},
+		{
+			name = "offline_claim", value = "Tung claimed",
+			fields = { "platform", "clipped", "awayBucket" },
+		},
+		{
+			name = "friends_in_server", value = "friends in server",
+			fields = { "platform", "friendCount", "serverKind" },
+		},
+	}
+
+	--- What this schema costs of the 8,000 combinations the whole EXPERIENCE gets.
+	---
+	--- Summed across events rather than maxed, because the budget is shared: two
+	--- events with disjoint facets each spend their own product. One function, called
+	--- by the verifier, by the specs and by anyone about to add a field, so nobody
+	--- has to re-derive the arithmetic and get it wrong in the optimistic direction.
+	function Config.analyticsCombinations(): number
+		local total = 0
+		for _, event in ipairs(Config.Analytics.Events) do
+			local product = 1
+			for _, field in ipairs(event.fields) do
+				local set = Config.Analytics.Fields[field]
+				product *= set and #set.values or 0
+			end
+			total += product
+		end
+		return total
+	end
+
 	--- Where a side track's buy button `slot` stands, in plot-local coordinates.
 	---
 	--- Component arithmetic on purpose: tools/verify_config.lua stubs Vector3 as a
@@ -2239,6 +2440,14 @@ __MODULES["Net"] = function()
 		"RequestClaim",   -- C->S  { kind = "daily" | "playtime" | "offline", index }
 		"RequestBoost",   -- C->S
 		"FloorState",     -- S->C  { unlocked = boolean }
+
+		-- Roblox exposes no server-side device API, so the ONE thing the client has
+		-- to tell us about itself is which kind of machine it is. Declared here
+		-- rather than created on demand for the reason above: a client that resolves
+		-- it lazily sits in WaitForChild, and this one fires in the first seconds of
+		-- a session. Validated server-side against Config.Analytics.Fields.platform
+		-- and used as a chart label only — it gates nothing.
+		"ClientHello",    -- C->S  { platform = string }
 	}
 
 	if RunService:IsServer() then
@@ -3820,6 +4029,42 @@ __MODULES["Util"] = function()
 		corner.CornerRadius = UDim.new(0, radius)
 		corner.Parent = parent
 		return corner
+	end
+
+	--- Device class from a bag of input flags. One of Config.Analytics.Fields
+	--- .platform.values, always.
+	---
+	--- HERE RATHER THAN IN Analytics.lua, and that is the one thing about this
+	--- function worth arguing over. Roblox has no server-side device API at all, so
+	--- the ladder has to RUN on the client — but Analytics.lua is deliberately
+	--- server-only (an analytics call from a client silently does nothing forever,
+	--- so the module must not be reachable from one). Written twice it would drift,
+	--- and the drift would be invisible: two ladders, both plausible, disagreeing
+	--- about tablets. So the pure part lives in the shared module that already
+	--- exists for exactly this, takes no Roblox types, and Analytics re-exports it
+	--- as `Analytics.platformFrom` so the specs pin the server's contract.
+	---
+	--- ORDER IS THE WHOLE FUNCTION. A VR headset and a console both report
+	--- TouchEnabled in some configurations, so a `TouchEnabled` test placed first
+	--- files every headset in the game under "mobile" — and the resulting chart
+	--- looks completely normal. VR and console are therefore asked first, and the
+	--- touch test additionally requires that there is no keyboard.
+	---
+	--- The tablet split is a viewport width because Roblox does not expose a device
+	--- class: 900px is where a phone in landscape stops and a tablet starts. It is a
+	--- judgement call and it is the only line here that is.
+	function Util.platformFrom(flags): string
+		flags = flags or {}
+		if flags.vr then
+			return "vr"
+		elseif flags.tenFoot then
+			return "console"
+		elseif flags.touch and not flags.keyboard then
+			return (tonumber(flags.viewportX) or 0) >= 900 and "tablet" or "mobile"
+		elseif flags.keyboard and flags.mouse then
+			return "desktop"
+		end
+		return "unknown"
 	end
 
 	function Util.shallowCopy(t)
@@ -6029,6 +6274,9 @@ end
 --[[ Main.client.lua — client entry point. ]]
 
 local Req = __Req
+local Net = Req("Net")
+local Util = Req("Util")
+
 local HUD = Req("HUD")
 local CombatClient = Req("CombatClient")
 local UpgradeUI = Req("UpgradeUI")
@@ -6043,5 +6291,44 @@ CombatClient.start()
 -- flag is on.
 UpgradeUI.start()
 SessionUI.start()
+
+-- THE ONE THING THE SERVER CANNOT WORK OUT FOR ITSELF.
+--
+-- Roblox has no server-side device API, so the analytics layer's platform label
+-- has to come from here. Fired ONCE, immediately: the server holds the session's
+-- three join events open waiting for it and gives up after ten seconds, because
+-- a logged event cannot be edited afterwards.
+--
+-- The ladder is Util.platformFrom and the ORDER inside it is the whole point —
+-- a VR headset and a console can both report TouchEnabled, so asking touch first
+-- files every headset in the game under "mobile" and the chart looks fine. The
+-- server re-validates whatever this sends against the declared set, because a
+-- client can say anything; nothing in the game is gated on the answer.
+task.spawn(function()
+	local UIS = game:GetService("UserInputService")
+	local GuiService = game:GetService("GuiService")
+
+	local tenFoot = false
+	pcall(function()
+		tenFoot = GuiService:IsTenFootInterface()
+	end)
+
+	local viewportX = 0
+	local camera = workspace.CurrentCamera
+	if camera then
+		viewportX = camera.ViewportSize.X
+	end
+
+	Net.event("ClientHello"):FireServer({
+		platform = Util.platformFrom({
+			vr = UIS.VREnabled,
+			tenFoot = tenFoot,
+			touch = UIS.TouchEnabled,
+			keyboard = UIS.KeyboardEnabled,
+			mouse = UIS.MouseEnabled,
+			viewportX = viewportX,
+		}),
+	})
+end)
 
 print("[Tung] client ready")

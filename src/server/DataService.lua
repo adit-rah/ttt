@@ -99,6 +99,24 @@ local function defaultProfile()
 		upgrades = {},     -- { [upgradeId] = level }, shaped by UpgradeService
 		utilityEquipped = "",  -- a Config.Utilities id; "" rather than nil so the
 		                       -- type-matched reconcile can merge a saved value
+
+		-- ANALYTICS. Three counters, and all three are ACCOUNT-scoped rather
+		-- than session-scoped, which is the only reason they need persisting at
+		-- all.
+		--
+		-- firstBuySeconds is the one worth explaining: 0 means "has never bought
+		-- a button", so `first_button_purchased` fires once per ACCOUNT. A
+		-- returning player's first purchase of the evening is not onboarding,
+		-- and a session-scoped version of this number would say it was, every
+		-- evening, forever — which is the shape of a metric that looks healthy
+		-- while onboarding is broken.
+		--
+		-- No PROFILE_VERSION bump and no migration: reconcile() merges a saved
+		-- value onto the default only when the types match, so every existing
+		-- save simply arrives with 0. That is the correct answer for all three.
+		firstJoin = 0,         -- os.time() of the account's first ever session
+		totalSessions = 0,     -- incremented by Analytics.onPlayer
+		firstBuySeconds = 0,   -- seconds from join to the first button ever bought
 		version = PROFILE_VERSION,
 	}
 end
@@ -205,6 +223,13 @@ local function payloadOf(profile)
 		unlocks = profile.unlocks,
 		upgrades = profile.upgrades,
 		utilityEquipped = profile.utilityEquipped,
+		-- A FIELD ADDED TO defaultProfile() AND NOT TO THIS TABLE IS NEVER
+		-- PERSISTED. It defaults correctly, works for the whole session, and is
+		-- gone at logout with nothing anywhere saying so. HANDOFF_v4 §2 names
+		-- this landmine by name; armorTier nearly repeated it.
+		firstJoin = profile.firstJoin,
+		totalSessions = profile.totalSessions,
+		firstBuySeconds = profile.firstBuySeconds,
 		version = profile.version,
 	}
 end
