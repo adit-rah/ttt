@@ -231,6 +231,58 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
+	-- WORLD TEXT
+	--
+	-- Every label the game draws into the world used to pick its own font, its own
+	-- outline and its own view distance, one at a time, as it was written: three
+	-- fonts, six outline settings, and eleven distinct MaxDistance values ranging
+	-- from 90 studs to 1200 — plus statue faces at 0, which means "always render"
+	-- and was nobody's decision.
+	--
+	-- The numbers live here rather than in Style.lua so the verifier can see them.
+	-- Style.lua turns them into instances; nothing else in src/ is allowed to name
+	-- a font, an outline or a view distance (tools/verify.py enforces that).
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.Style = {
+		-- TWO faces, not one: a display face for names and a UI face for the small
+		-- print. "One font everywhere" in the literal sense would set prices and
+		-- plot names in the same weight, which is how you get a label with no
+		-- reading order. What matters is that there is one of EACH and no third.
+		TitleFont = "FredokaOne",
+		BodyFont  = "GothamBold",
+
+		-- One outline recipe. The old values ran 0.1 to 0.4 with no pattern; 0.25
+		-- is legible against both the grass and the neon without ringing the text.
+		StrokeTransparency = 0.25,
+		StrokeColor = Color3.fromRGB(16, 12, 24),
+
+		-- World text never dims with the scene. Only two of the fourteen labels set
+		-- this before, so the same sign was readable on one plot and muddy on the
+		-- next depending on what was casting a shadow over it.
+		LightInfluence = 0,
+
+		-- FOUR NAMED VIEW DISTANCES. Every label picks one of these by name, so the
+		-- question at each site is "how far away does this stop mattering" rather
+		-- than "what number did the last one use".
+		--
+		--   machine  a plate on the machine you are standing at
+		--   prop     something you walk up to and use: buttons, pads, cabinets
+		--   plot     your factory, read from anywhere on it or from the arena
+		--   world    the arena, and finding a free plot from across the ring
+		--
+		-- `world` is not decoration: the two plots furthest apart on the ring are
+		-- 2 * PlotRadius apart, and the claim beacon has to be findable across that
+		-- gap. The verifier asserts it against the ring rather than trusting 1200.
+		Distance = {
+			machine = 140,
+			prop    = 220,
+			plot    = 500,
+			world   = 900,
+		},
+	}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
 	-- ECONOMY
 	-- ─────────────────────────────────────────────────────────────────────────────
 
@@ -1124,6 +1176,7 @@ __MODULES["Fx"] = function()
 
 	local Req = __Req
 	local Config = Req("Config")
+	local Style = Req("Style")
 	local Sound = Req("Sound")
 
 	local TweenService = game:GetService("TweenService")
@@ -1363,22 +1416,17 @@ __MODULES["Fx"] = function()
 		anchor.CFrame = CFrame.new(position)
 		anchor.Parent = parent or workspace
 
-		local billboard = Instance.new("BillboardGui")
-		billboard.Size = UDim2.fromScale(6, 2)
-		billboard.AlwaysOnTop = true
-		billboard.MaxDistance = 220
-		billboard.Parent = anchor
+		-- ONE OF THE TWO THINGS IN THIS GAME THAT DRAWS THROUGH WALLS. A damage
+		-- number you can't see is a hit you didn't feel land, and the thing most
+		-- likely to be standing between you and it is the enemy you just hit. (The
+		-- other is enemy nameplates, and those are Roblox's own — it draws them on
+		-- top whatever we ask for.)
+		local billboard = Style.billboard(anchor, {
+			name = "FloatText", width = 6, height = 2,
+			distance = "prop", alwaysOnTop = true,
+		})
 
-		local label = Instance.new("TextLabel")
-		label.BackgroundTransparency = 1
-		label.Size = UDim2.fromScale(1, 1)
-		label.Font = Enum.Font.FredokaOne
-		label.Text = text
-		label.TextColor3 = color
-		label.TextStrokeTransparency = 0.2
-		label.TextStrokeColor3 = Color3.new(0, 0, 0)
-		label.TextScaled = true
-		label.Parent = billboard
+		local label = Style.text(billboard, { text = text, color = color })
 
 		TweenService:Create(anchor, TweenInfo.new(1.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 			CFrame = CFrame.new(position + Vector3.new(0, 6, 0)),
@@ -1862,6 +1910,105 @@ __MODULES["Sound"] = function()
 end
 
 
+__MODULES["Style"] = function()
+	--[[
+		Style.lua — the one place that turns Config.Style into instances.
+
+		Every label this game draws, in the world and on the screen, comes through
+		here. Before it existed each site picked its own font, its own outline and
+		its own view distance as it was written, which is how the plot ended up
+		using three fonts, six outline settings and eleven view distances from 90
+		studs to 1200 — none of them chosen against each other.
+
+		WHY A MODULE AND NOT JUST CONSTANTS. Constants would have fixed the values
+		and left the *shape* free: one site setting LightInfluence and the next
+		forgetting, one billboard with StudsOffsetWorldSpace and the next without.
+		The point of a builder is that the site cannot leave a field out. What a
+		caller still gets to choose is what a label IS — its size, its colour, and
+		how far away it stops mattering — and nothing else.
+
+		tools/verify.py fails the build if `Enum.Font`, `TextStrokeTransparency` or
+		`MaxDistance` appears anywhere in src/ outside this file. That lint is the
+		only reason this stays true; the state it replaced is what happens without
+		one.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+
+	local S = Config.Style
+
+	local Style = {}
+
+	--- The two faces. `title` is the display face — names, headlines, anything you
+	--- read at a glance from across the plot. `body` is everything else: prices,
+	--- step counters, blurbs, the small print on a panel.
+	Style.Font = {
+		title = (Enum.Font :: any)[S.TitleFont],
+		body  = (Enum.Font :: any)[S.BodyFont],
+	}
+
+	--- Named view distances, resolved. Anything that wants a number reads
+	--- `Style.distance("prop")` rather than writing 220.
+	function Style.distance(tier: string): number
+		local value = S.Distance[tier]
+		if not value then
+			-- Loud rather than silent: a typo'd tier that fell back to a default
+			-- would be a label that quietly renders at the wrong range forever,
+			-- which is exactly the class of bug this module exists to end.
+			error(("[Tung] unknown view-distance tier %q; expected one of machine/prop/plot/world"):format(tostring(tier)), 2)
+		end
+		return value
+	end
+
+	--- A world-space label anchor.
+	---
+	---   width, height   studs (BillboardGui scale maps 1:1 to studs)
+	---   distance        a Config.Style.Distance key
+	---   offset          studs straight up from the adornee, world-space
+	---   alwaysOnTop     draws through geometry. Two things in this game are
+	---                   allowed it — damage numbers and enemy nameplates — and
+	---                   the nameplates are Roblox's own. Everything else obeys
+	---                   walls, which is the whole point of hiding behind one.
+	function Style.billboard(parent: Instance, opts): BillboardGui
+		local gui = Instance.new("BillboardGui")
+		gui.Name = opts.name or "Label"
+		gui.Size = UDim2.fromScale(opts.width, opts.height)
+		gui.MaxDistance = Style.distance(opts.distance)
+		gui.AlwaysOnTop = opts.alwaysOnTop == true
+		gui.LightInfluence = S.LightInfluence
+		if opts.offset then
+			gui.StudsOffsetWorldSpace = Vector3.new(0, opts.offset, 0)
+		end
+		gui.Parent = parent
+		return gui
+	end
+
+	--- A line of world text. Defaults to filling its billboard, because most of
+	--- them hold exactly one line; the buy button is the only label with enough to
+	--- say that it needs its own layout.
+	function Style.text(parent: Instance, opts): TextLabel
+		local label = Instance.new("TextLabel")
+		label.Name = opts.name or "Text"
+		label.BackgroundTransparency = 1
+		label.Size = opts.size or UDim2.fromScale(1, 1)
+		if opts.position then
+			label.Position = opts.position
+		end
+		label.Font = (opts.weight == "body") and Style.Font.body or Style.Font.title
+		label.Text = opts.text or ""
+		label.TextColor3 = opts.color or Color3.new(1, 1, 1)
+		label.TextStrokeTransparency = S.StrokeTransparency
+		label.TextStrokeColor3 = S.StrokeColor
+		label.TextScaled = opts.scaled ~= false
+		label.Parent = parent
+		return label
+	end
+
+	return Style
+end
+
+
 __MODULES["SwingAnim"] = function()
 	--[[
 		SwingAnim.lua — procedural melee swings that move the CHARACTER, not just
@@ -2273,6 +2420,7 @@ __MODULES["TungModels"] = function()
 
 	local Req = __Req
 	local Config = Req("Config")
+	local Style = Req("Style")
 	local Util = Req("Util")
 	local Fx = Req("Fx")
 
@@ -2343,9 +2491,15 @@ __MODULES["TungModels"] = function()
 		gui.Face = Enum.NormalId.Front
 		gui.CanvasSize = Vector2.new(200, 200)
 		gui.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
-		gui.LightInfluence = 0
+		gui.LightInfluence = Config.Style.LightInfluence
 		gui.AlwaysOnTop = false
-		gui.MaxDistance = maxDistance or 0    -- 0 = always render; drops pass ~140
+		-- A face is the most expensive label on screen — sixteen frames apiece, one
+		-- per Tung on the belt — and the default used to be 0, which in
+		-- SurfaceGui.MaxDistance means "never stop drawing". The arena statue and
+		-- every raider inherited that. Callers that know better still pass their
+		-- own (drops use `machine`); everything else gets the range at which a face
+		-- has stopped being a face.
+		gui.MaxDistance = maxDistance or Style.distance("plot")
 		gui.Parent = facePlate
 
 		local root = Instance.new("Frame")
@@ -2631,7 +2785,7 @@ __MODULES["TungModels"] = function()
 		face.Massless = true
 		face.CFrame = body.CFrame * CFrame.Angles(0, 0, -HALF_PI) * CFrame.new(0, 0.55 * s, -0.58 * s)
 		face.Parent = model
-		TungModels.paintFace(face, v, "angry", 140)
+		TungModels.paintFace(face, v, "angry", Style.distance("machine"))
 		Util.weld(body, face)
 
 		if v.fx and v.fx ~= "none" then
@@ -4189,6 +4343,7 @@ __MODULES["FloorService"] = function()
 
 	local Req = __Req
 	local Config = Req("Config")
+	local Style = Req("Style")
 	local Tycoon = Req("Tycoon")
 
 	local FloorService = {}
@@ -4449,21 +4604,10 @@ __MODULES["FloorService"] = function()
 		light.Shadows = false
 		light.Parent = pad
 
-		local billboard = Instance.new("BillboardGui")
-		billboard.Size = UDim2.fromScale(12, 4)
-		billboard.StudsOffsetWorldSpace = Vector3.new(0, 6, 0)
-		billboard.MaxDistance = 180
-		billboard.Parent = pad
-
-		local label = Instance.new("TextLabel")
-		label.BackgroundTransparency = 1
-		label.Size = UDim2.fromScale(1, 1)
-		label.Font = Enum.Font.FredokaOne
-		label.Text = text
-		label.TextColor3 = color
-		label.TextStrokeTransparency = 0.2
-		label.TextScaled = true
-		label.Parent = billboard
+		local billboard = Style.billboard(pad, {
+			name = "Sign", width = 12, height = 4, distance = "prop", offset = 6,
+		})
+		Style.text(billboard, { text = text, color = color })
 
 		return pad
 	end
@@ -4579,6 +4723,7 @@ __MODULES["MapBuilder"] = function()
 
 	local Req = __Req
 	local Config = Req("Config")
+	local Style = Req("Style")
 	local Util = Req("Util")
 	local TungModels = Req("TungModels")
 
@@ -4697,33 +4842,18 @@ __MODULES["MapBuilder"] = function()
 		sign.Transparency = 1
 		sign.CanCollide = false
 
-		local billboard = Instance.new("BillboardGui")
-		billboard.Size = UDim2.fromScale(56, 14)
-		billboard.MaxDistance = 900
-		billboard.Parent = sign
-
-		local title = Instance.new("TextLabel")
-		title.BackgroundTransparency = 1
-		title.Size = UDim2.fromScale(1, 0.62)
-		title.Font = Enum.Font.FredokaOne
-		title.Text = "TUNG TUNG TYCOON"
-		title.TextColor3 = Color3.fromRGB(255, 214, 90)
-		title.TextStrokeColor3 = Color3.fromRGB(46, 32, 16)
-		title.TextStrokeTransparency = 0.1
-		title.TextScaled = true
-		title.Parent = billboard
-
-		local subtitle = Instance.new("TextLabel")
-		subtitle.BackgroundTransparency = 1
-		subtitle.Position = UDim2.fromScale(0, 0.62)
-		subtitle.Size = UDim2.fromScale(1, 0.34)
-		subtitle.Font = Enum.Font.GothamMedium
-		subtitle.Text = "pvp enabled inside the ring"
-		subtitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-		subtitle.TextStrokeColor3 = Color3.fromRGB(46, 32, 16)
-		subtitle.TextStrokeTransparency = 0.4
-		subtitle.TextScaled = true
-		subtitle.Parent = billboard
+		local billboard = Style.billboard(sign, {
+			name = "Title", width = 56, height = 14, distance = "world",
+		})
+		Style.text(billboard, {
+			name = "Title", size = UDim2.fromScale(1, 0.62),
+			text = "TUNG TUNG TYCOON", color = Color3.fromRGB(255, 214, 90),
+		})
+		Style.text(billboard, {
+			name = "Subtitle", weight = "body",
+			size = UDim2.fromScale(1, 0.34), position = UDim2.fromScale(0, 0.62),
+			text = "pvp enabled inside the ring", color = Color3.fromRGB(255, 255, 255),
+		})
 
 		return arena
 	end
@@ -4815,13 +4945,9 @@ __MODULES["MapBuilder"] = function()
 		local totem = newPart(model, "Totem", Vector3.new(4, 12, 4), totemCF, Color3.fromRGB(70, 52, 40), Enum.Material.Wood)
 		totem:SetAttribute("PlotIndex", index)
 
-		local billboard = Instance.new("BillboardGui")
-		billboard.Name = "Sign"
-		billboard.Size = UDim2.fromScale(26, 9)
-		billboard.StudsOffsetWorldSpace = Vector3.new(0, 9, 0)
-		billboard.MaxDistance = 500
-		billboard.AlwaysOnTop = false
-		billboard.Parent = totem
+		local billboard = Style.billboard(totem, {
+			name = "Sign", width = 26, height = 9, distance = "plot", offset = 9,
+		})
 
 		local frame = Instance.new("Frame")
 		frame.Size = UDim2.fromScale(1, 1)
@@ -4836,16 +4962,12 @@ __MODULES["MapBuilder"] = function()
 		stroke.Thickness = 3
 		stroke.Parent = frame
 
-		local label = Instance.new("TextLabel")
-		label.Name = "Owner"
-		label.BackgroundTransparency = 1
-		label.Size = UDim2.fromScale(0.92, 0.9)
-		label.Position = UDim2.fromScale(0.04, 0.05)
-		label.Font = Enum.Font.FredokaOne
-		label.Text = "UNCLAIMED PLOT " .. index .. "\nstep on the pad to claim"
-		label.TextColor3 = Color3.fromRGB(255, 236, 180)
-		label.TextScaled = true
-		label.Parent = frame
+		Style.text(frame, {
+			name = "Owner",
+			size = UDim2.fromScale(0.92, 0.9), position = UDim2.fromScale(0.04, 0.05),
+			text = "UNCLAIMED PLOT " .. index .. "\nstep on the pad to claim",
+			color = Color3.fromRGB(255, 236, 180),
+		})
 
 		return model, cf
 	end
@@ -6739,6 +6861,7 @@ __MODULES["Tycoon"] = function()
 
 	local Req = __Req
 	local Config = Req("Config")
+	local Style = Req("Style")
 	local Util = Req("Util")
 	local Fx = Req("Fx")
 	local TungModels = Req("TungModels")
@@ -7370,21 +7493,12 @@ __MODULES["Tycoon"] = function()
 		local signAnchor = newPart(folder, "SignAnchor", Vector3.new(1, 1, 1), alongExit(runOff, 12, 0), COLORS.vault, nil, false)
 		signAnchor.Transparency = 1
 
-		local billboard = Instance.new("BillboardGui")
-		billboard.Size = UDim2.fromScale(20, 6)
-		billboard.MaxDistance = 260
-		billboard.Parent = signAnchor
-
-		local label = Instance.new("TextLabel")
-		label.Name = "Rate"
-		label.BackgroundTransparency = 1
-		label.Size = UDim2.fromScale(1, 1)
-		label.Font = Enum.Font.FredokaOne
-		label.Text = "SAHUR VAULT"
-		label.TextColor3 = COLORS.gold
-		label.TextStrokeTransparency = 0.2
-		label.TextScaled = true
-		label.Parent = billboard
+		local billboard = Style.billboard(signAnchor, {
+			name = "Sign", width = 20, height = 6, distance = "plot",
+		})
+		local label = Style.text(billboard, {
+			name = "Rate", text = "SAHUR VAULT", color = COLORS.gold,
+		})
 		self.vaultLabel = label
 
 		local statue = TungModels.buildStatue("classic", 1.6)
@@ -7464,22 +7578,17 @@ __MODULES["Tycoon"] = function()
 		signAnchor.Transparency = 1
 		signAnchor.CanQuery = false
 
-		local billboard = Instance.new("BillboardGui")
-		billboard.Size = UDim2.fromScale(34, 12)
-		billboard.MaxDistance = 1200
-		billboard.AlwaysOnTop = false
-		billboard.Parent = signAnchor
-
-		local label = Instance.new("TextLabel")
-		label.BackgroundTransparency = 1
-		label.Size = UDim2.fromScale(1, 1)
-		label.Font = Enum.Font.FredokaOne
-		label.Text = "PLOT " .. self.index .. "\nFREE — WALK ON IT"
-		label.TextColor3 = Color3.fromRGB(190, 255, 215)
-		label.TextStrokeTransparency = 0.15
-		label.TextStrokeColor3 = Color3.fromRGB(12, 46, 26)
-		label.TextScaled = true
-		label.Parent = billboard
+		-- `world`, not `plot`: a free plot has to be findable from anywhere on the
+		-- ring, and the two furthest-apart plots are a full diameter apart. This is
+		-- the one label whose old 1200 was doing a real job rather than being the
+		-- number somebody happened to type.
+		local billboard = Style.billboard(signAnchor, {
+			name = "ClaimSign", width = 34, height = 12, distance = "world",
+		})
+		local label = Style.text(billboard, {
+			text = "PLOT " .. self.index .. "\nFREE — WALK ON IT",
+			color = Color3.fromRGB(190, 255, 215),
+		})
 		self.claimLabel = label
 	end
 
@@ -7514,22 +7623,13 @@ __MODULES["Tycoon"] = function()
 					baseCF * CFrame.new(0, size.Y + 2.5, 0), COLORS.metal, Enum.Material.Metal, false)
 				anchor.Transparency = 1
 
-				local billboard = Instance.new("BillboardGui")
-				billboard.Name = "Sign"
-				billboard.Size = UDim2.fromScale(18, 4)
-				billboard.MaxDistance = 200
-				billboard.Parent = anchor
-
-				local label = Instance.new("TextLabel")
-				label.Name = "Label"
-				label.BackgroundTransparency = 1
-				label.Size = UDim2.fromScale(1, 1)
-				label.Font = Enum.Font.FredokaOne
-				label.Text = (Config.TrackLabel[track] or track:upper()) .. " CABINET"
-				label.TextColor3 = COLORS.gold
-				label.TextStrokeTransparency = 0.35
-				label.TextScaled = true
-				label.Parent = billboard
+				local billboard = Style.billboard(anchor, {
+					name = "Sign", width = 18, height = 4, distance = "prop",
+				})
+				local label = Style.text(billboard, {
+					name = "Label", color = COLORS.gold,
+					text = (Config.TrackLabel[track] or track:upper()) .. " CABINET",
+				})
 
 				self.cabinetSigns[track] = label
 			end
@@ -7572,23 +7672,13 @@ __MODULES["Tycoon"] = function()
 			Color3.fromRGB(120, 60, 200), Enum.Material.Neon, false)
 		ring.Shape = Enum.PartType.Cylinder
 
-		local billboard = Instance.new("BillboardGui")
-		billboard.Size = UDim2.fromScale(16, 6)
-		billboard.StudsOffsetWorldSpace = Vector3.new(0, 6, 0)
-		billboard.MaxDistance = 200
-		billboard.Parent = pad
-
-		local label = Instance.new("TextLabel")
-		label.Name = "Label"
-		label.BackgroundTransparency = 1
-		label.Size = UDim2.fromScale(1, 1)
-		label.Font = Enum.Font.FredokaOne
-		label.Text = "SAHUR REBIRTH"
-		label.TextColor3 = Color3.fromRGB(235, 200, 255)
-		label.TextStrokeTransparency = 0.2
-		label.TextScaled = true
-		label.Parent = billboard
-		self.rebirthLabel = label
+		local billboard = Style.billboard(pad, {
+			name = "Sign", width = 16, height = 6, distance = "prop", offset = 6,
+		})
+		self.rebirthLabel = Style.text(billboard, {
+			name = "Label", text = "SAHUR REBIRTH",
+			color = Color3.fromRGB(235, 200, 255),
+		})
 
 		-- keyed by UserId, not by Player, so leaving players aren't kept alive
 		local debounce: { [number]: number } = {}
@@ -7657,17 +7747,13 @@ __MODULES["Tycoon"] = function()
 			light.Shadows = false
 			light.Parent = pad
 
-			local billboard = Instance.new("BillboardGui")
-			billboard.Name = "Info"
-			billboard.Size = UDim2.fromScale(16, 9)
-			billboard.StudsOffsetWorldSpace = Vector3.new(0, 6, 0)
-			billboard.MaxDistance = 220
-			-- Readable through your own machinery. Without this the label for the
-			-- button you are walking towards disappears behind the dropper next to
-			-- it exactly when you need it.
-			billboard.AlwaysOnTop = true
-			billboard.LightInfluence = 0
-			billboard.Parent = pad
+			local billboard = Style.billboard(pad, {
+				name = "Info", width = 16, height = 9, distance = "prop", offset = 6,
+				-- Readable through your own machinery. Without this the label for
+				-- the button you are walking towards disappears behind the dropper
+				-- next to it exactly when you need it.
+				alwaysOnTop = true,
+			})
 
 			local frame = Instance.new("Frame")
 			frame.Size = UDim2.fromScale(1, 1)
@@ -7684,53 +7770,36 @@ __MODULES["Tycoon"] = function()
 
 			-- Four lines, in the order you ask the questions: where am I in the
 			-- build, what is this, what does it do for me, what does it cost.
-			local step = Instance.new("TextLabel")
-			step.Name = "Step"
-			step.BackgroundTransparency = 1
-			step.Size = UDim2.fromScale(0.94, 0.18)
-			step.Position = UDim2.fromScale(0.03, 0.02)
-			step.Font = Enum.Font.GothamBold
+			--
 			-- The track name, not a global ordinal. "STEP 21 OF 30" on a pedestal
 			-- in front of a weapons cabinet tells you nothing; "WEAPONS 2/5" is
 			-- the whole feature explained in three words.
-			step.Text = ("%s %d/%d"):format(
-				Config.TrackLabel[def.track] or "STEP", def.trackOrder, #Config.Tracks[def.track])
-			step.TextColor3 = Color3.fromRGB(150, 142, 172)
-			step.TextScaled = true
-			step.Parent = frame
+			local step = Style.text(frame, {
+				name = "Step", weight = "body",
+				size = UDim2.fromScale(0.94, 0.18), position = UDim2.fromScale(0.03, 0.02),
+				text = ("%s %d/%d"):format(
+					Config.TrackLabel[def.track] or "STEP", def.trackOrder, #Config.Tracks[def.track]),
+				color = Color3.fromRGB(150, 142, 172),
+			})
 
-			local title = Instance.new("TextLabel")
-			title.Name = "Title"
-			title.BackgroundTransparency = 1
-			title.Size = UDim2.fromScale(0.94, 0.32)
-			title.Position = UDim2.fromScale(0.03, 0.2)
-			title.Font = Enum.Font.FredokaOne
-			title.Text = def.name
-			title.TextColor3 = Color3.fromRGB(255, 240, 210)
-			title.TextScaled = true
-			title.Parent = frame
+			local title = Style.text(frame, {
+				name = "Title",
+				size = UDim2.fromScale(0.94, 0.32), position = UDim2.fromScale(0.03, 0.2),
+				text = def.name, color = Color3.fromRGB(255, 240, 210),
+			})
 
-			local effect = Instance.new("TextLabel")
-			effect.Name = "Effect"
-			effect.BackgroundTransparency = 1
-			effect.Size = UDim2.fromScale(0.94, 0.22)
-			effect.Position = UDim2.fromScale(0.03, 0.52)
-			effect.Font = Enum.Font.GothamBold
-			effect.Text = def.blurb or ""
-			effect.TextColor3 = Color3.fromRGB(150, 235, 190)
-			effect.TextScaled = true
-			effect.Parent = frame
+			local effect = Style.text(frame, {
+				name = "Effect", weight = "body",
+				size = UDim2.fromScale(0.94, 0.22), position = UDim2.fromScale(0.03, 0.52),
+				text = def.blurb or "", color = Color3.fromRGB(150, 235, 190),
+			})
 
-			local price = Instance.new("TextLabel")
-			price.Name = "Price"
-			price.BackgroundTransparency = 1
-			price.Size = UDim2.fromScale(0.94, 0.24)
-			price.Position = UDim2.fromScale(0.03, 0.74)
-			price.Font = Enum.Font.GothamBold
+			local price = Style.text(frame, {
+				name = "Price", weight = "body",
+				size = UDim2.fromScale(0.94, 0.24), position = UDim2.fromScale(0.03, 0.74),
+				color = COLORS.buttonOn,
+			})
 			price.Text = "$" .. Util.abbreviate(def.price)
-			price.TextColor3 = COLORS.buttonOn
-			price.TextScaled = true
-			price.Parent = frame
 
 			local lastTouch = 0
 			pad.Touched:Connect(function(hit)
@@ -8100,21 +8169,13 @@ __MODULES["Tycoon"] = function()
 		nozzle.Color = variant.light and variant.light.color or variant.wood
 		nozzle.Material = Enum.Material.Neon
 
-		local billboard = Instance.new("BillboardGui")
-		billboard.Size = UDim2.fromScale(9, 2.6)
-		billboard.StudsOffsetWorldSpace = Vector3.new(0, 3.4, 0)
-		billboard.MaxDistance = 130
-		billboard.Parent = core
-
-		local label = Instance.new("TextLabel")
-		label.BackgroundTransparency = 1
-		label.Size = UDim2.fromScale(1, 1)
-		label.Font = Enum.Font.GothamBold
-		label.Text = def.name .. "  •  $" .. Util.abbreviate(def.dropValue)
-		label.TextColor3 = Color3.fromRGB(255, 250, 235)
-		label.TextStrokeTransparency = 0.35
-		label.TextScaled = true
-		label.Parent = billboard
+		local billboard = Style.billboard(core, {
+			name = "Plate", width = 9, height = 2.6, distance = "machine", offset = 3.4,
+		})
+		Style.text(billboard, {
+			weight = "body", color = Color3.fromRGB(255, 250, 235),
+			text = def.name .. "  •  $" .. Util.abbreviate(def.dropValue),
+		})
 
 		return model, nozzle, legIndex, pathIndex
 	end
@@ -8168,21 +8229,13 @@ __MODULES["Tycoon"] = function()
 		scanner.Transparency = 0.55
 		scanner.CanTouch = true
 
-		local billboard = Instance.new("BillboardGui")
-		billboard.Size = UDim2.fromScale(11, 3)
-		billboard.StudsOffsetWorldSpace = Vector3.new(0, 3, 0)
-		billboard.MaxDistance = 140
-		billboard.Parent = beam
-
-		local label = Instance.new("TextLabel")
-		label.BackgroundTransparency = 1
-		label.Size = UDim2.fromScale(1, 1)
-		label.Font = Enum.Font.FredokaOne
-		label.Text = ("%s  x%.2g"):format(def.name, def.multiplier)
-		label.TextColor3 = Color3.fromRGB(255, 240, 210)
-		label.TextStrokeTransparency = 0.3
-		label.TextScaled = true
-		label.Parent = billboard
+		local billboard = Style.billboard(beam, {
+			name = "Plate", width = 11, height = 3, distance = "machine", offset = 3,
+		})
+		Style.text(billboard, {
+			text = ("%s  x%.2g"):format(def.name, def.multiplier),
+			color = Color3.fromRGB(255, 240, 210),
+		})
 
 		local flagName = "up_" .. def.id
 		scanner.Touched:Connect(function(hit)
@@ -8252,22 +8305,10 @@ __MODULES["Tycoon"] = function()
 
 		local plate = newPart(model, "Plate", Vector3.new(0.4, 1.6, 7),
 			shelfCF * CFrame.new(-2.2, 1, 0), COLORS.metal, Enum.Material.Metal, false)
-		local billboard = Instance.new("BillboardGui")
-		billboard.Name = "Plate"
-		billboard.Size = UDim2.fromScale(7, 1.4)
-		billboard.StudsOffsetWorldSpace = Vector3.new(0, 1.6, 0)
-		billboard.MaxDistance = 90
-		billboard.Parent = plate
-
-		local text = Instance.new("TextLabel")
-		text.BackgroundTransparency = 1
-		text.Size = UDim2.fromScale(1, 1)
-		text.Font = Enum.Font.GothamBold
-		text.Text = label
-		text.TextColor3 = COLORS.gold
-		text.TextStrokeTransparency = 0.4
-		text.TextScaled = true
-		text.Parent = billboard
+		local billboard = Style.billboard(plate, {
+			name = "Plate", width = 7, height = 1.4, distance = "machine", offset = 1.6,
+		})
+		Style.text(billboard, { weight = "body", text = label, color = COLORS.gold })
 
 		return model
 	end
@@ -8362,20 +8403,12 @@ __MODULES["Tycoon"] = function()
 
 			local signAnchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1), self:at(0, 27, 0), COLORS.frame, nil, false)
 			signAnchor.Transparency = 1
-			local billboard = Instance.new("BillboardGui")
-			billboard.Size = UDim2.fromScale(46, 12)
-			billboard.MaxDistance = 700
-			billboard.Parent = signAnchor
-			local label = Instance.new("TextLabel")
-			label.BackgroundTransparency = 1
-			label.Size = UDim2.fromScale(1, 1)
-			label.Font = Enum.Font.FredokaOne
-			label.Text = "TUNG TUNG TUNG SAHUR CO."
-			label.TextColor3 = COLORS.gold
-			label.TextStrokeTransparency = 0.15
-			label.TextScaled = true
-			label.Parent = billboard
-			self.roofSign = label
+			local billboard = Style.billboard(signAnchor, {
+				name = "Sign", width = 46, height = 12, distance = "plot",
+			})
+			self.roofSign = Style.text(billboard, {
+				text = "TUNG TUNG TUNG SAHUR CO.", color = COLORS.gold,
+			})
 			self:updateSign()
 		end
 

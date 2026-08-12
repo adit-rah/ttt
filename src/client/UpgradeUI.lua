@@ -19,6 +19,7 @@
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
+local Style = Req("Style")
 local Util = Req("Util")
 local Net = Req("Net")
 local Utilities = Req("Utilities")
@@ -112,7 +113,7 @@ end
 local function text(parent: Instance, props): TextLabel
 	local l = Instance.new("TextLabel")
 	l.BackgroundTransparency = 1
-	l.Font = Enum.Font.GothamBold
+	l.Font = Style.Font.body
 	l.TextColor3 = PALETTE.text
 	l.TextXAlignment = Enum.TextXAlignment.Left
 	l.RichText = true
@@ -129,7 +130,7 @@ local function button(parent: Instance, label: string, color: Color3, props): Te
 	b.BackgroundTransparency = 0.1
 	b.BorderSizePixel = 0
 	b.AutoButtonColor = true
-	b.Font = Enum.Font.FredokaOne
+	b.Font = Style.Font.title
 	b.Text = label
 	b.TextColor3 = Color3.fromRGB(20, 16, 28)
 	b.TextScaled = true
@@ -154,7 +155,7 @@ local function sectionLabel(parent: Instance, label: string, order: number)
 
 	text(holder, {
 		Size = UDim2.fromScale(1, 1),
-		Font = Enum.Font.GothamBold,
+		Font = Style.Font.body,
 		Text = label,
 		TextSize = 12,
 		TextColor3 = PALETTE.muted,
@@ -181,7 +182,7 @@ local function buildRow(parent: Instance, id: string, name: string, order: numbe
 	local title = text(row, {
 		Size = UDim2.new(1, -118, 0, 20),
 		Position = UDim2.fromOffset(12, 8),
-		Font = Enum.Font.FredokaOne,
+		Font = Style.Font.title,
 		Text = name,
 		TextSize = 16,
 		TextTruncate = Enum.TextTruncate.AtEnd,
@@ -190,7 +191,7 @@ local function buildRow(parent: Instance, id: string, name: string, order: numbe
 	local blurb = text(row, {
 		Size = UDim2.new(1, -118, 0, 28),
 		Position = UDim2.fromOffset(12, 28),
-		Font = Enum.Font.GothamMedium,
+		Font = Style.Font.body,
 		Text = "",
 		TextSize = 12,
 		TextColor3 = PALETTE.muted,
@@ -210,7 +211,7 @@ local function buildRow(parent: Instance, id: string, name: string, order: numbe
 
 	local pillLabel = text(pill, {
 		Size = UDim2.fromScale(1, 1),
-		Font = Enum.Font.FredokaOne,
+		Font = Style.Font.title,
 		Text = "",
 		TextSize = 15,
 		TextScaled = false,
@@ -392,7 +393,7 @@ local function buildPanel(gui: ScreenGui)
 	text(panelFrame, {
 		Size = UDim2.new(1, -28, 0, 26),
 		Position = UDim2.fromOffset(14, 10),
-		Font = Enum.Font.FredokaOne,
+		Font = Style.Font.title,
 		Text = "TUNG UPGRADES",
 		TextSize = 20,
 		TextColor3 = PALETTE.accent,
@@ -463,7 +464,7 @@ local function buildChip(gui: ScreenGui)
 	})
 	chipLabel = text(chipButton, {
 		Size = UDim2.fromScale(1, 1),
-		Font = Enum.Font.FredokaOne,
+		Font = Style.Font.title,
 		Text = "",
 		TextSize = 16,
 		TextXAlignment = Enum.TextXAlignment.Center,

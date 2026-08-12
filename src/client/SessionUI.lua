@@ -15,6 +15,7 @@
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
+local Style = Req("Style")
 local Util = Req("Util")
 local Net = Req("Net")
 local HUD = Req("HUD")
@@ -92,7 +93,7 @@ end
 local function text(parent: Instance, props)
 	local l = Instance.new("TextLabel")
 	l.BackgroundTransparency = 1
-	l.Font = Enum.Font.GothamBold
+	l.Font = Style.Font.body
 	l.TextColor3 = PALETTE.text
 	l.TextXAlignment = Enum.TextXAlignment.Left
 	l.RichText = true
@@ -109,7 +110,7 @@ local function button(parent: Instance, label: string, color: Color3, props)
 	b.BackgroundTransparency = 0.1
 	b.BorderSizePixel = 0
 	b.AutoButtonColor = true
-	b.Font = Enum.Font.FredokaOne
+	b.Font = Style.Font.title
 	b.Text = label
 	b.TextColor3 = Color3.fromRGB(20, 16, 28)
 	b.TextScaled = false
@@ -198,7 +199,7 @@ function SessionUI.showOfflineModal(offline)
 	text(card, {
 		Size = UDim2.fromOffset(430, 34),
 		Position = UDim2.fromOffset(22, 18),
-		Font = Enum.Font.FredokaOne,
+		Font = Style.Font.title,
 		Text = "WELCOME BACK",
 		TextSize = 28,
 		TextColor3 = PALETTE.accent,
@@ -208,7 +209,7 @@ function SessionUI.showOfflineModal(offline)
 	text(card, {
 		Size = UDim2.fromOffset(430, 20),
 		Position = UDim2.fromOffset(22, 54),
-		Font = Enum.Font.GothamMedium,
+		Font = Style.Font.body,
 		Text = ("Away for <b>%s</b> — your factory kept running."):format(describe(offline.seconds)),
 		TextSize = 14,
 		TextColor3 = PALETTE.muted,
@@ -218,7 +219,7 @@ function SessionUI.showOfflineModal(offline)
 	local amount = text(card, {
 		Size = UDim2.fromOffset(430, 60),
 		Position = UDim2.fromOffset(22, 82),
-		Font = Enum.Font.FredokaOne,
+		Font = Style.Font.title,
 		Text = "0",
 		TextSize = 46,
 		TextColor3 = PALETTE.gold,
@@ -228,7 +229,7 @@ function SessionUI.showOfflineModal(offline)
 	text(card, {
 		Size = UDim2.fromOffset(430, 20),
 		Position = UDim2.fromOffset(22, 142),
-		Font = Enum.Font.Gotham,
+		Font = Style.Font.body,
 		Text = ("%d%% of %s/sec for %s"):format(
 			math.floor((offline.rate or 0) * 100 + 0.5),
 			Util.abbreviate(offline.perSecond or 0),
@@ -261,7 +262,7 @@ function SessionUI.showOfflineModal(offline)
 	text(card, {
 		Size = UDim2.fromOffset(430, 50),
 		Position = UDim2.fromOffset(22, 166),
-		Font = Enum.Font.GothamMedium,
+		Font = Style.Font.body,
 		Text = capText,
 		TextSize = 13,
 		TextColor3 = capColor,
@@ -324,7 +325,7 @@ local function buildRow(parent: Instance, y: number, height: number, title: stri
 	local titleLabel = text(row, {
 		Size = UDim2.fromOffset(150, 18),
 		Position = UDim2.fromOffset(12, 8),
-		Font = Enum.Font.FredokaOne,
+		Font = Style.Font.title,
 		Text = title,
 		TextSize = 15,
 		TextColor3 = PALETTE.text,
@@ -332,7 +333,7 @@ local function buildRow(parent: Instance, y: number, height: number, title: stri
 	local subLabel = text(row, {
 		Size = UDim2.fromOffset(170, 16),
 		Position = UDim2.fromOffset(12, 27),
-		Font = Enum.Font.GothamMedium,
+		Font = Style.Font.body,
 		Text = "",
 		TextSize = 12,
 		TextColor3 = PALETTE.muted,
@@ -355,7 +356,7 @@ local function buildPanel()
 	text(panel, {
 		Size = UDim2.fromOffset(150, 16),
 		Position = UDim2.fromOffset(14, 8),
-		Font = Enum.Font.GothamBold,
+		Font = Style.Font.body,
 		Text = "SESSION",
 		TextSize = 12,
 		TextColor3 = PALETTE.muted,
@@ -365,7 +366,7 @@ local function buildPanel()
 	weekendBadge = text(panel, {
 		Size = UDim2.fromOffset(110, 16),
 		Position = UDim2.fromOffset(PANEL_W - 124, 8),
-		Font = Enum.Font.GothamBold,
+		Font = Style.Font.body,
 		Text = "",
 		TextSize = 12,
 		TextXAlignment = Enum.TextXAlignment.Right,

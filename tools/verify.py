@@ -7,8 +7,9 @@ verify.py — full pre-flight check for Tung Tung Tycoon.
 Runs, in order:
   1. syntax check on every source file (luau-compile)
   2. static analysis, ignoring the Roblox globals luau-analyze can't know about
-  3. the Config integrity suite in tools/verify_config.lua
-  4. regenerates the packed build and syntax-checks that too
+  3. style ownership: no file but Style.lua names a font, outline or view distance
+  4. the Config integrity suite in tools/verify_config.lua
+  5. regenerates the packed build and syntax-checks that too
 
 Exit code is non-zero if anything fails, so it drops straight into CI.
 """
@@ -82,6 +83,47 @@ def check_analysis(analyzer, files):
     return True
 
 
+# Fonts, outlines and view distances belong to src/shared/Style.lua and nowhere
+# else. Before it existed every label picked its own as it was written, which is
+# how the game ended up with three fonts, six outline settings and eleven view
+# distances between 90 and 1200 studs. Nothing about that state was a decision,
+# and nothing but a lint keeps it from happening again.
+STYLE_OWNER = "src/shared/Style.lua"
+STYLE_LITERALS = (
+    (re.compile(r"Enum\.Font\."), "names a font"),
+    (re.compile(r"\.TextStrokeTransparency\s*="), "sets an outline"),
+    (re.compile(r"\.MaxDistance\s*="), "sets a view distance"),
+)
+
+
+def check_style(files):
+    step("style ownership")
+    findings = []
+    for path in files:
+        rel = path.relative_to(ROOT).as_posix()
+        if rel == STYLE_OWNER:
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            # A comment may say "MaxDistance"; only assignments are the problem.
+            if line.lstrip().startswith("--"):
+                continue
+            # `gui.MaxDistance = maxDistance or Style.distance("plot")` is the
+            # sanctioned form: the value still comes from the one owner.
+            if "Style." in line:
+                continue
+            for pattern, what in STYLE_LITERALS:
+                if pattern.search(line):
+                    findings.append((rel, number, what, line.strip()))
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for rel, number, what, text in findings:
+            print(f"    {rel}:{number} {what} directly — go through {STYLE_OWNER}")
+            print(f"      {DIM}{text}{RESET}")
+        return False
+    print(f"  {GREEN}ok{RESET}  fonts, outlines and view distances all come from {STYLE_OWNER}")
+    return True
+
+
 def check_config(luau):
     step("config integrity")
     harness = (ROOT / "tools" / "verify_config.lua").read_text(encoding="utf-8")
@@ -134,6 +176,7 @@ def main():
     results = [
         check_syntax(args.compile, files, "src"),
         check_analysis(args.analyze, files),
+        check_style(files),
         check_config(args.luau),
         check_pack(args.compile),
     ]
