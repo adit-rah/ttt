@@ -8,8 +8,10 @@ Runs, in order:
   1. syntax check on every source file (luau-compile)
   2. static analysis, ignoring the Roblox globals luau-analyze can't know about
   3. style ownership: no file but Style.lua names a font, outline or view distance
-  4. the Config integrity suite in tools/verify_config.lua
-  5. regenerates the packed build and syntax-checks that too
+  4. UI ownership: no card-scale literal in src/client, and one ScreenGui
+  5. the Config integrity suite in tools/verify_config.lua
+  6. the runtime specs in tools/testing
+  7. regenerates the packed build and syntax-checks that too
 
 Exit code is non-zero if anything fails, so it drops straight into CI.
 """
@@ -135,6 +137,87 @@ def check_style(files):
     return True
 
 
+# CARD-SCALE GEOMETRY BELONGS TO Config.UI.
+#
+# 80% of Roblox sessions are phones. A 470x330 card written as a literal in
+# src/client is a number the verifier cannot see, cannot scale-check and cannot
+# fit against the panel next to it -- which is exactly how the upgrade shop came
+# to sit on top of the NEXT UPGRADE panel below 638 design pixels, with one of
+# the two numbers in HUD.lua and the other in UpgradeUI.lua.
+#
+# Small offsets are none of this lint's business: an icon at 56x56 or a 5px
+# accent bar is layout inside a card, not the card. The threshold is set at the
+# size where a shape starts competing with other shapes for the screen.
+UI_GEOMETRY_OWNER = "Config.UI."
+UI_CARD_WIDTH, UI_CARD_HEIGHT = 300, 200
+UI_GEOMETRY = re.compile(
+    r"(UDim2\.fromOffset|Vector2\.new)\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)"
+)
+
+
+def client_sources(files):
+    return [p for p in files if p.relative_to(ROOT).as_posix().startswith("src/client/")]
+
+
+def check_ui_geometry(files):
+    step("ui geometry")
+    findings = []
+    for path in client_sources(files):
+        rel = path.relative_to(ROOT).as_posix()
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("--"):
+                continue
+            # `UDim2.fromOffset(UI.Modal.MaxWidth, 330)` is the sanctioned form:
+            # the number still comes from the one place that can be asserted.
+            if UI_GEOMETRY_OWNER in line:
+                continue
+            for match in UI_GEOMETRY.finditer(line):
+                width, height = float(match.group(2)), float(match.group(3))
+                if width >= UI_CARD_WIDTH and height >= UI_CARD_HEIGHT:
+                    findings.append((rel, number, f"{width:g}x{height:g}", line.strip()))
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for rel, number, size, text in findings:
+            print(f"    {rel}:{number} builds a {size} card from literals — name it in {UI_GEOMETRY_OWNER}")
+            print(f"      {DIM}{text}{RESET}")
+        return False
+    print(f"  {GREEN}ok{RESET}  every card-scale size in src/client comes from {UI_GEOMETRY_OWNER}")
+    return True
+
+
+# ONE ScreenGui MEANS ONE UIScale.
+#
+# HUD.lua builds the only ScreenGui in the game and hangs a Root and an Overlay
+# layer off it, each carrying the UIScale that fits the design canvas to the
+# device. A panel that makes its own ScreenGui is outside both, which means it
+# is outside mobile scaling and outside the safe-area padding -- and it fails
+# that way silently, on a phone, looking fine on the machine it was written on.
+SCREENGUI_OWNER = "src/client/HUD.lua"
+SCREENGUI = re.compile(r'Instance\.new\(\s*"ScreenGui"\s*\)')
+
+
+def check_single_screengui(files):
+    step("one screengui")
+    findings = []
+    for path in client_sources(files):
+        rel = path.relative_to(ROOT).as_posix()
+        if rel == SCREENGUI_OWNER:
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("--"):
+                continue
+            if SCREENGUI.search(line):
+                findings.append((rel, number, line.strip()))
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for rel, number, text in findings:
+            print(f"    {rel}:{number} builds a second ScreenGui — build into HUD.root() or HUD.overlay()")
+            print(f"      {DIM}{text}{RESET}")
+        return False
+    print(f"  {GREEN}ok{RESET}  {SCREENGUI_OWNER} owns the only ScreenGui, so there is one UIScale")
+    return True
+
+
 def check_config(luau):
     step("config integrity")
     harness = (ROOT / "tools" / "verify_config.lua").read_text(encoding="utf-8")
@@ -207,6 +290,8 @@ def main():
         check_analysis(args.analyze, files + harness),
         # style ownership is about the SHIPPED game; tools/ is not shipped
         check_style(files),
+        check_ui_geometry(files),
+        check_single_screengui(files),
         check_config(args.luau),
         # The config suite must report first: a broken Config makes every spec
         # fail in a confusing way, and the useful error is the one upstream.

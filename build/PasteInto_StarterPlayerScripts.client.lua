@@ -458,6 +458,127 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
+	-- SCREEN UI
+	--
+	-- Four out of five Roblox sessions are on a phone, and until this table existed
+	-- not one number in this file described the screen. Every panel size, margin
+	-- and button height was a literal in src/client/ — the one directory the
+	-- verifier cannot see — which is how "the upgrade shop sits on top of the NEXT
+	-- UPGRADE panel below 638 design pixels" became a defect with no owner: HUD.lua
+	-- held one of the two numbers and UpgradeUI.lua held the other, and nothing in
+	-- the repo could read both at once. Now something can.
+	--
+	-- PLAIN NUMBERS ONLY. tools/verify_config.lua stubs Color3, Vector3 and Enum
+	-- and nothing else. A single Vector2 or UDim2 in this table takes every config
+	-- check down at require time, which is a much worse failure than the one it
+	-- would be describing. Sizes are two named scalars, never a vector.
+	--
+	-- THE SCALING CONTRACT, which is what makes the rest of these numbers mean
+	-- anything. The client mounts ONE UIScale of
+	--
+	--     clamp(min(vx / ReferenceWidth, vy / ReferenceHeight), MinScale, MaxScale)
+	--
+	-- Taking the MIN of the two ratios is the whole trick: it buys a design canvas
+	-- of at least ReferenceWidth x ReferenceHeight at every aspect ratio, so every
+	-- offset below is correct by construction rather than correct on the machine it
+	-- was typed on. MinScale is the one hole in that — a landscape phone shorter
+	-- than MinScale * ReferenceHeight physical pixels gets a canvas shorter than
+	-- the reference, which is exactly the band the shop overlap lived in.
+	-- MaxScale is 1 because nobody asked for a HUD blown up to fill a 4K monitor.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.UI = {
+		ReferenceWidth = 1280,
+		ReferenceHeight = 720,
+		MinScale = 0.62,
+		MaxScale = 1.0,
+
+		-- The gutter every panel keeps from the edge of the design canvas, and the
+		-- gap between two panels stacked in one column.
+		Margin = 18,
+		Gap = 10,
+		-- Added ON TOP of whatever the device reports as its safe-area inset. A
+		-- wrong guess about a notch should cost a slightly generous gutter, not an
+		-- amputated button, so the padding errs outward.
+		SafeAreaPad = 12,
+
+		-- The floor for anything a thumb has to hit, and for anything an eye has to
+		-- read, both in DESIGN pixels — multiply by MinScale for the worst physical
+		-- case, which is what the verifier asserts.
+		MinTouchPx = 44,
+		MinTextPx = 13,
+
+		-- THREE BUTTON HEIGHTS AND NO FOURTH. `primary` is a decision you came to
+		-- the panel to make (collect, confirm, rebirth), `secondary` is the way out
+		-- of it, `pill` is a toggle or a claim sitting inside a row. Every one of
+		-- them is >= MinTouchPx: at MinScale the old 46px confirm button landed at
+		-- 28 physical pixels, under half of Apple's and Google's published minimum.
+		Button = {
+			primary = 56,
+			secondary = 46,
+			pill = 44,
+		},
+
+		-- THE TOP-LEFT COLUMN. Cash, then the next-purchase hint, then the session
+		-- panel, all one width, stacked from the top margin down. The Y of each is
+		-- derived below rather than written, because the bug this table exists to
+		-- catch was two files disagreeing about where this column ends.
+		ColumnWidth = 280,
+		CashPanel    = { Width = 280, Height = 96 },
+		NextPanel    = { Width = 280, Height = 74 },
+		-- Height is the ordinary panel, TallHeight adds the pending-offline row and
+		-- CompactHeight is the offline-only build that collapses to just that row.
+		SessionPanel = { Width = 280, Height = 216, TallHeight = 258, CompactHeight = 88 },
+
+		-- THE UPGRADE SHOP IS A SECOND COLUMN, not the bottom of the first. It is
+		-- bottom-anchored and proportionally tall, so on a short screen it grows
+		-- upwards into whatever is above it; when it shared the left column that
+		-- meant the NEXT UPGRADE panel. X is derived below to clear the column
+		-- outright, which is an invariant at every viewport height rather than a
+		-- number that happens to hold at the height it was checked on.
+		ShopPanel = {
+			Width = 340,
+			HeightScale = 0.58,
+			MinHeight = 180,
+			MaxHeight = 460,
+			RowHeight = 62,      -- the whole row is the hit target, so this is a touch size
+		},
+
+		Toast  = { Width = 320, ListHeight = 500, CardHeight = 66 },
+		-- Rebirth over leave-plot, bottom right: primary + Gap + secondary.
+		Action = { Width = 200, Height = 112 },
+
+		-- Modals are centred and live on the overlay layer, which is unpadded on
+		-- purpose: a dimming shade SHOULD cover the notch.
+		Modal = {
+			MinWidth = 300,
+			MaxWidth = 470,
+			MaxHeight = 330,
+			Offline = { Width = 470, Height = 330 },
+			Rebirth = { Width = 430, Height = 250 },
+		},
+	}
+
+	do
+		local ui = Config.UI
+
+		-- the left column, top to bottom
+		ui.CashPanel.Y = ui.Margin
+		ui.NextPanel.Y = ui.CashPanel.Y + ui.CashPanel.Height + ui.Gap
+		ui.SessionPanel.Y = ui.NextPanel.Y + ui.NextPanel.Height + ui.Gap
+		-- measured at the session panel's TALLEST, because "it fits unless you have
+		-- offline earnings waiting" is not a layout that fits
+		ui.ColumnBottom = ui.SessionPanel.Y + ui.SessionPanel.TallHeight
+
+		-- the shop's own column, starting one gap clear of the left one
+		ui.ShopPanel.X = ui.Margin + ui.ColumnWidth + ui.Gap
+		-- What the shop leaves below itself: the toggle button always, plus the
+		-- utility chip when that prototype is on.
+		ui.ShopPanel.BottomGapNoUtility = ui.Margin + ui.Button.pill + ui.Gap
+		ui.ShopPanel.BottomGap = ui.ShopPanel.BottomGapNoUtility + ui.Button.pill + ui.Gap
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
 	-- ECONOMY
 	-- ─────────────────────────────────────────────────────────────────────────────
 
@@ -4442,9 +4563,18 @@ end
 
 __MODULES["HUD"] = function()
 	--[[
-		HUD.lua — all of the on-screen furniture.
+		HUD.lua — all of the on-screen furniture, and the one ScreenGui the whole
+		game draws into.
 
 		Built in code so there is no .rbxm to keep in sync with the source.
+
+		IT OWNS THE TWO LAYERS EVERY OTHER PANEL BUILDS INTO. `Root` carries the
+		UIScale and the safe-area padding and holds the persistent furniture;
+		`Overlay` carries the same UIScale and no padding, and holds modals, because
+		a dimming shade SHOULD run under the notch and a padded root would leave an
+		undimmed strip down the side of it. Panels ask for HUD.root() or
+		HUD.overlay(); nothing outside this file makes a ScreenGui, and tools/
+		verify.py fails the build if anything tries.
 	]]
 
 	local Req = __Req
@@ -4452,6 +4582,7 @@ __MODULES["HUD"] = function()
 	local Style = Req("Style")
 	local Util = Req("Util")
 	local Net = Req("Net")
+	local UiKit = Req("UiKit")
 
 	local Players = game:GetService("Players")
 	local TweenService = game:GetService("TweenService")
@@ -4461,21 +4592,8 @@ __MODULES["HUD"] = function()
 
 	local HUD = {}
 
-	local PALETTE = {
-		panel   = Color3.fromRGB(22, 18, 32),
-		panel2  = Color3.fromRGB(32, 26, 46),
-		accent  = Color3.fromRGB(190, 130, 255),
-		gold    = Color3.fromRGB(255, 205, 90),
-		good    = Color3.fromRGB(120, 235, 160),
-		bad     = Color3.fromRGB(255, 110, 110),
-		text    = Color3.fromRGB(238, 232, 250),
-		muted   = Color3.fromRGB(160, 150, 180),
-		-- Promoted out of KIND_COLOR, where they were toast-only: the wave banner
-		-- had its own inline literals of the same two colours, so the raid read as
-		-- two different oranges depending on which widget you were looking at.
-		wave    = Color3.fromRGB(255, 150, 60),
-		boss    = Color3.fromRGB(255, 90, 60),
-	}
+	local UI = Config.UI
+	local PALETTE = UiKit.PALETTE
 
 	local KIND_COLOR = {
 		buy      = PALETTE.good,
@@ -4499,84 +4617,21 @@ __MODULES["HUD"] = function()
 		rebirthCost = Config.Rebirth.BaseCost,
 	}
 
-	local gui, cashLabel, multLabel, waveFrame, waveLabel, toastList, nextLabel, nextDetail, rebirthButton
+	local gui, root, overlay, rootScale, overlayScale, rootPadding
+	local cashLabel, multLabel, waveFrame, waveLabel, toastList, nextLabel, nextDetail, rebirthButton
 
-	-- ─────────────────────────────────────────────────────────────────────────────
-	-- builders
-	-- ─────────────────────────────────────────────────────────────────────────────
-
-	local function corner(parent, radius)
-		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(0, radius)
-		c.Parent = parent
-		return c
-	end
-
-	local function stroke(parent, color, thickness)
-		local s = Instance.new("UIStroke")
-		s.Color = color
-		s.Thickness = thickness or 2
-		s.Transparency = 0.35
-		s.Parent = parent
-		return s
-	end
-
-	local function panel(parent, size, position, anchor)
-		local f = Instance.new("Frame")
-		f.Size = size
-		f.Position = position
-		f.AnchorPoint = anchor or Vector2.zero
-		f.BackgroundColor3 = PALETTE.panel
-		f.BackgroundTransparency = 0.12
-		f.BorderSizePixel = 0
-		f.Parent = parent
-		corner(f, 14)
-		stroke(f, PALETTE.accent, 2)
-
-		local gradient = Instance.new("UIGradient")
-		gradient.Color = ColorSequence.new(PALETTE.panel2, PALETTE.panel)
-		gradient.Rotation = 90
-		gradient.Parent = f
-		return f
-	end
-
-	local function text(parent, props)
-		local l = Instance.new("TextLabel")
-		l.BackgroundTransparency = 1
-		l.Font = Style.Font.body
-		l.TextColor3 = PALETTE.text
-		l.TextXAlignment = Enum.TextXAlignment.Left
-		l.TextScaled = false
-		l.RichText = true
-		for k, v in pairs(props) do
-			(l :: any)[k] = v
-		end
-		l.Parent = parent
-		return l
-	end
-
-	local function button(parent, label, color, props)
-		local b = Instance.new("TextButton")
-		b.BackgroundColor3 = color
-		b.BackgroundTransparency = 0.1
-		b.BorderSizePixel = 0
-		b.AutoButtonColor = true
-		b.Font = Style.Font.title
-		b.Text = label
-		b.TextColor3 = Color3.fromRGB(20, 16, 28)
-		b.TextScaled = true
-		for k, v in pairs(props or {}) do
-			(b :: any)[k] = v
-		end
-		b.Parent = parent
-		corner(b, 10)
-		return b
-	end
+	-- The panel vocabulary, aliased so every call site below reads exactly as it
+	-- did when these were five local functions in this file. They are UiKit's now;
+	-- see src/client/UiKit.lua for what the merge of the three copies cost.
+	local corner, stroke, panel, text, button =
+		UiKit.corner, UiKit.stroke, UiKit.panel, UiKit.text, UiKit.button
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	local function buildCashPanel(root)
-		local frame = panel(root, UDim2.fromOffset(280, 96), UDim2.fromOffset(18, 18))
+	local function buildCashPanel(parent: Instance)
+		local frame = panel(parent,
+			UDim2.fromOffset(UI.CashPanel.Width, UI.CashPanel.Height),
+			UDim2.fromOffset(UI.Margin, UI.CashPanel.Y))
 		frame.Name = "Cash"
 
 		local icon = Instance.new("TextLabel")
@@ -4612,8 +4667,10 @@ __MODULES["HUD"] = function()
 		return frame
 	end
 
-	local function buildNextPanel(root)
-		local frame = panel(root, UDim2.fromOffset(280, 74), UDim2.fromOffset(18, 124))
+	local function buildNextPanel(parent: Instance)
+		local frame = panel(parent,
+			UDim2.fromOffset(UI.NextPanel.Width, UI.NextPanel.Height),
+			UDim2.fromOffset(UI.Margin, UI.NextPanel.Y))
 		frame.Name = "NextUp"
 
 		text(frame, {
@@ -4683,42 +4740,42 @@ __MODULES["HUD"] = function()
 		waveLabel = Style.text(waveFrame, { name = "Line", text = "", color = PALETTE.wave })
 	end
 
-	local function buildToasts(root)
+	local function buildToasts(parent: Instance)
 		toastList = Instance.new("Frame")
 		toastList.Name = "Toasts"
 		toastList.AnchorPoint = Vector2.new(1, 0)
-		toastList.Position = UDim2.new(1, -18, 0, 18)
-		toastList.Size = UDim2.fromOffset(320, 500)
+		toastList.Position = UDim2.new(1, -UI.Margin, 0, UI.Margin)
+		toastList.Size = UDim2.fromOffset(UI.Toast.Width, UI.Toast.ListHeight)
 		toastList.BackgroundTransparency = 1
-		toastList.Parent = root
+		toastList.Parent = parent
 
 		local layout = Instance.new("UIListLayout")
-		layout.Padding = UDim.new(0, 8)
+		layout.Padding = UDim.new(0, UI.Gap)
 		layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
 		layout.SortOrder = Enum.SortOrder.LayoutOrder
 		layout.Parent = toastList
 	end
 
-	local function buildActions(root)
+	local function buildActions(parent: Instance)
 		local holder = Instance.new("Frame")
 		holder.Name = "Actions"
 		holder.AnchorPoint = Vector2.new(1, 1)
-		holder.Position = UDim2.new(1, -18, 1, -18)
-		holder.Size = UDim2.fromOffset(200, 104)
+		holder.Position = UDim2.new(1, -UI.Margin, 1, -UI.Margin)
+		holder.Size = UDim2.fromOffset(UI.Action.Width, UI.Action.Height)
 		holder.BackgroundTransparency = 1
-		holder.Parent = root
+		holder.Parent = parent
 
 		local layout = Instance.new("UIListLayout")
-		layout.Padding = UDim.new(0, 8)
+		layout.Padding = UDim.new(0, UI.Gap)
 		layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
 		layout.Parent = holder
 
 		rebirthButton = button(holder, "REBIRTH", PALETTE.accent, {
-			Size = UDim2.fromOffset(200, 48),
+			Size = UDim2.fromOffset(UI.Action.Width, UI.Button.primary),
 			LayoutOrder = 1,
 		})
 		local leave = button(holder, "LEAVE PLOT", Color3.fromRGB(120, 110, 140), {
-			Size = UDim2.fromOffset(200, 40),
+			Size = UDim2.fromOffset(UI.Action.Width, UI.Button.secondary),
 			LayoutOrder = 2,
 			TextSize = 16,
 		})
@@ -4746,7 +4803,7 @@ __MODULES["HUD"] = function()
 		local color = KIND_COLOR[payload.kind] or PALETTE.accent
 
 		local card = Instance.new("Frame")
-		card.Size = UDim2.fromOffset(320, 66)
+		card.Size = UDim2.fromOffset(UI.Toast.Width, UI.Toast.CardHeight)
 		card.BackgroundColor3 = PALETTE.panel
 		card.BackgroundTransparency = 0.08
 		card.BorderSizePixel = 0
@@ -4782,7 +4839,8 @@ __MODULES["HUD"] = function()
 			TextWrapped = true,
 		})
 
-		card.Position = UDim2.fromOffset(340, 0)
+		-- starts one card-width plus a hair off the right edge, and slides in
+		card.Position = UDim2.fromOffset(UI.Toast.Width + UI.Gap, 0)
 		TweenService:Create(card, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 			Position = UDim2.fromOffset(0, 0),
 		}):Play()
@@ -4800,10 +4858,13 @@ __MODULES["HUD"] = function()
 	end
 
 	function HUD.showRebirthModal(cost: number)
-		if gui:FindFirstChild("RebirthModal") then
+		if not overlay or overlay:FindFirstChild("RebirthModal") then
 			return
 		end
 
+		-- On the OVERLAY layer, not the root one: the shade is supposed to dim the
+		-- notch and the home indicator along with everything else, and the root
+		-- layer is padded clear of both.
 		local shade = Instance.new("Frame")
 		shade.Name = "RebirthModal"
 		shade.Size = UDim2.fromScale(1, 1)
@@ -4811,9 +4872,11 @@ __MODULES["HUD"] = function()
 		shade.BackgroundTransparency = 0.45
 		shade.BorderSizePixel = 0
 		shade.ZIndex = 20
-		shade.Parent = gui
+		shade.Parent = overlay
 
-		local card = panel(shade, UDim2.fromOffset(430, 250), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+		local card = panel(shade,
+			UDim2.fromOffset(UI.Modal.Rebirth.Width, UI.Modal.Rebirth.Height),
+			UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		card.ZIndex = 21
 		for _, child in ipairs(card:GetDescendants()) do
 			if child:IsA("GuiObject") then
@@ -4845,14 +4908,14 @@ __MODULES["HUD"] = function()
 		})
 
 		local confirm = button(card, affordable and "DO IT" or "NOT ENOUGH TUNG",
-			affordable and PALETTE.accent or Color3.fromRGB(90, 84, 104), {
-				Size = UDim2.fromOffset(190, 46),
+			affordable and PALETTE.accent or PALETTE.dead, {
+				Size = UDim2.fromOffset(190, UI.Button.primary),
 				Position = UDim2.fromOffset(20, 180),
 				ZIndex = 22,
 				TextSize = 20,
 			})
 		local cancel = button(card, "CANCEL", Color3.fromRGB(120, 110, 140), {
-			Size = UDim2.fromOffset(190, 46),
+			Size = UDim2.fromOffset(190, UI.Button.primary),
 			Position = UDim2.fromOffset(220, 180),
 			ZIndex = 22,
 			TextSize = 20,
@@ -4943,7 +5006,7 @@ __MODULES["HUD"] = function()
 		end
 
 		rebirthButton.Text = ("REBIRTH  %s"):format(Util.abbreviate(state.rebirthCost))
-		rebirthButton.BackgroundColor3 = state.cash >= state.rebirthCost and PALETTE.accent or Color3.fromRGB(90, 84, 104)
+		rebirthButton.BackgroundColor3 = state.cash >= state.rebirthCost and PALETTE.accent or PALETTE.dead
 	end
 
 	--- The last wave packet, plus the wall-clock deadline derived from its
@@ -5010,20 +5073,117 @@ __MODULES["HUD"] = function()
 		end
 	end
 
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- the two layers, and fitting them to the screen
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- A full-bleed transparent frame with its own UIScale.
+	---
+	--- The scale is not set here. It is set by applyViewport() below, which also
+	--- sets the layer's SIZE to 1/scale — see there for why that pair is what makes
+	--- a fromScale(1, 1) child still cover the whole screen.
+	local function buildLayer(name: string): (Frame, UIScale)
+		local frame = Instance.new("Frame")
+		frame.Name = name
+		frame.Size = UDim2.fromScale(1, 1)
+		frame.BackgroundTransparency = 1
+		frame.BorderSizePixel = 0
+		frame.Parent = gui
+
+		local scale = Instance.new("UIScale")
+		scale.Parent = frame
+		return frame, scale
+	end
+
+	--- Recomputed on every viewport change, which is one connection covering
+	--- rotation, window resize and Studio's device emulator at once.
+	---
+	--- THE 1/SCALE SIZE IS THE POINT, and it is worth being precise about. A
+	--- UIScale multiplies the whole subtree uniformly, offsets and scale-derived
+	--- sizes alike — so a shade at fromScale(1, 1) inside a layer scaled to 0.62
+	--- would dim 62% of the screen and leave a bright border, which is a bug you
+	--- only ever see on the device you don't own. Sizing the layer itself at
+	--- 1/scale cancels exactly that one factor: scale-based children come back out
+	--- at full screen, while offset-based children (every panel in this file) stay
+	--- multiplied by scale, which is the whole objective. It also makes the layer's
+	--- own coordinate space the DESIGN space — at least ReferenceWidth x
+	--- ReferenceHeight of it, by construction of UiKit.scaleFor.
+	local function applyViewport()
+		local camera = workspace.CurrentCamera
+		if not camera or not root then
+			return
+		end
+		local viewport = camera.ViewportSize
+		local scale = UiKit.scaleFor(viewport)
+
+		rootScale.Scale = scale
+		overlayScale.Scale = scale
+		root.Size = UDim2.fromScale(1 / scale, 1 / scale)
+		overlay.Size = UDim2.fromScale(1 / scale, 1 / scale)
+
+		-- The insets come back in PHYSICAL pixels and the padding is applied inside
+		-- the scaled layer, so it has to be divided back out. If the engine turns
+		-- out not to scale UIPadding the way it scales everything else, this errs
+		-- generous (1/0.62 is a wider gutter, never a narrower one), which is the
+		-- direction a guess about a notch should be wrong in.
+		local insets = UiKit.safeInsets(viewport)
+		rootPadding.PaddingLeft = UDim.new(0, math.round(insets.left / scale))
+		rootPadding.PaddingRight = UDim.new(0, math.round(insets.right / scale))
+		rootPadding.PaddingBottom = UDim.new(0, math.round(insets.bottom / scale))
+		-- Top only gets the pad. IgnoreGuiInset = false already pushed this whole
+		-- ScreenGui below the topbar; adding the top inset here would do it twice.
+		rootPadding.PaddingTop = UDim.new(0, math.round(insets.top / scale))
+	end
+
 	function HUD.start()
 		gui = Instance.new("ScreenGui")
 		gui.Name = "TungHUD"
 		gui.ResetOnSpawn = false
 		gui.IgnoreGuiInset = false
 		gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+		-- Nothing set this before, so the portrait case never arising was an
+		-- accident rather than a decision. This game is a landscape game: the HUD
+		-- is a left column, a right column and an arena in the middle.
+		pcall(function()
+			gui.ScreenOrientation = Enum.ScreenOrientation.LandscapeSensor
+		end)
+		-- The explicit spelling of IgnoreGuiInset = false on clients new enough to
+		-- have the enum. Guarded because it is newer surface than the property it
+		-- restates, and restating it is worth nothing if it errors.
+		pcall(function()
+			(gui :: any).ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
+		end)
 		gui.Parent = player:WaitForChild("PlayerGui")
 
-		buildCashPanel(gui)
-		buildNextPanel(gui)
-		-- no `gui`: this one hangs in the world, not on the screen
+		root, rootScale = buildLayer("Root")
+		rootPadding = Instance.new("UIPadding")
+		rootPadding.Parent = root
+		overlay, overlayScale = buildLayer("Overlay")
+
+		-- One connection, rebound if the camera itself is replaced. Rotation,
+		-- resize and device emulation all arrive through it.
+		local viewportConnection
+		local function watchCamera()
+			if viewportConnection then
+				viewportConnection:Disconnect()
+				viewportConnection = nil
+			end
+			local camera = workspace.CurrentCamera
+			if not camera then
+				return
+			end
+			viewportConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(applyViewport)
+			applyViewport()
+		end
+		workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(watchCamera)
+		watchCamera()
+
+		buildCashPanel(root)
+		buildNextPanel(root)
+		-- no layer: this one hangs in the world, not on the screen
 		buildWaveBanner()
-		buildToasts(gui)
-		buildActions(gui)
+		buildToasts(root)
+		buildActions(root)
 
 		Net.event("Notify").OnClientEvent:Connect(function(payload)
 			if payload.kind == "rebirthPrompt" then
@@ -5055,6 +5215,18 @@ __MODULES["HUD"] = function()
 		return gui
 	end
 
+	--- The layer persistent furniture belongs on: scaled, and padded clear of the
+	--- notch and the home indicator.
+	function HUD.root(): Frame
+		return root
+	end
+
+	--- The layer modals belong on: the same scale, no padding. A shade parented
+	--- here dims the safe area too, which is what a shade is for.
+	function HUD.overlay(): Frame
+		return overlay
+	end
+
 	return HUD
 end
 
@@ -5064,11 +5236,15 @@ __MODULES["SessionUI"] = function()
 		SessionUI.lua — the welcome-back panel, the daily / playtime claims and the
 		boost button.
 
-		Built into HUD.screenGui() rather than a second ScreenGui so there is one
-		place the game's UI lives, one ZIndex space, and one thing to hide. The
-		palette and the panel/text/button helpers are deliberately re-stated here
-		instead of exported from HUD.lua: this is a prototype, and a prototype that
-		widens another module's public API is a prototype you cannot delete.
+		Built into HUD's layers rather than a second ScreenGui so there is one place
+		the game's UI lives, one ZIndex space, one UIScale and one thing to hide:
+		the panel goes on HUD.root(), the welcome-back modal on HUD.overlay().
+
+		The palette and the panel/text/button helpers used to be re-stated here, on
+		the argument that a prototype which widens another module's public API is a
+		prototype you cannot delete. Three copies later the drift risk outweighed
+		the deletion cost, and they moved to src/client/UiKit.lua — which is not
+		HUD's API, so the original argument is satisfied rather than overruled.
 
 		Everything is presentation. The server sends the whole state on the
 		SessionState remote and decides every claim; this file's only outbound
@@ -5081,6 +5257,7 @@ __MODULES["SessionUI"] = function()
 	local Util = Req("Util")
 	local Net = Req("Net")
 	local HUD = Req("HUD")
+	local UiKit = Req("UiKit")
 	local Sound = Req("Sound")
 
 	local RunService = game:GetService("RunService")
@@ -5089,100 +5266,43 @@ __MODULES["SessionUI"] = function()
 	local SessionUI = {}
 
 	local P = Config.Prototypes
+	local UI = Config.UI
+	local PALETTE = UiKit.PALETTE
 
-	-- lifted from HUD.lua so the two panels read as one product
-	local PALETTE = {
-		panel   = Color3.fromRGB(22, 18, 32),
-		panel2  = Color3.fromRGB(32, 26, 46),
-		accent  = Color3.fromRGB(190, 130, 255),
-		gold    = Color3.fromRGB(255, 205, 90),
-		good    = Color3.fromRGB(120, 235, 160),
-		bad     = Color3.fromRGB(255, 110, 110),
-		text    = Color3.fromRGB(238, 232, 250),
-		muted   = Color3.fromRGB(160, 150, 180),
-		dead    = Color3.fromRGB(90, 84, 104),
-	}
-
-	local PANEL_X, PANEL_Y, PANEL_W = 18, 210, 280
+	local PANEL_X, PANEL_Y, PANEL_W = UI.Margin, UI.SessionPanel.Y, UI.SessionPanel.Width
 
 	local state = {
 		payload = nil :: any,
 		receivedAt = 0,
 	}
 
-	local gui, panel, dailyRow, playtimeRow, boostButton, offlineRow, weekendBadge
+	local root, overlay, panel, dailyRow, playtimeRow, boostButton, offlineRow, weekendBadge
 	local playtimeFill, modalOpen = nil, false
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- builders (same shapes as HUD.lua)
+	-- builders
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	local function corner(parent: Instance, radius: number)
-		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(0, radius)
-		c.Parent = parent
-		return c
-	end
+	local corner, frame, text = UiKit.corner, UiKit.panel, UiKit.text
 
-	local function stroke(parent: Instance, color: Color3, thickness: number?)
-		local s = Instance.new("UIStroke")
-		s.Color = color
-		s.Thickness = thickness or 2
-		s.Transparency = 0.35
-		s.Parent = parent
-		return s
-	end
-
-	local function frame(parent: Instance, size: UDim2, position: UDim2, anchor: Vector2?)
-		local f = Instance.new("Frame")
-		f.Size = size
-		f.Position = position
-		f.AnchorPoint = anchor or Vector2.zero
-		f.BackgroundColor3 = PALETTE.panel
-		f.BackgroundTransparency = 0.12
-		f.BorderSizePixel = 0
-		f.Parent = parent
-		corner(f, 14)
-		stroke(f, PALETTE.accent, 2)
-
-		local gradient = Instance.new("UIGradient")
-		gradient.Color = ColorSequence.new(PALETTE.panel2, PALETTE.panel)
-		gradient.Rotation = 90
-		gradient.Parent = f
-		return f
-	end
-
-	local function text(parent: Instance, props)
-		local l = Instance.new("TextLabel")
-		l.BackgroundTransparency = 1
-		l.Font = Style.Font.body
-		l.TextColor3 = PALETTE.text
-		l.TextXAlignment = Enum.TextXAlignment.Left
-		l.RichText = true
-		for k, v in pairs(props) do
-			(l :: any)[k] = v
+	--- THE ONE PLACE THIS PANEL DISAGREES WITH THE REST OF THE UI, and the reason
+	--- the merge into UiKit was not a straight deletion. Every button in HUD and
+	--- UpgradeUI is TextScaled; every button in here is sized text at 15, because
+	--- these labels are long ("BOOST READY IN 12:04") in boxes that are not, and
+	--- TextScaled would set each of them at a different size. Two properties
+	--- pre-seeded into `props` before forwarding buys that back without touching
+	--- the three call sites below — and it is deliberately NOT tidied away in the
+	--- same change that moved the helpers, so that if sized text turns out to be
+	--- the wrong call on a phone there is one function to look at.
+	local function button(parent: Instance, label: string, color: Color3, props): TextButton
+		props = props or {}
+		if props.TextScaled == nil then
+			props.TextScaled = false
 		end
-		l.Parent = parent
-		return l
-	end
-
-	local function button(parent: Instance, label: string, color: Color3, props)
-		local b = Instance.new("TextButton")
-		b.BackgroundColor3 = color
-		b.BackgroundTransparency = 0.1
-		b.BorderSizePixel = 0
-		b.AutoButtonColor = true
-		b.Font = Style.Font.title
-		b.Text = label
-		b.TextColor3 = Color3.fromRGB(20, 16, 28)
-		b.TextScaled = false
-		b.TextSize = 15
-		for k, v in pairs(props or {}) do
-			(b :: any)[k] = v
+		if props.TextSize == nil then
+			props.TextSize = 15
 		end
-		b.Parent = parent
-		corner(b, 10)
-		return b
+		return UiKit.button(parent, label, color, props)
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -5236,11 +5356,13 @@ __MODULES["SessionUI"] = function()
 	--- reward: nothing is ever credited silently, so the number counts up in front
 	--- of you and you press the button.
 	function SessionUI.showOfflineModal(offline)
-		if not gui or modalOpen or not offline then
+		if not overlay or modalOpen or not offline then
 			return
 		end
 		modalOpen = true
 
+		-- HUD.overlay(), not HUD.root(): the shade has to dim the safe area it is
+		-- covering, and the root layer is padded clear of exactly that strip.
 		local shade = Instance.new("Frame")
 		shade.Name = "OfflineModal"
 		shade.Size = UDim2.fromScale(1, 1)
@@ -5248,9 +5370,11 @@ __MODULES["SessionUI"] = function()
 		shade.BackgroundTransparency = 0.45
 		shade.BorderSizePixel = 0
 		shade.ZIndex = 30
-		shade.Parent = gui
+		shade.Parent = overlay
 
-		local card = frame(shade, UDim2.fromOffset(470, 330), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+		local card = frame(shade,
+			UDim2.fromOffset(UI.Modal.Offline.Width, UI.Modal.Offline.Height),
+			UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		card.ZIndex = 31
 		for _, child in ipairs(card:GetDescendants()) do
 			if child:IsA("GuiObject") then
@@ -5333,7 +5457,7 @@ __MODULES["SessionUI"] = function()
 		})
 
 		local collect = button(card, ("COLLECT %s"):format(Util.abbreviate(offline.earned)), PALETTE.good, {
-			Size = UDim2.fromOffset(426, 52),
+			Size = UDim2.fromOffset(426, UI.Button.primary),
 			Position = UDim2.fromOffset(22, 250),
 			TextSize = 22,
 			ZIndex = 32,
@@ -5400,9 +5524,12 @@ __MODULES["SessionUI"] = function()
 			TextSize = 12,
 			TextColor3 = PALETTE.muted,
 		})
+		-- A 66x30 pill was a 41x19 physical target at MinScale, which is a coin
+		-- flip with a thumb. Full touch height, vertically centred in whatever row
+		-- it lands in — the rows are 46, 50 and 56 tall.
 		local action = button(row, "CLAIM", PALETTE.good, {
-			Size = UDim2.fromOffset(66, 30),
-			Position = UDim2.fromOffset(PANEL_W - 28 - 78, 10),
+			Size = UDim2.fromOffset(66, UI.Button.pill),
+			Position = UDim2.fromOffset(PANEL_W - 28 - 78, math.round((height - UI.Button.pill) / 2)),
 			TextSize = 14,
 			Visible = false,
 		})
@@ -5411,7 +5538,7 @@ __MODULES["SessionUI"] = function()
 	end
 
 	local function buildPanel()
-		panel = frame(gui, UDim2.fromOffset(PANEL_W, 216), UDim2.fromOffset(PANEL_X, PANEL_Y))
+		panel = frame(root, UDim2.fromOffset(PANEL_W, UI.SessionPanel.Height), UDim2.fromOffset(PANEL_X, PANEL_Y))
 		panel.Name = "Session"
 		panel.Visible = false
 
@@ -5456,7 +5583,7 @@ __MODULES["SessionUI"] = function()
 		corner(playtimeFill, 2)
 
 		boostButton = button(panel, "BOOST", PALETTE.gold, {
-			Size = UDim2.fromOffset(PANEL_W - 28, 44),
+			Size = UDim2.fromOffset(PANEL_W - 28, UI.Button.secondary),
 			Position = UDim2.fromOffset(14, 148),
 			TextSize = 18,
 		})
@@ -5621,11 +5748,12 @@ __MODULES["SessionUI"] = function()
 				Util.abbreviate(payload.offline.earned), describe(payload.offline.seconds))
 			offlineRow.sub.TextColor3 = PALETTE.gold
 			offlineRow.action.Visible = true
-			panel.Size = UDim2.fromOffset(PANEL_W, compact and 88 or 258)
+			panel.Size = UDim2.fromOffset(PANEL_W,
+				compact and UI.SessionPanel.CompactHeight or UI.SessionPanel.TallHeight)
 		else
 			offlineRow.row.Visible = false
 			panel.Visible = not compact
-			panel.Size = UDim2.fromOffset(PANEL_W, 216)
+			panel.Size = UDim2.fromOffset(PANEL_W, UI.SessionPanel.Height)
 		end
 	end
 
@@ -5636,23 +5764,24 @@ __MODULES["SessionUI"] = function()
 			return
 		end
 
-		gui = HUD.screenGui()
-		if not gui then
+		root = HUD.root()
+		if not root then
 			-- HUD.start() runs first in Main.client.lua, but a prototype that
 			-- assumes boot order is a prototype that breaks when the boot order
 			-- changes
 			for _ = 1, 100 do
 				task.wait(0.1)
-				gui = HUD.screenGui()
-				if gui then
+				root = HUD.root()
+				if root then
 					break
 				end
 			end
-			if not gui then
-				warn("[Tung] SessionUI: no HUD ScreenGui to build into")
+			if not root then
+				warn("[Tung] SessionUI: no HUD layer to build into")
 				return
 			end
 		end
+		overlay = HUD.overlay()
 
 		buildPanel()
 		if not P.Sessions then
@@ -5696,20 +5825,228 @@ __MODULES["SessionUI"] = function()
 end
 
 
+__MODULES["UiKit"] = function()
+	--[[
+		UiKit.lua — the vocabulary every on-screen panel is built out of, plus the
+		two measurements that decide whether it survives a phone.
+
+		CLIENT, NOT SHARED, DELIBERATELY. Req searches TungShared then TungClient, so
+		`Req("UiKit")` resolves from the client root exactly as `Req("HUD")` already
+		does in SessionUI. In src/shared it would be compiled into the SERVER paste
+		build too — tools/pack.py builds that from [src/shared, src/server] — which
+		hands the server a vocabulary for screen UI it must never draw.
+
+		WHY IT EXISTS. corner / stroke / panel / text / button and the palette were
+		written out three times: HUD.lua, SessionUI.lua and UpgradeUI.lua. Two of
+		those files carried a header apologising for the copy and naming this module
+		as the fix. Three copies of a palette is three chances for the game to be two
+		different purples, and the one that drifts first is always the one nobody
+		opens.
+
+		ONE DIVERGENCE SURVIVED THE MERGE, and it is the only interesting thing in
+		this file. HUD and UpgradeUI build TextScaled buttons with no TextSize;
+		SessionUI's are sized text (TextScaled = false, TextSize = 15). `button` here
+		is the TextScaled one, and SessionUI keeps a small shim that pre-seeds the
+		other two properties before forwarding. Rewriting that panel's call sites to
+		remove a shim is how a refactor turns into a redesign.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Style = Req("Style")
+
+	local GuiService = game:GetService("GuiService")
+
+	local UI = Config.UI
+
+	local UiKit = {}
+
+	--- THE PALETTE, once. This is the union of the three copies it replaces: `wave`
+	--- and `boss` came from HUD (promoted out of a toast-only table, because the
+	--- raid banner had inline literals of the same two colours and the raid read as
+	--- two different oranges depending on which widget you looked at), and `dead`
+	--- came from SessionUI and UpgradeUI, where it greys out a claimed or
+	--- unaffordable control.
+	UiKit.PALETTE = {
+		panel   = Color3.fromRGB(22, 18, 32),
+		panel2  = Color3.fromRGB(32, 26, 46),
+		accent  = Color3.fromRGB(190, 130, 255),
+		gold    = Color3.fromRGB(255, 205, 90),
+		good    = Color3.fromRGB(120, 235, 160),
+		bad     = Color3.fromRGB(255, 110, 110),
+		text    = Color3.fromRGB(238, 232, 250),
+		muted   = Color3.fromRGB(160, 150, 180),
+		dead    = Color3.fromRGB(90, 84, 104),
+		wave    = Color3.fromRGB(255, 150, 60),
+		boss    = Color3.fromRGB(255, 90, 60),
+	}
+
+	--- The ink every button and pill prints its label in. Dark, because every
+	--- button colour in the palette above is a bright one.
+	UiKit.INK = Color3.fromRGB(20, 16, 28)
+
+	local PALETTE = UiKit.PALETTE
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- builders
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	function UiKit.corner(parent: Instance, radius: number): UICorner
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, radius)
+		c.Parent = parent
+		return c
+	end
+
+	function UiKit.stroke(parent: Instance, color: Color3, thickness: number?): UIStroke
+		local s = Instance.new("UIStroke")
+		s.Color = color
+		s.Thickness = thickness or 2
+		s.Transparency = 0.35
+		s.Parent = parent
+		return s
+	end
+
+	--- A card: rounded, outlined, with the vertical gradient that makes a stack of
+	--- them read as one surface rather than as eight rectangles.
+	function UiKit.panel(parent: Instance, size: UDim2, position: UDim2, anchor: Vector2?): Frame
+		local f = Instance.new("Frame")
+		f.Size = size
+		f.Position = position
+		f.AnchorPoint = anchor or Vector2.zero
+		f.BackgroundColor3 = PALETTE.panel
+		f.BackgroundTransparency = 0.12
+		f.BorderSizePixel = 0
+		f.Parent = parent
+		UiKit.corner(f, 14)
+		UiKit.stroke(f, PALETTE.accent, 2)
+
+		local gradient = Instance.new("UIGradient")
+		gradient.Color = ColorSequence.new(PALETTE.panel2, PALETTE.panel)
+		gradient.Rotation = 90
+		gradient.Parent = f
+		return f
+	end
+
+	function UiKit.text(parent: Instance, props): TextLabel
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.Font = Style.Font.body
+		l.TextColor3 = PALETTE.text
+		l.TextXAlignment = Enum.TextXAlignment.Left
+		l.TextScaled = false
+		l.RichText = true
+		for k, v in pairs(props) do
+			(l :: any)[k] = v
+		end
+		l.Parent = parent
+		return l
+	end
+
+	--- TextScaled by default — see the header. A caller that wants sized text
+	--- passes TextScaled = false and a TextSize in `props`, which land after these
+	--- defaults do.
+	function UiKit.button(parent: Instance, label: string, color: Color3, props): TextButton
+		local b = Instance.new("TextButton")
+		b.BackgroundColor3 = color
+		b.BackgroundTransparency = 0.1
+		b.BorderSizePixel = 0
+		b.AutoButtonColor = true
+		b.Font = Style.Font.title
+		b.Text = label
+		b.TextColor3 = UiKit.INK
+		b.TextScaled = true
+		for k, v in pairs(props or {}) do
+			(b :: any)[k] = v
+		end
+		b.Parent = parent
+		UiKit.corner(b, 10)
+		return b
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- fitting the screen
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- The one number the whole HUD is scaled by.
+	---
+	--- MIN OF THE TWO RATIOS, not max and not the width alone. The min is what
+	--- guarantees the layer this is mounted on is at least ReferenceWidth x
+	--- ReferenceHeight DESIGN pixels at every aspect ratio, which is the property
+	--- that makes every UDim2.fromOffset literal in src/client correct by
+	--- construction. Max would guarantee neither axis; width alone would guarantee
+	--- the wrong one, since it is height that a landscape phone runs out of.
+	---
+	--- MinScale is the deliberate hole in that guarantee: below it the UI would
+	--- shrink past the point of being readable, so it stops shrinking and a very
+	--- short screen gets a canvas shorter than the reference instead. That is the
+	--- band the shop-versus-column overlap lived in, and it is why the verifier
+	--- asserts that layout at the reference height rather than trusting it.
+	function UiKit.scaleFor(viewport: Vector2): number
+		return math.clamp(
+			math.min(viewport.X / UI.ReferenceWidth, viewport.Y / UI.ReferenceHeight),
+			UI.MinScale, UI.MaxScale)
+	end
+
+	--- The gutter, in PHYSICAL pixels, the persistent HUD should keep clear on each
+	--- edge: notch, home indicator, rounded corners.
+	---
+	--- WHAT IS CONFIDENT AND WHAT IS NOT. GuiService:GetGuiInset() returns two
+	--- Vector2s and has been stable for years, so it is read directly. Everything
+	--- else here is newer surface that a given client may not have, so it is
+	--- pcall'd and simply does not contribute when it is missing — the fallback is
+	--- the behaviour that shipped, plus SafeAreaPad.
+	---
+	--- THE TOP IS DELIBERATELY NOT READ. The ScreenGui is built with
+	--- IgnoreGuiInset = false, so the engine has ALREADY pushed the whole layer
+	--- below the topbar. Adding GetGuiInset().Y on top of that is the classic
+	--- double-inset bug and costs 36 design pixels of screen for nothing.
+	function UiKit.safeInsets(viewport: Vector2)
+		local pad = UI.SafeAreaPad
+		local insets = { left = pad, right = pad, top = pad, bottom = pad }
+
+		-- topLeft is the inset the ScreenGui already applied; only bottomRight is
+		-- news, and on a phone with a home indicator it is the news that matters.
+		local ok, _topLeft, bottomRight = pcall(function()
+			return GuiService:GetGuiInset()
+		end)
+		if ok and typeof(bottomRight) == "Vector2" then
+			insets.right += math.max(0, bottomRight.X)
+			insets.bottom += math.max(0, bottomRight.Y)
+		end
+
+		-- TopbarInset is a Rect describing where the CoreUI topbar actually sits.
+		-- In landscape on a notched phone its left edge is pushed in past the
+		-- notch, which is the only reading of the SIDE safe area available to a
+		-- LocalScript. Guarded because it does not exist on every client.
+		local okBar, bar = pcall(function()
+			return GuiService.TopbarInset
+		end)
+		if okBar and typeof(bar) == "Rect" and bar.Width > 0 then
+			insets.left = math.max(insets.left, bar.Min.X + pad)
+			insets.right = math.max(insets.right, viewport.X - bar.Max.X + pad)
+		end
+
+		return insets
+	end
+
+	return UiKit
+end
+
+
 __MODULES["UpgradeUI"] = function()
 	--[[
 		UpgradeUI.lua — PROTOTYPE. The shop panel for Config.PlayerUpgrades and the
 		utility slot for Config.Utilities.
 
-		It draws into HUD's own ScreenGui (HUD.screenGui()) rather than making a
-		second one, so the two share a z-order and one ResetOnSpawn = false.
+		It draws into HUD's own layers (HUD.root()) rather than making a second
+		ScreenGui, so the two share a z-order, a UIScale and one ResetOnSpawn.
 
-		The panel builders below are a deliberate local copy of HUD's palette and
-		its corner/stroke/panel/text/button helpers: HUD doesn't export them, and
-		the brief for this prototype is not to touch HUD.lua. If this ships, the
-		right move is to lift those five functions into a shared UiKit module and
-		have both files call it — right now the palette exists twice and the two
-		copies can drift.
+		The palette and the corner/stroke/panel/text/button helpers this file used
+		to keep a local copy of are now src/client/UiKit.lua, which is the fix this
+		header asked for when it was written. HUD still doesn't export them —
+		nobody's panel builders belong to another panel — they just have an owner
+		that is neither of us now.
 
 		The client is a renderer here. It never decides what you own, what a level
 		costs or whether a utility is off cooldown; it draws the last UpgradeState
@@ -5721,6 +6058,7 @@ __MODULES["UpgradeUI"] = function()
 	local Style = Req("Style")
 	local Util = Req("Util")
 	local Net = Req("Net")
+	local UiKit = Req("UiKit")
 	local Utilities = Req("Utilities")
 
 	local RunService = game:GetService("RunService")
@@ -5737,17 +6075,8 @@ __MODULES["UpgradeUI"] = function()
 	local USE_KEY = Enum.KeyCode.Q
 	local SEND_THROTTLE = 0.2
 
-	local PALETTE = {
-		panel   = Color3.fromRGB(22, 18, 32),
-		panel2  = Color3.fromRGB(32, 26, 46),
-		accent  = Color3.fromRGB(190, 130, 255),
-		gold    = Color3.fromRGB(255, 205, 90),
-		good    = Color3.fromRGB(120, 235, 160),
-		bad     = Color3.fromRGB(255, 110, 110),
-		text    = Color3.fromRGB(238, 232, 250),
-		muted   = Color3.fromRGB(160, 150, 180),
-		dead    = Color3.fromRGB(90, 84, 104),
-	}
+	local UI = Config.UI
+	local PALETTE = UiKit.PALETTE
 
 	local state = {
 		cash = 0,
@@ -5771,75 +6100,11 @@ __MODULES["UpgradeUI"] = function()
 	local flashUntil = 0
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- builders (local copies of HUD's — see the header)
+	-- builders (UiKit's — see the header)
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	local function corner(parent: Instance, radius: number)
-		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(0, radius)
-		c.Parent = parent
-		return c
-	end
-
-	local function stroke(parent: Instance, color: Color3, thickness: number?)
-		local s = Instance.new("UIStroke")
-		s.Color = color
-		s.Thickness = thickness or 2
-		s.Transparency = 0.35
-		s.Parent = parent
-		return s
-	end
-
-	local function panel(parent: Instance, size: UDim2, position: UDim2, anchor: Vector2?)
-		local f = Instance.new("Frame")
-		f.Size = size
-		f.Position = position
-		f.AnchorPoint = anchor or Vector2.zero
-		f.BackgroundColor3 = PALETTE.panel
-		f.BackgroundTransparency = 0.12
-		f.BorderSizePixel = 0
-		f.Parent = parent
-		corner(f, 14)
-		stroke(f, PALETTE.accent, 2)
-
-		local gradient = Instance.new("UIGradient")
-		gradient.Color = ColorSequence.new(PALETTE.panel2, PALETTE.panel)
-		gradient.Rotation = 90
-		gradient.Parent = f
-		return f
-	end
-
-	local function text(parent: Instance, props): TextLabel
-		local l = Instance.new("TextLabel")
-		l.BackgroundTransparency = 1
-		l.Font = Style.Font.body
-		l.TextColor3 = PALETTE.text
-		l.TextXAlignment = Enum.TextXAlignment.Left
-		l.RichText = true
-		for k, v in pairs(props) do
-			(l :: any)[k] = v
-		end
-		l.Parent = parent
-		return l
-	end
-
-	local function button(parent: Instance, label: string, color: Color3, props): TextButton
-		local b = Instance.new("TextButton")
-		b.BackgroundColor3 = color
-		b.BackgroundTransparency = 0.1
-		b.BorderSizePixel = 0
-		b.AutoButtonColor = true
-		b.Font = Style.Font.title
-		b.Text = label
-		b.TextColor3 = Color3.fromRGB(20, 16, 28)
-		b.TextScaled = true
-		for k, v in pairs(props or {}) do
-			(b :: any)[k] = v
-		end
-		b.Parent = parent
-		corner(b, 10)
-		return b
-	end
+	local corner, stroke, panel, text, button =
+		UiKit.corner, UiKit.stroke, UiKit.panel, UiKit.text, UiKit.button
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- rows
@@ -5871,7 +6136,7 @@ __MODULES["UpgradeUI"] = function()
 		row.BackgroundColor3 = PALETTE.panel2
 		row.BackgroundTransparency = 0.25
 		row.BorderSizePixel = 0
-		row.Size = UDim2.new(1, -6, 0, 62)   -- -6 leaves the scrollbar its lane
+		row.Size = UDim2.new(1, -6, 0, UI.ShopPanel.RowHeight)   -- -6 leaves the scrollbar its lane
 		row.LayoutOrder = order
 		row.Parent = parent
 		corner(row, 10)
@@ -6075,18 +6340,30 @@ __MODULES["UpgradeUI"] = function()
 	-- construction
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	local function buildPanel(gui: ScreenGui)
-		-- bottom-left: HUD owns top-left (cash / next-up), top-centre (wave),
-		-- top-right (toasts) and bottom-right (rebirth / leave)
-		local anchorY = UTILITY_ON and -118 or -70
+	--- The shop's own column, one gap clear of HUD's left column.
+	---
+	--- IT USED TO SHARE THAT COLUMN, and that was a real bug rather than a tight
+	--- fit. The panel is bottom-anchored and proportionally tall, so on a short
+	--- screen it grows UPWARDS into whatever is above it: below 638 design pixels
+	--- it covered the NEXT UPGRADE panel, and with the utility chip on it did so at
+	--- the 720 reference height. Neither file could see the collision, because HUD
+	--- held the bottom edge of the column and this one held the top edge of the
+	--- shop. Both numbers are Config.UI now, X is derived from the column's width,
+	--- and tools/verify_config.lua asserts the two clear each other on one axis or
+	--- the other — which holds at every viewport height rather than at the one it
+	--- was eyeballed on.
+	local function buildPanel(parent: Instance)
+		local anchorY = UTILITY_ON and UI.ShopPanel.BottomGap or UI.ShopPanel.BottomGapNoUtility
 
-		panelFrame = panel(gui, UDim2.new(0, 340, 0.58, 0), UDim2.new(0, 18, 1, anchorY), Vector2.new(0, 1))
+		panelFrame = panel(parent,
+			UDim2.new(0, UI.ShopPanel.Width, UI.ShopPanel.HeightScale, 0),
+			UDim2.new(0, UI.ShopPanel.X, 1, -anchorY), Vector2.new(0, 1))
 		panelFrame.Name = "UpgradeShop"
 		panelFrame.Visible = false
 
 		local sizeLimit = Instance.new("UISizeConstraint")
-		sizeLimit.MaxSize = Vector2.new(340, 460)
-		sizeLimit.MinSize = Vector2.new(340, 180)
+		sizeLimit.MaxSize = Vector2.new(UI.ShopPanel.Width, UI.ShopPanel.MaxHeight)
+		sizeLimit.MinSize = Vector2.new(UI.ShopPanel.Width, UI.ShopPanel.MinHeight)
 		sizeLimit.Parent = panelFrame
 
 		text(panelFrame, {
@@ -6137,12 +6414,12 @@ __MODULES["UpgradeUI"] = function()
 		end
 	end
 
-	local function buildToggle(gui: ScreenGui)
-		toggleButton = button(gui, "UPGRADES", PALETTE.accent, {
+	local function buildToggle(parent: Instance)
+		toggleButton = button(parent, "UPGRADES", PALETTE.accent, {
 			Name = "UpgradeToggle",
 			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.new(0, 18, 1, -18),
-			Size = UDim2.fromOffset(200, 44),
+			Position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.Margin),
+			Size = UDim2.fromOffset(UI.Action.Width, UI.Button.pill),
 			TextSize = 18,
 		})
 		toggleButton.Activated:Connect(function()
@@ -6153,12 +6430,12 @@ __MODULES["UpgradeUI"] = function()
 		end)
 	end
 
-	local function buildChip(gui: ScreenGui)
-		chipButton = button(gui, "", PALETTE.accent, {
+	local function buildChip(parent: Instance)
+		chipButton = button(parent, "", PALETTE.accent, {
 			Name = "UtilityChip",
 			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.new(0, 18, 1, -70),
-			Size = UDim2.fromOffset(200, 40),
+			Position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.ShopPanel.BottomGapNoUtility),
+			Size = UDim2.fromOffset(UI.Action.Width, UI.Button.pill),
 			Visible = false,
 		})
 		chipLabel = text(chipButton, {
@@ -6180,19 +6457,19 @@ __MODULES["UpgradeUI"] = function()
 		end
 
 		local HUD = Req("HUD")
-		local gui = HUD.screenGui()
-		if not gui then
+		local root = HUD.root()
+		if not root then
 			-- Main.client calls HUD.start() first, so this only fires if that order
 			-- changes; better a warning than a silent half-built shop.
-			warn("[Tung] UpgradeUI: HUD.screenGui() is nil, shop not built")
+			warn("[Tung] UpgradeUI: HUD.root() is nil, shop not built")
 			return
 		end
 
-		buildPanel(gui)
+		buildPanel(root)
 		if UTILITY_ON then
-			buildChip(gui)
+			buildChip(root)
 		end
-		buildToggle(gui)
+		buildToggle(root)
 
 		Net.event("UpgradeState").OnClientEvent:Connect(function(payload)
 			if typeof(payload) ~= "table" then

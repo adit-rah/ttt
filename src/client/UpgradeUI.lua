@@ -2,15 +2,14 @@
 	UpgradeUI.lua — PROTOTYPE. The shop panel for Config.PlayerUpgrades and the
 	utility slot for Config.Utilities.
 
-	It draws into HUD's own ScreenGui (HUD.screenGui()) rather than making a
-	second one, so the two share a z-order and one ResetOnSpawn = false.
+	It draws into HUD's own layers (HUD.root()) rather than making a second
+	ScreenGui, so the two share a z-order, a UIScale and one ResetOnSpawn.
 
-	The panel builders below are a deliberate local copy of HUD's palette and
-	its corner/stroke/panel/text/button helpers: HUD doesn't export them, and
-	the brief for this prototype is not to touch HUD.lua. If this ships, the
-	right move is to lift those five functions into a shared UiKit module and
-	have both files call it — right now the palette exists twice and the two
-	copies can drift.
+	The palette and the corner/stroke/panel/text/button helpers this file used
+	to keep a local copy of are now src/client/UiKit.lua, which is the fix this
+	header asked for when it was written. HUD still doesn't export them —
+	nobody's panel builders belong to another panel — they just have an owner
+	that is neither of us now.
 
 	The client is a renderer here. It never decides what you own, what a level
 	costs or whether a utility is off cooldown; it draws the last UpgradeState
@@ -22,6 +21,7 @@ local Config = Req("Config")
 local Style = Req("Style")
 local Util = Req("Util")
 local Net = Req("Net")
+local UiKit = Req("UiKit")
 local Utilities = Req("Utilities")
 
 local RunService = game:GetService("RunService")
@@ -38,17 +38,8 @@ local ENABLED = SHOP_ON or UTILITY_ON
 local USE_KEY = Enum.KeyCode.Q
 local SEND_THROTTLE = 0.2
 
-local PALETTE = {
-	panel   = Color3.fromRGB(22, 18, 32),
-	panel2  = Color3.fromRGB(32, 26, 46),
-	accent  = Color3.fromRGB(190, 130, 255),
-	gold    = Color3.fromRGB(255, 205, 90),
-	good    = Color3.fromRGB(120, 235, 160),
-	bad     = Color3.fromRGB(255, 110, 110),
-	text    = Color3.fromRGB(238, 232, 250),
-	muted   = Color3.fromRGB(160, 150, 180),
-	dead    = Color3.fromRGB(90, 84, 104),
-}
+local UI = Config.UI
+local PALETTE = UiKit.PALETTE
 
 local state = {
 	cash = 0,
@@ -72,75 +63,11 @@ local lastSend = 0
 local flashUntil = 0
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- builders (local copies of HUD's — see the header)
+-- builders (UiKit's — see the header)
 -- ─────────────────────────────────────────────────────────────────────────────
 
-local function corner(parent: Instance, radius: number)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius)
-	c.Parent = parent
-	return c
-end
-
-local function stroke(parent: Instance, color: Color3, thickness: number?)
-	local s = Instance.new("UIStroke")
-	s.Color = color
-	s.Thickness = thickness or 2
-	s.Transparency = 0.35
-	s.Parent = parent
-	return s
-end
-
-local function panel(parent: Instance, size: UDim2, position: UDim2, anchor: Vector2?)
-	local f = Instance.new("Frame")
-	f.Size = size
-	f.Position = position
-	f.AnchorPoint = anchor or Vector2.zero
-	f.BackgroundColor3 = PALETTE.panel
-	f.BackgroundTransparency = 0.12
-	f.BorderSizePixel = 0
-	f.Parent = parent
-	corner(f, 14)
-	stroke(f, PALETTE.accent, 2)
-
-	local gradient = Instance.new("UIGradient")
-	gradient.Color = ColorSequence.new(PALETTE.panel2, PALETTE.panel)
-	gradient.Rotation = 90
-	gradient.Parent = f
-	return f
-end
-
-local function text(parent: Instance, props): TextLabel
-	local l = Instance.new("TextLabel")
-	l.BackgroundTransparency = 1
-	l.Font = Style.Font.body
-	l.TextColor3 = PALETTE.text
-	l.TextXAlignment = Enum.TextXAlignment.Left
-	l.RichText = true
-	for k, v in pairs(props) do
-		(l :: any)[k] = v
-	end
-	l.Parent = parent
-	return l
-end
-
-local function button(parent: Instance, label: string, color: Color3, props): TextButton
-	local b = Instance.new("TextButton")
-	b.BackgroundColor3 = color
-	b.BackgroundTransparency = 0.1
-	b.BorderSizePixel = 0
-	b.AutoButtonColor = true
-	b.Font = Style.Font.title
-	b.Text = label
-	b.TextColor3 = Color3.fromRGB(20, 16, 28)
-	b.TextScaled = true
-	for k, v in pairs(props or {}) do
-		(b :: any)[k] = v
-	end
-	b.Parent = parent
-	corner(b, 10)
-	return b
-end
+local corner, stroke, panel, text, button =
+	UiKit.corner, UiKit.stroke, UiKit.panel, UiKit.text, UiKit.button
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- rows
@@ -172,7 +99,7 @@ local function buildRow(parent: Instance, id: string, name: string, order: numbe
 	row.BackgroundColor3 = PALETTE.panel2
 	row.BackgroundTransparency = 0.25
 	row.BorderSizePixel = 0
-	row.Size = UDim2.new(1, -6, 0, 62)   -- -6 leaves the scrollbar its lane
+	row.Size = UDim2.new(1, -6, 0, UI.ShopPanel.RowHeight)   -- -6 leaves the scrollbar its lane
 	row.LayoutOrder = order
 	row.Parent = parent
 	corner(row, 10)
@@ -376,18 +303,30 @@ end
 -- construction
 -- ─────────────────────────────────────────────────────────────────────────────
 
-local function buildPanel(gui: ScreenGui)
-	-- bottom-left: HUD owns top-left (cash / next-up), top-centre (wave),
-	-- top-right (toasts) and bottom-right (rebirth / leave)
-	local anchorY = UTILITY_ON and -118 or -70
+--- The shop's own column, one gap clear of HUD's left column.
+---
+--- IT USED TO SHARE THAT COLUMN, and that was a real bug rather than a tight
+--- fit. The panel is bottom-anchored and proportionally tall, so on a short
+--- screen it grows UPWARDS into whatever is above it: below 638 design pixels
+--- it covered the NEXT UPGRADE panel, and with the utility chip on it did so at
+--- the 720 reference height. Neither file could see the collision, because HUD
+--- held the bottom edge of the column and this one held the top edge of the
+--- shop. Both numbers are Config.UI now, X is derived from the column's width,
+--- and tools/verify_config.lua asserts the two clear each other on one axis or
+--- the other — which holds at every viewport height rather than at the one it
+--- was eyeballed on.
+local function buildPanel(parent: Instance)
+	local anchorY = UTILITY_ON and UI.ShopPanel.BottomGap or UI.ShopPanel.BottomGapNoUtility
 
-	panelFrame = panel(gui, UDim2.new(0, 340, 0.58, 0), UDim2.new(0, 18, 1, anchorY), Vector2.new(0, 1))
+	panelFrame = panel(parent,
+		UDim2.new(0, UI.ShopPanel.Width, UI.ShopPanel.HeightScale, 0),
+		UDim2.new(0, UI.ShopPanel.X, 1, -anchorY), Vector2.new(0, 1))
 	panelFrame.Name = "UpgradeShop"
 	panelFrame.Visible = false
 
 	local sizeLimit = Instance.new("UISizeConstraint")
-	sizeLimit.MaxSize = Vector2.new(340, 460)
-	sizeLimit.MinSize = Vector2.new(340, 180)
+	sizeLimit.MaxSize = Vector2.new(UI.ShopPanel.Width, UI.ShopPanel.MaxHeight)
+	sizeLimit.MinSize = Vector2.new(UI.ShopPanel.Width, UI.ShopPanel.MinHeight)
 	sizeLimit.Parent = panelFrame
 
 	text(panelFrame, {
@@ -438,12 +377,12 @@ local function buildPanel(gui: ScreenGui)
 	end
 end
 
-local function buildToggle(gui: ScreenGui)
-	toggleButton = button(gui, "UPGRADES", PALETTE.accent, {
+local function buildToggle(parent: Instance)
+	toggleButton = button(parent, "UPGRADES", PALETTE.accent, {
 		Name = "UpgradeToggle",
 		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 18, 1, -18),
-		Size = UDim2.fromOffset(200, 44),
+		Position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.Margin),
+		Size = UDim2.fromOffset(UI.Action.Width, UI.Button.pill),
 		TextSize = 18,
 	})
 	toggleButton.Activated:Connect(function()
@@ -454,12 +393,12 @@ local function buildToggle(gui: ScreenGui)
 	end)
 end
 
-local function buildChip(gui: ScreenGui)
-	chipButton = button(gui, "", PALETTE.accent, {
+local function buildChip(parent: Instance)
+	chipButton = button(parent, "", PALETTE.accent, {
 		Name = "UtilityChip",
 		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 18, 1, -70),
-		Size = UDim2.fromOffset(200, 40),
+		Position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.ShopPanel.BottomGapNoUtility),
+		Size = UDim2.fromOffset(UI.Action.Width, UI.Button.pill),
 		Visible = false,
 	})
 	chipLabel = text(chipButton, {
@@ -481,19 +420,19 @@ function UpgradeUI.start()
 	end
 
 	local HUD = Req("HUD")
-	local gui = HUD.screenGui()
-	if not gui then
+	local root = HUD.root()
+	if not root then
 		-- Main.client calls HUD.start() first, so this only fires if that order
 		-- changes; better a warning than a silent half-built shop.
-		warn("[Tung] UpgradeUI: HUD.screenGui() is nil, shop not built")
+		warn("[Tung] UpgradeUI: HUD.root() is nil, shop not built")
 		return
 	end
 
-	buildPanel(gui)
+	buildPanel(root)
 	if UTILITY_ON then
-		buildChip(gui)
+		buildChip(root)
 	end
-	buildToggle(gui)
+	buildToggle(root)
 
 	Net.event("UpgradeState").OnClientEvent:Connect(function(payload)
 		if typeof(payload) ~= "table" then
