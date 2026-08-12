@@ -161,12 +161,29 @@ Config.Layout = {
 	-- open floor, in purchase order, so the aisle you walk reads as a queue.
 	MiscButtons = {
 		walls     = Vector3.new(8, 0, -34),
-		batforge  = Vector3.new(8, 0, -20),
 		belt1     = Vector3.new(8, 0,  -6),
 		roof      = Vector3.new(8, 0,   8),
-		batforge2 = Vector3.new(8, 0,  22),
 	},
 	MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
+
+	-- SIDE-TRACK FURNITURE. Each cabinet is a display case standing behind a
+	-- column of its own buy buttons, so the right half of the plot reads as an
+	-- armoury aisle the way the left half reads as a production line.
+	--
+	-- Positions are DERIVED from the anchor, exactly like DropperDist: adding a
+	-- sixth bat tier should be one row in Config.WeaponButtons and nothing
+	-- else. Hand-listing nine more coordinates in MiscButtons would have been
+	-- nine more chances to place a collision the verifier then has to catch.
+	--
+	-- `slots` is the capacity of the column, not the number of buttons in the
+	-- track; the verifier asserts the track fits, which is what stops a new
+	-- tier silently stacking a pedestal on top of the one before it.
+	Tracks = {
+		-- weapons stops at 5: a sixth slot lands at z = 36, which is 12.6 studs
+		-- from the rebirth pad at (42, 40) and fails MiscButtonSpacing.
+		weapons = { cabinetX = 20, buttonX = 30, firstZ = -34, spacing = 14, slots = 5, depth = 4, height = 13 },
+		armor   = { cabinetX = 54, buttonX = 44, firstZ = -34, spacing = 14, slots = 4, depth = 4, height = 13 },
+	},
 
 	RebirthPadAt = Vector3.new(42, 0, 40),   -- front-right, away from the vault
 	ClaimPadAt   = Vector3.new(14, 0, 52),   -- front-centre-right, on the aisle
@@ -304,22 +321,36 @@ Config.Variants = {
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- THE BUTTON TABLE — this IS the tycoon.
+-- THE BUTTON TABLES — these ARE the tycoon.
+--
+-- There are THREE of them, one per track, and each track is a chain that is
+-- ordered only against ITSELF. The factory does not gate your bat and your bat
+-- does not gate the factory; they are separate systems that happen to share a
+-- wallet. Before this split every button `requires`d the one before it in a
+-- single 21-long line, so `dropper5` was unreachable until you had bought a
+-- weapon and the weapon was unreachable until you had bought `upgrader2`.
 --
 --  id        unique key, also used as the save key
 --  name      shown on the button billboard
 --  price     cost in Tung
---  kind      "Dropper" | "Upgrader" | "Belt" | "Structure" | "Gear"
---  requires  id (or list of ids) that must be owned first; nil = available at spawn
---  slot      position index into Layout.DropperZ / Layout.UpgraderZ
+--  kind      "Dropper" | "Upgrader" | "Belt" | "Structure" | "Gear" | "Armor"
+--  requires  id (or list of ids) that must be owned first.
+--            OMIT IT on a track table and the loader derives it from the row
+--            above — a chain should not have to restate that it is a chain,
+--            and a hand-typed `requires` is the most error-prone field here.
+--  slot      position index into Layout.DropperDist / Layout.UpgraderDist
 --
 --  Dropper:  variant, dropValue, dropRate (seconds between drops)
 --  Upgrader: variant, multiplier
 --  Belt:     speedBonus
---  Gear:     grants (bat tier id)
+--  Gear:     grants (a Config.Bats id)
+--  Armor:    grants (a Config.Armor.Tiers id)
+--
+-- The three tables are merged into a single Config.Buttons at the bottom of
+-- this file, in track order, so every consumer still iterates one array.
 -- ─────────────────────────────────────────────────────────────────────────────
 
-Config.Buttons = {
+Config.FactoryButtons = {
 	{
 		id = "dropper1", name = "Tung Dropper", price = 50,
 		kind = "Dropper", slot = 1, variant = "classic",
@@ -362,13 +393,8 @@ Config.Buttons = {
 		blurb = "Whacks value into them. x1.85",
 	},
 	{
-		id = "batforge", name = "Bat Forge", price = 17000,
-		kind = "Gear", requires = "upgrader2", grants = "oak",
-		blurb = "Unlocks the Oak Sahur Bat.",
-	},
-	{
 		id = "dropper5", name = "Crimson Tung", price = 25000,
-		kind = "Dropper", slot = 5, variant = "crimson", requires = "batforge",
+		kind = "Dropper", slot = 5, variant = "crimson", requires = "upgrader2",
 		dropValue = 150, dropRate = 1.3,
 		blurb = "It has seen things.",
 	},
@@ -407,13 +433,8 @@ Config.Buttons = {
 		blurb = "Melts them into money. x2.4",
 	},
 	{
-		id = "batforge2", name = "Void Bat Forge", price = 14000000,
-		kind = "Gear", requires = "upgrader4", grants = "void",
-		blurb = "Unlocks the Void Sahur Bat.",
-	},
-	{
 		id = "dropper8", name = "Eclipse Tung", price = 18000000,
-		kind = "Dropper", slot = 8, variant = "eclipse", requires = "batforge2",
+		kind = "Dropper", slot = 8, variant = "eclipse", requires = "upgrader4",
 		dropValue = 11000, dropRate = 1.15,
 		blurb = "Sahur at the end of the night.",
 	},
@@ -453,6 +474,38 @@ Config.Bats = {
 	{ id = "oak",     name = "Oak Sahur Bat",  variant = "golden",  damage = 34, cooldown = 0.5,  knockback = 75,  reach = 10, crit = 0.14 },
 	{ id = "void",    name = "Void Sahur Bat", variant = "void",    damage = 62, cooldown = 0.44, knockback = 105, reach = 11.5, crit = 0.22 },
 }
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- THE WEAPONS CABINET — the second track.
+--
+-- These two used to be steps 8 and 16 of the factory chain, which meant your
+-- bat was gated on an upgrader and two droppers were gated on your bat. They
+-- now stand at their own cabinet on the right of the plot and are ordered only
+-- against each other.
+--
+-- Both are cheaper than they were, and that is a consequence rather than a
+-- separate decision: a Gear button priced to sit between `upgrader2` and
+-- `dropper5` was priced as a toll on the factory. Nothing tolls anything now,
+-- so each one is priced against what it does — buy a better bat when a raid
+-- is what is stopping you, not because the belt is waiting on it.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+Config.WeaponButtons = {
+	{
+		id = "batforge", name = "Bat Forge", price = 2500,
+		kind = "Gear", grants = "oak",
+		blurb = "Unlocks the Oak Sahur Bat.",
+	},
+	{
+		id = "batforge2", name = "Void Bat Forge", price = 6000000,
+		kind = "Gear", grants = "void",
+		blurb = "Unlocks the Void Sahur Bat.",
+	},
+}
+
+-- The armour cabinet. Empty for now: the track exists so the shape is real and
+-- verified before anything is hung off it.
+Config.ArmorButtons = {}
 
 Config.Combat = {
 	ComboWindow = 1.6,          -- seconds to chain a swing
@@ -748,16 +801,82 @@ Config.World.PlotCount = Config.plotCountFor()
 Config.World.PlotPlacements = Config.plotPlacements(Config.World.PlotCount)
 Config.World.PlotRadius = Config.World.PlotPlacements[1].radius   -- inner ring
 
+-- THE MERGE. Three track tables become one Config.Buttons, in track order, so
+-- every consumer downstream still iterates a single array exactly as before.
+--
+-- FACTORY FIRST IS LOAD-BEARING. It leaves every factory button with the same
+-- `order` it had when there was only one table, which is what lets
+-- Tycoon:assign keep replaying installs by sorting on `order` — weapons and
+-- armour land after the whole factory, and because no requirement crosses a
+-- track that ordering is trivially valid. It also keeps the verifier's
+-- "requires must point at an earlier index" check true without modification.
+--
+--   order       position in the merged array. The install-order key. Global.
+--   trackOrder  position within the button's own track. The gating and
+--               display key: it is what the buy-button billboard counts, what
+--               the three-state reveal measures its frontier against, and
+--               what the HUD calls a step.
+Config.TrackOrder = { "factory", "weapons", "armor" }
+Config.Tracks = {
+	factory = Config.FactoryButtons,
+	weapons = Config.WeaponButtons,
+	armor   = Config.ArmorButtons,
+}
+Config.TrackLabel = { factory = "FACTORY", weapons = "WEAPONS", armor = "ARMORY" }
+
+Config.Buttons = {}
 Config.ButtonById = {}
-for index, def in ipairs(Config.Buttons) do
-	def.order = index
-	Config.ButtonById[def.id] = def
+for _, track in ipairs(Config.TrackOrder) do
+	local defs = Config.Tracks[track]
+	for trackOrder, def in ipairs(defs) do
+		def.track = track
+		def.trackOrder = trackOrder
+		-- A track IS a chain, so derive the link rather than restating it.
+		-- This is what makes "no requirement crosses a track" a property of
+		-- the loader instead of a promise the verifier has to police, and it
+		-- deletes the single most error-prone field in this file for every
+		-- row that doesn't genuinely need something unusual.
+		if def.requires == nil and trackOrder > 1 then
+			def.requires = defs[trackOrder - 1].id
+		end
+		table.insert(Config.Buttons, def)
+		def.order = #Config.Buttons
+		Config.ButtonById[def.id] = def
+	end
 end
 
 Config.BatById = {}
 for tier, def in ipairs(Config.Bats) do
 	def.tier = tier
 	Config.BatById[def.id] = def
+end
+
+--- Where a side track's buy button `slot` stands, in plot-local coordinates.
+---
+--- Component arithmetic on purpose: tools/verify_config.lua stubs Vector3 as a
+--- plain table with no operators, so anything that adds or scales a Vector3 at
+--- require time takes the whole verifier down.
+function Config.trackButtonPosition(track: string, slot: number): Vector3
+	local t = Config.Layout.Tracks[track]
+	return Vector3.new(t.buttonX, 0, t.firstZ + (slot - 1) * t.spacing)
+end
+
+--- The cabinet body behind that column: centre, then size. Its long axis is Z,
+--- running the length of its own button column with four studs of overhang at
+--- each end so the case reads as containing the buttons rather than starting
+--- level with them.
+function Config.trackCabinet(track: string): (Vector3, Vector3)
+	local t = Config.Layout.Tracks[track]
+	local length = (t.slots - 1) * t.spacing + 8
+	return Vector3.new(t.cabinetX, 0, t.firstZ + (t.slots - 1) * t.spacing / 2),
+		Vector3.new(t.depth, t.height, length)
+end
+
+--- Shelf slot `slot` on the cabinet — where the display for a bought tier
+--- stands, so the case visibly fills up as you climb the track.
+function Config.trackShelfPosition(track: string, slot: number): Vector3
+	local t = Config.Layout.Tracks[track]
+	return Vector3.new(t.cabinetX, 5, t.firstZ + (slot - 1) * t.spacing)
 end
 
 function Config.requirementsOf(def)

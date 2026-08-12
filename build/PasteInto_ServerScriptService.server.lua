@@ -193,12 +193,29 @@ __MODULES["Config"] = function()
 		-- open floor, in purchase order, so the aisle you walk reads as a queue.
 		MiscButtons = {
 			walls     = Vector3.new(8, 0, -34),
-			batforge  = Vector3.new(8, 0, -20),
 			belt1     = Vector3.new(8, 0,  -6),
 			roof      = Vector3.new(8, 0,   8),
-			batforge2 = Vector3.new(8, 0,  22),
 		},
 		MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
+
+		-- SIDE-TRACK FURNITURE. Each cabinet is a display case standing behind a
+		-- column of its own buy buttons, so the right half of the plot reads as an
+		-- armoury aisle the way the left half reads as a production line.
+		--
+		-- Positions are DERIVED from the anchor, exactly like DropperDist: adding a
+		-- sixth bat tier should be one row in Config.WeaponButtons and nothing
+		-- else. Hand-listing nine more coordinates in MiscButtons would have been
+		-- nine more chances to place a collision the verifier then has to catch.
+		--
+		-- `slots` is the capacity of the column, not the number of buttons in the
+		-- track; the verifier asserts the track fits, which is what stops a new
+		-- tier silently stacking a pedestal on top of the one before it.
+		Tracks = {
+			-- weapons stops at 5: a sixth slot lands at z = 36, which is 12.6 studs
+			-- from the rebirth pad at (42, 40) and fails MiscButtonSpacing.
+			weapons = { cabinetX = 20, buttonX = 30, firstZ = -34, spacing = 14, slots = 5, depth = 4, height = 13 },
+			armor   = { cabinetX = 54, buttonX = 44, firstZ = -34, spacing = 14, slots = 4, depth = 4, height = 13 },
+		},
 
 		RebirthPadAt = Vector3.new(42, 0, 40),   -- front-right, away from the vault
 		ClaimPadAt   = Vector3.new(14, 0, 52),   -- front-centre-right, on the aisle
@@ -336,22 +353,36 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- THE BUTTON TABLE — this IS the tycoon.
+	-- THE BUTTON TABLES — these ARE the tycoon.
+	--
+	-- There are THREE of them, one per track, and each track is a chain that is
+	-- ordered only against ITSELF. The factory does not gate your bat and your bat
+	-- does not gate the factory; they are separate systems that happen to share a
+	-- wallet. Before this split every button `requires`d the one before it in a
+	-- single 21-long line, so `dropper5` was unreachable until you had bought a
+	-- weapon and the weapon was unreachable until you had bought `upgrader2`.
 	--
 	--  id        unique key, also used as the save key
 	--  name      shown on the button billboard
 	--  price     cost in Tung
-	--  kind      "Dropper" | "Upgrader" | "Belt" | "Structure" | "Gear"
-	--  requires  id (or list of ids) that must be owned first; nil = available at spawn
-	--  slot      position index into Layout.DropperZ / Layout.UpgraderZ
+	--  kind      "Dropper" | "Upgrader" | "Belt" | "Structure" | "Gear" | "Armor"
+	--  requires  id (or list of ids) that must be owned first.
+	--            OMIT IT on a track table and the loader derives it from the row
+	--            above — a chain should not have to restate that it is a chain,
+	--            and a hand-typed `requires` is the most error-prone field here.
+	--  slot      position index into Layout.DropperDist / Layout.UpgraderDist
 	--
 	--  Dropper:  variant, dropValue, dropRate (seconds between drops)
 	--  Upgrader: variant, multiplier
 	--  Belt:     speedBonus
-	--  Gear:     grants (bat tier id)
+	--  Gear:     grants (a Config.Bats id)
+	--  Armor:    grants (a Config.Armor.Tiers id)
+	--
+	-- The three tables are merged into a single Config.Buttons at the bottom of
+	-- this file, in track order, so every consumer still iterates one array.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	Config.Buttons = {
+	Config.FactoryButtons = {
 		{
 			id = "dropper1", name = "Tung Dropper", price = 50,
 			kind = "Dropper", slot = 1, variant = "classic",
@@ -394,13 +425,8 @@ __MODULES["Config"] = function()
 			blurb = "Whacks value into them. x1.85",
 		},
 		{
-			id = "batforge", name = "Bat Forge", price = 17000,
-			kind = "Gear", requires = "upgrader2", grants = "oak",
-			blurb = "Unlocks the Oak Sahur Bat.",
-		},
-		{
 			id = "dropper5", name = "Crimson Tung", price = 25000,
-			kind = "Dropper", slot = 5, variant = "crimson", requires = "batforge",
+			kind = "Dropper", slot = 5, variant = "crimson", requires = "upgrader2",
 			dropValue = 150, dropRate = 1.3,
 			blurb = "It has seen things.",
 		},
@@ -439,13 +465,8 @@ __MODULES["Config"] = function()
 			blurb = "Melts them into money. x2.4",
 		},
 		{
-			id = "batforge2", name = "Void Bat Forge", price = 14000000,
-			kind = "Gear", requires = "upgrader4", grants = "void",
-			blurb = "Unlocks the Void Sahur Bat.",
-		},
-		{
 			id = "dropper8", name = "Eclipse Tung", price = 18000000,
-			kind = "Dropper", slot = 8, variant = "eclipse", requires = "batforge2",
+			kind = "Dropper", slot = 8, variant = "eclipse", requires = "upgrader4",
 			dropValue = 11000, dropRate = 1.15,
 			blurb = "Sahur at the end of the night.",
 		},
@@ -485,6 +506,38 @@ __MODULES["Config"] = function()
 		{ id = "oak",     name = "Oak Sahur Bat",  variant = "golden",  damage = 34, cooldown = 0.5,  knockback = 75,  reach = 10, crit = 0.14 },
 		{ id = "void",    name = "Void Sahur Bat", variant = "void",    damage = 62, cooldown = 0.44, knockback = 105, reach = 11.5, crit = 0.22 },
 	}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- THE WEAPONS CABINET — the second track.
+	--
+	-- These two used to be steps 8 and 16 of the factory chain, which meant your
+	-- bat was gated on an upgrader and two droppers were gated on your bat. They
+	-- now stand at their own cabinet on the right of the plot and are ordered only
+	-- against each other.
+	--
+	-- Both are cheaper than they were, and that is a consequence rather than a
+	-- separate decision: a Gear button priced to sit between `upgrader2` and
+	-- `dropper5` was priced as a toll on the factory. Nothing tolls anything now,
+	-- so each one is priced against what it does — buy a better bat when a raid
+	-- is what is stopping you, not because the belt is waiting on it.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.WeaponButtons = {
+		{
+			id = "batforge", name = "Bat Forge", price = 2500,
+			kind = "Gear", grants = "oak",
+			blurb = "Unlocks the Oak Sahur Bat.",
+		},
+		{
+			id = "batforge2", name = "Void Bat Forge", price = 6000000,
+			kind = "Gear", grants = "void",
+			blurb = "Unlocks the Void Sahur Bat.",
+		},
+	}
+
+	-- The armour cabinet. Empty for now: the track exists so the shape is real and
+	-- verified before anything is hung off it.
+	Config.ArmorButtons = {}
 
 	Config.Combat = {
 		ComboWindow = 1.6,          -- seconds to chain a swing
@@ -780,16 +833,82 @@ __MODULES["Config"] = function()
 	Config.World.PlotPlacements = Config.plotPlacements(Config.World.PlotCount)
 	Config.World.PlotRadius = Config.World.PlotPlacements[1].radius   -- inner ring
 
+	-- THE MERGE. Three track tables become one Config.Buttons, in track order, so
+	-- every consumer downstream still iterates a single array exactly as before.
+	--
+	-- FACTORY FIRST IS LOAD-BEARING. It leaves every factory button with the same
+	-- `order` it had when there was only one table, which is what lets
+	-- Tycoon:assign keep replaying installs by sorting on `order` — weapons and
+	-- armour land after the whole factory, and because no requirement crosses a
+	-- track that ordering is trivially valid. It also keeps the verifier's
+	-- "requires must point at an earlier index" check true without modification.
+	--
+	--   order       position in the merged array. The install-order key. Global.
+	--   trackOrder  position within the button's own track. The gating and
+	--               display key: it is what the buy-button billboard counts, what
+	--               the three-state reveal measures its frontier against, and
+	--               what the HUD calls a step.
+	Config.TrackOrder = { "factory", "weapons", "armor" }
+	Config.Tracks = {
+		factory = Config.FactoryButtons,
+		weapons = Config.WeaponButtons,
+		armor   = Config.ArmorButtons,
+	}
+	Config.TrackLabel = { factory = "FACTORY", weapons = "WEAPONS", armor = "ARMORY" }
+
+	Config.Buttons = {}
 	Config.ButtonById = {}
-	for index, def in ipairs(Config.Buttons) do
-		def.order = index
-		Config.ButtonById[def.id] = def
+	for _, track in ipairs(Config.TrackOrder) do
+		local defs = Config.Tracks[track]
+		for trackOrder, def in ipairs(defs) do
+			def.track = track
+			def.trackOrder = trackOrder
+			-- A track IS a chain, so derive the link rather than restating it.
+			-- This is what makes "no requirement crosses a track" a property of
+			-- the loader instead of a promise the verifier has to police, and it
+			-- deletes the single most error-prone field in this file for every
+			-- row that doesn't genuinely need something unusual.
+			if def.requires == nil and trackOrder > 1 then
+				def.requires = defs[trackOrder - 1].id
+			end
+			table.insert(Config.Buttons, def)
+			def.order = #Config.Buttons
+			Config.ButtonById[def.id] = def
+		end
 	end
 
 	Config.BatById = {}
 	for tier, def in ipairs(Config.Bats) do
 		def.tier = tier
 		Config.BatById[def.id] = def
+	end
+
+	--- Where a side track's buy button `slot` stands, in plot-local coordinates.
+	---
+	--- Component arithmetic on purpose: tools/verify_config.lua stubs Vector3 as a
+	--- plain table with no operators, so anything that adds or scales a Vector3 at
+	--- require time takes the whole verifier down.
+	function Config.trackButtonPosition(track: string, slot: number): Vector3
+		local t = Config.Layout.Tracks[track]
+		return Vector3.new(t.buttonX, 0, t.firstZ + (slot - 1) * t.spacing)
+	end
+
+	--- The cabinet body behind that column: centre, then size. Its long axis is Z,
+	--- running the length of its own button column with four studs of overhang at
+	--- each end so the case reads as containing the buttons rather than starting
+	--- level with them.
+	function Config.trackCabinet(track: string): (Vector3, Vector3)
+		local t = Config.Layout.Tracks[track]
+		local length = (t.slots - 1) * t.spacing + 8
+		return Vector3.new(t.cabinetX, 0, t.firstZ + (t.slots - 1) * t.spacing / 2),
+			Vector3.new(t.depth, t.height, length)
+	end
+
+	--- Shelf slot `slot` on the cabinet — where the display for a bought tier
+	--- stands, so the case visibly fills up as you climb the track.
+	function Config.trackShelfPosition(track: string, slot: number): Vector3
+		local t = Config.Layout.Tracks[track]
+		return Vector3.new(t.cabinetX, 5, t.firstZ + (slot - 1) * t.spacing)
 	end
 
 	function Config.requirementsOf(def)
@@ -5994,6 +6113,16 @@ __MODULES["Tycoon"] = function()
 		self.machines.Parent = model
 		self:registerFactoryFolder(self.machines)
 
+		-- Side-track props: the cabinets and whatever stands on their shelves.
+		-- A SEPARATE folder from self.machines specifically because rebirth does
+		-- machines:ClearAllChildren() — putting a bat display in there would wipe
+		-- the cabinet every prestige while its purchase survived in the profile.
+		-- release() still clears this one: new owner, different tiers.
+		self.props = Instance.new("Folder")
+		self.props.Name = "Props"
+		self.props.Parent = model
+		self:registerFactoryFolder(self.props)
+
 		self.buttonsFolder = Instance.new("Folder")
 		self.buttonsFolder.Name = "Buttons"
 		self.buttonsFolder.Parent = model
@@ -6006,6 +6135,7 @@ __MODULES["Tycoon"] = function()
 		self:buildCollector(1, nil, true)
 		self:buildRebirthPad()
 		self:buildClaimPad()
+		self:buildCabinets()
 
 		-- An unclaimed plot shows a bare pad and a claim marker, nothing else.
 		-- Leaving the vault and belt standing on an empty plot is what makes it
@@ -6543,6 +6673,75 @@ __MODULES["Tycoon"] = function()
 
 	-- ── rebirth pad ──────────────────────────────────────────────────────────────
 
+	--- The side-track cabinets: a display case standing behind each track's column
+	--- of buy buttons.
+	---
+	--- These carry the wayfinding that the side tracks would otherwise have to
+	--- take from `pointAt`. There is exactly ONE Highlight per plot and it belongs
+	--- to the factory (Highlight is capped at 255 per client and disabled ones
+	--- still occupy a slot), so a cabinet announces itself with a sign instead —
+	--- which is better anyway, because a sign can say what it is and a glow
+	--- cannot.
+	function Tycoon:buildCabinets()
+		self.cabinetSigns = {}
+
+		for _, track in ipairs(Config.TrackOrder) do
+			if track ~= "factory" and Config.Layout.Tracks[track] then
+				local centre, size = Config.trackCabinet(track)
+				local model = Instance.new("Model")
+				model.Name = "Cabinet_" .. track
+				model.Parent = self.props
+
+				local baseCF = self:at(centre.X, 0, centre.Z)
+				newPart(model, "Back", size, baseCF * CFrame.new(0, size.Y / 2, 0),
+					COLORS.metal, Enum.Material.Metal, true)
+				newPart(model, "Trim", Vector3.new(size.X + 1.2, 0.8, size.Z + 1.2),
+					baseCF * CFrame.new(0, size.Y + 0.4, 0), COLORS.gold, Enum.Material.Metal, false)
+
+				local anchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1),
+					baseCF * CFrame.new(0, size.Y + 2.5, 0), COLORS.metal, Enum.Material.Metal, false)
+				anchor.Transparency = 1
+
+				local billboard = Instance.new("BillboardGui")
+				billboard.Name = "Sign"
+				billboard.Size = UDim2.fromScale(18, 4)
+				billboard.MaxDistance = 200
+				billboard.Parent = anchor
+
+				local label = Instance.new("TextLabel")
+				label.Name = "Label"
+				label.BackgroundTransparency = 1
+				label.Size = UDim2.fromScale(1, 1)
+				label.Font = Enum.Font.FredokaOne
+				label.Text = (Config.TrackLabel[track] or track:upper()) .. " CABINET"
+				label.TextColor3 = COLORS.gold
+				label.TextStrokeTransparency = 0.35
+				label.TextScaled = true
+				label.Parent = billboard
+
+				self.cabinetSigns[track] = label
+			end
+		end
+	end
+
+	--- Keeps each cabinet sign honest about how far up its track you are.
+	function Tycoon:updateCabinetSigns()
+		if not self.cabinetSigns then
+			return
+		end
+		for track, label in pairs(self.cabinetSigns) do
+			local defs = Config.Tracks[track]
+			local owned = 0
+			for _, def in ipairs(defs) do
+				if self.owned[def.id] then
+					owned += 1
+				end
+			end
+			label.Text = ("%s CABINET  •  %d/%d"):format(
+				Config.TrackLabel[track] or track:upper(), owned, #defs)
+		end
+	end
+
 	function Tycoon:buildRebirthPad()
 		local folder = Instance.new("Folder")
 		folder.Name = "Rebirth"
@@ -6609,6 +6808,12 @@ __MODULES["Tycoon"] = function()
 			local legIndex, distance, pathIndex = self:legOf(def)
 			return self:pointOnLeg(legIndex, distance, -L.ButtonOffset, pathIndex)
 		end
+		-- Side tracks stand in their own derived column at their cabinet, so a new
+		-- tier needs no coordinate anywhere. Only the factory's non-belt buttons
+		-- are still hand-placed in Layout.MiscButtons.
+		if def.track and def.track ~= "factory" then
+			return Config.trackButtonPosition(def.track, def.trackOrder)
+		end
 		return MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
 	end
 
@@ -6673,7 +6878,11 @@ __MODULES["Tycoon"] = function()
 			step.Size = UDim2.fromScale(0.94, 0.18)
 			step.Position = UDim2.fromScale(0.03, 0.02)
 			step.Font = Enum.Font.GothamBold
-			step.Text = ("STEP %d OF %d"):format(def.order, #Config.Buttons)
+			-- The track name, not a global ordinal. "STEP 21 OF 30" on a pedestal
+			-- in front of a weapons cabinet tells you nothing; "WEAPONS 2/5" is
+			-- the whole feature explained in three words.
+			step.Text = ("%s %d/%d"):format(
+				Config.TrackLabel[def.track] or "STEP", def.trackOrder, #Config.Tracks[def.track])
 			step.TextColor3 = Color3.fromRGB(150, 142, 172)
 			step.TextScaled = true
 			step.Parent = frame
@@ -6792,7 +7001,20 @@ __MODULES["Tycoon"] = function()
 	---   preview     the next few steps: dimmed, inert, with a ghost of the
 	---               machine standing where it will go
 	---   hidden      everything further out, and everything already owned
-	local PREVIEW_AHEAD = 3
+	--- How far past its own frontier each track previews.
+	---
+	--- 3 on the factory keeps the shipped plot exactly as it reads today. 2 on the
+	--- side tracks because they are short: at 3 a five-rung cabinet would preview
+	--- its entire ladder from the moment the plot is claimed, the "hidden" state
+	--- would stop existing there, and the case would stop reading as something you
+	--- are climbing.
+	local TRACK_PREVIEW = { factory = 3, weapons = 2, armor = 2 }
+
+	--- Which track the "buy this next" beacon prefers. The beacon picks the
+	--- cheapest AVAILABLE button, and a cabinet's first rung is cheap — so without
+	--- a track preference the marker would hop off the factory and onto a bat the
+	--- moment the plot was claimed. Rank by (track, price), factory first.
+	local TRACK_RANK = { factory = 1, weapons = 2, armor = 3 }
 
 	function Tycoon:refreshButtons()
 		if not self.owner then
@@ -6811,22 +7033,28 @@ __MODULES["Tycoon"] = function()
 
 		local cash = Economy.get(self.owner)
 
-		-- how far along the linear chain the player has got
-		local nextOrder = #Config.Buttons + 1
-		for _, def in ipairs(Config.Buttons) do
-			if not self.owned[def.id] then
-				nextOrder = def.order
-				break
+		-- How far along EACH track the player has got. One frontier per track is a
+		-- strict generalisation of the old single scan: with one track it produces
+		-- exactly the numbers that loop produced.
+		local frontier = {}
+		for track, defs in pairs(Config.Tracks) do
+			frontier[track] = #defs + 1
+			for _, def in ipairs(defs) do
+				if not self.owned[def.id] then
+					frontier[track] = def.trackOrder
+					break
+				end
 			end
 		end
 
-		local target, targetPrice = nil, math.huge
+		local target, targetRank, targetPrice = nil, math.huge, math.huge
 
 		for id, entry in pairs(self.objects) do
 			local def = entry.def
 			local owned = self.owned[id] == true
 			local available = (not owned) and self:requirementsMet(id)
-			local preview = (not owned) and (not available) and (def.order <= nextOrder + PREVIEW_AHEAD)
+			local preview = (not owned) and (not available)
+				and (def.trackOrder <= frontier[def.track] + (TRACK_PREVIEW[def.track] or 3))
 
 			entry.holder.Parent = (available or preview) and self.buttonsFolder or nil
 
@@ -6844,7 +7072,21 @@ __MODULES["Tycoon"] = function()
 				entry.stroke.Color = COLORS.preview
 				entry.stepLabel.TextColor3 = COLORS.preview
 				entry.titleLabel.TextColor3 = COLORS.preview
-				entry.effectLabel.Text = "locked — finish step " .. (def.order - 1)
+				-- Name the thing you have to buy, not an ordinal. "step N" meant
+				-- one thing when there was one chain; with three tracks the global
+				-- order is meaningless on a pedestal and the per-track one is
+				-- ambiguous across cabinets. The requirement is right here, so say
+				-- it: "locked — buy Oak Sahur Bat first".
+				local blocker
+				for _, req in ipairs(Config.requirementsOf(def)) do
+					if not self.owned[req] then
+						blocker = Config.ButtonById[req]
+						break
+					end
+				end
+				entry.effectLabel.Text = blocker
+					and ("locked — buy %s first"):format(blocker.name)
+					or "locked"
 				entry.effectLabel.TextColor3 = COLORS.preview
 				entry.priceLabel.Text = "$" .. Util.abbreviate(def.price)
 				entry.priceLabel.TextColor3 = COLORS.preview
@@ -6870,8 +7112,12 @@ __MODULES["Tycoon"] = function()
 					and ("$" .. Util.abbreviate(def.price))
 					or ("NEED " .. Util.abbreviate(def.price - cash) .. " MORE")
 
-				if def.price < targetPrice then
-					target, targetPrice = entry, def.price
+				-- (track, price) lexicographically. Cheapest-overall would park the
+				-- beacon on the first cabinet rung for the whole early game, since
+				-- a bat costs less than the next dropper for most of it.
+				local rank = TRACK_RANK[def.track] or 99
+				if rank < targetRank or (rank == targetRank and def.price < targetPrice) then
+					target, targetRank, targetPrice = entry, rank, def.price
 				end
 			end
 
@@ -6889,6 +7135,7 @@ __MODULES["Tycoon"] = function()
 		end
 
 		self:pointAt(target)
+		self:updateCabinetSigns()
 	end
 
 	--- Moves the "buy this next" marker onto `entry`. One Highlight and one light
@@ -7171,26 +7418,57 @@ __MODULES["Tycoon"] = function()
 		end
 	end
 
+	--- A bought tier's display, standing on its own shelf of the track's cabinet.
+	---
+	--- Parented into self.props, NOT self.machines: rebirth clears machines, and a
+	--- weapon you keep across a rebirth must not lose its shelf.
+	function Tycoon:buildShelfDisplay(def, variant: string, label: string)
+		local model = Instance.new("Model")
+		model.Name = "Shelf_" .. def.id
+		model.Parent = self.props
+
+		local spot = Config.trackShelfPosition(def.track, def.trackOrder)
+		local shelfCF = self:at(spot.X, spot.Y, spot.Z)
+		newPart(model, "Shelf", Vector3.new(5, 0.6, 8), shelfCF, COLORS.metal, Enum.Material.Metal)
+
+		-- 0.85 rather than the 1.1 the old free-standing anvil used: the display
+		-- now stands INSIDE a 13-stud case, and the tallest variants scale up by a
+		-- further 1.5 on top of whatever is asked for here.
+		local display = TungModels.buildStatue(variant, 0.85)
+		display:PivotTo(shelfCF * CFrame.new(0, 3.2, 0))
+		display.Parent = model
+
+		local plate = newPart(model, "Plate", Vector3.new(0.4, 1.6, 7),
+			shelfCF * CFrame.new(-2.2, 1, 0), COLORS.metal, Enum.Material.Metal, false)
+		local billboard = Instance.new("BillboardGui")
+		billboard.Name = "Plate"
+		billboard.Size = UDim2.fromScale(7, 1.4)
+		billboard.StudsOffsetWorldSpace = Vector3.new(0, 1.6, 0)
+		billboard.MaxDistance = 90
+		billboard.Parent = plate
+
+		local text = Instance.new("TextLabel")
+		text.BackgroundTransparency = 1
+		text.Size = UDim2.fromScale(1, 1)
+		text.Font = Enum.Font.GothamBold
+		text.Text = label
+		text.TextColor3 = COLORS.gold
+		text.TextStrokeTransparency = 0.4
+		text.TextScaled = true
+		text.Parent = billboard
+
+		return model
+	end
+
 	Tycoon.INSTALLERS.Gear = function(self, def, silent)
 		local owner = self.owner
 		if owner then
 			CombatService.grantBat(owner, def.grants)
 		end
 
-		local model = Instance.new("Model")
-		model.Name = "Gear_" .. def.id
-		model.Parent = self.machines
-
-		local spot = MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
-		local anvilCF = self:at(spot.X + (spot.X < 0 and 10 or -10), 0, spot.Z)
-		newPart(model, "Anvil", Vector3.new(8, 4, 6), anvilCF * CFrame.new(0, 2, 0), COLORS.metal, Enum.Material.Metal)
-
 		local batDef = Config.BatById[def.grants]
-		if batDef then
-			local display = TungModels.buildStatue(batDef.variant, 1.1)
-			display:PivotTo(anvilCF * CFrame.new(0, 8, 0))
-			display.Parent = model
-		end
+		local model = self:buildShelfDisplay(def, batDef and batDef.variant or "classic",
+			batDef and batDef.name or def.name)
 
 		local entry = self.objects[def.id]
 		if entry then
@@ -7398,6 +7676,13 @@ __MODULES["Tycoon"] = function()
 			end
 		elseif def.kind == "Belt" then
 			return ("belt +%d studs/sec"):format(def.speedBonus)
+		elseif def.kind == "Gear" then
+			-- Same rule as the income kinds: quote the measured effect, not the
+			-- flavour text. A bat's whole value is its numbers.
+			local bat = Config.BatById[def.grants]
+			if bat then
+				return ("%d dmg  •  %.0f%% crit"):format(bat.damage, bat.crit * 100)
+			end
 		end
 		return def.blurb or ""
 	end
@@ -7478,6 +7763,14 @@ __MODULES["Tycoon"] = function()
 			end
 		end
 		self.machines:ClearAllChildren()
+		-- The cabinet BODIES are permanent plot furniture; only the shelves a
+		-- previous owner filled come down. A new owner arrives with their own
+		-- tiers, and assign() replays them.
+		for _, child in ipairs(self.props:GetChildren()) do
+			if child.Name:match("^Shelf_") then
+				child:Destroy()
+			end
+		end
 		self:clearDrops()
 		self:setFactoryVisible(false)
 
@@ -7516,13 +7809,35 @@ __MODULES["Tycoon"] = function()
 
 		profile.rebirths += 1
 		profile.cash = Config.Economy.StartingCash
-		profile.owned = {}
+
+		-- A rebirth is a FACTORY reset, not an account reset. The cabinets are
+		-- bought with the same wallet but they are not part of the thing being
+		-- rebuilt, and re-earning your bat every prestige is exactly the coupling
+		-- this split exists to remove.
+		--
+		-- This also closes a live bug. Rebirth used to wipe `owned` wholesale
+		-- while leaving profile.batTier alone, and CombatService.grantBat is
+		-- monotonic — so re-buying batforge afterwards took your money and did
+		-- nothing at all.
+		local kept = {}
+		for id in pairs(profile.owned) do
+			local def = Config.ButtonById[id]
+			if def and def.track ~= "factory" then
+				kept[id] = true
+			end
+		end
+		profile.owned = kept
 
 		self.generation += 1
-		self.owned = {}
+		self.owned = Util.shallowCopy(kept)
 		self.beltSpeed = L.BeltSpeed
 		for _, entry in pairs(self.objects) do
-			entry.machine = nil
+			-- Side-track props live in self.props and are not cleared below, so
+			-- their entries must keep their handle or the model outlives its
+			-- reference and can never be cleaned up.
+			if entry.def.track == "factory" then
+				entry.machine = nil
+			end
 		end
 		self.machines:ClearAllChildren()
 		self:clearDrops()

@@ -45,7 +45,12 @@ local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = 
 local KNOWN_STRUCTURES = { walls = true, roof = true }
 
 local seenIds, dropperSlots, upgraderSlots = {}, {}, {}
-local lastPrice = 0
+-- Per TRACK, not global. Prices only have to climb against the other rungs of
+-- their own ladder now; a weapons tier costing less than the dropper it sits
+-- beside is not a bug, it is the whole point of the split. Keeping the old
+-- single counter would have failed the build the moment a track was added,
+-- which is the one thing a naive split silently gets wrong.
+local lastPrice = {}
 
 for index, def in ipairs(Config.Buttons) do
 	local where = ("Buttons[%d] (%s)"):format(index, tostring(def.id))
@@ -58,13 +63,25 @@ for index, def in ipairs(Config.Buttons) do
 	check(type(def.price) == "number" and def.price > 0, where .. ": price must be > 0")
 	check(KNOWN_KINDS[def.kind], where .. ": unknown kind " .. tostring(def.kind))
 
-	-- prices must climb, otherwise the "next upgrade" HUD hint picks nonsense
-	check(def.price > lastPrice, where .. ": price is not greater than the previous button's")
-	lastPrice = def.price
+	-- prices must climb WITHIN A TRACK, otherwise the "next upgrade" hint and
+	-- the buy-this-next beacon both pick nonsense on that ladder
+	check(def.price > (lastPrice[def.track] or 0),
+		("%s: price is not greater than the previous button in the %s track")
+			:format(where, tostring(def.track)))
+	lastPrice[def.track] = def.price
 
 	-- requirements must point at buttons defined EARLIER (so load order works)
 	for _, req in ipairs(Config.requirementsOf(def)) do
 		check(seenIds[req] ~= nil, where .. ": requires unknown or later button " .. tostring(req))
+		-- ...and never across a track. One stray link re-couples the chain and
+		-- nothing else in the game would notice: the button would simply never
+		-- light up, on a plot where every other button did.
+		local reqDef = Config.ButtonById[req]
+		if reqDef then
+			check(reqDef.track == def.track,
+				("%s is on the %s track but requires %s from the %s track — tracks are independent")
+					:format(where, tostring(def.track), req, tostring(reqDef.track)))
+		end
 	end
 
 	if def.kind == "Dropper" then
@@ -111,6 +128,39 @@ for _, def in ipairs(Config.Buttons) do
 	check(reachable[def.id], ("Buttons %s is unreachable — nothing unlocks it"):format(def.id))
 end
 
+-- ── tracks ──────────────────────────────────────────────────────────────────
+-- A track is a CHAIN: one way in, one order through it, and no dependency on
+-- anything outside itself. The merge in Config derives the links, so these
+-- check that the derivation actually produced what it claims.
+
+local totalTracked = 0
+for _, track in ipairs(Config.TrackOrder) do
+	local defs = Config.Tracks[track]
+	check(defs ~= nil, ("TrackOrder names %q but Config.Tracks has no such table"):format(track))
+	check(Config.TrackLabel[track] ~= nil, ("track %q has no TrackLabel"):format(track))
+	totalTracked += #defs
+
+	local roots = 0
+	for slot, def in ipairs(defs) do
+		if #Config.requirementsOf(def) == 0 then
+			roots += 1
+		end
+		check(def.track == track and def.trackOrder == slot,
+			("%s claims %s/%s but sits at %s/%d in its table")
+				:format(def.id, tostring(def.track), tostring(def.trackOrder), track, slot))
+	end
+	-- Zero roots means a cycle, two means the ladder forked and the buy-button
+	-- frontier would light both branches at once.
+	if #defs > 0 then
+		check(roots == 1,
+			("the %s track has %d requirement-free roots; a track is a chain, so it needs exactly one")
+				:format(track, roots))
+	end
+end
+check(totalTracked == #Config.Buttons,
+	("the tracks hold %d buttons but Config.Buttons has %d — the merge dropped or duplicated a row")
+		:format(totalTracked, #Config.Buttons))
+
 -- bats
 local seenBats = {}
 for tier, bat in ipairs(Config.Bats) do
@@ -156,10 +206,21 @@ for _, floor in ipairs(Config.Floors) do
 	check(Config.ButtonById[floor.requires] ~= nil,
 		("Floors.%s requires %q, which is not a button"):format(floor.id, tostring(floor.requires)))
 	-- unlocking a floor before the ground floor is finished is the single most
-	-- complained-about thing in multi-floor tycoons
-	check(Config.ButtonById[floor.requires].order >= #Config.Buttons - 1,
-		("Floors.%s unlocks at step %d of %d — finish the ground floor first")
-			:format(floor.id, Config.ButtonById[floor.requires].order, #Config.Buttons))
+	-- complained-about thing in multi-floor tycoons.
+	--
+	-- Measured against the FACTORY track, not the merged array. This used to
+	-- read `order >= #Config.Buttons - 1`, which was true only while there was
+	-- one track: the moment anything is appended after the factory, dropper10
+	-- stops being one of the last two rows and this fails — on a feature whose
+	-- flag is off, which is exactly the kind of breakage nobody goes looking
+	-- for.
+	local unlock = Config.ButtonById[floor.requires]
+	check(unlock.track == "factory",
+		("Floors.%s unlocks on the %s track; a floor is factory progression")
+			:format(floor.id, tostring(unlock.track)))
+	check(unlock.trackOrder >= #Config.Tracks.factory - 1,
+		("Floors.%s unlocks at factory step %d of %d — finish the ground floor first")
+			:format(floor.id, unlock.trackOrder, #Config.Tracks.factory))
 	-- headroom over the tallest thing the ground floor stands up (the vault
 	-- statue, ~13.5) plus a player
 	check(floor.height >= 18,
@@ -381,31 +442,67 @@ check(L.BeltEnd.Z + runOff + 5 <= halfZ - 2,
 -- FLOOR FURNITURE. Everything that isn't on the belt is placed by absolute
 -- plot-local coordinate, so growing the plot silently leaves these behind (or
 -- growing the belt runs them over). Each one is 12 studs wide at most.
+-- Every buy button that stands on the floor rather than beside a belt machine,
+-- from BOTH sources: the hand-placed factory column in Layout.MiscButtons and
+-- the derived side-track columns. One list, so the spacing and row-clearance
+-- checks below cover the cabinets without being written twice — and so a
+-- cabinet pedestal colliding with a misc pedestal is caught, which it would
+-- not be if each source policed only itself.
+local miscList = {}
+for id, spot in pairs(L.MiscButtons) do
+	table.insert(miscList, { id = "MiscButtons." .. id, spot = spot })
+end
+for _, track in ipairs(Config.TrackOrder) do
+	local layout = L.Tracks[track]
+	if layout then
+		-- Check every SLOT, not every button: the empty slots are where the
+		-- next tier will land, and finding out then is finding out too late.
+		for slot = 1, layout.slots do
+			table.insert(miscList, {
+				id = ("Tracks.%s[%d]"):format(track, slot),
+				spot = Config.trackButtonPosition(track, slot),
+			})
+		end
+		check(#Config.Tracks[track] <= layout.slots,
+			("the %s track has %d buttons but Layout.Tracks.%s only has %d slots; the extras would stack on the last pedestal")
+				:format(track, #Config.Tracks[track], track, layout.slots))
+	end
+end
+table.sort(miscList, function(a, b) return a.id < b.id end)
+
 local floorSpots = {
 	{ "RebirthPadAt", L.RebirthPadAt, 6 },
 	{ "ClaimPadAt", L.ClaimPadAt, 17 },
 	{ "OwnerSpawnAt", L.OwnerSpawnAt, 3 },
 }
-for id, spot in pairs(L.MiscButtons) do
-	table.insert(floorSpots, { "MiscButtons." .. id, spot, 3 })
+for _, entry in ipairs(miscList) do
+	table.insert(floorSpots, { entry.id, entry.spot, 3 })
 end
 for _, entry in ipairs(floorSpots) do
 	inPlot(entry[1], entry[2], entry[3])
 end
 
--- The misc button column has to stay a column: two pedestals at the same spot
--- read as one button and the second purchase looks like it did nothing.
-local miscList = {}
-for id, spot in pairs(L.MiscButtons) do
-	table.insert(miscList, { id = id, spot = spot })
+-- The pads are floor furniture too, and a pedestal standing on the rebirth pad
+-- or in the owner's spawn is the same class of bug as two pedestals stacked.
+for _, entry in ipairs(miscList) do
+	for _, pad in ipairs({
+		{ "RebirthPadAt", L.RebirthPadAt },
+		{ "ClaimPadAt", L.ClaimPadAt },
+		{ "OwnerSpawnAt", L.OwnerSpawnAt },
+	}) do
+		local d = len(sub(entry.spot, pad[2]))
+		check(d >= L.MiscButtonSpacing,
+			("%s is only %.1f studs from %s (need %d)")
+				:format(entry.id, d, pad[1], L.MiscButtonSpacing))
+	end
 end
-table.sort(miscList, function(a, b) return a.id < b.id end)
+
 for i, a in ipairs(miscList) do
 	for j = i + 1, #miscList do
 		local b = miscList[j]
 		local d = len(sub(a.spot, b.spot))
 		check(d >= L.MiscButtonSpacing,
-			("MiscButtons.%s and MiscButtons.%s are only %.1f studs apart (need %d)")
+			("%s and %s are only %.1f studs apart (need %d)")
 				:format(a.id, b.id, d, L.MiscButtonSpacing))
 	end
 end
@@ -419,11 +516,83 @@ local dropperButtonZ = L.BeltStart.Z + L.ButtonOffset      -- leg 1 runs along -
 local upgraderButtonX = L.BeltCorner.X + L.ButtonOffset    -- leg 2 runs along -X
 for _, entry in ipairs(miscList) do
 	check(math.abs(entry.spot.Z - dropperButtonZ) >= BUTTON_PAD,
-		("MiscButtons.%s sits on the dropper buy-button row at z=%.1f")
+		("%s sits on the dropper buy-button row at z=%.1f")
 			:format(entry.id, dropperButtonZ))
 	check(math.abs(entry.spot.X - upgraderButtonX) >= BUTTON_PAD,
-		("MiscButtons.%s sits on the upgrader buy-button row at x=%.1f")
+		("%s sits on the upgrader buy-button row at x=%.1f")
 			:format(entry.id, upgraderButtonX))
+end
+
+-- ── side-track cabinets ─────────────────────────────────────────────────────
+-- The cabinet BODIES are the only solid, collidable things this change adds to
+-- the plot floor, so they get the treatment the vault and the belt already
+-- have: an explicit box, checked against everything else that occupies floor.
+
+--- Gap between an axis-aligned box (centre + full size) and a point, 0 inside.
+--- Written component-wise because the Vector3 in this harness is a bare table
+--- with no arithmetic — see the note in HANDOFF_v2 §5.
+local function boxPointGap(centre, size, point)
+	local dx = math.max(math.abs(point.X - centre.X) - size.X / 2, 0)
+	local dz = math.max(math.abs(point.Z - centre.Z) - size.Z / 2, 0)
+	return math.sqrt(dx * dx + dz * dz)
+end
+
+local gateFrom, gateTo = L.GateCentre - L.GateWidth / 2, L.GateCentre + L.GateWidth / 2
+
+for _, track in ipairs(Config.TrackOrder) do
+	local layout = L.Tracks[track]
+	if layout then
+		local centre, size = Config.trackCabinet(track)
+		local where = "Tracks." .. track .. " cabinet"
+
+		-- inside the wall ring, which stands 1 stud in from the pad edge
+		check(math.abs(centre.X) + size.X / 2 <= halfX - 2,
+			("%s spans x %.1f..%.1f, into the side wall at x=%.1f")
+				:format(where, centre.X - size.X / 2, centre.X + size.X / 2, halfX - 1))
+		check(math.abs(centre.Z) + size.Z / 2 <= halfZ - 2,
+			("%s spans z %.1f..%.1f, into the end wall at z=%.1f")
+				:format(where, centre.Z - size.Z / 2, centre.Z + size.Z / 2, halfZ - 1))
+
+		-- not standing on the floor furniture
+		for _, spot in ipairs(floorSpots) do
+			local gap = boxPointGap(centre, size, spot[2])
+			check(gap >= spot[3],
+				("%s comes within %.1f studs of %s (needs %d)")
+					:format(where, gap, spot[1], spot[3]))
+		end
+
+		-- ...and far enough off its own pedestals that a shelf display does
+		-- not grow through the buy button in front of it
+		check(math.abs(layout.buttonX - layout.cabinetX) - size.X / 2 >= 4,
+			("%s stands %.1f studs from its own button column; the shelf would clip the pads")
+				:format(where, math.abs(layout.buttonX - layout.cabinetX) - size.X / 2))
+
+		-- ...and off both belt legs. Leg 1 runs along z = BeltStart.Z, leg 2
+		-- along x = BeltCorner.X; a cabinet over either would wall the belt.
+		check(math.abs(centre.Z - L.BeltStart.Z) - size.Z / 2 >= L.BeltWidth,
+			("%s reaches the dropper belt leg at z=%.1f"):format(where, L.BeltStart.Z))
+		check(math.abs(centre.X - L.BeltCorner.X) - size.X / 2 >= L.BeltWidth,
+			("%s reaches the upgrader belt leg at x=%.1f"):format(where, L.BeltCorner.X))
+
+		-- ...and clear of the four roof columns, which stand 3 studs in from
+		-- the inside faces of the wall ring
+		for _, sx in ipairs({ -1, 1 }) do
+			for _, sz in ipairs({ -1, 1 }) do
+				local column = Vector3.new(sx * (halfX - 4), 0, sz * (halfZ - 4))
+				check(boxPointGap(centre, size, column) >= 2,
+					("%s overlaps the roof column at (%.0f, %.0f)")
+						:format(where, column.X, column.Z))
+			end
+		end
+
+		-- and the walk in from the gateway must not run into a display case
+		local clearsGate = (centre.X - size.X / 2 > gateTo)
+			or (centre.X + size.X / 2 < gateFrom)
+			or (centre.Z + size.Z / 2 < L.OwnerSpawnAt.Z - 8)
+		check(clearsGate,
+			("%s stands in the walk from the gateway to the owner spawn at z=%.0f")
+				:format(where, L.OwnerSpawnAt.Z))
+	end
 end
 
 -- The gateway in the front wall has to open onto the aisle the player actually
@@ -536,23 +705,38 @@ local MIN_TOTAL_MINUTES = 45
 local MAX_TOTAL_MINUTES = 150
 local MAX_SINGLE_WAIT_MINUTES = 15
 
--- the cheapest button with no prerequisites has to be affordable on day one,
--- otherwise a fresh player has zero income and zero way to get any
-local cheapestOpener = math.huge
-for _, def in ipairs(Config.Buttons) do
-	if #Config.requirementsOf(def) == 0 then
-		cheapestOpener = math.min(cheapestOpener, def.price)
+-- The FACTORY opener has to be affordable on day one, otherwise a fresh player
+-- has zero income and zero way to get any.
+--
+-- Scoped to the factory track on purpose. Scanning every requirement-free
+-- button across all three tracks would still pass — dropper1 at 50 is the
+-- cheapest of the three roots — but it would pass for the wrong reason and
+-- would stop catching anything the day a cabinet's first rung got cheap.
+check(Config.Economy.StartingCash >= Config.Tracks.factory[1].price,
+	("StartingCash (%d) cannot afford the first factory button (%d) — the tycoon can never start")
+		:format(Config.Economy.StartingCash, Config.Tracks.factory[1].price))
+
+-- ...and the side tracks must NOT be affordable at spawn. A player who can buy
+-- a bat before a dropper has spent their whole opening balance on a plot with
+-- no income, and nothing in the game can dig them out of that.
+for _, track in ipairs(Config.TrackOrder) do
+	local defs = Config.Tracks[track]
+	if track ~= "factory" and #defs > 0 then
+		check(defs[1].price > Config.Economy.StartingCash,
+			("%s costs %d against StartingCash of %d — a new player could buy it instead of their first dropper and strand themselves")
+				:format(defs[1].id, defs[1].price, Config.Economy.StartingCash))
 	end
 end
-check(Config.Economy.StartingCash >= cheapestOpener,
-	("StartingCash (%d) cannot afford the cheapest opening button (%d) — the tycoon can never start")
-		:format(Config.Economy.StartingCash, cheapestOpener))
 
 local cash = Config.Economy.StartingCash
 local elapsed, rawDps, upgradeMult = 0, 0, 1
 local curve = {}
 
-for _, def in ipairs(Config.Buttons) do
+-- The FACTORY track only. This is the game's spine: the thing that generates
+-- income and therefore the thing whose pacing "45 to 150 minutes" is about.
+-- The side tracks are paced against this curve further down, because with no
+-- cross-track requirement the only thing that gates them is their price.
+for _, def in ipairs(Config.Tracks.factory) do
 	local income = rawDps * upgradeMult
 	local shortfall = math.max(0, def.price - cash)
 	local wait = 0
@@ -571,7 +755,13 @@ for _, def in ipairs(Config.Buttons) do
 	cash = math.max(cash, def.price) - def.price
 	if def.kind == "Dropper" then rawDps += def.dropValue / def.dropRate end
 	if def.kind == "Upgrader" then upgradeMult *= def.multiplier end
-	table.insert(curve, { id = def.id, wait = wait, at = elapsed })
+	-- `earned` is everything the factory has produced by this point, ignoring
+	-- what was spent. It is the budget a side-track purchase competes for.
+	table.insert(curve, {
+		id = def.id, wait = wait, at = elapsed,
+		income = rawDps * upgradeMult,
+		earned = (curve[#curve] and curve[#curve].earned or 0) + (wait ~= math.huge and wait or 0) * income,
+	})
 end
 
 local endgameIncome = rawDps * upgradeMult
@@ -584,6 +774,67 @@ local rebirthMinutes = Config.Rebirth.BaseCost / endgameIncome / 60
 check(rebirthMinutes >= 4 and rebirthMinutes <= 40,
 	("first rebirth is %.1f min of endgame income; want 4-40"):format(rebirthMinutes))
 
+-- ── side-track pacing ───────────────────────────────────────────────────────
+-- A side track has no requirement into the factory, so PRICE is the only thing
+-- pacing it. That means "is this affordable" cannot be asked in the abstract —
+-- it has to be asked against the income the factory actually has at the moment
+-- the tier first comes within reach.
+--
+-- The metric is DETOUR: how many minutes of your current income the tier
+-- costs. Anything much past four and buying a bat means visibly stalling the
+-- factory, which is precisely the coupling this split exists to remove.
+
+local SIDE_MAX_DETOUR_MINUTES = 4
+local SIDE_BUDGET_FRACTION = 0.35
+local FIRST_SIDE_RUNG_BY_MINUTE = 10
+
+--- The minute the factory alone has banked `price`, and its income then.
+local function firstAffordable(price: number): (number, number)
+	for _, row in ipairs(curve) do
+		if row.earned >= price then
+			return row.at / 60, row.income
+		end
+	end
+	local last = curve[#curve]
+	return math.huge, last and last.income or 0
+end
+
+local sideTotal = 0
+for _, track in ipairs(Config.TrackOrder) do
+	if track ~= "factory" then
+		for _, def in ipairs(Config.Tracks[track]) do
+			local at, income = firstAffordable(def.price)
+			check(at ~= math.huge,
+				("%s costs %d, which the factory never banks across a whole build")
+					:format(def.id, def.price))
+			check(income > 0,
+				("%s is affordable before the factory earns anything"):format(def.id))
+			if income > 0 then
+				local detour = def.price / income / 60
+				check(detour <= SIDE_MAX_DETOUR_MINUTES,
+					("%s costs %.1f min of the income you have when you can first afford it (limit %d) — that is a wall, not a detour")
+						:format(def.id, detour, SIDE_MAX_DETOUR_MINUTES))
+				sideTotal += detour
+			end
+		end
+
+		-- ...and the cabinet must not be scenery while you learn the game.
+		local first = Config.Tracks[track][1]
+		if first then
+			local at = firstAffordable(first.price)
+			check(at <= FIRST_SIDE_RUNG_BY_MINUTE,
+				("the first %s rung is unaffordable until minute %.0f; until then the cabinet is scenery")
+					:format(track, at))
+		end
+	end
+end
+
+check(sideTotal <= elapsed / 60 * SIDE_BUDGET_FRACTION,
+	("the side tracks add %.0f min to a %.0f min factory build (%.0f%%, budget %.0f%%)")
+		:format(sideTotal, elapsed / 60, sideTotal / (elapsed / 60) * 100, SIDE_BUDGET_FRACTION * 100))
+check(elapsed / 60 + sideTotal <= MAX_TOTAL_MINUTES,
+	("everything on the plot takes %.0f min (limit %d)"):format(elapsed / 60 + sideTotal, MAX_TOTAL_MINUTES))
+
 -- rebirth must stay worth doing: payouts compound, so income has to grow at
 -- least as fast as the cost of the next rebirth or the loop dead-ends
 check(Config.Rebirth.MultiplierPerRebirth > 1, "MultiplierPerRebirth must be > 1")
@@ -593,8 +844,15 @@ check(costRatio > 1 and costRatio < 2,
 
 -- ── report ──────────────────────────────────────────────────────────────────
 print(("checks run:        %d"):format(checks))
-print(("buttons:           %d  (%d dropper slots, %d upgrader slots)")
-	:format(#Config.Buttons, #Config.Layout.DropperDist, #Config.Layout.UpgraderDist))
+local trackCounts = {}
+for _, track in ipairs(Config.TrackOrder) do
+	table.insert(trackCounts, ("%s %d"):format(track, #Config.Tracks[track]))
+end
+print(("buttons:           %d  (%s)"):format(#Config.Buttons, table.concat(trackCounts, ", ")))
+print(("machine slots:     %d dropper, %d upgrader")
+	:format(#Config.Layout.DropperDist, #Config.Layout.UpgraderDist))
+print(("side tracks:       %.1f min of detour (%.0f%% of the factory build)")
+	:format(sideTotal, sideTotal / (elapsed / 60) * 100))
 print(("upgrader stack:    x%.1f"):format(upgradeMult))
 print(("endgame income:    %.3g Tung/sec"):format(endgameIncome))
 print(("full build:        %.0f min"):format(elapsed / 60))
