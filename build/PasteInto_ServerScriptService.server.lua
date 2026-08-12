@@ -374,17 +374,15 @@ __MODULES["Config"] = function()
 	-- studs it is 135ms, which is four steps even demoted.
 	Config.Layout.TriggerThickness = 5
 
-	-- THE ROOF, which the mezzanine deck has to share a plot with.
+	-- THE ROOF AND THE WALLS NOW LIVE IN Config.Structure, near the bottom of this
+	-- file, because the ground storey's height is DERIVED from the mezzanine deck's
+	-- underside and Config.Floors is not defined until then.
 	--
-	-- These were literals inside the `roof` structure installer. They are here
-	-- because the deck sits at height 22 and the roof's columns are 20 tall, and
-	-- nothing was checking that relationship — the roof already shrinks itself when
-	-- the floor is on, which is exactly the kind of arrangement that breaks quietly
-	-- when either side moves. An assertion needs to see both sides.
-	Config.Layout.RoofY = 20            -- top of the columns, underside of the slab
-	Config.Layout.RoofThickness = 1.4
-	Config.Layout.RoofColumn = 2.4
-	Config.Layout.RoofColumnInset = 3   -- in from the plot's wall ring
+	-- Config.Layout.RoofY/RoofThickness/RoofColumn/RoofColumnInset are gone. RoofY
+	-- was 20 while the deck's underside was 20.4, and the roof carried a shrink rule
+	-- to dodge the deck — two pieces of geometry reaching into each other, each
+	-- correct on its own. There is one structural line now and both of them are
+	-- derived from it. See Config.Structure.
 
 	-- THE VAULT SHELL, which now carries a gauge as well as a sign.
 	--
@@ -1887,6 +1885,308 @@ __MODULES["Config"] = function()
 
 	for _, floor in ipairs(Config.Floors) do
 		table.insert(Config.BeltPaths, Config.floorBeltPath(floor))
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- THE BUILDING SHELL — walls, windows, gates and the roof
+	--
+	-- It lives HERE, after Config.Floors, because the ground storey's clear height
+	-- is derived from the mezzanine deck's underside, and Config.Floors is the thing
+	-- that states where the deck is.
+	--
+	-- WHAT WAS WRONG. The walls were five boxes emitted by INSTALLERS.Structure at a
+	-- local literal `h = 13`, and the roof's underside was Layout.RoofY = 20. So
+	-- every plot had a SEVEN-STUD OPEN BAND all the way round, above the wall and
+	-- below the roof, and none of the 2309 config checks looked at wall height at
+	-- all — not the height, not the thickness, not what the openings were. The two
+	-- deliberate openings (the gateway and the yard doorway) had no doors, and there
+	-- were no windows anywhere in the game.
+	--
+	-- ONE STRUCTURAL LINE. A storey's ceiling is the floor above it. The ground
+	-- storey stops at the deck's underside whether or not the deck has been bought:
+	-- before floor2 the roof sits on that line, after it the deck does. That is why
+	-- the roof's old "shrink to dodge the deck" rule is gone rather than extended —
+	-- it existed because two pieces of geometry were each derived separately and had
+	-- to be kept out of each other's way.
+	--
+	-- SPANS ARE A LIST, NOT ARITHMETIC IN A LOOP. Config.wallSegments returns the
+	-- solid runs and the openings of one wall of one storey, and the builder emits
+	-- exactly what it is given. That is what makes "the wall accounts for its whole
+	-- span" an assertion rather than a hope, and it is why the same function is read
+	-- by tools/verify_config.lua and by a runtime spec.
+	--
+	-- SCALAR ARITHMETIC ONLY, like every derived position in this file: the
+	-- verifier stubs Vector3 as a plain table with no operators.
+	Config.Structure = {
+		WallThickness = 2,
+
+		-- The neon cap along a wall's top and the interior strip at the storey line
+		-- are built from the same bar. `section` reproduces the 1-stud cap the old
+		-- five-box wall carried and `proud` its 0.4 of overhang, so the trim that
+		-- ships is the trim that shipped. They are keys rather than literals in the
+		-- builder because Config.shellPartCount has to count them: it did not, and
+		-- the budget was being asserted against a number 13% below what is built.
+		Trim = { section = 1, proud = 0.4 },
+
+		-- Ground clear height is DERIVED (see below). `upper` is chosen: the
+		-- cabinets that move up there are 13 tall and a dropper's arm reaches
+		-- MachineTopY 6.9 above whatever it stands on, so 16 clears both with room
+		-- to walk. Taller costs nothing but makes the building read as a tower.
+		UpperClear = 16,
+
+		-- WINDOW BAYS. A solid run is built as three courses: a sill course from the
+		-- floor to `sill`, a bay course of alternating piers and glass panes, and a
+		-- head course from `sill + height` to the wall top.
+		--
+		-- Wide bays, few piers, deliberately: parts per run is 2n+3 where n is the
+		-- pane count, and this shell is the largest single addition to a plot's part
+		-- count the project has made. See PartBudget.
+		Window = {
+			pane = 16,
+			pier = 8,
+			ground = { sill = 6, height = 9 },
+			upper  = { sill = 4, height = 8 },
+			-- GLASS MUST STAY AT OR ABOVE 0.25. Roblox's PopperCam only treats a
+			-- part as occluding when `Transparency < 0.25 and CanCollide`, so at
+			-- 0.45 a glazed bay passes the camera and the light while staying solid
+			-- to a player. Below 0.25 every window becomes a thing the camera
+			-- shoves itself through, indoors, on a plot that is now enclosed.
+			transparency = 0.45,
+		},
+
+		-- THE OPENINGS, as an inventory. Both keep height 13 — the old wall height —
+		-- with a lintel course above, because a 20-stud gateway is not a door.
+		Openings = {
+			{
+				id = "gateway", side = "front", storey = "ground",
+				centre = Config.Layout.GateCentre, width = Config.Layout.GateWidth,
+				height = 13, leaves = 2,
+				-- Which face the leaves hang on and slide along. INBOARD here: the
+				-- front wall's inside is the open aisle, and a leaf out on the grass
+				-- in front of the gateway would be the first thing you see.
+				face = "inboard",
+			},
+			{
+				id = "yardDoor", side = "back", storey = "ground",
+				-- The cut in the back wall onto the generator yard. Derived from the
+				-- yard's own DoorFrom and the wall ring, so it cannot drift from the
+				-- slab it opens onto: x = DoorFrom .. halfX.
+				centre = (Config.Layout.Yard.DoorFrom + (Config.World.PlotSize.X / 2 - 1)) / 2,
+				width = (Config.World.PlotSize.X / 2 - 1) - Config.Layout.Yard.DoorFrom,
+				height = 13, leaves = 1,
+				-- OUTBOARD, and this one is not a preference. The doorway is flush to
+				-- the end of the back wall, so its single leaf can only slide inward
+				-- along x — and the inside of the back wall IS the dropper row. Slot 1
+				-- stands at x 38.5..43.5, z -66.5..-61.5, and an inboard leaf sliding
+				-- x 33..46 passes 0.1 studs INTO it. Found by the verifier while the
+				-- gate assertions were being falsified, on the shipped numbers.
+				--
+				-- Outboard it slides over the generator yard's own slab (x 32..60,
+				-- z -97..-69), which is empty for its whole travel. The alternative
+				-- was shaving `inset` to 0.1 for 0.2 studs of clearance against a
+				-- machine, which is the kind of margin that becomes a bug the next
+				-- time anything on that row moves.
+				face = "outboard",
+			},
+		},
+
+		-- GATES THAT OPEN ON APPROACH. Leaves slide along the inside face of the
+		-- wall; travel is one leaf width, so the solid run beside an opening has to
+		-- be at least that long (asserted).
+		--
+		-- Driven by a distance test on a fixed tick, NOT by Touched/TouchEnded. The
+		-- teleport pads were deleted for exactly that: a character resting on a
+		-- trigger bounces off its own physics jitter, which cost a cooldown, an
+		-- arrival lock and a TouchEnded sweep to paper over.
+		Gate = {
+			thickness = 1.2,
+			-- Clear air between the wall's FACE and the leaf's near face — not from
+			-- the wall's centre plane. Which face is `opening.face`.
+			inset = 0.4,
+			triggerRadius = 20,      -- open when a humanoid is this close to the opening
+			tickRate = 0.2,          -- seconds between distance tests, per claimed plot
+			travelTime = 0.45,       -- tween seconds, each direction
+		},
+
+		Roof = {
+			thickness = 1.4,
+			column = 2.4,
+			columnInset = 3,         -- in from the wall ring
+			signLift = 6,            -- the company sign, above the roof's top face
+		},
+
+		-- A BUDGET, BECAUSE THIS IS THE FIRST CHANGE BIG ENOUGH THAT GUESSING IS NOT
+		-- GOOD ENOUGH. The shell was ~10 parts; windows and gates take it to ~115,
+		-- times ten plots. HANDOFF_v5 §4 has listed "part budget at full scale is
+		-- still untested" for three rounds. Config.shellPartCount() models it from
+		-- this spec and the verifier asserts the result.
+		PartBudget = 200,
+	}
+
+	--- The two storeys, ground first. `clear` is floor-top to the underside of the
+	--- floor above — which for the ground storey IS the mezzanine deck's underside,
+	--- derived rather than typed so the wall cannot stop short of it again.
+	Config.Structure.Storeys = {
+		{
+			id = "ground",
+			floorY = 0,
+			-- The deck's TOP is `height`, so its underside is a full thickness below
+			-- that — not half. FloorService builds the slab centred at
+			-- `height - deckSize.Y/2`, which spans 20.4 .. 22.0 for today's numbers.
+			-- Getting this wrong by 0.8 is a wall that ends inside the floor above it.
+			clear = Config.Floors[1].height - Config.Floors[1].deckSize.Y,
+		},
+		{
+			id = "upper",
+			floorY = Config.Floors[1].height,
+			clear = Config.Structure.UpperClear,
+		},
+	}
+
+	--- Storey by id.
+	function Config.storey(id: string)
+		for _, storey in ipairs(Config.Structure.Storeys) do
+			if storey.id == id then
+				return storey
+			end
+		end
+		return nil
+	end
+
+	--- The underside of the roof. It sits on the top storey that exists: on the
+	--- ground storey's line before the mezzanine is bought, on the upper storey's
+	--- after. There is no half-roof state, which is the whole reason the old shrink
+	--- rule could go.
+	function Config.roofUnderside(hasFloor: boolean): number
+		local storey = hasFloor and Config.storey("upper") or Config.storey("ground")
+		return storey.floorY + storey.clear
+	end
+
+	--- One wall of the ring: the axis it runs along, its fixed coordinate on the
+	--- other axis, and its extent.
+	---
+	--- Note the asymmetry, which is how the shell has always been built: the side
+	--- walls run the FULL plot depth and the front and back walls sit between them.
+	--- Changing that changes four corners at once.
+	function Config.wallExtent(side: string)
+		local halfX = Config.World.PlotSize.X / 2 - 1
+		local halfZ = Config.World.PlotSize.Z / 2 - 1
+		if side == "back" then
+			return { axis = "X", fixed = -halfZ, from = -halfX, to = halfX, outward = -1 }
+		elseif side == "front" then
+			return { axis = "X", fixed = halfZ, from = -halfX, to = halfX, outward = 1 }
+		elseif side == "left" then
+			return { axis = "Z", fixed = -halfX, from = -Config.World.PlotSize.Z / 2,
+				to = Config.World.PlotSize.Z / 2, outward = -1 }
+		elseif side == "right" then
+			return { axis = "Z", fixed = halfX, from = -Config.World.PlotSize.Z / 2,
+				to = Config.World.PlotSize.Z / 2, outward = 1 }
+		end
+		return nil
+	end
+
+	Config.Structure.Sides = { "back", "front", "left", "right" }
+
+	--- Every opening in one wall of one storey, in order along the wall.
+	function Config.openingsIn(side: string, storey: string)
+		local found = {}
+		for _, opening in ipairs(Config.Structure.Openings) do
+			if opening.side == side and opening.storey == storey then
+				table.insert(found, opening)
+			end
+		end
+		table.sort(found, function(a, b)
+			return a.centre < b.centre
+		end)
+		return found
+	end
+
+	--- THE WALL, AS A LIST OF SPANS. Solid runs and openings, in order, covering
+	--- the whole extent with no gap and no overlap.
+	---
+	--- This is the function the builder emits from, the verifier sums, and a runtime
+	--- spec exercises. A wall that does not account for its own span is now a failed
+	--- check rather than a seven-stud band of daylight nobody measured.
+	function Config.wallSegments(side: string, storey: string)
+		local extent = Config.wallExtent(side)
+		local segments = {}
+		local cursor = extent.from
+		for _, opening in ipairs(Config.openingsIn(side, storey)) do
+			local left = opening.centre - opening.width / 2
+			local right = opening.centre + opening.width / 2
+			if left > cursor then
+				table.insert(segments, { kind = "solid", from = cursor, to = left })
+			end
+			table.insert(segments, { kind = "opening", from = left, to = right, opening = opening })
+			cursor = right
+		end
+		if cursor < extent.to then
+			table.insert(segments, { kind = "solid", from = cursor, to = extent.to })
+		end
+		return segments, extent
+	end
+
+	--- The bay course of one solid run: alternating piers and glass panes, starting
+	--- and ending on a pier. A run too short for a single pane is all pier.
+	function Config.wallBays(from: number, to: number)
+		local w = Config.Structure.Window
+		local length = to - from
+		local panes = math.floor((length - w.pier) / (w.pane + w.pier))
+		if panes < 1 then
+			return { { kind = "pier", from = from, to = to } }
+		end
+		-- Spread the leftover across the piers so the bays stay centred in the run
+		-- rather than all the slack landing on the last pier.
+		local pier = (length - panes * w.pane) / (panes + 1)
+		local bays = {}
+		local cursor = from
+		for index = 1, panes do
+			table.insert(bays, { kind = "pier", from = cursor, to = cursor + pier })
+			cursor += pier
+			table.insert(bays, { kind = "pane", from = cursor, to = cursor + w.pane })
+			cursor += w.pane
+			if index == panes then
+				table.insert(bays, { kind = "pier", from = cursor, to = to })
+			end
+		end
+		return bays
+	end
+
+	--- How many parts one plot's shell costs, modelled from the spec above so the
+	--- verifier can hold it to Config.Structure.PartBudget.
+	---
+	--- Per solid run: a sill course, a head course, and the bay course's piers and
+	--- panes. Per opening: a lintel course over it, plus its leaves. Per side, per
+	--- storey: a trim cap and an interior light strip. Plus the roof slab, its four
+	--- columns and its sign anchor. `hasFloor` because the upper storey only exists
+	--- once the mezzanine is bought — the budget is asserted against the full build.
+	---
+	--- IT MUST COUNT WHAT THE BUILDER EMITS, not what the wall spec implies. Its
+	--- first version left out the trim, the light strip and the sign anchor, so it
+	--- reported 59 against 68 actually built and 107 against 124 — a budget asserted
+	--- 13% under the truth, which is a budget that passes right up until it matters.
+	--- Both numbers were reconciled against a count taken from the real builder.
+	function Config.shellPartCount(hasFloor: boolean): number
+		local total = 0
+		local storeys = hasFloor and { "ground", "upper" } or { "ground" }
+		for _, storey in ipairs(storeys) do
+			for _, side in ipairs(Config.Structure.Sides) do
+				-- the neon cap along this wall's top, and the light strip inside it
+				total += 2
+				for _, segment in ipairs(Config.wallSegments(side, storey)) do
+					if segment.kind == "solid" then
+						total += 2   -- sill course + head course
+						for _, _bay in ipairs(Config.wallBays(segment.from, segment.to)) do
+							total += 1
+						end
+					else
+						total += 1 + segment.opening.leaves   -- lintel + gate leaves
+					end
+				end
+			end
+		end
+		-- the roof slab, its four columns, and the invisible anchor its sign hangs on
+		return total + 6
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -7342,6 +7642,234 @@ __MODULES["FloorService"] = function()
 	end
 
 	return FloorService
+end
+
+
+__MODULES["GateService"] = function()
+	--[[
+		GateService.lua — the doors in the shell, and the one loop that opens them.
+
+		The shell has two deliberate openings: the front gateway you walk in through
+		and the cut in the back wall onto the generator yard. Until this round they
+		were holes. They have leaves now — one for the yard door, a pair for the
+		gateway — and they slide out of the way when somebody walks up to them.
+
+		Three decisions that look arbitrary and are not:
+
+		  A DISTANCE TEST, NOT Touched/TouchEnded. This is the same trap the teleport
+		  pads were deleted for. A character standing on a trigger bounces off its own
+		  physics jitter, firing Touched and TouchEnded over and over, and the pads
+		  needed a cooldown, an arrival lock and a TouchEnded sweep to paper over it —
+		  about a hundred lines to notice somebody was standing there.
+		  Config.Floors[1].ladder's comment is the long version. A gate asked "is
+		  anybody within triggerRadius" on a fixed beat cannot bounce, because there
+		  is no event to bounce.
+
+		  ONE LOOP FOR THE WHOLE SERVER, not one per plot. Ten plots x
+		  1 / Gate.tickRate is fifty coroutine wakeups a second to move at most three
+		  parts. This walks Tycoon.all() from a single loop and skips a plot that has
+		  no owner or has not bought the walls yet, so an empty server does nothing at
+		  all.
+
+		  IT HOLDS NO REFERENCE IT TRUSTS. Gate leaves are built into the walls model
+		  in self.machines, and release() and rebirth() both do
+		  machines:ClearAllChildren() — so a leaf can vanish under this service
+		  between two ticks. Every tick checks Parent and re-resolves, exactly as
+		  Tycoon:updateCabinetSigns drops a sign whose cabinet has been taken down.
+
+		WHERE THE GEOMETRY LIVES: not here. Tycoon:gateLeafSpecs (tycoon/Installers.lua)
+		answers what a leaf is called, where it hangs closed and where it slides to,
+		and the walls branch builds from the same list. Two copies of "one leaf width
+		along the wall, away from the opening centre" is two answers the day either
+		wall moves.
+
+		RAIDERS ARE NOT PART OF THIS. A raider's leash is 52 + 72 = 124 studs against
+		a plot edge at 140, so nothing hostile ever reaches a gate and a closed gate
+		cannot trap a wave. Do not add raider-awareness to make that true; it already
+		is.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Tycoon = Req("Tycoon")
+
+	local Players = game:GetService("Players")
+	local TweenService = game:GetService("TweenService")
+
+	local GateService = {}
+
+	local GATE = Config.Structure.Gate
+
+	-- Eased out rather than linear: a door that decelerates into its stop reads as a
+	-- door, and a linear slide reads as a part being moved by a script.
+	local TRAVEL = TweenInfo.new(GATE.travelTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+	--- The button that builds the walls, found by WHAT IT BUILDS rather than by id.
+	--- The leaves are part of the walls model, so before that purchase there is
+	--- nothing on the plot to look for and no reason to look every fifth of a second
+	--- for the whole session.
+	local WALLS_BUTTON = (function(): string?
+		for _, def in ipairs(Config.Buttons) do
+			if def.kind == "Structure" and def.structure == "walls" then
+				return def.id
+			end
+		end
+		return nil
+	end)()
+
+	-- one entry per plot: { openings = { { centre, leaves = { { spec, part, open, tween } } } } }
+	local state: { [any]: any } = {}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- what a plot's gates are
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- Grouped BY OPENING, because the distance test is per opening and the tween is
+	--- per leaf: the gateway's two leaves answer one question between them.
+	---
+	--- Cached per plot for the life of the server. The specs are pure arithmetic over
+	--- Config and the plot's own CFrame, neither of which changes — what changes is
+	--- whether the parts they name are standing, and that is resolved every tick.
+	local function stateFor(tycoon)
+		local entry = state[tycoon]
+		if entry then
+			return entry
+		end
+
+		local openings, byId = {}, {}
+		-- EVERY STOREY, not just the ground one. Only the ground storey's walls are
+		-- built today, so the upper storey contributes no specs and this loop is free;
+		-- the day it does, this file needs no edit.
+		for _, storey in ipairs(Config.Structure.Storeys) do
+			for _, spec in ipairs(tycoon:gateLeafSpecs(storey.id)) do
+				local opening = byId[spec.opening]
+				if not opening then
+					opening = { centre = spec.centre, leaves = {} }
+					byId[spec.opening] = opening
+					table.insert(openings, opening)
+				end
+				table.insert(opening.leaves, { spec = spec, part = nil, open = false, tween = nil })
+			end
+		end
+
+		entry = { openings = openings }
+		state[tycoon] = entry
+		return entry
+	end
+
+	--- The leaf part, if it is still standing.
+	---
+	--- A leaf that has gone (release, rebirth) drops its cached state with it: the
+	--- replacement is a NEW part built closed, so remembering that the old one was
+	--- open would leave a gate that never opens again and never says why.
+	local function resolve(tycoon, leaf)
+		local part = leaf.part
+		if part and part.Parent then
+			return part
+		end
+		leaf.part = tycoon.machines:FindFirstChild(leaf.spec.name, true)
+		leaf.open = false
+		leaf.tween = nil
+		return leaf.part
+	end
+
+	--- Slides one leaf, and only if it is not already going there. Re-tweening a leaf
+	--- every tick while somebody stands in the doorway restarts the animation five
+	--- times a second, which looks like a stuck door.
+	local function setLeaf(leaf, part: BasePart, open: boolean)
+		if leaf.open == open then
+			return
+		end
+		leaf.open = open
+		-- Cancel rather than overlap. TweenService does not replace a running tween on
+		-- the same property; both keep writing CFrame and whichever ran last that
+		-- frame wins, so a leaf reversed mid-travel would stutter between the two
+		-- targets instead of turning round.
+		if leaf.tween then
+			leaf.tween:Cancel()
+		end
+		leaf.tween = TweenService:Create(part, TRAVEL, {
+			CFrame = open and leaf.spec.open or leaf.spec.closed,
+		})
+		leaf.tween:Play()
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- the loop
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- Every humanoid root position on the server, collected once per tick.
+	---
+	--- Once, because the alternative is a Character/HumanoidRootPart lookup per
+	--- opening per plot: ten players against twenty openings is the same two hundred
+	--- distance tests either way round, but ten instance walks instead of two
+	--- hundred. Players rather than every Humanoid in the workspace for the same
+	--- reason — raiders cannot reach a plot, so walking the raid to find that out
+	--- every fifth of a second buys nothing.
+	local function rootPositions(): { Vector3 }
+		local roots = {}
+		for _, player in ipairs(Players:GetPlayers()) do
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if root and root:IsA("BasePart") then
+				table.insert(roots, root.Position)
+			end
+		end
+		return roots
+	end
+
+	local function anyoneNear(roots: { Vector3 }, centre: Vector3): boolean
+		for _, position in ipairs(roots) do
+			if (position - centre).Magnitude <= GATE.triggerRadius then
+				return true
+			end
+		end
+		return false
+	end
+
+	--- Opens or closes one plot's gates to match who is standing near them.
+	function GateService.sync(tycoon, roots: { Vector3 })
+		for _, opening in ipairs(stateFor(tycoon).openings) do
+			local wanted = anyoneNear(roots, opening.centre)
+			for _, leaf in ipairs(opening.leaves) do
+				local part = resolve(tycoon, leaf)
+				if part then
+					setLeaf(leaf, part, wanted)
+				end
+			end
+		end
+	end
+
+	--- One beat for every gate in the game.
+	function GateService.tick()
+		local roots = rootPositions()
+		for _, tycoon in ipairs(Tycoon.all()) do
+			-- An unclaimed plot has no walls standing and nobody to open them for;
+			-- a claimed plot that has not bought the walls has no leaves to find.
+			if tycoon.owner ~= nil and (WALLS_BUTTON == nil or tycoon.owned[WALLS_BUTTON] == true) then
+				GateService.sync(tycoon, roots)
+			end
+		end
+	end
+
+	function GateService.start()
+		if #Config.Structure.Openings == 0 then
+			return
+		end
+		task.spawn(function()
+			while true do
+				task.wait(GATE.tickRate)
+				-- pcall'd so one plot's bad state cannot end the loop for the other
+				-- nine and leave every gate in the game frozen where it was
+				local ok, err = pcall(GateService.tick)
+				if not ok then
+					warn("[Tung] gate tick error: " .. tostring(err))
+				end
+			end
+		end)
+	end
+
+	return GateService
 end
 
 
@@ -12823,9 +13351,17 @@ __MODULES["Installers"] = function()
 		dropper is not a button, so it cannot go through INSTALLERS.
 
 		buildRoofModel is extracted for the same class of reason and is the one piece
-		of structure that gets REBUILT: the mezzanine deck is the roof of the back
-		half of the plot, so a plot that buys the floor fifteen minutes after the roof
-		needs the roof reshaped rather than two slabs a third of a stud apart.
+		of structure that gets REBUILT: the roof sits on the top storey that exists,
+		so a plot that buys the mezzanine fifteen minutes after the roof needs the
+		roof lifted rather than left under the deck.
+
+		THE SHELL IS EMITTED FROM Config.Structure AND NOTHING ELSE. buildStoreyWalls
+		walks Config.wallSegments and builds exactly the spans it is handed; it does
+		not decide where a wall stops, how tall it is or where its openings are. That
+		is not tidiness — the walls were five boxes at a local `h = 13` under a roof
+		whose underside was 20, so every plot in the game had a seven-stud open band
+		around it and none of the 2309 config checks could see the number that caused
+		it. A span the verifier can sum is a span the verifier can hold to its extent.
 	]]
 
 	local Req = __Req
@@ -12841,8 +13377,99 @@ __MODULES["Installers"] = function()
 	local newPart = Parts.newPart
 	local COLORS = Tycoon.COLORS
 
-	local L = Config.Layout
+	-- Config.Layout is no longer read here. The gateway's centre and width still
+	-- live in it, but they are read by Config.Structure.Openings now: the shell is
+	-- built from ONE spec, and a builder that reached into Layout for half a wall
+	-- would be a second source for the same geometry.
 	local W = Config.World
+	local S = Config.Structure
+
+	-- The shell's palette. Colour is the one thing about the wall this rewrite did
+	-- NOT move into Config: what changed is its geometry, and the wall you walk up
+	-- to is the same colour and material it always was.
+	local WALL_COLOR = Color3.fromRGB(150, 111, 74)
+	local ROOF_COLOR = Color3.fromRGB(138, 88, 58)
+
+	-- THE NEON TRIM, AND THE INTERIOR STRIP BUILT FROM THE SAME IDIOM.
+	--
+	-- Config.Structure.Trim, not derived from the wall's thickness. It was derived
+	-- while this was written, which read as thrift and was actually a second source
+	-- for a shipped number: Config.shellPartCount could not count a part whose
+	-- existence it could not see, and the budget was being asserted 13% under what
+	-- the builder emits.
+	local TRIM_SECTION = S.Trim.section
+	local TRIM_PROUD = S.Trim.proud
+
+	-- ── the shell's geometry ─────────────────────────────────────────────────────
+
+	--- The size and CFrame of a box lying along one wall of the ring.
+	---
+	--- WHICH OF X AND Z IS THE LENGTH AND WHICH IS THE THICKNESS IS
+	--- Config.wallExtent'S BUSINESS. The old wall answered that question by hand,
+	--- once per box, in five hand-written CFrames — and the asymmetry it encodes
+	--- (the side walls run the full plot depth, the front and back sit between them)
+	--- is four corners at once if any one of them is written differently.
+	---
+	--- `cross` is how far INBOARD of the wall plane the box's centre sits: 0 for
+	--- everything in the wall itself, `gateCross(opening)` for a leaf hanging off it.
+	local function alongWall(tycoon, extent, along: number, y: number, cross: number,
+		length: number, height: number, thickness: number)
+		local fixed = extent.fixed - extent.outward * cross
+		if extent.axis == "X" then
+			return Vector3.new(length, height, thickness), tycoon:at(along, y, fixed)
+		end
+		return Vector3.new(thickness, height, length), tycoon:at(fixed, y, along)
+	end
+
+	--- HOW FAR OFF THE WALL A GATE LEAF HANGS, and on which side.
+	---
+	--- `alongWall`'s `cross` is measured from the wall's CENTRE plane and positive is
+	--- inboard, so this is half the wall, plus the stated air gap, plus half the leaf
+	--- — and negated for an opening whose leaves hang outside.
+	---
+	--- The yard door hangs outboard and that is not a preference. Its doorway is
+	--- flush to the end of the back wall, so its single leaf can only slide inward
+	--- along x, and the inside of the back wall IS the dropper row: an inboard leaf
+	--- passes 0.1 studs into dropper slot 1. Outboard it travels over the generator
+	--- yard's own slab, which is empty for its whole run. Both the verifier and this
+	--- builder found that independently, on the shipped numbers.
+	---
+	--- WHICH IS WHY A MISSPELLED FACE IS NOT LET THROUGH QUIETLY. It is not
+	--- nil-shaped: it is a door built on the wrong side of a wall, and on one of these
+	--- two walls the wrong side is a machine. Config declares both entries today, so
+	--- this is for the third opening somebody adds.
+	local function gateCross(opening): number
+		if opening.face ~= "inboard" and opening.face ~= "outboard" then
+			warn(("[Tung] opening %s has face %s; it must be \"inboard\" or \"outboard\"")
+				:format(tostring(opening.id), tostring(opening.face)))
+		end
+		local offset = S.WallThickness / 2 + S.Gate.inset + S.Gate.thickness / 2
+		return opening.face == "outboard" and -offset or offset
+	end
+
+	--- One course of one wall: `from`..`to` along the side's own axis, `bottom`..`top`
+	--- in height, a wall thickness across. Callers restyle what comes back — a glass
+	--- pane is this box with two properties changed, not a second constructor.
+	local function wallBox(tycoon, parent: Instance, name: string, extent,
+		from: number, to: number, bottom: number, top: number)
+		local size, cf = alongWall(tycoon, extent, (from + to) / 2, (bottom + top) / 2, 0,
+			math.max(to - from, Tycoon.MIN_PART), math.max(top - bottom, Tycoon.MIN_PART),
+			S.WallThickness)
+		return newPart(parent, name, size, cf, WALL_COLOR, Enum.Material.WoodPlanks)
+	end
+
+	--- A neon bar along one wall, STRADDLING the line it marks rather than sitting
+	--- flush with it: two coplanar faces at one Y is the z-fight every stacked
+	--- surface in this game is offset to avoid.
+	local function neonBar(tycoon, parent: Instance, name: string, extent,
+		from: number, to: number, y: number, thickness: number, cross: number)
+		local size, cf = alongWall(tycoon, extent, (from + to) / 2, y, cross,
+			to - from, TRIM_SECTION, thickness)
+		local bar = newPart(parent, name, size, cf, COLORS.beltLine, Enum.Material.Neon, false)
+		bar.CanQuery = false
+		bar.CastShadow = false
+		return bar
+	end
 
 	-- ── installers ───────────────────────────────────────────────────────────────
 
@@ -13099,51 +13726,161 @@ __MODULES["Installers"] = function()
 	Tycoon.INSTALLERS.Floor = function(self, def, silent)
 	end
 
+	--- Every gate leaf one storey's openings carry: what to build, where it hangs
+	--- closed, and where it slides to.
+	---
+	--- ONE FUNCTION FOR THE BUILDER AND FOR GateService. The walls branch builds
+	--- these and GateService moves them, and "where does this leaf slide to" written
+	--- twice is two answers the day either wall moves. GateService finds the parts by
+	--- the `name` here, so this is also the naming contract between the two files.
+	function Tycoon:gateLeafSpecs(storeyId: string)
+		local storey = Config.storey(storeyId)
+		local specs = {}
+		if not storey then
+			return specs
+		end
+
+		for _, side in ipairs(S.Sides) do
+			local segments, extent = Config.wallSegments(side, storeyId)
+			for index, segment in ipairs(segments) do
+				if segment.kind ~= "opening" then
+					continue
+				end
+				local opening = segment.opening
+				local leafWidth = opening.width / opening.leaves
+				local bottom, top = storey.floorY, storey.floorY + opening.height
+
+				-- WHICH WAY A LONE LEAF SLIDES. A pair opens from the middle, one
+				-- leaf each way. A single leaf has no middle to open from, so it
+				-- slides into whichever neighbouring solid run is LONGER: the yard
+				-- door sits at the right-hand end of the back wall with nothing but
+				-- the corner on that side, and a leaf sliding the other way would
+				-- travel out past the plot edge. Travel is one leaf width, which is
+				-- the minimum run length Config.Structure.Gate says beside an opening.
+				local before, after = segments[index - 1], segments[index + 1]
+				local beforeRun = (before and before.kind == "solid") and (before.to - before.from) or 0
+				local afterRun = (after and after.kind == "solid") and (after.to - after.from) or 0
+				local lone = (beforeRun >= afterRun) and -1 or 1
+
+				-- The centre of the opening, IN THE WALL PLANE — not out on the leaf
+				-- with `gateCross`: what GateService measures a humanoid's distance to
+				-- is the doorway, not the door. Following the leaves would put the yard
+				-- door's trigger two studs BEHIND the back wall, so walking up to it
+				-- from inside the factory would need two studs more approach than
+				-- walking up to the inboard gateway does — the same opening measured
+				-- differently because of which way its leaf happens to swing.
+				local _, centreCF = alongWall(self, extent, opening.centre, (bottom + top) / 2,
+					0, opening.width, top - bottom, S.WallThickness)
+
+				for leaf = 1, opening.leaves do
+					local closed = segment.from + (leaf - 0.5) * leafWidth
+					local direction = lone
+					if opening.leaves > 1 then
+						direction = (closed < opening.centre) and -1 or 1
+					end
+					local size, closedCF = alongWall(self, extent, closed, (bottom + top) / 2,
+						gateCross(opening), leafWidth, top - bottom, S.Gate.thickness)
+					local _, openCF = alongWall(self, extent, closed + direction * leafWidth,
+						(bottom + top) / 2, gateCross(opening), leafWidth, top - bottom, S.Gate.thickness)
+					table.insert(specs, {
+						name = ("Gate_%s_%d"):format(opening.id, leaf),
+						opening = opening.id,
+						size = size,
+						closed = closedCF,
+						open = openCF,
+						centre = centreCF.Position,
+					})
+				end
+			end
+		end
+
+		return specs
+	end
+
+	--- One storey's ring of walls: the courses Config.wallSegments describes, the
+	--- gate leaves in its openings, a neon cap along the top of each side and a neon
+	--- strip along the inside of the storey line.
+	---
+	--- IT TAKES THE STOREY. Only the ground storey is built today, because the
+	--- mezzanine deck covers the BACK HALF of the plot and there is nothing to stand
+	--- the front half of an upper wall on — but an upper storey's ring is this same
+	--- call with a different id, and Config.wallSegments already answers for it.
+	---
+	--- THREE COURSES PER SOLID RUN, one lintel per opening. The bay course is
+	--- Config.wallBays: piers in wall material, panes in glass. A pane is
+	--- CanCollide — what keeps the camera out of an enclosed plot is the
+	--- TRANSPARENCY, because PopperCam only treats a part as occluding below 0.25,
+	--- and Config.Structure.Window.transparency sits at 0.45 for exactly that.
+	function Tycoon:buildStoreyWalls(model: Instance, storeyId: string)
+		local storey = Config.storey(storeyId)
+		local win = S.Window[storeyId]
+		local floorY = storey.floorY
+		local top = floorY + storey.clear
+		local sill = floorY + win.sill
+		local head = sill + win.height
+
+		for _, side in ipairs(S.Sides) do
+			local segments, extent = Config.wallSegments(side, storeyId)
+			for index, segment in ipairs(segments) do
+				local tag = ("%s_%s_%d"):format(storeyId, side, index)
+				if segment.kind == "solid" then
+					wallBox(self, model, "Sill_" .. tag, extent, segment.from, segment.to, floorY, sill)
+					for bay, span in ipairs(Config.wallBays(segment.from, segment.to)) do
+						local part = wallBox(self, model,
+							("%s_%s_%d"):format(span.kind == "pane" and "Pane" or "Pier", tag, bay),
+							extent, span.from, span.to, sill, head)
+						if span.kind == "pane" then
+							part.Material = Enum.Material.Glass
+							part.Transparency = S.Window.transparency
+						end
+					end
+					wallBox(self, model, "Head_" .. tag, extent, segment.from, segment.to, head, top)
+				else
+					-- A lintel, not a full-height cut: a 20-stud gateway is not a
+					-- door, so the opening keeps its own height and the wall closes
+					-- over it.
+					wallBox(self, model, "Lintel_" .. tag, extent, segment.from, segment.to,
+						floorY + segment.opening.height, top)
+				end
+			end
+
+			-- ONE CAP AND ONE STRIP PER SIDE, not one per box. The old wall drew a
+			-- trim over each of its five pieces; this one is up to thirteen boxes a
+			-- side, and thirteen neon slivers is thirteen parts to say one line.
+			--
+			-- The cap straddles the wall plane and the strip reaches inboard from it,
+			-- so from outside the band reads as an eave under the roof and from
+			-- inside as a light cove where the wall meets the ceiling. THE STRIP IS
+			-- WHY IT IS THERE: the ground floor is an enclosed box now, and the
+			-- cheapest light in an enclosed box is a neon part you can see.
+			neonBar(self, model, "Trim_" .. storeyId .. "_" .. side, extent,
+				extent.from - TRIM_PROUD / 2, extent.to + TRIM_PROUD / 2, top,
+				S.WallThickness + TRIM_PROUD, 0)
+			neonBar(self, model, "Light_" .. storeyId .. "_" .. side, extent,
+				extent.from, extent.to, top, TRIM_SECTION, S.WallThickness / 2)
+		end
+
+		-- THE GATE LEAVES, hung off the face `opening.face` names. They live in this
+		-- model with the walls, so release() and rebirth() take them down with
+		-- everything else — which is why GateService checks a leaf's Parent before it
+		-- moves it, rather than holding a reference and trusting it.
+		for _, leaf in ipairs(self:gateLeafSpecs(storeyId)) do
+			newPart(model, leaf.name, leaf.size, leaf.closed, WALL_COLOR, Enum.Material.WoodPlanks)
+		end
+	end
+
 	Tycoon.INSTALLERS.Structure = function(self, def, silent)
 		local model = Instance.new("Model")
 		model.Name = "Structure_" .. def.id
 		model.Parent = self.machines
 
-		local halfX = W.PlotSize.X / 2 - 1
-		local halfZ = W.PlotSize.Z / 2 - 1
-
 		if def.structure == "walls" then
-			local h = 13
-			-- The gateway sits over the open floor on the right, NOT at x = 0:
-			-- the belt and vault occupy the left half, so a centred gate would
-			-- open onto machinery. Config owns the numbers so they scale with
-			-- the plot and can be checked against the aisle by the verifier.
-			local gateCentre, gateWidth = L.GateCentre, L.GateWidth
-			local gateLeft = gateCentre - gateWidth / 2
-			local gateRight = gateCentre + gateWidth / 2
-			local leftSpan = gateLeft + halfX
-			local rightSpan = halfX - gateRight
-			-- The BACK wall is one piece short of the full width, leaving a doorway
-			-- in the back-right corner onto the generator yard. Cut here rather
-			-- than when the generator is bought, because walls land around minute
-			-- five and the first rung later — a solid back wall would seal the yard
-			-- off permanently for anyone who bought walls first, which is everyone.
-			--
-			-- The corner is not a preference. The back edge of the plot IS the
-			-- dropper row (slots 1..10 run x = -42.5 to 43.5) and the left side is
-			-- the upgrader alley, so it is the only span with nothing behind it.
-			local door = L.Yard.DoorFrom
-			local backSpan = door + halfX
-			local specs = {
-				{ Vector3.new(backSpan, h, 2), CFrame.new((door - halfX) / 2, h / 2, -halfZ) },
-				{ Vector3.new(2, h, W.PlotSize.Z), CFrame.new(halfX, h / 2, 0) },
-				{ Vector3.new(2, h, W.PlotSize.Z), CFrame.new(-halfX, h / 2, 0) },
-				-- front wall in two pieces, leaving the gateway over the aisle
-				{ Vector3.new(leftSpan, h, 2), CFrame.new(gateLeft - leftSpan / 2, h / 2, halfZ) },
-				{ Vector3.new(rightSpan, h, 2), CFrame.new(gateRight + rightSpan / 2, h / 2, halfZ) },
-			}
-			for i, spec in ipairs(specs) do
-				newPart(model, "Wall" .. i, spec[1], self.cf * spec[2], Color3.fromRGB(150, 111, 74), Enum.Material.WoodPlanks)
-				newPart(model, "Trim" .. i, spec[1] + Vector3.new(0.4, -h + 1, 0.4),
-					self.cf * spec[2] * CFrame.new(0, h / 2, 0), COLORS.beltLine, Enum.Material.Neon, false)
-			end
+			-- THE GROUND STOREY ONLY, and the id comes from Config rather than being
+			-- typed here. The upper storey's ring is the same call with the next
+			-- Storeys entry, and it waits for a deck that spans the whole plot.
+			self:buildStoreyWalls(model, S.Storeys[1].id)
 		elseif def.structure == "roof" then
-			self:buildRoofModel(model, halfX, halfZ)
+			self:buildRoofModel(model)
 		end
 
 		local entry = self.objects[def.id]
@@ -13154,61 +13891,68 @@ __MODULES["Installers"] = function()
 
 	--- The roof slab, its columns and the company sign.
 	---
-	--- Extracted from the installer because the roof's SHAPE depends on something
-	--- bought later. The mezzanine deck is the roof of the back half of the plot,
-	--- so with the floor up the roof stops short of it with a couple of studs of
-	--- daylight; roofing it twice interpenetrates two slabs a third of a stud apart
-	--- and hides a floor under a roof nobody can see.
+	--- Extracted from the installer because the roof's HEIGHT depends on something
+	--- bought later. A storey's ceiling is the floor above it, so the roof sits on
+	--- the top storey that EXISTS: on the ground storey's line before the mezzanine
+	--- is bought, on the upper storey's after. Config.roofUnderside is that one
+	--- structural line and the walls are derived from the same one.
 	---
-	--- That used to key off the prototype flag, which was the same answer for
-	--- everybody forever. Now that the floor is a purchase in the middle of the
-	--- build, the roof at minute 28 and the floor at minute 40 are fifteen minutes
-	--- apart — so the roof has to be REBUILT when the floor lands, or every player
-	--- gets a half-roof over an empty back half for the gap between them.
-	function Tycoon:buildRoofModel(model: Instance, halfX: number, halfZ: number)
+	--- THE SHRINK RULE IS GONE. The roof used to span `front - back` and pull its
+	--- back edge in to the deck's front edge plus two studs, so a plot with a floor
+	--- got a roof over the front half and open sky over the back. That existed only
+	--- because the roof's height and the deck's height were each derived separately
+	--- and had to be kept out of each other's way; with one line they cannot cross,
+	--- and the roof always spans the whole plot.
+	---
+	--- It is still REBUILT when the floor lands (refreshRoof, off
+	--- FloorService.sync): roof is minute 28 and floor is minute 6, so without the
+	--- rebuild the beat that raises the building never happens.
+	function Tycoon:buildRoofModel(model: Instance)
 		model:ClearAllChildren()
 
-		local front = W.PlotSize.Z / 2
-		local back = -W.PlotSize.Z / 2
 		local floorDef = Config.Floors[1]
-		if floorDef and self.owned[floorDef.button] then
-			back = floorDef.deckAt.Z + floorDef.deckSize.Z / 2 + 2
-		end
+		local underside = Config.roofUnderside(floorDef ~= nil and self.owned[floorDef.button] ~= nil)
+		-- The wall ring's own |x| and |z|, read from the extents the walls are built
+		-- from rather than re-derived here: "inset in from the wall ring" has to mean
+		-- the wall the columns stand beside.
+		local ringX = Config.wallExtent("right").fixed
+		local ringZ = Config.wallExtent("front").fixed
 
-		do
-			-- Heights come from Layout now rather than being literals here, because
-			-- the mezzanine deck sits at 22 and these columns are 20 tall — a
-			-- relationship nothing was checking, on two pieces of geometry that
-			-- already reach into each other.
-			local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, L.RoofThickness, front - back),
-				self:at(0, L.RoofY, (front + back) / 2), Color3.fromRGB(138, 88, 58), Enum.Material.WoodPlanks)
-			roof.CanCollide = true
-			for _, sign in ipairs({ -1, 1 }) do
-				for _, signZ in ipairs({ -1, 1 }) do
-					newPart(model, "Column", Vector3.new(L.RoofColumn, L.RoofY, L.RoofColumn),
-						self:at(sign * (halfX - L.RoofColumnInset), L.RoofY / 2, signZ * (halfZ - L.RoofColumnInset)),
-						Color3.fromRGB(150, 111, 74), Enum.Material.Wood)
-				end
+		local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, S.Roof.thickness, W.PlotSize.Z),
+			self:at(0, underside + S.Roof.thickness / 2, 0), ROOF_COLOR, Enum.Material.WoodPlanks)
+		roof.CanCollide = true
+
+		for _, signX in ipairs({ -1, 1 }) do
+			for _, signZ in ipairs({ -1, 1 }) do
+				newPart(model, "Column", Vector3.new(S.Roof.column, underside, S.Roof.column),
+					self:at(signX * (ringX - S.Roof.columnInset), underside / 2,
+						signZ * (ringZ - S.Roof.columnInset)),
+					WALL_COLOR, Enum.Material.Wood)
 			end
-
-			local signAnchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1), self:at(0, 27, 0), COLORS.frame, nil, false)
-			signAnchor.Transparency = 1
-			local billboard = Style.billboard(signAnchor, {
-				name = "Sign", width = 46, height = 12, distance = "plot",
-			})
-			self.roofSign = Style.text(billboard, {
-				text = "TUNG TUNG TUNG SAHUR CO.", color = COLORS.gold,
-			})
-			self:updateSign()
 		end
+
+		-- THE SIGN CLEARS THE ROOF'S TOP FACE, and it is the roof's own top face it
+		-- clears. This was a literal 27 against a roof at 20; at the mezzanine's
+		-- underside of 38 that anchor would have been buried inside the slab.
+		local signAnchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1),
+			self:at(0, underside + S.Roof.thickness + S.Roof.signLift, 0), COLORS.frame, nil, false)
+		signAnchor.Transparency = 1
+		local billboard = Style.billboard(signAnchor, {
+			name = "Sign", width = 46, height = 12, distance = "plot",
+		})
+		self.roofSign = Style.text(billboard, {
+			text = "TUNG TUNG TUNG SAHUR CO.", color = COLORS.gold,
+		})
+		self:updateSign()
 	end
 
-	--- Reshapes an already-built roof. Called when the floor lands under it.
+	--- Lifts an already-built roof onto the storey that exists now. Called when the
+	--- floor lands under it.
 	function Tycoon:refreshRoof()
 		local entry = self.objects.roof
 		local model = entry and entry.machine
 		if model and model.Parent then
-			self:buildRoofModel(model, W.PlotSize.X / 2 - 1, W.PlotSize.Z / 2 - 1)
+			self:buildRoofModel(model)
 		end
 	end
 
@@ -14383,14 +15127,15 @@ local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
 
--- SessionService (offline earnings, the session loops) and FloorService (the
--- second storey) have graduated and always run. UpgradeService is still a
--- prototype and is a no-op unless Config.Prototypes.PlayerUpgrades is on, so it
--- costs nothing in a shipping build.
+-- SessionService (offline earnings, the session loops), FloorService (the second
+-- storey) and GateService (the doors in the shell) have graduated and always run.
+-- UpgradeService is still a prototype and is a no-op unless
+-- Config.Prototypes.PlayerUpgrades is on, so it costs nothing in a shipping build.
 local UpgradeService = Req("UpgradeService")
 local SessionService = Req("SessionService")
 local FloorService = Req("FloorService")
 local VaultService = Req("VaultService")
+local GateService = Req("GateService")
 
 -- Shipped, and flagless: the friend bonus turns off by setting
 -- Config.Social.BonusPerFriend to 0, on which start() declines to register its
@@ -14431,6 +15176,11 @@ SessionService.start()
 -- and reads the projection SessionService owns
 VaultService.start()
 FloorService.start()
+-- The gates in the shell's two openings. Anywhere after PlotService.build: it
+-- walks Tycoon.all() on its own fixed beat and finds the leaves inside the walls
+-- model, so the plots have to exist, but it registers no listener and reacts to
+-- no purchase — a gate is a distance test, not an event.
+GateService.start()
 SocialService.start()
 
 -- 6. players

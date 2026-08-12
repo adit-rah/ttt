@@ -18,14 +18,15 @@ local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
 
--- SessionService (offline earnings, the session loops) and FloorService (the
--- second storey) have graduated and always run. UpgradeService is still a
--- prototype and is a no-op unless Config.Prototypes.PlayerUpgrades is on, so it
--- costs nothing in a shipping build.
+-- SessionService (offline earnings, the session loops), FloorService (the second
+-- storey) and GateService (the doors in the shell) have graduated and always run.
+-- UpgradeService is still a prototype and is a no-op unless
+-- Config.Prototypes.PlayerUpgrades is on, so it costs nothing in a shipping build.
 local UpgradeService = Req("UpgradeService")
 local SessionService = Req("SessionService")
 local FloorService = Req("FloorService")
 local VaultService = Req("VaultService")
+local GateService = Req("GateService")
 
 -- Shipped, and flagless: the friend bonus turns off by setting
 -- Config.Social.BonusPerFriend to 0, on which start() declines to register its
@@ -66,6 +67,11 @@ SessionService.start()
 -- and reads the projection SessionService owns
 VaultService.start()
 FloorService.start()
+-- The gates in the shell's two openings. Anywhere after PlotService.build: it
+-- walks Tycoon.all() on its own fixed beat and finds the leaves inside the walls
+-- model, so the plots have to exist, but it registers no listener and reacts to
+-- no purchase — a gate is a distance test, not an event.
+GateService.start()
 SocialService.start()
 
 -- 6. players

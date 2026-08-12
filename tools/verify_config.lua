@@ -1620,6 +1620,17 @@ end
 
 local gateFrom, gateTo = L.GateCentre - L.GateWidth / 2, L.GateCentre + L.GateWidth / 2
 
+-- THE FOUR ROOF COLUMNS, derived rather than typed. These were the literals
+-- (halfX - 4, halfZ - 4) in the loop below, which is "the wall ring minus
+-- Roof.columnInset" for today's numbers and stops tracking the roof the moment
+-- the inset moves — the same two-copies-of-one-number arrangement that let the
+-- walls sit seven studs under the roof. The wall ring stands 1 stud in from the
+-- pad edge; the columns stand `columnInset` in from that. The shell block below
+-- asserts these same two numbers against the wall's inner face and against the
+-- machine rows they stand among.
+local roofColumnX = halfX - 1 - Config.Structure.Roof.columnInset
+local roofColumnZ = halfZ - 1 - Config.Structure.Roof.columnInset
+
 for _, track in ipairs(Config.TrackOrder) do
 	local layout = L.Tracks[track]
 	if layout then
@@ -1655,11 +1666,11 @@ for _, track in ipairs(Config.TrackOrder) do
 		check(math.abs(centre.X - L.BeltCorner.X) - size.X / 2 >= L.BeltWidth,
 			("%s reaches the upgrader belt leg at x=%.1f"):format(where, L.BeltCorner.X))
 
-		-- ...and clear of the four roof columns, which stand 3 studs in from
-		-- the inside faces of the wall ring
+		-- ...and clear of the four roof columns, which stand Roof.columnInset
+		-- studs in from the wall ring (see roofColumnX/Z above)
 		for _, sx in ipairs({ -1, 1 }) do
 			for _, sz in ipairs({ -1, 1 }) do
-				local column = Vector3.new(sx * (halfX - 4), 0, sz * (halfZ - 4))
+				local column = Vector3.new(sx * roofColumnX, 0, sz * roofColumnZ)
 				check(boxPointGap(centre, size, column) >= 2,
 					("%s overlaps the roof column at (%.0f, %.0f)")
 						:format(where, column.X, column.Z))
@@ -1797,14 +1808,39 @@ for _, floor in ipairs(Config.Floors) do
 	check(deckAt.Z - deckHalfZ >= -wallInner,
 		("%s's back edge is at z=%.1f and the wall's inner face is at z=%.1f — the deck would grow through the wall")
 			:format(where, deckAt.Z - deckHalfZ, -wallInner))
+	-- RE-AUTHORED, PREMISE OVERTURNED (see HANDOFF_v6 §3 for the convention).
+	--
+	-- This was `deckUnderside >= L.RoofY`: "the deck must stay clear of the
+	-- roof". That was the right check for the design it was written against —
+	-- the roof was a separate slab at its own literal height (20) with a shrink
+	-- rule to dodge the deck (20.4), two pieces of geometry each derived on its
+	-- own and each having to be kept out of the other's way, and 0.4 studs was
+	-- all that separated them.
+	--
+	-- There is one structural line now. The deck's underside IS the ground
+	-- storey's ceiling: Structure.Storeys[1].clear is derived from
+	-- `height - deckSize.Y`, the walls stop there, and the roof sits on that same
+	-- line until the deck takes it over. So the relationship to guard is no
+	-- longer clearance, it is EQUALITY — the day someone types a literal into
+	-- either side of it, the ground floor gets its band of daylight back.
 	local deckUnderside = floor.height - deck.Y
-	check(deckUnderside >= L.RoofY,
-		("%s's underside is at y=%.1f and the roof columns top out at y=%.1f — they interpenetrate")
-			:format(where, deckUnderside, L.RoofY))
-	-- ...and the shortened roof has to stop short of the deck, not meet it.
-	local roofBack = deckAt.Z + deckHalfZ + 2
-	check(roofBack > deckAt.Z + deckHalfZ,
-		("%s: the shortened roof starts at z=%.1f, inside the deck"):format(where, roofBack))
+	local groundStorey = Config.storey("ground") or Config.Structure.Storeys[1]
+	check(math.abs(deckUnderside - (groundStorey.floorY + groundStorey.clear)) < 1e-9,
+		("%s's underside is at y=%.2f but the ground storey's walls top out at y=%.2f — the deck IS that ceiling now, so anything but equality is either a gap above the wall or a wall built into the floor above it")
+			:format(where, deckUnderside, groundStorey.floorY + groundStorey.clear))
+	-- ...and the shortened roof it used to dodge is gone with it: with the deck
+	-- up the roof is a full storey higher, over the upper walls, rather than a
+	-- slab stopping two studs short of the deck's front edge. The old check here
+	-- (`deckAt.Z + deckHalfZ + 2 > deckAt.Z + deckHalfZ`) was one of the ones
+	-- that COULD NOT FAIL — x + 2 > x for every x.
+	local upperStorey = Config.storey("upper") or Config.Structure.Storeys[2]
+	local DECK_HEADROOM = 8   -- a humanoid is 5 studs and the deck carries a rail
+	check(Config.roofUnderside(true) >= floor.height + DECK_HEADROOM,
+		("%s: with the deck up the roof's underside is at y=%.1f, only %.1f studs over a deck at y=%.1f — the roof is a whole storey above the deck now, not a slab stopping two studs short of its front edge")
+			:format(where, Config.roofUnderside(true), Config.roofUnderside(true) - floor.height, floor.height))
+	check(math.abs(upperStorey.floorY - floor.height) < 1e-9,
+		("%s: the deck's top is y=%.1f but the upper storey stands at y=%.1f — the storey above has to stand ON the deck")
+			:format(where, floor.height, upperStorey.floorY))
 
 	-- THE DECK'S PILLARS STAND ON THE GROUND FLOOR, among the machines. They
 	-- miss the upgrader row today only because no UpgraderDist slot happens to
@@ -1908,18 +1944,21 @@ local farthestDropper = L.BeltStart.X - L.DropperDist[1] + L.MachineFootprint / 
 check(Y.DoorFrom >= farthestDropper + 2,
 	("the yard doorway starts at x=%.1f but dropper slot 1 stands out to x=%.1f — the door opens onto a machine")
 		:format(Y.DoorFrom, farthestDropper))
-local doorWidth = (Config.World.PlotSize.X / 2 - 1) - Y.DoorFrom
-check(doorWidth >= 8,
-	("the yard doorway is %.1f studs wide; a humanoid plus its hitbox needs 8"):format(doorWidth))
--- THE WHOLE DOORWAY HAS TO BE OVER THE SLAB, not just its left jamb. This
--- checked one point, which was enough while the yard was 108 studs wide and
--- spanned the plot — the door could not miss it. A 28-stud corner chunk can sit
--- entirely clear of the door it is supposed to be reached through, and you
--- would walk out of the back wall onto grass.
-local doorTo = Config.World.PlotSize.X / 2 - 1
-check(Y.Centre.X - yardHalfX <= Y.DoorFrom and Y.Centre.X + yardHalfX >= doorTo,
-	("the doorway spans x %.0f..%.0f but the yard slab spans %.0f..%.0f; you would step out of the back wall onto grass")
-		:format(Y.DoorFrom, doorTo, Y.Centre.X - yardHalfX, Y.Centre.X + yardHalfX))
+-- THE DOORWAY'S WIDTH AND THE SLAB IT LANDS ON MOVED to the building-shell
+-- block below, because the hole in the wall is now a row in
+-- Config.Structure.Openings and this block was re-deriving it from Y.DoorFrom —
+-- two copies of one span, either of which could move without the other. The
+-- SPAN-not-a-point property is kept there, read off the `yardDoor` opening; what
+-- stays here is the tie between the two, which is what the re-derivation was
+-- silently standing in for.
+local backOpenings = Config.openingsIn("back", "ground")
+check(#backOpenings == 1,
+	("the back wall's ground storey has %d openings; the yard door is the only thing that may be cut into it — the rest of that wall IS the dropper row")
+		:format(#backOpenings))
+local yardDoorLeft = backOpenings[1] and (backOpenings[1].centre - backOpenings[1].width / 2) or -math.huge
+check(math.abs(yardDoorLeft - Y.DoorFrom) < 1e-9,
+	("the back wall's opening starts at x=%.1f but the yard's own DoorFrom is %.1f — the hole in the wall and the slab it opens onto have drifted apart")
+		:format(yardDoorLeft, Y.DoorFrom))
 
 -- The gateway in the front wall has to open onto the aisle the player actually
 -- walks, not onto the vault.
@@ -1930,8 +1969,12 @@ check(gateLeft > -halfX and gateRight < halfX,
 check(L.OwnerSpawnAt.X > gateLeft and L.OwnerSpawnAt.X < gateRight,
 	("the owner spawns at x=%.0f but the gateway is x %.0f..%.0f — they'd land behind a wall")
 		:format(L.OwnerSpawnAt.X, gateLeft, gateRight))
-check(gateLeft > L.BeltEnd.X + L.BeltWidth / 2,
-	("the gateway starts at x=%.0f, over the belt/vault side of the plot"):format(gateLeft))
+-- THE GATEWAY-VERSUS-BELT CHECK MOVED to the building-shell block below, and now
+-- reads the `gateway` row of Config.Structure.Openings instead of
+-- GateCentre/GateWidth. Same inequality, same defect — but the opening inventory
+-- is what the wall is built from now, so it is the thing that has to clear the
+-- belt; reading the Layout keys it happens to be derived from today is one
+-- indirection away from the geometry that actually ships.
 
 -- every upgrader is downstream of every dropper by construction (leg 2 comes
 -- after leg 1), which is what makes the upgrade stack apply to all droppers
@@ -2013,6 +2056,526 @@ for count = Config.World.MinPlots, Config.World.MaxPlots do
 			:format(count, farthest - Config.World.ArenaRadius, MAX_WALK))
 end
 
+-- ── the building shell ──────────────────────────────────────────────────────
+--
+-- THE DEFECT THIS FAMILY EXISTS FOR. The walls were five boxes emitted by
+-- INSTALLERS.Structure at a local literal `h = 13`, while the roof's underside
+-- was Layout.RoofY = 20. Every plot in the game therefore had a SEVEN-STUD OPEN
+-- BAND all the way round it, above the wall and below the roof — and not one of
+-- the 2309 checks that ran before this round looked at wall height, at wall
+-- thickness, or at what the openings in the ring were. The two deliberate holes
+-- were checked as x-spans on the FLOOR; nothing above y = 0 was asserted at all.
+--
+-- So the first check below is the one that band needed — a wall must ACCOUNT FOR
+-- ITS WHOLE SPAN — and the second is the same question vertically: a storey's
+-- wall stops exactly at the floor above it. A wall that ends 0.8 studs INSIDE
+-- the deck above it is as wrong as one that ends seven studs short of it, and
+-- neither was visible from here.
+--
+-- Everything is scalar and component-wise, because the Vector3 in this harness
+-- is a bare table with no arithmetic (see the stubs at the top of the file).
+
+local SH = Config.Structure
+local WIN = SH.Window
+local ROOF = SH.Roof
+local EPS = 1e-9
+
+local function openingById(id)
+	for _, opening in ipairs(SH.Openings) do
+		if opening.id == id then
+			return opening
+		end
+	end
+	return nil
+end
+
+--- An axis-aligned box for a span of one wall, in plan: `extent.axis` is the
+--- axis the wall RUNS along, so the other axis carries its thickness.
+local function wallSpanBox(extent, from, to)
+	if extent.axis == "X" then
+		return Vector3.new((from + to) / 2, 0, extent.fixed),
+			Vector3.new(to - from, 1, SH.WallThickness)
+	end
+	return Vector3.new(extent.fixed, 0, (from + to) / 2),
+		Vector3.new(SH.WallThickness, 1, to - from)
+end
+
+-- THE RING IS FOUR WALLS, and Structure.Sides is the list every loop below runs
+-- over — including the builder's. A side missing from it is a wall that is
+-- simply never emitted, which on a plot that is meant to be enclosed is the
+-- seven-stud band again with a different shape. Validated once here, so a side
+-- naming a wall that does not exist is reported rather than crashing the four
+-- loops after it.
+local sides = {}
+for _, side in ipairs(SH.Sides) do
+	local extent = Config.wallExtent(side)
+	check(extent ~= nil, ("Structure.Sides names %q but wallExtent has no such wall"):format(tostring(side)))
+	if extent then
+		table.insert(sides, { id = side, extent = extent })
+	end
+end
+for _, wall in ipairs({ "back", "front", "left", "right" }) do
+	local found = 0
+	for _, side in ipairs(sides) do
+		if side.id == wall then
+			found += 1
+		end
+	end
+	check(found == 1,
+		("Structure.Sides names the %s wall %d times; the ring is four walls and a side missing from that list is a wall nothing builds")
+			:format(wall, found))
+end
+
+-- 1. SPAN ACCOUNTING — THE CHECK THE SEVEN-STUD BAND NEEDED.
+--
+-- Config.wallSegments is what the builder emits from, so summing it here is the
+-- difference between "the wall covers its own span" being an assertion and being
+-- a hope. Contiguity, no gap, no overlap, and the widths summing to the extent:
+-- the same three ways a hand-rolled loop of five boxes gets a wall wrong.
+for _, side in ipairs(sides) do
+	local extent = side.extent
+	check(extent.to > extent.from,
+		("the %s wall runs %.1f..%.1f, which is not an extent"):format(side.id, extent.from, extent.to))
+	check(extent.outward == 1 or extent.outward == -1,
+		("the %s wall's outward is %s; it must be 1 or -1 or that side of the ring faces inward")
+			:format(side.id, tostring(extent.outward)))
+
+	for _, storey in ipairs(SH.Storeys) do
+		local segments = Config.wallSegments(side.id, storey.id)
+		local where = ("the %s wall's %s storey"):format(side.id, storey.id)
+		check(#segments > 0, ("%s has no segments at all — that wall would not be built"):format(where))
+
+		local cursor, covered = extent.from, 0
+		for index, segment in ipairs(segments) do
+			check(math.abs(segment.from - cursor) < EPS,
+				("%s: segment %d starts at %.2f but the span before it ended at %.2f — a wall that does not account for its whole extent is exactly the seven-stud band of daylight that shipped round every plot, and this is the check it needed")
+					:format(where, index, segment.from, cursor))
+			check(segment.to > segment.from,
+				("%s: segment %d spans %.2f..%.2f, which is not a piece of wall"):format(where, index, segment.from, segment.to))
+			covered += segment.to - segment.from
+			cursor = segment.to
+		end
+		check(math.abs(cursor - extent.to) < EPS,
+			("%s: the last segment ends at %.2f but the wall runs to %.2f — the rest of that wall is open air")
+				:format(where, cursor, extent.to))
+		check(math.abs(covered - (extent.to - extent.from)) < EPS,
+			("%s: its segments sum to %.2f studs across a %.2f-stud extent — they either overlap or leave a gap")
+				:format(where, covered, extent.to - extent.from))
+	end
+end
+
+-- 2. THE WALL MEETS THE FLOOR ABOVE IT.
+--
+-- One structural line: a storey's ceiling is the floor above it. The ground
+-- storey's `clear` is derived from the mezzanine deck's UNDERSIDE — a full deck
+-- thickness below its top, not half of one — and getting that wrong by 0.8
+-- studs is a wall built into the floor above it, which is the same class of
+-- defect as the band and just as invisible.
+check(Config.storey("ground") ~= nil and Config.storey("upper") ~= nil,
+	"Config.storey cannot find `ground` and `upper` — those two ids are how every consumer of the shell asks for a storey, so a renamed one is a storey nothing can look up")
+local groundStorey = Config.storey("ground") or SH.Storeys[1]
+local upperStorey = Config.storey("upper") or SH.Storeys[2]
+local groundClear = groundStorey.clear
+local mezz = Config.Floors[1]
+
+check(math.abs(groundClear - (mezz.height - mezz.deckSize.Y)) < EPS,
+	("the ground storey's clear height is %.2f but the mezzanine deck's underside is at %.2f (top %.1f less a %.1f-stud slab) — the wall has to stop exactly there: short of it is open band, past it is a wall inside the floor above")
+		:format(groundClear, mezz.height - mezz.deckSize.Y, mezz.height, mezz.deckSize.Y))
+
+for index, storey in ipairs(SH.Storeys) do
+	local above = SH.Storeys[index + 1]
+	local top = storey.floorY + storey.clear
+	check(storey.clear > 0, ("Storeys[%d] (%s) has no clear height"):format(index, tostring(storey.id)))
+	if above then
+		-- Floors[index] is the deck that IS the floor of Storeys[index + 1].
+		local deck = Config.Floors[index]
+		local thickness = deck and deck.deckSize.Y or 0
+		check(math.abs(top - (above.floorY - thickness)) < EPS,
+			("the %s storey's wall tops out at y=%.2f but the %s storey's floor starts at y=%.2f (its slab spans %.2f..%.2f) — the wall must meet the underside of the deck above it, to the stud")
+				:format(storey.id, top, above.id, above.floorY - thickness, above.floorY - thickness, above.floorY))
+	end
+end
+
+-- 3. AN OPENING IS A DOORWAY, NOT A HOLE IN THE SIDE OF THE BUILDING.
+--
+-- Eight clear studs is a humanoid plus its hitbox plus the jamb it does not want
+-- to catch on; the gateway is 22 and the yard doorway 13. And an opening has to
+-- be IN its wall: a hole cut past the end of an extent is a hole in nothing,
+-- and wallSegments would silently emit it as the whole wall.
+local MIN_OPENING = 8
+for _, opening in ipairs(SH.Openings) do
+	local where = ("the %s opening"):format(tostring(opening.id))
+	local extent = Config.wallExtent(opening.side)
+	local storey = Config.storey(opening.storey)
+	check(extent ~= nil, ("%s is in wall %q, which is not one of the four"):format(where, tostring(opening.side)))
+	check(storey ~= nil, ("%s is on storey %q, which does not exist"):format(where, tostring(opening.storey)))
+
+	check(opening.width >= MIN_OPENING,
+		("%s is %.1f studs of clear width; a humanoid plus its hitbox needs %d and anything less is a doorway you get stuck in")
+			:format(where, opening.width, MIN_OPENING))
+
+	if extent then
+		local from, to = opening.centre - opening.width / 2, opening.centre + opening.width / 2
+		check(from >= extent.from - EPS and to <= extent.to + EPS,
+			("%s spans %.1f..%.1f but the %s wall runs %.1f..%.1f — an opening outside its own wall is a hole in nothing")
+				:format(where, from, to, opening.side, extent.from, extent.to))
+	end
+	if storey then
+		check(opening.height < storey.clear,
+			("%s is %.1f studs tall in a storey with %.2f of clear height — an opening as tall as its storey leaves no lintel course above it")
+				:format(where, opening.height, storey.clear))
+	end
+end
+
+-- 4. THE GATEWAY STILL CLEARS THE BELT.
+--
+-- This inequality used to live in the yard block, read off GateCentre/GateWidth.
+-- It reads the opening inventory now, because that is what the wall is built
+-- from: the Layout keys are one indirection away from the geometry that ships.
+local gateway = openingById("gateway")
+check(gateway ~= nil, "Structure.Openings has no `gateway` — the front wall would be solid")
+if gateway then
+	local left = gateway.centre - gateway.width / 2
+	check(left > L.BeltEnd.X + L.BeltWidth / 2,
+		("the gateway starts at x=%.0f, over the belt/vault side of the plot (the belt's edge is x=%.0f)")
+			:format(left, L.BeltEnd.X + L.BeltWidth / 2))
+end
+
+-- 5. THE YARD DOORWAY STILL LANDS OVER THE YARD SLAB — AS A SPAN, NOT A POINT.
+--
+-- A 28-stud corner slab can sit entirely clear of the door it is reached through
+-- while its left jamb still tests fine, and you would step out of the back wall
+-- onto grass. Derived from the `yardDoor` opening now rather than re-derived from
+-- Yard.DoorFrom beside the slab it has to match.
+local yardDoor = openingById("yardDoor")
+check(yardDoor ~= nil, "Structure.Openings has no `yardDoor` — the generator yard would be unreachable")
+if yardDoor then
+	local from, to = yardDoor.centre - yardDoor.width / 2, yardDoor.centre + yardDoor.width / 2
+	check(Y.Centre.X - yardHalfX <= from + EPS and Y.Centre.X + yardHalfX >= to - EPS,
+		("the doorway spans x %.0f..%.0f but the yard slab spans %.0f..%.0f; you would step out of the back wall onto grass")
+			:format(from, to, Y.Centre.X - yardHalfX, Y.Centre.X + yardHalfX))
+end
+
+-- 6. WINDOW BAYS.
+--
+-- A solid run is three courses: sill, bay, head. The bay course is alternating
+-- piers and panes and it has to tile its run the same way the run tiles the
+-- wall — the slack goes to the piers, deliberately, so a run that does not
+-- divide evenly still comes out centred instead of dumping the remainder on the
+-- last pier.
+--
+-- AND THE TRANSPARENCY IS LOAD-BEARING. Roblox's PopperCam only treats a part as
+-- occluding when `Transparency < 0.25 and CanCollide`, so under that number
+-- every pane becomes a thing the camera shoves itself through — on a plot that
+-- is now fully enclosed, which is the whole reason glass appears in this round.
+check(WIN.transparency >= 0.25,
+	("Window.transparency is %.2f; PopperCam only occludes on Transparency < 0.25 and CanCollide, so anything under 0.25 turns every pane into a hole the camera pushes itself through on a plot that is now enclosed")
+		:format(WIN.transparency))
+check(WIN.pane > 0 and WIN.pier > 0,
+	"Window.pane and Window.pier both have to be positive; a zero pier is a run of glass with nothing holding it up")
+
+for _, courseId in ipairs({ "ground", "upper" }) do
+	local course = WIN[courseId]
+	local storey = Config.storey(courseId)
+	check(course ~= nil and storey ~= nil, ("Window has no bay course for the %s storey"):format(courseId))
+	if course and storey then
+		check(course.sill > 0 and course.height > 0,
+			("the %s bay course has sill %.1f and height %.1f; both have to be positive"):format(courseId, course.sill, course.height))
+		check(course.sill + course.height + 2 <= storey.clear,
+			("the %s storey's bay course runs y %.1f..%.1f inside %.2f studs of clear height — a head course needs at least 2 studs above the glass, or the window IS the top of the wall")
+				:format(courseId, course.sill, course.sill + course.height, storey.clear))
+	end
+end
+
+for _, side in ipairs(sides) do
+	for _, storey in ipairs(SH.Storeys) do
+		for _, segment in ipairs(Config.wallSegments(side.id, storey.id)) do
+			if segment.kind == "solid" then
+				local where = ("the %s wall's %s storey, run %.1f..%.1f"):format(side.id, storey.id, segment.from, segment.to)
+				local bays = Config.wallBays(segment.from, segment.to)
+				check(#bays > 0, ("%s has no bays; the run would be built as nothing"):format(where))
+
+				local cursor, covered = segment.from, 0
+				for index, bay in ipairs(bays) do
+					check(math.abs(bay.from - cursor) < EPS,
+						("%s: bay %d starts at %.2f but the bay before it ended at %.2f — the bay course has to tile its run, or the gap between two piers is a hole in the wall at eye height")
+							:format(where, index, bay.from, cursor))
+					if bay.kind == "pane" then
+						check(bay.to - bay.from >= WIN.pane - EPS,
+							("%s: a pane of %.2f studs against a %.1f-stud spec — the slack in a run goes to the PIERS, never to the glass")
+								:format(where, bay.to - bay.from, WIN.pane))
+					end
+					covered += bay.to - bay.from
+					cursor = bay.to
+				end
+				check(math.abs(cursor - segment.to) < EPS,
+					("%s: its bays end at %.2f, short of the run"):format(where, cursor))
+				check(math.abs(covered - (segment.to - segment.from)) < EPS,
+					("%s: its bays sum to %.2f studs across a %.2f-stud run"):format(where, covered, segment.to - segment.from))
+			end
+		end
+	end
+end
+
+-- 7. NO PANE WHERE SOMETHING ALREADY IS.
+--
+-- Glass is the first thing this game has ever put in the wall ring at machine
+-- height, and the plot floor is crowded right up to the walls: the dropper row
+-- stands 1.5 studs off the back wall's inner face and the armour cabinet 2 studs
+-- off the right wall's. Both of those are FINE and both are within a couple of
+-- studs of failing, which is the reason to assert them rather than eyeball them.
+--
+-- Measured with the box helpers, so overlap along the wall reduces to the
+-- separation across it — which is the only number that matters for something
+-- standing in front of glass.
+local PANE_STANDOFF = 1    -- studs between a pane and anything standing at it
+local PANE_JAMB = 2        -- solid wall between a pane and an opening's edge
+
+-- The ground floor's machine rows, as a band per leg: from the belt centre line
+-- out to the far face of the machines standing outboard of it.
+local groundPath = Config.BeltPaths[1]
+local machineReach = L.MachineOffset + L.MachineFootprint / 2
+local obstacles = {}
+for index = 1, #groundPath.points - 1 do
+	local a, b = groundPath.points[index], groundPath.points[index + 1]
+	local sign = groundPath.outboard[index] or 1
+	local alongX = math.abs(a.Z - b.Z) < EPS
+	local alongZ = math.abs(a.X - b.X) < EPS
+	check(alongX or alongZ,
+		("the ground belt's leg %d is diagonal; the machine row this block models assumes an axis-aligned leg and would measure the wrong band")
+			:format(index))
+	if alongX then
+		local normalZ = ((b.X > a.X) and 1 or -1) * sign
+		table.insert(obstacles, {
+			label = ("the machine row outboard of belt leg %d"):format(index),
+			centre = Vector3.new((a.X + b.X) / 2, 0, a.Z + normalZ * machineReach / 2),
+			size = Vector3.new(math.abs(b.X - a.X), 1, machineReach),
+		})
+	elseif alongZ then
+		local normalX = -((b.Z > a.Z) and 1 or -1) * sign
+		table.insert(obstacles, {
+			label = ("the machine row outboard of belt leg %d"):format(index),
+			centre = Vector3.new(a.X + normalX * machineReach / 2, 0, (a.Z + b.Z) / 2),
+			size = Vector3.new(machineReach, 1, math.abs(b.Z - a.Z)),
+		})
+	end
+end
+for _, track in ipairs(Config.TrackOrder) do
+	if L.Tracks[track] then
+		local centre, size = Config.trackCabinet(track)
+		table.insert(obstacles, { label = ("the %s cabinet"):format(track), centre = centre, size = size })
+	end
+end
+
+for _, side in ipairs(sides) do
+	local extent = side.extent
+	local openings = Config.openingsIn(side.id, "ground")
+	for _, segment in ipairs(Config.wallSegments(side.id, "ground")) do
+		if segment.kind == "solid" then
+			for _, bay in ipairs(Config.wallBays(segment.from, segment.to)) do
+				if bay.kind == "pane" then
+					local where = ("the %s wall's ground pane at %.1f..%.1f"):format(side.id, bay.from, bay.to)
+
+					for _, opening in ipairs(openings) do
+						local from, to = opening.centre - opening.width / 2, opening.centre + opening.width / 2
+						local gap = math.max(from - bay.to, bay.from - to)
+						check(gap >= PANE_JAMB,
+							("%s is %.1f studs from the %s opening (need %d) — a gate closes against solid wall, not against the edge of a window")
+								:format(where, gap, tostring(opening.id), PANE_JAMB))
+					end
+
+					local paneCentre, paneSize = wallSpanBox(extent, bay.from, bay.to)
+					for _, obstacle in ipairs(obstacles) do
+						local gap = boxBoxGap(paneCentre, paneSize, obstacle.centre, obstacle.size)
+						check(gap >= PANE_STANDOFF,
+							("%s comes within %.1f studs of %s (need %d) — that is a window with a machine growing through it")
+								:format(where, gap, obstacle.label, PANE_STANDOFF))
+					end
+				end
+			end
+		end
+	end
+end
+
+-- 8. GATE LEAVES FIT, AND FIT SOMEWHERE TO SLIDE.
+--
+-- A leaf slides along the inside face of the wall and its travel is one leaf
+-- width, so the solid run beside the opening has to be at least that long — a
+-- leaf that needs more run than the wall has slides out past the end of the
+-- building. Two leaves means both sides; one leaf means the side it slides
+-- toward, and this says which side that has to be rather than assuming it.
+for _, opening in ipairs(SH.Openings) do
+	local where = ("the %s opening"):format(tostring(opening.id))
+	local leaves = opening.leaves
+	local leafWidth = opening.width / leaves
+	check(leaves >= 1 and leaves == math.floor(leaves) and math.abs(leaves * leafWidth - opening.width) < EPS,
+		("%s has %s leaves of %.2f studs across a %.1f-stud opening — a leaf count has to be a whole number and the leaves have to sum to the opening, or a closed gate has a gap down the middle of it")
+			:format(where, tostring(leaves), leafWidth, opening.width))
+
+	local before, after = 0, 0
+	-- guarded: an opening naming a wall that does not exist is reported by the
+	-- inventory checks above, and wallSegments has nothing to return for it
+	for _, segment in ipairs(Config.wallExtent(opening.side)
+			and Config.wallSegments(opening.side, opening.storey) or {}) do
+		if segment.kind == "solid" then
+			if segment.to <= opening.centre then
+				before = math.max(before, segment.to - segment.from)
+			else
+				after = math.max(after, segment.to - segment.from)
+			end
+		end
+	end
+	if leaves >= 2 then
+		check(before >= leafWidth and after >= leafWidth,
+			("%s: a %.1f-stud leaf slides each way but the solid runs beside it are %.1f and %.1f studs — a leaf whose travel is longer than the wall beside it slides out past the end of the building")
+				:format(where, leafWidth, before, after))
+	else
+		check(math.max(before, after) >= leafWidth,
+			("%s: its single %.1f-stud leaf has %.1f studs of wall on one side and %.1f on the other, and needs a run of %.1f to slide into — it must slide toward the longer one")
+				:format(where, leafWidth, before, after, leafWidth))
+	end
+
+	-- WHICH FACE THE LEAVES HANG ON, AND WHY THAT IS NOT COSMETIC.
+	--
+	-- This assertion exists because the shipped numbers failed it. The yard door
+	-- is flush to the end of the back wall, so its single leaf can only slide
+	-- inward along x — and the inside of the back wall IS the dropper row. An
+	-- inboard leaf swept 0.1 studs THROUGH dropper slot 1. It hangs outboard now,
+	-- over the generator yard's own slab, and `opening.face` is the field that
+	-- says so.
+	--
+	-- The band a leaf sweeps is measured off the wall's face, not its centre
+	-- plane: half the wall, the stated air gap, then the leaf's own thickness.
+	check(opening.face == "inboard" or opening.face == "outboard",
+		("%s has face %q; a leaf hangs on one side of the wall or the other, and which one is not a default")
+			:format(where, tostring(opening.face)))
+	if opening.face == "inboard" then
+		local extent = Config.wallExtent(opening.side)
+		local near = SH.WallThickness / 2 + SH.Gate.inset
+		local far = near + SH.Gate.thickness
+		-- The machine row that stands along this wall, if one does: the droppers
+		-- run outboard of belt leg 1 (the back edge) and the upgraders outboard
+		-- of leg 2 (the left edge), MachineOffset out with a footprint either
+		-- side of that.
+		local ground = Config.BeltPaths[1]
+		for legIndex = 1, 2 do
+			local a, b = ground.points[legIndex], ground.points[legIndex + 1]
+			if a and b and extent then
+				local legAxis = (math.abs(a.X - b.X) > math.abs(a.Z - b.Z)) and "X" or "Z"
+				-- only a leg parallel to this wall can be swept along
+				if legAxis == extent.axis then
+					local legCross = (extent.axis == "X") and a.Z or a.X
+					-- The machine's face TOWARD the wall: MachineOffset outboard
+					-- of the belt, then half a footprint further out again. Half a
+					-- footprint the other way is the face toward the plot centre,
+					-- which is 5 studs of slack and would have made this check
+					-- pass on the very geometry it was written for.
+					local machineNear = math.abs(legCross + extent.outward
+						* (L.MachineOffset + L.MachineFootprint / 2) - extent.fixed)
+					check(machineNear >= far,
+						("%s: an inboard leaf sweeps %.2f..%.2f studs off the %s wall's centre plane, and the machine row on belt leg %d starts %.2f studs off it — the leaf would pass through a machine")
+							:format(where, near, far, opening.side, legIndex, machineNear))
+				end
+			end
+		end
+	end
+end
+
+-- 9. THE PART BUDGET, WHICH HANDOFF_v5 §4 HAS LISTED AS UNTESTED FOR THREE
+-- ROUNDS. The shell was about ten parts; windows, lintels and gate leaves take
+-- it to over a hundred, times ten plots, and this is the first change big enough
+-- that guessing is not good enough. Asserted at the FULL build — both storeys —
+-- and printed in the report block at the bottom of this file, because the number
+-- itself wants reading every time the window spec moves.
+-- Skipped, not faked, if the ring above did not resolve to four walls:
+-- shellPartCount walks Structure.Sides itself and cannot count a side that names
+-- no wall. The Sides checks at the top of this block are what report that.
+local ringResolved = #sides == 4 and #SH.Sides == 4
+local shellParts = ringResolved and Config.shellPartCount(true) or 0
+local shellPartsGround = ringResolved and Config.shellPartCount(false) or 0
+if ringResolved then
+	check(shellParts <= SH.PartBudget,
+		("one plot's shell is %d parts against a PartBudget of %d — at %d plots that is %d parts of building before a single machine is bought")
+			:format(shellParts, SH.PartBudget, Config.World.MaxPlots, shellParts * Config.World.MaxPlots))
+	check(shellPartsGround < shellParts,
+		("the shell costs %d parts with the mezzanine storey and %d without; the upper storey has to cost something or shellPartCount is not modelling it")
+			:format(shellParts, shellPartsGround))
+end
+
+-- 10. THE ROOF, WHICH IS NOW A CONSEQUENCE RATHER THAN A NUMBER.
+--
+-- It sits on the top storey that exists — the ground storey's line before the
+-- mezzanine is bought, the upper storey's after — so there is no half-roof state
+-- and no shrink rule. The old arrangement was a literal 20 next to a deck
+-- underside of 20.4, which is how the band got in.
+check(math.abs(Config.roofUnderside(false) - (groundStorey.floorY + groundStorey.clear)) < EPS,
+	("roofUnderside(false) is %.2f but the ground storey tops out at %.2f — with no mezzanine the roof IS that ceiling")
+		:format(Config.roofUnderside(false), groundStorey.floorY + groundStorey.clear))
+check(math.abs(Config.roofUnderside(true) - (upperStorey.floorY + upperStorey.clear)) < EPS,
+	("roofUnderside(true) is %.2f but the upper storey tops out at %.2f — with the mezzanine up the roof sits on the upper walls")
+		:format(Config.roofUnderside(true), upperStorey.floorY + upperStorey.clear))
+
+-- THE COMPANY SIGN, above the roof's top face by Roof.signLift. The billboard is
+-- 12 studs tall and centred on its anchor, so a lift under half of that puts its
+-- lower half inside the slab it is standing on — and a BillboardGui that is not
+-- AlwaysOnTop is occluded by exactly that. The 12 is mirrored from
+-- Installers.lua's `Style.billboard{ height = 12 }`, which is the one number in
+-- this family that is not in Config; see the report.
+local ROOF_SIGN_HEIGHT = 12
+for _, hasFloor in ipairs({ false, true }) do
+	local roofTop = Config.roofUnderside(hasFloor) + ROOF.thickness
+	local signY = roofTop + ROOF.signLift
+	check(signY - ROOF_SIGN_HEIGHT / 2 >= roofTop,
+		("the company sign hangs at y=%.1f over a roof whose top face is y=%.1f (%s the mezzanine); a %d-stud billboard centred there has its lower %.1f studs inside the slab, and a billboard that is not AlwaysOnTop is occluded by the part in front of it")
+			:format(signY, roofTop, hasFloor and "with" or "without", ROOF_SIGN_HEIGHT,
+				roofTop - (signY - ROOF_SIGN_HEIGHT / 2)))
+end
+
+-- THE FOUR COLUMNS. They stand `columnInset` in from the wall ring, which has to
+-- put them INSIDE it — a column in the wall is a column you cannot see and a
+-- wall segment you cannot build — and clear of the machine rows they stand
+-- among. roofColumnX/Z are the numbers the cabinet block above models, derived
+-- from Roof.columnInset in one place so the two cannot drift.
+local wallInnerX = halfX - 1 - SH.WallThickness / 2
+local wallInnerZ = halfZ - 1 - SH.WallThickness / 2
+check(roofColumnX + ROOF.column / 2 <= wallInnerX,
+	("the roof columns reach x=%.1f but the wall ring's inner face is x=%.1f — a column inside the wall is a column nobody can see, in a wall segment nobody can build")
+		:format(roofColumnX + ROOF.column / 2, wallInnerX))
+check(roofColumnZ + ROOF.column / 2 <= wallInnerZ,
+	("the roof columns reach z=%.1f but the wall ring's inner face is z=%.1f — a column inside the wall is a column nobody can see, in a wall segment nobody can build")
+		:format(roofColumnZ + ROOF.column / 2, wallInnerZ))
+local COLUMN_CLEAR = 2
+for _, sx in ipairs({ -1, 1 }) do
+	for _, sz in ipairs({ -1, 1 }) do
+		local at = Vector3.new(sx * roofColumnX, 0, sz * roofColumnZ)
+		local columnSize = Vector3.new(ROOF.column, 1, ROOF.column)
+		for _, obstacle in ipairs(obstacles) do
+			local gap = boxBoxGap(at, columnSize, obstacle.centre, obstacle.size)
+			check(gap >= COLUMN_CLEAR,
+				("the roof column at (%.0f, %.0f) is %.1f studs from %s (need %d)")
+					:format(at.X, at.Z, gap, obstacle.label, COLUMN_CLEAR))
+		end
+	end
+end
+
+-- 11. A CLOSED GATE CANNOT TRAP A RAID.
+--
+-- The gates are the first thing on a plot that can be shut, so the question has
+-- to be asked once and then never again: is a raider ever on the wrong side of
+-- one? HANDOFF_v4 §2 has the numbers — raiders live on a home ring in the arena
+-- and are leashed to it, and the nearest plot's front wall (the one the gateway
+-- is cut into) is further away than the leash plus a swing.
+--
+-- The leash block above asserts the same inequality against the plot EDGE. This
+-- one reads the WALL: its outer face is `PlotSize.Z/2 - 1` plus half a wall
+-- thickness, so a thicker wall or a ring moved outboard fires this and not that.
+local frontWallOut = (Config.World.PlotSize.Z / 2 - 1) + SH.WallThickness / 2
+local tightestRadius = tightestPlotEdge + Config.World.PlotSize.Z / 2
+local toFrontWall = tightestRadius - frontWallOut
+check(raiderReach < toFrontWall,
+	("a leashed raider reaches %.0f studs from the arena centre and the nearest plot's FRONT WALL — the one the gateway is cut into — is %.0f studs out; any closer and a closed gate stops being decoration as far as combat is concerned and starts being the thing a raider is standing at")
+		:format(raiderReach, toFrontWall))
+
 -- ── world text ──────────────────────────────────────────────────────────────
 --
 -- The values themselves are one line each; what these checks are really for is
@@ -2092,10 +2655,15 @@ check(labelBottom >= L.MachineTopY + 0.5,
 check(BTN.lift - (BTN.height * LOCKED.scale) / 2 >= L.MachineTopY + 0.5,
 	("a locked buy-button label's bottom edge is at y=%.1f against machines at y=%.1f")
 		:format(BTN.lift - (BTN.height * LOCKED.scale) / 2, L.MachineTopY))
--- A label you have to crane at is its own problem. The plot's roof sits at 20.
-check(BTN.lift + BTN.height / 2 <= 20,
-	("the buy-button label's top edge is at y=%.1f, which is through the roof at y=20")
-		:format(BTN.lift + BTN.height / 2))
+-- A label you have to crane at is its own problem, and a label through the
+-- ceiling is worse. RE-AUTHORED: this read a hard-coded 20, which was
+-- Layout.RoofY — a key that no longer exists, and which was the WRONG number
+-- even when it did, because the ground floor's ceiling was the deck's underside
+-- at 20.4 and the roof was a separate slab. It reads the ground storey's clear
+-- height now, so the label follows the ceiling it has to stay under.
+check(BTN.lift + BTN.height / 2 <= groundClear,
+	("the buy-button label's top edge is at y=%.1f, through the ground storey's ceiling at y=%.2f")
+		:format(BTN.lift + BTN.height / 2, groundClear))
 
 -- THE TWO SIGNS OVER THE ARENA STATUE. The raid line takes the head height and
 -- the game's own name sits above it; the failure this guards is the two of them
@@ -2944,6 +3512,12 @@ print(("waves:             saturate at wave %d (%d raiders, %.0f health, %d part
 	:format(saturationWave, satCount, satWaveHealth, waveParts))
 print(("solo clear:        %.0fs with %s, %.0fs with %s (deadline %ds)")
 	:format(clearTop, topBat.name, clearStart, startBat.name, WV.MaxWaveTime))
+-- The shell's part cost at full scale, printed because HANDOFF_v5 §4 has listed
+-- "part budget at full scale is still untested" for three rounds and the number
+-- wants reading every time the window spec moves, not just when it fails.
+print(("shell parts:       %d of a %d budget (%d before the mezzanine storey), %d across %d plots")
+	:format(shellParts, Config.Structure.PartBudget, shellPartsGround,
+		shellParts * Config.World.MaxPlots, Config.World.MaxPlots))
 print(("belt:              %.0f studs, %.1fs transit, %.0f drops in flight at peak (%.0f%% full)")
 	:format(beltLength, transit, inFlight, inFlight * DROP_LENGTH / beltLength * 100))
 if floorReport then print(floorReport) end
