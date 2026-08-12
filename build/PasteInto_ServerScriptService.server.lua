@@ -777,6 +777,27 @@ __MODULES["Config"] = function()
 		RepathReturn = 0.8,
 		AggroCheck = 0.25,          -- how often an idling raider looks around
 		SnapshotInterval = 0.1,     -- how often the shared player snapshot rebuilds
+
+		-- ANTI-SWARM. An aggro radius alone does not fix the pile-up: raiders that
+		-- spawn on one evenly-divided ring all cross the same threshold on the same
+		-- tick and then converge on one point, so the wave arrives as a wall and
+		-- fights as a single blob standing inside itself.
+		SpawnGroupSize = 4,         -- clusters, not one synchronised ring
+		SpawnGroupGap = 0.6,        -- pause between clusters
+		GroupArc = 0.35,            -- radians of jitter within a cluster (~18 studs at r=52)
+		AggroStagger = 1.8,         -- each raider holds you this long, at random, before committing
+		-- Raiders MoveTo a point on a ring around you rather than to you. Under
+		-- AttackRange, so a raider parked on its slot is already in swing range and
+		-- the ring costs no damage output — it only stops 26 bodies occupying one
+		-- stud.
+		ApproachStandoff = 6.5,
+		OrbitSpeed = 0.35,          -- rad/sec of drift, so the ring reads as a mob not a formation
+		-- How many may engage one player at once. Not arbitrary: a 6.5-stud ring
+		-- has a circumference of 40.8 and a raider is about 4.5 studs wide, so nine
+		-- fit shoulder to shoulder. Eight leaves a slot of slack, and the ones over
+		-- the cap keep milling and step in as slots free — which reads as
+		-- reinforcements rather than as a queue.
+		MaxChasers = 8,
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -4925,23 +4946,61 @@ __MODULES["NPCService"] = function()
 					character = character,
 					root = root,
 					position = root.Position,
+					-- Recounted from scratch each rebuild by the tick below, so a
+					-- raider that died or de-aggroed frees its slot without anyone
+					-- having to remember to decrement anything.
+					chasers = 0,
 				})
+			end
+		end
+	end
+
+	--- The snapshot row for a character, or nil. Used to find the chaser slot a
+	--- committed raider belongs to.
+	local function snapshotFor(character: Model?)
+		if not character then
+			return nil
+		end
+		for _, entry in ipairs(snapshot) do
+			if entry.character == character then
+				return entry
+			end
+		end
+		return nil
+	end
+
+	--- Counts, per player, how many raiders are currently chasing them. Rebuilt
+	--- rather than maintained incrementally: a decrement that has to happen in
+	--- four different places is a decrement that eventually does not.
+	local function countChasers()
+		for _, slot in ipairs(snapshot) do
+			slot.chasers = 0
+		end
+		for _, entry in pairs(active) do
+			if entry.ai == "chase" and not entry.dead then
+				local slot = snapshotFor(entry.target)
+				if slot then
+					slot.chasers += 1
+				end
 			end
 		end
 	end
 
 	--- Nearest live player to `position` within `maxDistance`, from the snapshot.
 	--- Squared distances: nothing here needs the actual magnitude.
-	local function nearestPlayer(position: Vector3, maxDistance: number): (Player?, Model?, number)
-		local bestPlayer, bestChar, best = nil, nil, maxDistance * maxDistance
+	--- The nearest live player's snapshot row within `maxDistance`, or nil. The row
+	--- rather than the character, because the caller needs its chaser count too.
+	--- Squared distances: nothing here needs the actual magnitude.
+	local function nearestSnapshotEntry(position: Vector3, maxDistance: number)
+		local best, bestD2 = nil, maxDistance * maxDistance
 		for _, entry in ipairs(snapshot) do
 			local offset = entry.position - position
 			local d2 = offset.X * offset.X + offset.Y * offset.Y + offset.Z * offset.Z
-			if d2 < best then
-				bestPlayer, bestChar, best = entry.player, entry.character, d2
+			if d2 < bestD2 then
+				best, bestD2 = entry, d2
 			end
 		end
-		return bestPlayer, bestChar, math.sqrt(best)
+		return best
 	end
 
 	--- Flat XZ distance. Every AI radius here is a ground distance — a raider on a
@@ -5026,7 +5085,7 @@ __MODULES["NPCService"] = function()
 		end
 	end
 
-	local function spawnRaider(record, index: number, count: number, boss: boolean)
+	local function spawnRaider(record, index: number, count: number, boss: boolean, groupAngle: number?)
 		local wave = record.number
 		local variantName = variantForWave(wave, boss)
 		local health = WV.BaseHealth * (WV.HealthGrowth ^ (wave - 1)) * (boss and WV.BossHealthMultiplier or 1)
@@ -5045,7 +5104,14 @@ __MODULES["NPCService"] = function()
 			boss = boss,
 		})
 
-		local angle = (index / math.max(count, 1)) * math.pi * 2 + math.random() * 0.4
+		-- Land in CLUSTERS, not on one evenly-divided ring. A ring of 26 arrives as
+		-- a wall closing from every direction at once; six clusters of four arrive
+		-- as a raid. `groupAngle` is chosen per group by the caller and jittered
+		-- per member here.
+		--
+		-- The boss used to be passed index 0, so it appeared at the same rim spot
+		-- every single time; it gets its own bearing now.
+		local angle = (groupAngle or 0) + (math.random() - 0.5) * 2 * WV.GroupArc
 		local radius = Config.World.ArenaRadius - 18
 		local position = Vector3.new(math.sin(angle) * radius, 8, math.cos(angle) * radius)
 		npc:PivotTo(CFrame.new(position) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
@@ -5080,6 +5146,14 @@ __MODULES["NPCService"] = function()
 			home = pointInDisc(Vector3.zero, WV.HomeSpread),
 			wanderUntil = 0,
 			nextAggroCheck = 0,
+			-- Where on the approach ring this raider stands. Fixed per raider so a
+			-- pack spreads deterministically instead of jostling for the same spot.
+			slotAngle = (index / math.max(count, 1)) * math.pi * 2 + math.random() * 0.5,
+			-- How long it must hold you inside AggroRadius before committing.
+			-- Random per raider, so a pack that all crosses the threshold on one
+			-- tick still commits raggedly over ~2 seconds.
+			aggroDelay = math.random() * WV.AggroStagger,
+			aggroSince = nil,
 			nextAttack = 0,
 			nextRepath = 0,
 			sway = torso and torso:FindFirstChild("TungSway"),
@@ -5128,6 +5202,7 @@ __MODULES["NPCService"] = function()
 	local function tick(dt: number)
 		local now = os.clock()
 		refreshSnapshot(now)
+		countChasers()
 		for npc, entry in pairs(active) do
 			if not npc.Parent or entry.dead then
 				continue
@@ -5217,13 +5292,26 @@ __MODULES["NPCService"] = function()
 					entry.nextAggroCheck = now + WV.AggroCheck
 					local mayAggro = entry.ai == "wander"
 						or homeDistance <= WV.LeashRadius * WV.ReAggroFrac
-					if mayAggro then
-						local _, found = nearestPlayer(root.Position, WV.AggroRadius)
-						if found then
+					local slot = mayAggro and nearestSnapshotEntry(root.Position, WV.AggroRadius) or nil
+					-- Cap how many may engage one player. The overflow keeps
+					-- milling and steps in as slots free, which reads as
+					-- reinforcements rather than as a queue.
+					if slot and slot.chasers >= WV.MaxChasers then
+						slot = nil
+					end
+					if slot then
+						-- ...and even then, hold the player for this raider's own
+						-- delay first. A pack that all crosses the threshold on one
+						-- tick still commits raggedly.
+						entry.aggroSince = entry.aggroSince or now
+						if now - entry.aggroSince >= entry.aggroDelay then
 							entry.ai = "chase"
-							entry.target = found
+							entry.target = slot.character
 							entry.nextRepath = 0
+							slot.chasers += 1
 						end
+					else
+						entry.aggroSince = nil
 					end
 				end
 
@@ -5238,7 +5326,22 @@ __MODULES["NPCService"] = function()
 						local targetRootPart = entry.target and entry.target.Parent
 							and entry.target:FindFirstChild("HumanoidRootPart")
 						if targetRootPart then
-							humanoid:MoveTo(targetRootPart.Position)
+							-- A point on a ring AROUND the target, not the target
+							-- itself. Twenty-six raiders all pathing to one stud
+							-- is what made a wave read as a single blob standing
+							-- inside itself.
+							--
+							-- ApproachStandoff is UNDER AttackRange, so a raider
+							-- parked on its slot is already in swing range: the
+							-- ring costs no damage output. The orbit term is
+							-- folded into the repath rather than animated per
+							-- frame, which at 0.35s is smooth enough and costs two
+							-- trig calls per chasing raider per repath.
+							local slotAngle = entry.slotAngle + now * WV.OrbitSpeed
+							humanoid:MoveTo(targetRootPart.Position + Vector3.new(
+								math.sin(slotAngle) * WV.ApproachStandoff,
+								0,
+								math.cos(slotAngle) * WV.ApproachStandoff))
 						end
 					elseif entry.ai == "return" then
 						humanoid:MoveTo(entry.home)
@@ -5378,15 +5481,29 @@ __MODULES["NPCService"] = function()
 	--- anywhere in there took the schedule down with it.
 	local function spawnWave(record)
 		task.spawn(function()
-			for i = 1, record.count do
-				if record ~= liveWave then
-					return
+			local groups = math.max(1, math.ceil(record.count / WV.SpawnGroupSize))
+			local index = 0
+			for group = 1, groups do
+				-- A bearing per cluster, spread around the rim and jittered, so
+				-- successive waves do not land in the same six places.
+				local groupAngle = ((group - 1) / groups) * math.pi * 2 + math.random() * 0.6
+				for _ = 1, WV.SpawnGroupSize do
+					index += 1
+					if index > record.count then
+						break
+					end
+					if record ~= liveWave then
+						return
+					end
+					spawnRaider(record, index, record.count, false, groupAngle)
+					task.wait(WV.SpawnGap)
 				end
-				spawnRaider(record, i, record.count, false)
-				task.wait(WV.SpawnGap)
+				if group < groups then
+					task.wait(WV.SpawnGroupGap)
+				end
 			end
 			if record.boss and record == liveWave then
-				spawnRaider(record, 0, record.count, true)
+				spawnRaider(record, 0, record.count, true, math.random() * math.pi * 2)
 			end
 			record.spawnFinished = true
 			record.deadline = os.clock() + WV.MaxWaveTime
@@ -9012,13 +9129,14 @@ __MODULES["UpgradeService"] = function()
 
 	--- STUB. It builds and shows the decoy, and raiders completely ignore it.
 	---
-	--- Making it real is a change in NPCService, not here: `nearestPlayer()` only
-	--- scans Players:GetPlayers(), so nothing else can ever be a target. The hook
-	--- it needs is for the target search to also consider models tagged
-	--- IsSahurDecoy and prefer the nearest of either kind, plus a Humanoid on the
-	--- decoy so raider swings have something to connect with. Left as a stub on
-	--- purpose: faking it here (e.g. teleporting raiders at the decoy) would look
-	--- right for one wave and fight the AI forever after.
+	--- Making it real is a change in NPCService, not here, and that change now has
+	--- exactly one site: `refreshSnapshot()` builds the single list of everything
+	--- raiders consider a target, and `nearestSnapshotEntry()` reads it. Adding
+	--- models tagged IsSahurDecoy to that list — plus a Humanoid on the decoy so
+	--- raider swings have something to connect with — is the whole hook.
+	---
+	--- Left as a stub on purpose: faking it here (e.g. teleporting raiders at the
+	--- decoy) would look right for one wave and fight the AI forever after.
 	VERBS.decoy = function(player: Player, character: Model, root: BasePart, def): boolean
 		local dummy = Instance.new("Part")
 		dummy.Name = "TungDecoy"

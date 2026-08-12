@@ -130,23 +130,61 @@ local function refreshSnapshot(now: number)
 				character = character,
 				root = root,
 				position = root.Position,
+				-- Recounted from scratch each rebuild by the tick below, so a
+				-- raider that died or de-aggroed frees its slot without anyone
+				-- having to remember to decrement anything.
+				chasers = 0,
 			})
+		end
+	end
+end
+
+--- The snapshot row for a character, or nil. Used to find the chaser slot a
+--- committed raider belongs to.
+local function snapshotFor(character: Model?)
+	if not character then
+		return nil
+	end
+	for _, entry in ipairs(snapshot) do
+		if entry.character == character then
+			return entry
+		end
+	end
+	return nil
+end
+
+--- Counts, per player, how many raiders are currently chasing them. Rebuilt
+--- rather than maintained incrementally: a decrement that has to happen in
+--- four different places is a decrement that eventually does not.
+local function countChasers()
+	for _, slot in ipairs(snapshot) do
+		slot.chasers = 0
+	end
+	for _, entry in pairs(active) do
+		if entry.ai == "chase" and not entry.dead then
+			local slot = snapshotFor(entry.target)
+			if slot then
+				slot.chasers += 1
+			end
 		end
 	end
 end
 
 --- Nearest live player to `position` within `maxDistance`, from the snapshot.
 --- Squared distances: nothing here needs the actual magnitude.
-local function nearestPlayer(position: Vector3, maxDistance: number): (Player?, Model?, number)
-	local bestPlayer, bestChar, best = nil, nil, maxDistance * maxDistance
+--- The nearest live player's snapshot row within `maxDistance`, or nil. The row
+--- rather than the character, because the caller needs its chaser count too.
+--- Squared distances: nothing here needs the actual magnitude.
+local function nearestSnapshotEntry(position: Vector3, maxDistance: number)
+	local best, bestD2 = nil, maxDistance * maxDistance
 	for _, entry in ipairs(snapshot) do
 		local offset = entry.position - position
 		local d2 = offset.X * offset.X + offset.Y * offset.Y + offset.Z * offset.Z
-		if d2 < best then
-			bestPlayer, bestChar, best = entry.player, entry.character, d2
+		if d2 < bestD2 then
+			best, bestD2 = entry, d2
 		end
 	end
-	return bestPlayer, bestChar, math.sqrt(best)
+	return best
 end
 
 --- Flat XZ distance. Every AI radius here is a ground distance — a raider on a
@@ -231,7 +269,7 @@ local function onRaiderDied(npc: Model, entry)
 	end
 end
 
-local function spawnRaider(record, index: number, count: number, boss: boolean)
+local function spawnRaider(record, index: number, count: number, boss: boolean, groupAngle: number?)
 	local wave = record.number
 	local variantName = variantForWave(wave, boss)
 	local health = WV.BaseHealth * (WV.HealthGrowth ^ (wave - 1)) * (boss and WV.BossHealthMultiplier or 1)
@@ -250,7 +288,14 @@ local function spawnRaider(record, index: number, count: number, boss: boolean)
 		boss = boss,
 	})
 
-	local angle = (index / math.max(count, 1)) * math.pi * 2 + math.random() * 0.4
+	-- Land in CLUSTERS, not on one evenly-divided ring. A ring of 26 arrives as
+	-- a wall closing from every direction at once; six clusters of four arrive
+	-- as a raid. `groupAngle` is chosen per group by the caller and jittered
+	-- per member here.
+	--
+	-- The boss used to be passed index 0, so it appeared at the same rim spot
+	-- every single time; it gets its own bearing now.
+	local angle = (groupAngle or 0) + (math.random() - 0.5) * 2 * WV.GroupArc
 	local radius = Config.World.ArenaRadius - 18
 	local position = Vector3.new(math.sin(angle) * radius, 8, math.cos(angle) * radius)
 	npc:PivotTo(CFrame.new(position) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
@@ -285,6 +330,14 @@ local function spawnRaider(record, index: number, count: number, boss: boolean)
 		home = pointInDisc(Vector3.zero, WV.HomeSpread),
 		wanderUntil = 0,
 		nextAggroCheck = 0,
+		-- Where on the approach ring this raider stands. Fixed per raider so a
+		-- pack spreads deterministically instead of jostling for the same spot.
+		slotAngle = (index / math.max(count, 1)) * math.pi * 2 + math.random() * 0.5,
+		-- How long it must hold you inside AggroRadius before committing.
+		-- Random per raider, so a pack that all crosses the threshold on one
+		-- tick still commits raggedly over ~2 seconds.
+		aggroDelay = math.random() * WV.AggroStagger,
+		aggroSince = nil,
 		nextAttack = 0,
 		nextRepath = 0,
 		sway = torso and torso:FindFirstChild("TungSway"),
@@ -333,6 +386,7 @@ end
 local function tick(dt: number)
 	local now = os.clock()
 	refreshSnapshot(now)
+	countChasers()
 	for npc, entry in pairs(active) do
 		if not npc.Parent or entry.dead then
 			continue
@@ -422,13 +476,26 @@ local function tick(dt: number)
 				entry.nextAggroCheck = now + WV.AggroCheck
 				local mayAggro = entry.ai == "wander"
 					or homeDistance <= WV.LeashRadius * WV.ReAggroFrac
-				if mayAggro then
-					local _, found = nearestPlayer(root.Position, WV.AggroRadius)
-					if found then
+				local slot = mayAggro and nearestSnapshotEntry(root.Position, WV.AggroRadius) or nil
+				-- Cap how many may engage one player. The overflow keeps
+				-- milling and steps in as slots free, which reads as
+				-- reinforcements rather than as a queue.
+				if slot and slot.chasers >= WV.MaxChasers then
+					slot = nil
+				end
+				if slot then
+					-- ...and even then, hold the player for this raider's own
+					-- delay first. A pack that all crosses the threshold on one
+					-- tick still commits raggedly.
+					entry.aggroSince = entry.aggroSince or now
+					if now - entry.aggroSince >= entry.aggroDelay then
 						entry.ai = "chase"
-						entry.target = found
+						entry.target = slot.character
 						entry.nextRepath = 0
+						slot.chasers += 1
 					end
+				else
+					entry.aggroSince = nil
 				end
 			end
 
@@ -443,7 +510,22 @@ local function tick(dt: number)
 					local targetRootPart = entry.target and entry.target.Parent
 						and entry.target:FindFirstChild("HumanoidRootPart")
 					if targetRootPart then
-						humanoid:MoveTo(targetRootPart.Position)
+						-- A point on a ring AROUND the target, not the target
+						-- itself. Twenty-six raiders all pathing to one stud
+						-- is what made a wave read as a single blob standing
+						-- inside itself.
+						--
+						-- ApproachStandoff is UNDER AttackRange, so a raider
+						-- parked on its slot is already in swing range: the
+						-- ring costs no damage output. The orbit term is
+						-- folded into the repath rather than animated per
+						-- frame, which at 0.35s is smooth enough and costs two
+						-- trig calls per chasing raider per repath.
+						local slotAngle = entry.slotAngle + now * WV.OrbitSpeed
+						humanoid:MoveTo(targetRootPart.Position + Vector3.new(
+							math.sin(slotAngle) * WV.ApproachStandoff,
+							0,
+							math.cos(slotAngle) * WV.ApproachStandoff))
 					end
 				elseif entry.ai == "return" then
 					humanoid:MoveTo(entry.home)
@@ -583,15 +665,29 @@ end
 --- anywhere in there took the schedule down with it.
 local function spawnWave(record)
 	task.spawn(function()
-		for i = 1, record.count do
-			if record ~= liveWave then
-				return
+		local groups = math.max(1, math.ceil(record.count / WV.SpawnGroupSize))
+		local index = 0
+		for group = 1, groups do
+			-- A bearing per cluster, spread around the rim and jittered, so
+			-- successive waves do not land in the same six places.
+			local groupAngle = ((group - 1) / groups) * math.pi * 2 + math.random() * 0.6
+			for _ = 1, WV.SpawnGroupSize do
+				index += 1
+				if index > record.count then
+					break
+				end
+				if record ~= liveWave then
+					return
+				end
+				spawnRaider(record, index, record.count, false, groupAngle)
+				task.wait(WV.SpawnGap)
 			end
-			spawnRaider(record, i, record.count, false)
-			task.wait(WV.SpawnGap)
+			if group < groups then
+				task.wait(WV.SpawnGroupGap)
+			end
 		end
 		if record.boss and record == liveWave then
-			spawnRaider(record, 0, record.count, true)
+			spawnRaider(record, 0, record.count, true, math.random() * math.pi * 2)
 		end
 		record.spawnFinished = true
 		record.deadline = os.clock() + WV.MaxWaveTime
