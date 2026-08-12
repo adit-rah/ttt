@@ -938,6 +938,50 @@ check(tierCount == #TIER_ORDER,
 	("Style.Distance has %d tiers but %d are named; an unnamed tier is a number nobody chose against the others")
 		:format(tierCount, #TIER_ORDER))
 
+-- THE BUY BUTTON'S TWO VOICES.
+--
+-- The locked state has to be quieter than the buyable one on every axis it
+-- moves, not just on the one somebody remembered. These are cheap and they are
+-- the difference between "the locked pads recede" and "the locked pads recede
+-- except for their outline, which somebody bumped".
+local BTN, LOCKED = ST.Button, ST.ButtonLocked
+check(LOCKED.scale > 0 and LOCKED.scale < 1,
+	("Style.ButtonLocked.scale is %.2f; a locked label must be SMALLER than a buyable one"):format(LOCKED.scale))
+check(LOCKED.panelAlpha > BTN.panelAlpha,
+	("locked panels are %.2f transparent against %.2f for buyable ones — the locked pads are meant to be the wall the buyable one stands out from")
+		:format(LOCKED.panelAlpha, BTN.panelAlpha))
+check(LOCKED.strokeThickness < BTN.strokeThickness,
+	("locked outlines are %.1f thick against %.1f for buyable ones; thinner is the whole idea")
+		:format(LOCKED.strokeThickness, BTN.strokeThickness))
+check(LOCKED.textAlpha > 0 and LOCKED.textAlpha < 1,
+	("Style.ButtonLocked.textAlpha is %.2f; 0 is not faded at all and 1 is invisible"):format(LOCKED.textAlpha))
+check(ST.Distance[LOCKED.distance] <= ST.Distance[BTN.distance],
+	("locked labels draw to %.0f studs against %.0f for buyable ones; a locked pad should give up FIRST")
+		:format(ST.Distance[LOCKED.distance], ST.Distance[BTN.distance]))
+
+-- THE ONE THAT MAKES TURNING OFF AlwaysOnTop SAFE.
+--
+-- The buy-button label used to draw through everything, which hid the fact that
+-- it sat low enough for the dropper beside it to eat its lower half. With the
+-- x-ray gone the label has to clear the machinery by standing above it — so
+-- assert the bottom edge of the billboard against the top of the tallest
+-- machine, with a stud of daylight. Hiding behind a wall is correct; hiding
+-- behind a machine two feet away is the bug this replaced.
+local labelBottom = BTN.lift - BTN.height / 2
+check(labelBottom >= L.MachineTopY + 0.5,
+	("the buy-button label's bottom edge is at y=%.1f and the tallest machine tops out at y=%.1f — the dropper next to a button would cover its label, which is what AlwaysOnTop used to hide")
+		:format(labelBottom, L.MachineTopY))
+-- ...and the locked one is smaller, so its bottom edge is HIGHER. Assert it
+-- anyway: the day somebody makes the locked state bigger instead of smaller,
+-- this is the check that explains why that is not just a taste decision.
+check(BTN.lift - (BTN.height * LOCKED.scale) / 2 >= L.MachineTopY + 0.5,
+	("a locked buy-button label's bottom edge is at y=%.1f against machines at y=%.1f")
+		:format(BTN.lift - (BTN.height * LOCKED.scale) / 2, L.MachineTopY))
+-- A label you have to crane at is its own problem. The plot's roof sits at 20.
+check(BTN.lift + BTN.height / 2 <= 20,
+	("the buy-button label's top edge is at y=%.1f, which is through the roof at y=20")
+		:format(BTN.lift + BTN.height / 2))
+
 -- `plot` has to carry your own factory: corner to corner, and from the arena
 -- rim, because the vault sign and the roof sign are both read from outside.
 local plotDiagonal = math.sqrt(Config.World.PlotSize.X ^ 2 + Config.World.PlotSize.Z ^ 2)

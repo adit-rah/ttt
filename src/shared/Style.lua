@@ -92,4 +92,22 @@ function Style.text(parent: Instance, opts): TextLabel
 	return label
 end
 
+--- Retunes a live billboard's view distance. Some labels have more than one
+--- voice — a locked buy button drops out of sight sooner than a buyable one —
+--- and the tier still has to come from here rather than from a number written
+--- at the call site.
+function Style.setDistance(gui: BillboardGui, tier: string)
+	gui.MaxDistance = Style.distance(tier)
+end
+
+--- Fades a label, outline included.
+---
+--- The outline has to fade WITH the text or a dimmed label keeps its hard dark
+--- edge and ends up reading as MORE contrasty than the bright one it was
+--- supposed to recede behind — which is the exact opposite of the point.
+function Style.fade(label: TextLabel, alpha: number)
+	label.TextTransparency = alpha
+	label.TextStrokeTransparency = alpha + (1 - alpha) * S.StrokeTransparency
+end
+
 return Style

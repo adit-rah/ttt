@@ -230,6 +230,14 @@ __MODULES["Config"] = function()
 		GateWidth = 22,
 	}
 
+	-- The top of the tallest thing standing beside the belt: the dropper's arm,
+	-- whose centre MACHINE_MASSES puts at BeltY + 5, with half a stud of body above
+	-- that. Written here rather than left to be measured inside Tycoon.lua because
+	-- it is what the buy-button label has to clear now that the label no longer
+	-- draws through walls, and the verifier can only check a relationship it can
+	-- see. If you raise the arm, raise this.
+	Config.Layout.MachineTopY = Config.Layout.BeltY + 5.5
+
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- WORLD TEXT
 	--
@@ -279,6 +287,38 @@ __MODULES["Config"] = function()
 			prop    = 220,
 			plot    = 500,
 			world   = 900,
+		},
+
+		-- THE BUY BUTTON, IN TWO VOICES.
+		--
+		-- A plot has up to a dozen buy-button labels standing on it at once, and
+		-- until now the locked ones were exactly as loud as the one you can
+		-- actually press: same panel, same opacity, same size, same little light,
+		-- differing only in colour. Colour alone is the weakest signal available —
+		-- it is the first thing lost to a bright sky, a neon variant behind the
+		-- label, or a player who does not separate those two greens — so the plot
+		-- read as a wall of labels rather than as one thing to walk towards.
+		--
+		-- The locked state is therefore quieter on FIVE axes at once. Any one of
+		-- them alone is a nudge; together they make the difference structural.
+		Button = {
+			width = 16,
+			height = 9,
+			-- Studs above the pad. The label used to sit at 6, which put its lower
+			-- half behind the dropper standing next to it — and AlwaysOnTop was
+			-- what hid that. With the x-ray off the label has to clear the
+			-- machinery on its own; the verifier asserts it against MachineTopY.
+			lift = 12,
+			panelAlpha = 0.2,
+			strokeThickness = 2.5,
+			distance = "prop",
+		},
+		ButtonLocked = {
+			scale = 0.7,             -- smaller
+			panelAlpha = 0.78,       -- fainter panel
+			strokeThickness = 1,     -- thinner outline
+			textAlpha = 0.4,         -- fainter text, outline fading with it
+			distance = "machine",    -- and it drops out of sight first
 		},
 	}
 
@@ -2003,6 +2043,24 @@ __MODULES["Style"] = function()
 		label.TextScaled = opts.scaled ~= false
 		label.Parent = parent
 		return label
+	end
+
+	--- Retunes a live billboard's view distance. Some labels have more than one
+	--- voice — a locked buy button drops out of sight sooner than a buyable one —
+	--- and the tier still has to come from here rather than from a number written
+	--- at the call site.
+	function Style.setDistance(gui: BillboardGui, tier: string)
+		gui.MaxDistance = Style.distance(tier)
+	end
+
+	--- Fades a label, outline included.
+	---
+	--- The outline has to fade WITH the text or a dimmed label keeps its hard dark
+	--- edge and ends up reading as MORE contrasty than the bright one it was
+	--- supposed to recede behind — which is the exact opposite of the point.
+	function Style.fade(label: TextLabel, alpha: number)
+		label.TextTransparency = alpha
+		label.TextStrokeTransparency = alpha + (1 - alpha) * S.StrokeTransparency
 	end
 
 	return Style
