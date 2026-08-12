@@ -41,10 +41,10 @@ local function check(condition, message)
 end
 
 -- installers that Tycoon.lua actually implements
-local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Floor = true }
+local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Floor = true, Power = true }
 local KNOWN_STRUCTURES = { walls = true, roof = true }
 
-local seenIds, dropperSlots, upgraderSlots = {}, {}, {}
+local seenIds, dropperSlots, upgraderSlots, powerSlots = {}, {}, {}, {}
 -- Per TRACK, not global. Prices only have to climb against the other rungs of
 -- their own ladder now; a weapons tier costing less than the dropper it sits
 -- beside is not a bug, it is the whole point of the split. Keeping the old
@@ -141,6 +141,33 @@ for index, def in ipairs(Config.Buttons) do
 		check(type(def.speedBonus) == "number" and def.speedBonus > 0, where .. ": bad speedBonus")
 	elseif def.kind == "Structure" then
 		check(KNOWN_STRUCTURES[def.structure], where .. ": unknown structure " .. tostring(def.structure))
+	elseif def.kind == "Power" then
+		-- `factor` is CUMULATIVE, so the ladder is checked as a ladder: each
+		-- rung must actually grant more than the one below it, and the step
+		-- between them has to stay inside the band that makes the yard four
+		-- even rungs rather than three decorations and one big one.
+		check(type(def.factor) == "number" and def.factor > 1,
+			("%s: factor must be > 1; a rung that speeds nothing up is a rung that charges for nothing"):format(where))
+		check(type(def.slot) == "number" and def.slot >= 1 and def.slot <= Config.Layout.Yard.Slots,
+			("%s: slot must be 1..%d, the yard's capacity"):format(where, Config.Layout.Yard.Slots))
+		check(not powerSlots[def.slot], ("%s: yard slot %s already used"):format(where, tostring(def.slot)))
+		powerSlots[def.slot] = true
+		check(Config.Variants[def.variant] ~= nil, where .. ": unknown variant " .. tostring(def.variant))
+		if def.trackOrder > 1 then
+			local below = Config.Tracks.power[def.trackOrder - 1]
+			check(def.factor > below.factor,
+				("%s grants %.2fx but %s already grants %.2fx — the rung would charge and do nothing")
+					:format(where, def.factor, below.id, below.factor))
+			local step = def.factor / below.factor
+			check(step >= Config.Power.StepMin and step <= Config.Power.StepMax,
+				("%s steps production by %.2fx (want %.2f-%.2f); the yard is four even rungs, not one big one")
+					:format(where, step, Config.Power.StepMin, Config.Power.StepMax))
+		end
+		if def.trackOrder == #Config.Tracks.power then
+			check(math.abs(def.factor - Config.Power.MaxFactor) < 1e-9,
+				("the top power rung grants %.2fx but Power.MaxFactor is %.2f — the yard's headline number and its data disagree")
+					:format(def.factor, Config.Power.MaxFactor))
+		end
 	elseif def.kind == "Gear" then
 		check(Config.BatById[def.grants] ~= nil, where .. ": grants unknown bat " .. tostring(def.grants))
 	elseif def.kind == "Armor" then
@@ -322,6 +349,42 @@ for index, path in ipairs(Config.BeltPaths) do
 		check(path.y == 0,
 			("BeltPaths.%s is the ground floor and must run at y=0, not %.1f"):format(path.id, path.y))
 	end
+end
+
+-- PER-TRACK METADATA. The fourth track's most likely bug is a per-track table
+-- that only got three of its four rows, and every one of those tables fails
+-- differently and none of them fail loudly — the rebirth one fails OPEN. So the
+-- facts live in one table and this asserts it is complete.
+local TRACK_FIELDS = { "label", "preview", "keepOnRebirth", "paced", "furniture" }
+for _, track in ipairs(Config.TrackOrder) do
+	local info = Config.TrackInfo[track]
+	check(info ~= nil,
+		("track %q has no TrackInfo entry; the fourth track's most likely bug is a per-track table that only got three of its four rows")
+			:format(track))
+	if info then
+		for _, field in ipairs(TRACK_FIELDS) do
+			check(info[field] ~= nil, ("TrackInfo.%s is missing %q"):format(track, field))
+		end
+		check(info.paced == "spine" or info.paced == "side",
+			("TrackInfo.%s.paced is %q; it is either the spine the build time is measured on, or a detour from it")
+				:format(track, tostring(info.paced)))
+	end
+	check(Config.TrackRank[track] ~= nil, ("track %q has no rank"):format(track))
+end
+for track in pairs(Config.TrackInfo) do
+	check(Config.Tracks[track] ~= nil,
+		("TrackInfo names track %q, which has no button table"):format(track))
+end
+check(Config.TrackOrder[1] == "factory",
+	"TrackOrder no longer starts with the factory — `order` is the install-replay key, and every factory button's order would shift")
+check(Config.TrackInfo.factory.keepOnRebirth == false,
+	"TrackInfo.factory.keepOnRebirth is true; a rebirth is a factory reset by definition")
+check(Config.TrackInfo.factory.paced == "spine",
+	"the factory is the spine the build time is measured on")
+for rank, track in ipairs(Config.TrackOrder) do
+	check(Config.TrackRank[track] == rank,
+		("TrackRank disagrees with TrackOrder for %q; the beacon on the plot and the panel in the HUD would name different purchases")
+			:format(track))
 end
 
 -- TRACK GATES. A precondition on a whole ladder, not a link inside one — so the
@@ -849,11 +912,60 @@ for _, def in ipairs(Config.Buttons) do
 		maxSpeedBonus += def.speedBonus
 	end
 end
-local maxBeltSpeed = L.BeltSpeed + maxSpeedBonus
+-- ...times whatever the generator grants, since it multiplies belt speed.
+-- This is why the trigger fix had to land before the generator did: at the top
+-- rung the 1-stud scanner would have been 13.5ms, under HALF a demoted step.
+local maxBeltSpeed = (L.BeltSpeed + maxSpeedBonus) * Config.Tracks.power[#Config.Tracks.power].factor
 local dwell = L.TriggerThickness / maxBeltSpeed
 check(dwell >= PHYSICS_STEP_DEMOTED * 2,
 	("a drop crosses a %.1f-stud trigger in %.0f ms at the top belt speed of %.0f studs/s; Roblox demotes an unattended assembly to 30 Hz (%.0f ms steps), so under two of those an upgrader can be tunnelled through and the drop pays out unrefined")
 		:format(L.TriggerThickness, dwell * 1000, maxBeltSpeed, PHYSICS_STEP_DEMOTED * 1000))
+
+-- THE COUPLING, which is the entire point of the generator.
+--
+-- inFlight is peakRate x length / speed. The generator multiplies peakRate (by
+-- dividing every dropRate) and beltSpeed by the SAME factor, so the two cancel
+-- and the number of drops on the belt is unchanged at every tier. Scale the
+-- droppers alone and it is a straight multiplier on a plot already at 88% of
+-- its cap, at which point spawnDrop starts silently eating the income you just
+-- paid for.
+--
+-- Asserted per tier rather than once, so a rung that ever grants an asymmetric
+-- pair is caught on the rung rather than at the top.
+for _, def in ipairs(Config.Tracks.power) do
+	local scaled = 0
+	for _, path in ipairs(Config.BeltPaths) do
+		local pathRate = 0
+		for _, button in ipairs(Config.Buttons) do
+			if button.kind == "Dropper" and (button.path or groundId) == path.id then
+				-- rate goes UP by the factor: dropRate is divided by it
+				pathRate += def.factor / button.dropRate
+			end
+		end
+		local length = len(sub(path.collectorAt, path.points[#path.points]))
+		for leg = 1, #path.points - 1 do
+			length += len(sub(path.points[leg + 1], path.points[leg]))
+		end
+		-- ...and so does belt speed, by the same factor
+		scaled += pathRate * (length / (L.BeltSpeed * def.factor))
+	end
+	check(math.abs(scaled - totalInFlight) < 0.01,
+		("power tier %s puts %.0f drops in flight against %.0f ungoverned; the generator must multiply belt speed by exactly the factor it multiplies drop rate by, or the drop cap silently eats the income you just bought")
+			:format(def.id, scaled, totalInFlight))
+end
+
+-- ...and the other end of the same rope: a dropper cannot be sped up past the
+-- point where it floods physics, however much power you buy.
+local topFactor = Config.Tracks.power[#Config.Tracks.power].factor
+local fastest = math.huge
+for _, def in ipairs(Config.Buttons) do
+	if def.kind == "Dropper" then
+		fastest = math.min(fastest, def.dropRate / topFactor)
+	end
+end
+check(fastest >= 0.2,
+	("at %.2fx power the fastest dropper fires every %.2fs; under 0.2s it floods physics")
+		:format(topFactor, fastest))
 
 check(totalInFlight <= Config.Economy.MaxDropsPerPlot,
 	("the plot carries %.0f drops at peak across %d belts but MaxDropsPerPlot is %d — the cap would silently eat income; raise BeltSpeed or thin a dropper")
@@ -1172,6 +1284,65 @@ for _, floor in ipairs(Config.Floors) do
 	end
 end
 
+-- ── the generator yard ──────────────────────────────────────────────────────
+--
+-- The first thing this game builds OUTSIDE a plot, so it gets its own
+-- containment rule rather than borrowing inPlot — which would reject it on
+-- purpose. What it has to clear instead is the plot in front of it, the wall
+-- between them, and the neighbours either side.
+
+local Y = L.Yard
+local yardHalfX, yardHalfZ = Y.Size.X / 2, Y.Size.Z / 2
+local function inYard(label, point, margin)
+	check(math.abs(point.X - Y.Centre.X) <= yardHalfX - (margin or 0),
+		("%s sits at x=%.1f, off the yard slab (half-width %.1f, centred on %.1f)")
+			:format(label, point.X, yardHalfX, Y.Centre.X))
+	check(math.abs(point.Z - Y.Centre.Z) <= yardHalfZ - (margin or 0),
+		("%s sits at z=%.1f, off the yard slab (half-depth %.1f, centred on %.1f)")
+			:format(label, point.Z, yardHalfZ, Y.Centre.Z))
+end
+
+check(#Config.Tracks.power <= Y.Slots,
+	("the power track has %d rungs but the yard has %d slots; the extras would stack on the last pedestal")
+		:format(#Config.Tracks.power, Y.Slots))
+
+for slot = 1, Y.Slots do
+	inYard(("Yard machine %d"):format(slot), Config.yardMachinePosition(slot), Y.MachineSize.X / 2)
+	inYard(("Yard button %d"):format(slot), Config.yardButtonPosition(slot), 3)
+end
+for slot = 2, Y.Slots do
+	local gap = Config.yardMachinePosition(slot).X - Config.yardMachinePosition(slot - 1).X
+	check(gap >= Y.MachineSize.X + 4,
+		("Yard slots %d and %d are %.1f studs apart but a generator is %.0f wide")
+			:format(slot - 1, slot, gap, Y.MachineSize.X))
+end
+local buttonToMachine = math.abs(Y.ButtonZ - Y.MachineZ) - Y.MachineSize.Z / 2
+check(buttonToMachine >= 3,
+	("the yard's buy buttons are %.1f studs clear of the generators (need 3)"):format(buttonToMachine))
+
+-- BEHIND the plot, not on it. A yard that reaches onto the pad is a plot resize
+-- wearing a disguise, and a plot resize moves every other plot in the game.
+local yardFront = Y.Centre.Z + yardHalfZ
+check(yardFront <= -halfZ + 1,
+	("the yard's front face is at z=%.1f but the plot's back edge is at z=%.1f — a yard that reaches onto the pad is a plot resize wearing a disguise")
+		:format(yardFront, -halfZ))
+check(Y.Size.X <= Config.World.PlotSize.X,
+	("the yard is %d studs wide against a %d-stud plot; anything wider re-solves the ring, which is the one thing growing backwards was meant to avoid")
+		:format(Y.Size.X, Config.World.PlotSize.X))
+
+-- THE DOOR. The back edge of the plot is the dropper row, so there is exactly
+-- one span of wall with nothing behind it.
+local farthestDropper = L.BeltStart.X - L.DropperDist[1] + L.MachineFootprint / 2
+check(Y.DoorFrom >= farthestDropper + 2,
+	("the yard doorway starts at x=%.1f but dropper slot 1 stands out to x=%.1f — the door opens onto a machine")
+		:format(Y.DoorFrom, farthestDropper))
+local doorWidth = (Config.World.PlotSize.X / 2 - 1) - Y.DoorFrom
+check(doorWidth >= 8,
+	("the yard doorway is %.1f studs wide; a humanoid plus its hitbox needs 8"):format(doorWidth))
+check(Y.DoorFrom >= Y.Centre.X - yardHalfX and Y.DoorFrom <= Y.Centre.X + yardHalfX,
+	("the yard doorway at x=%.0f opens onto grass; the yard slab spans %.0f..%.0f")
+		:format(Y.DoorFrom, Y.Centre.X - yardHalfX, Y.Centre.X + yardHalfX))
+
 -- The gateway in the front wall has to open onto the aisle the player actually
 -- walks, not onto the vault.
 local gateLeft, gateRight = L.GateCentre - L.GateWidth / 2, L.GateCentre + L.GateWidth / 2
@@ -1215,6 +1386,44 @@ for count = Config.World.MinPlots, Config.World.MaxPlots do
 			end
 		end
 	end
+
+	-- THE YARD EXTENDS EVERY ONE OF THESE. It hangs off the back of each plot,
+	-- so it pushes the outermost thing in the world further out, brings
+	-- neighbours closer at their corners, and lengthens the walk. Checked over
+	-- the supported range rather than at the configured count, because the ring
+	-- is clamped to MinPlotRadius at low counts and only grows past it later —
+	-- the tightest case is not this server's.
+	local yardBack = Config.World.PlotSize.Z / 2 - (L.Yard.Centre.Z - L.Yard.Size.Z / 2)
+	local yardFarthest = 0
+	for _, a in ipairs(placements) do
+		yardFarthest = math.max(yardFarthest, a.radius + yardBack)
+	end
+	check(yardFarthest * 2 < Config.World.BaseplateSize,
+		("%d plots put the furthest generator yard %.0f studs out, past the %d-stud ground plane")
+			:format(count, yardFarthest, Config.World.BaseplateSize))
+	check(yardFarthest - Config.World.ArenaRadius <= MAX_WALK,
+		("%d plots put the furthest generator yard %.0f studs from the arena rim (limit %d)")
+			:format(count, yardFarthest - Config.World.ArenaRadius, MAX_WALK))
+	for i, a in ipairs(placements) do
+		for j = i + 1, #placements do
+			local b = placements[j]
+			if a.ring == b.ring then
+				local yardRadius = a.radius + yardBack
+				local corner = math.sqrt(2 * yardRadius * yardRadius * (1 - math.cos(a.angle - b.angle)))
+				check(corner >= L.Yard.Size.X,
+					("%d plots: plot %d's generator yard comes within %.0f studs of plot %d's (need %d)")
+						:format(count, i, corner, j, L.Yard.Size.X))
+			end
+		end
+	end
+	-- ...and a leashed raider must not reach it. The yard sits FURTHER from the
+	-- arena than the plot does, so this is slack today — which is exactly why it
+	-- wants asserting: a yard that ever moves forward walks into range with
+	-- nothing saying so.
+	local yardNearest = placements[1].radius + Config.World.PlotSize.Z / 2 - 1
+	check(yardNearest > raiderReach,
+		("%d plots: the generator yard's nearest point is %.0f studs from the arena centre but a leashed raider reaches %.0f")
+			:format(count, yardNearest, raiderReach))
 
 	check(farthest * 2 < Config.World.BaseplateSize,
 		("%d plots overflow the %d-stud ground plane"):format(count, Config.World.BaseplateSize))
@@ -1449,12 +1658,29 @@ local cash = Config.Economy.StartingCash
 local elapsed, rawDps, upgradeMult = 0, 0, 1
 local curve = {}
 
--- The FACTORY track only. This is the game's spine: the thing that generates
--- income and therefore the thing whose pacing "45 to 150 minutes" is about.
--- The side tracks are paced against this curve further down, because with no
--- cross-track requirement the only thing that gates them is their price.
-for _, def in ipairs(Config.Tracks.factory) do
-	local income = rawDps * upgradeMult
+-- THE SPINE, which is now two interleaved ladders.
+--
+-- The factory is the thing that generates income and therefore the thing whose
+-- "45 to 150 minutes" pacing is about. The generator belongs in here with it
+-- rather than in the side-track model below, because that model prices a track
+-- against a curve it does not change — true of a bat, false of anything that
+-- multiplies production. A power rung bought at minute 12 moves every row after
+-- it.
+--
+-- The policy is BUY WHICHEVER OF THE TWO NEXT RUNGS IS CHEAPER. Deterministic,
+-- one line, and it makes the price the control: put a rung between dropper6 and
+-- roof and the sim buys it exactly there, visibly, in the printed curve. A
+-- payback heuristic would model a player nobody is.
+local power = 1
+local factoryIndex, powerIndex = 1, 1
+local factoryTrack, powerTrack = Config.Tracks.factory, Config.Tracks.power
+
+while factoryIndex <= #factoryTrack or powerIndex <= #powerTrack do
+	local nextFactory, nextPower = factoryTrack[factoryIndex], powerTrack[powerIndex]
+	local takePower = nextPower ~= nil and (nextFactory == nil or nextPower.price <= nextFactory.price)
+	local def = takePower and nextPower or nextFactory
+
+	local income = rawDps * upgradeMult * power
 	local shortfall = math.max(0, def.price - cash)
 	local wait = 0
 	if shortfall > 0 then
@@ -1470,18 +1696,28 @@ for _, def in ipairs(Config.Tracks.factory) do
 	end
 
 	cash = math.max(cash, def.price) - def.price
-	if def.kind == "Dropper" then rawDps += def.dropValue / def.dropRate end
-	if def.kind == "Upgrader" then upgradeMult *= def.multiplier end
-	-- `earned` is everything the factory has produced by this point, ignoring
-	-- what was spent. It is the budget a side-track purchase competes for.
+	local previousPower = power
+	if takePower then
+		power = def.factor
+		powerIndex += 1
+	else
+		if def.kind == "Dropper" then rawDps += def.dropValue / def.dropRate end
+		if def.kind == "Upgrader" then upgradeMult *= def.multiplier end
+		factoryIndex += 1
+	end
+
+	-- `earned` is everything the plot has produced by this point, ignoring what
+	-- was spent. It is the budget a side-track purchase competes for.
 	table.insert(curve, {
 		id = def.id, wait = wait, at = elapsed,
-		income = rawDps * upgradeMult,
+		income = rawDps * upgradeMult * power,
 		earned = (curve[#curve] and curve[#curve].earned or 0) + (wait ~= math.huge and wait or 0) * income,
+		isPower = takePower, price = def.price,
+		previousPower = previousPower, power = power,
 	})
 end
 
-local endgameIncome = rawDps * upgradeMult
+local endgameIncome = rawDps * upgradeMult * power
 check(elapsed / 60 >= MIN_TOTAL_MINUTES,
 	("full build takes only %.0f min (want >= %d) — the game is over too fast"):format(elapsed / 60, MIN_TOTAL_MINUTES))
 check(elapsed / 60 <= MAX_TOTAL_MINUTES,
@@ -1490,6 +1726,27 @@ check(elapsed / 60 <= MAX_TOTAL_MINUTES,
 local rebirthMinutes = Config.Rebirth.BaseCost / endgameIncome / 60
 check(rebirthMinutes >= 4 and rebirthMinutes <= 40,
 	("first rebirth is %.1f min of endgame income; want 4-40"):format(rebirthMinutes))
+
+-- WHAT EACH GENERATOR RUNG ACTUALLY EARNS YOU BEFORE THE BUILD ENDS.
+--
+-- Vacuous on the early rungs by construction — the curve is exponential, so a
+-- rung bought at minute twelve returns tens of thousands of times its price and
+-- no threshold could fail. It bites on the LAST rung, which is exactly where a
+-- generator stops being an upgrade and becomes a trophy you buy after it can
+-- pay for itself.
+local POWER_MIN_RETURN = 2.0
+for index, row in ipairs(curve) do
+	if row.isPower then
+		local share = 1 - row.previousPower / row.power
+		local returned = 0
+		for j = index + 1, #curve do
+			returned += curve[j].wait * curve[j - 1].income * share
+		end
+		check(returned >= row.price * POWER_MIN_RETURN,
+			("%s costs %.3g but only earns %.3g extra before the build ends (%.1fx, need %.1fx) — the top rung is a trophy, not an upgrade")
+				:format(row.id, row.price, returned, returned / row.price, POWER_MIN_RETURN))
+	end
+end
 
 -- ── where the second floor lands ────────────────────────────────────────────
 --
@@ -1598,7 +1855,11 @@ end
 
 local sideTotal = 0
 for _, track in ipairs(Config.TrackOrder) do
-	if track ~= "factory" then
+	-- "side" rather than "not factory". A track that MULTIPLIES income cannot
+	-- be priced as a detour from the spine — the detour model assumes buying
+	-- one does not change the curve it is measured against, and a generator
+	-- rung changes every row after it. Power is walked in the spine instead.
+	if Config.TrackInfo[track].paced == "side" then
 		local opensAt = trackOpensAt(track)
 		check(opensAt ~= math.huge,
 			("the %s track is gated on %q, which the factory never buys")

@@ -139,7 +139,14 @@ function SessionService.incomePerSecondFor(profile): number
 		end
 	end
 	local rebirths = math.max(0, math.floor(tonumber(profile.rebirths) or 0))
-	return total * upgradeMult * (Config.Rebirth.MultiplierPerRebirth ^ rebirths)
+	-- The generator IS included, for the same reason the rebirth multiplier is
+	-- and the boost is not: it is a property of the factory, bought once and
+	-- standing there whether or not anyone is logged in. Excluding it would pay
+	-- an offline player as though their yard were empty.
+	local power = Config.powerFactor(function(id)
+		return (profile.owned or {})[id] == true
+	end)
+	return total * upgradeMult * power * (Config.Rebirth.MultiplierPerRebirth ^ rebirths)
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
