@@ -603,6 +603,65 @@ check(secondsToKillArmoured <= 45,
 	("a boss needs %.0fs of uninterrupted attention to kill a fully-armoured player; past ~45s it is not a threat, it is scenery")
 		:format(secondsToKillArmoured))
 
+-- ── wave size ───────────────────────────────────────────────────────────────
+--
+-- Two things a bigger wave can break that nothing else here was watching: what
+-- it costs the server, and whether anyone can still finish one.
+
+-- The wave where the count stops climbing. Everything past it is the same size,
+-- so it is the only wave whose cost has to be checked.
+local saturationWave = math.ceil((WV.MaxCount - WV.BaseCount) / WV.CountPerWave) + 1
+check(saturationWave >= 3,
+	("the wave count saturates at wave %d; the ramp is the pacing, and skipping it lands a full-size raid on somebody's third minute")
+		:format(saturationWave))
+
+-- PART BUDGET. The verifier cannot see TungModels, so Waves.PartsPerRaider is
+-- the only handle it has on this at all — and a wave cap is exactly the number
+-- someone raises without asking what it costs on a ten-player server.
+local waveParts = WV.MaxCount * WV.PartsPerRaider
+check(waveParts <= WV.MaxRaiderParts,
+	("a full wave is %d raiders x %d parts = %d, against a budget of %d — this is the number that decides what a full server looks like at full scale")
+		:format(WV.MaxCount, WV.PartsPerRaider, waveParts, WV.MaxRaiderParts))
+
+-- REINFORCEMENTS, NOT A BIGGER BLOB. The anti-swarm work caps how many raiders
+-- may engage one player; raising MaxCount is only safe while that cap stays far
+-- enough below it that the extras read as arriving rather than as queueing. If
+-- the two ever become comparable, a bigger wave IS a bigger pile-up and the
+-- two changes really are fighting each other.
+check(WV.MaxCount >= WV.MaxChasers * 3,
+	("MaxCount %d against MaxChasers %d: a bigger wave is meant to be more reinforcements, not more raiders hitting you at once")
+		:format(WV.MaxCount, WV.MaxChasers))
+
+-- CAN ANYONE STILL FINISH ONE? A wave that cannot be cleared inside MaxWaveTime
+-- does not fail loudly — it times out, kills its own survivors, and pays
+-- nothing for the ones you never reached. Model the damage a player actually
+-- does: the bat's rate, plus crit, plus the average of the combo ladder (stacks
+-- 0..ComboMaxStacks cycle, so the mean bonus is half the top one).
+local function playerDps(bat)
+	local perSwing = bat.damage * (1 + bat.crit * (Config.Combat.CritMultiplier - 1))
+	local combo = 1 + Config.Combat.ComboDamagePerStack * Config.Combat.ComboMaxStacks / 2
+	return perSwing * combo / bat.cooldown
+end
+
+local satCount = math.min(WV.BaseCount + (saturationWave - 1) * WV.CountPerWave, WV.MaxCount)
+local satRaiderHealth = WV.BaseHealth * WV.HealthGrowth ^ (saturationWave - 1)
+local satWaveHealth = satCount * satRaiderHealth
+if saturationWave % WV.BossEvery == 0 then
+	satWaveHealth += satRaiderHealth * WV.BossHealthMultiplier
+end
+
+local topBat = Config.Bats[#Config.Bats]
+local startBat = Config.Bats[1]
+local clearTop = satWaveHealth / playerDps(topBat)
+local clearStart = satWaveHealth / playerDps(startBat)
+
+-- Solo, with the best bat in the game, a full-size wave has to be finishable
+-- with real room to spare. Without margin the endgame raid is a coin flip
+-- against the deadlock breaker rather than a fight.
+check(clearTop * 2 <= WV.MaxWaveTime,
+	("a full wave is %.0f health and the top bat does %.0f/sec, so a solo clear takes %.0fs against a MaxWaveTime of %d — the deadline is meant to break deadlocks, not to end fights")
+		:format(satWaveHealth, playerDps(topBat), clearTop, WV.MaxWaveTime))
+
 -- ── belt layout ─────────────────────────────────────────────────────────────
 -- The belt is an L: leg 1 (BeltStart -> BeltCorner) carries the droppers,
 -- leg 2 (BeltCorner -> BeltEnd) carries the upgraders.
@@ -1217,6 +1276,14 @@ print(("side tracks:       %.1f min of detour (%.0f%% of the factory build)")
 print(("upgrader stack:    x%.1f"):format(upgradeMult))
 print(("endgame income:    %.3g Tung/sec"):format(endgameIncome))
 print(("full build:        %.0f min"):format(elapsed / 60))
+-- Printed rather than asserted, because the number that matters here is the one
+-- the STARTER bat produces and there is no threshold it can pass. It is what
+-- gating the cabinets costs, in seconds, and it wants reading every time either
+-- the wave curve or the cabinet gate moves.
+print(("waves:             saturate at wave %d (%d raiders, %.0f health, %d parts)")
+	:format(saturationWave, satCount, satWaveHealth, waveParts))
+print(("solo clear:        %.0fs with %s, %.0fs with %s (deadline %ds)")
+	:format(clearTop, topBat.name, clearStart, startBat.name, WV.MaxWaveTime))
 print(("belt:              %.0f studs, %.1fs transit, %.0f drops in flight at peak (%.0f%% full)")
 	:format(beltLength, transit, inFlight, inFlight * DROP_LENGTH / beltLength * 100))
 print(("first rebirth:     %.3g  (+%.0f min after full build)"):format(Config.Rebirth.BaseCost, rebirthMinutes))
