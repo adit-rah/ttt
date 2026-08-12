@@ -24,7 +24,8 @@ jobs:
           chmod +x "$HOME"/.luau/*
           echo "$HOME/.luau" >> "$GITHUB_PATH"
 
-      # syntax, static analysis, 372 config assertions, and the economy
+      # syntax, static analysis, style ownership, 1700+ config assertions, and
+      # the economy
       # simulation (fails on an unbuyable first dropper, a >15min mid-game
       # wall, or a total build outside 45-150 minutes)
       - name: Verify
