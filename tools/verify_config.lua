@@ -1324,11 +1324,74 @@ inPlot("furthest upgrader machine",
 -- the vault must clear the end of the belt or it walls the conveyor off
 local runOff = len(sub(L.CollectorAt, L.BeltEnd))
 check(runOff > 8, ("collector is only %.1f studs past the belt end; the vault would block it"):format(runOff))
--- ...and still fit inside the plot behind it. The vault shell is 10 deep and
--- the wall ring stands 1 stud in from the pad edge.
-check(L.BeltEnd.Z + runOff + 5 <= halfZ - 2,
+-- ...and still fit inside the plot behind it. The shell's half-depth was a
+-- literal 5 here and a literal 10 in Tycoon:buildCollector, which is two copies
+-- of one number in two files and no way for either to notice the other moving.
+-- Both read Layout.Vault now.
+local vaultFar = L.BeltEnd.Z + runOff + L.Vault.bodyDepth / 2
+check(vaultFar <= halfZ - 2,
 	("the vault's far face lands at z=%.1f, into the front wall at z=%.1f")
-		:format(L.BeltEnd.Z + runOff + 5, halfZ - 1))
+		:format(vaultFar, halfZ - 1))
+
+-- THE VAULT'S OWN FURNITURE. Everything below used to be a literal inside
+-- Tycoon:buildCollector, which meant the verifier could see where the vault
+-- STOOD but nothing about what was bolted to it — and the lid is the most
+-- crowded 6 studs on the plot: trim, a 20x6 board and a statue inside 5 studs
+-- of each other. The fill gauge is the first thing added to this object since,
+-- and it is added to a face rather than to the lid for exactly that reason.
+do
+	local V = L.Vault
+	local w = V.window
+
+	-- WHICH AXIS THE WINDOW IS BOUNDED BY. The gauge lies on a LATERAL face,
+	-- and a lateral face of an 18-wide, 10-deep box measures 10 x 9 — so the
+	-- window's horizontal extent is bounded by the body's DEPTH, not its width.
+	-- Checking it against bodyWidth would pass anything up to 16 studs and let
+	-- a 12-stud pane hang 2 studs off each end of a 10-stud face.
+	check(w.width + 2 <= V.bodyDepth,
+		("the fill window is %.1f wide on a face only %.1f deep; it would overhang the vault")
+			:format(w.width, V.bodyDepth))
+	check(w.height + 2 <= V.bodyHeight,
+		("the fill window is %.1f tall on a %.1f-tall shell; it would break the top and bottom edges")
+			:format(w.height, V.bodyHeight))
+	-- ...and it has to be half-sunk into that face rather than floating off it
+	-- or buried in it: two coplanar faces z-fight, and a pane inside the wood
+	-- is a gauge nobody can read.
+	check(w.lateral > V.bodyWidth / 2 and w.lateral < V.bodyWidth / 2 + w.thickness / 2,
+		("the fill window sits at |x| = %.2f against a face at %.1f; it must straddle the face, not float off it or sink behind it")
+			:format(w.lateral, V.bodyWidth / 2))
+
+	-- The small print hangs off the SAME face, outboard of the shell, or it
+	-- renders inside solid wood.
+	check(V.detailLateral >= V.bodyWidth / 2,
+		("the detail board sits at |x| = %.1f, inside a shell %.1f wide — it would be buried in the vault")
+			:format(V.detailLateral, V.bodyWidth))
+	-- ...and clear of the headline board above it. Two billboards overlapping
+	-- in world space do not stack, they smear: one draws over the other at
+	-- whatever angle you happen to be standing.
+	check(V.detailSignY + V.detailHeight / 2 <= V.signY - V.signHeight / 2,
+		("the detail board's top edge is at y=%.1f and the headline board's bottom edge is at y=%.1f; they overlap")
+			:format(V.detailSignY + V.detailHeight / 2, V.signY - V.signHeight / 2))
+
+	-- The statue stands ON the sign, not in it.
+	check(V.statueY > V.signY,
+		("the statue sits at y=%.1f and the sign at y=%.1f; the statue would stand in front of the number")
+			:format(V.statueY, V.signY))
+end
+
+-- WHAT THE EXIT HOOK IS ALLOWED TO PROMISE. The sign on the vault reads
+-- "leaving now banks X over Nh", and the only thing that makes that worth
+-- walking away from is that X is a meaningful fraction of an evening. At
+-- CapHours x Rate the offline vault is worth that many hours of live play; if
+-- the product ever fell under two, the honest sign would read "come back
+-- tomorrow for ninety seconds of income" and the feature would be a lie told
+-- in gold.
+do
+	local O = Config.Offline
+	check(O.CapHours * O.Rate >= 2,
+		("a full offline vault is worth %.1f hours of live play; under 2 the exit hook is not worth reading")
+			:format(O.CapHours * O.Rate))
+end
 
 -- FLOOR FURNITURE. Everything that isn't on the belt is placed by absolute
 -- plot-local coordinate, so growing the plot silently leaves these behind (or

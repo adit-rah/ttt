@@ -275,6 +275,60 @@ __MODULES["Config"] = function()
 	Config.Layout.RoofColumn = 2.4
 	Config.Layout.RoofColumnInset = 3   -- in from the plot's wall ring
 
+	-- THE VAULT SHELL, which now carries a gauge as well as a sign.
+	--
+	-- Every number below was a literal inside Tycoon:buildCollector — the body's
+	-- 18x9x10, the sign anchor's +12, the statue's +13.5 — which is exactly the
+	-- situation RoofY above was written to fix. The lid is crowded: the trim sits
+	-- at bodyHeight + 0.4, the 20x6 sign spans y 9..15 and the statue stands over
+	-- both of them, so ANYTHING added to this object has to be checked against
+	-- three neighbours at once, and the verifier could not see a single one of
+	-- them while they lived in code.
+	--
+	-- The gauge therefore goes on a LATERAL face rather than on the lid. Note
+	-- which axis that puts it on: the body is 18 WIDE and 10 DEEP, so a lateral
+	-- face measures depth x height, and the window's horizontal extent is bounded
+	-- by bodyDepth, not by bodyWidth. That is the check in verify_config, and it
+	-- is the tighter of the two.
+	Config.Layout.Vault = {
+		-- the headline shell: ground floor only, the one with the statue on it
+		bodyWidth  = 18,
+		bodyHeight = 9,
+		bodyDepth  = 10,
+
+		-- the plain catcher every upper floor gets instead. No sign, no statue and
+		-- no gauge: a second income readout per floor would quote the whole plot.
+		plainWidth  = 13,
+		plainHeight = 6.5,
+		plainDepth  = 8,
+
+		signY = 12,          -- the headline board's anchor, plot-local
+		signWidth = 20,
+		signHeight = 6,
+
+		statueY = 13.5,
+		statueScale = 1.6,
+
+		-- THE FILL GAUGE. A glass inlay half-sunk into the lateral face with a
+		-- neon slab inside it, anchored to the window's BOTTOM edge so it grows
+		-- upward like a filling tank rather than outward from the middle.
+		window = {
+			width     = 7,     -- along the body's depth, because this is a side face
+			height    = 5,
+			y         = 5.5,   -- centre, plot-local; spans 3.0 .. 8.0 of a 9-tall shell
+			thickness = 0.6,
+			lateral   = 9.2,   -- |x| from the body centre: 0.1 sunk, 0.5 proud of the face
+		},
+
+		-- The small print, bolted to the same face UNDER the window. It cannot go
+		-- on the lid: the headline board already owns y 9..15 across the full
+		-- width, and two billboards sharing that volume read as one smeared label.
+		detailSignY  = 1.6,
+		detailWidth  = 9,
+		detailHeight = 2.2,
+		detailLateral = 9.6,
+	}
+
 	-- THE GENERATOR YARD — its own slab, BEHIND the plot rather than part of it.
 	--
 	-- Everything on a plot is placed at a fixed plot-local coordinate, so growing
@@ -1747,6 +1801,39 @@ __MODULES["Config"] = function()
 		CapUpgradeHours = { 12, 16, 24 },
 		CapUpgradeCost = { 250000, 5000000, 120000000 },
 		MinimumSeconds = 120,    -- below this, don't bother with the panel
+
+		-- THE VAULT GAUGE — offline earnings made VISIBLE ON THE WAY OUT.
+		--
+		-- The panel on the way back in was never the missing half. A player who has
+		-- not yet been away has no reason to believe that being away pays, and a
+		-- popup at logout is read by nobody: it appears at the exact moment
+		-- attention has already left. So the vault wears the number instead, all
+		-- session, as a column you watch and a headline you read walking off the
+		-- plot — "leaving now banks X over 8h", which grows with every dropper.
+		--
+		-- Two modes out of one formula. Online, banked is zero, the column reads
+		-- empty and the headline is the PROMISE. On return, banked is the pending
+		-- offline grant, the column is full and the headline is what is WAITING.
+		Vault = {
+			-- Roblox will not accept a zero-height part, and a gauge that vanishes
+			-- when empty reads as "broken" rather than as "nothing yet". The empty
+			-- column keeps a visible sliver.
+			FillMin = 0.02,
+			-- The headline is the plot's own number, read from the arena; the small
+			-- print resolves only when you walk up to it. Names, not studs — the
+			-- numbers behind them belong to Config.Style.Distance.
+			Distance = "plot",
+			NearDistance = "prop",
+			-- How long the column takes to drain after a claim. It has to be long
+			-- enough to WATCH: the drain is the counter ticking, and a gauge that
+			-- snaps to empty shows nothing at all.
+			PulseSeconds = 2.0,
+			-- ProximityPrompt reach. Deliberately short and unrelated to the label
+			-- tiers above: a prompt you can trigger from across the plot is a
+			-- prompt you trigger by accident.
+			PromptDistance = 12,
+			PromptHoldSeconds = 0.4,
+		},
 	}
 
 	-- ── session loops ────────────────────────────────────────────────────────────
@@ -8518,6 +8605,56 @@ __MODULES["SessionService"] = function()
 		}
 	end
 
+	--- The pending welcome-back grant, or nil. A getter over the live table,
+	--- because the vault gauge has to know whether there is anything IN the vault
+	--- and `live` is file-local on purpose.
+	function SessionService.pendingOffline(player: Player)
+		local entry = live[player]
+		return entry and entry.offline or nil
+	end
+
+	--- WHAT THE VAULT IS WORTH, in one formula with two modes falling out of it.
+	---
+	--- Capacity is the most this profile can bank in a single absence: its offline
+	--- income per second, for as many hours as its Vault Timer allows. That number
+	--- is the PROMISE the gauge makes while you are standing on the plot — "leaving
+	--- now banks this much" — and it is the denominator of the fill.
+	---
+	--- `banked` is what is actually sitting there, which is zero for everyone who
+	--- has not just arrived. So the same call answers both halves: an online player
+	--- reads an empty column against a big promise, and a returning one reads a
+	--- full column against the grant waiting in it.
+	---
+	--- NOTE WHICH INCOME. incomePerSecondFor, never Tycoon:incomePerSecond — the
+	--- boost, the weekend and the friend bonus all reach the latter and are
+	--- deliberately excluded from the former. Quoting the boosted rate here would
+	--- have the vault promise an offline payout at a rate offline will never pay,
+	--- which is a worse bug than quoting nothing.
+	function SessionService.vaultProjectionFor(profile, banked: number?)
+		local perSecond = SessionService.incomePerSecondFor(profile)
+		local capHours = SessionService.offlineCapHours(profile)
+		local capacity = perSecond * O.Rate * capHours * 3600
+		banked = math.max(0, tonumber(banked) or 0)
+
+		-- FillMin is the floor rather than zero because the gauge is a physical
+		-- part: see Tycoon.MIN_PART. An empty factory has capacity 0 and would
+		-- divide by it, so it takes the same floor from the other direction — an
+		-- empty vault and a vault with nothing in it look the same, which they are.
+		local fraction = O.Vault.FillMin
+		if capacity > 0 then
+			fraction = math.clamp(banked / capacity, O.Vault.FillMin, 1)
+		end
+
+		return {
+			perSecond = perSecond,
+			rate = O.Rate,
+			capHours = capHours,
+			capacity = capacity,
+			banked = banked,
+			fraction = fraction,
+		}
+	end
+
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- daily streak
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -8810,6 +8947,27 @@ __MODULES["SessionService"] = function()
 				Util.abbreviate(pending.earned), SessionService.describeDuration(pending.seconds)),
 		})
 		entry.dirty = true
+	end
+
+	--- The SECOND way to collect the welcome-back grant: the ProximityPrompt on the
+	--- vault, wired by VaultService. Public so that path exists at all, and a thin
+	--- wrapper rather than a second implementation — the guard that matters is the
+	--- one already inside claimOffline, which clears entry.offline BEFORE it pays.
+	--- Two claim paths racing each other is exactly the double-fire that guard was
+	--- written for; a prompt held down while the panel button is clicked is now a
+	--- reachable way to make them race.
+	---
+	--- Pushes state itself: the remote path does that at the end of its handler and
+	--- the prompt has no handler to do it in, and a panel still offering a grant
+	--- that has already been paid is how a player learns the button lies.
+	function SessionService.claimOfflineFor(player: Player): boolean
+		local entry = live[player]
+		if not entry or not entry.offline then
+			return false
+		end
+		claimOffline(player, entry)
+		pushState(player)
+		return true
 	end
 
 	--- THE VAULT TIMER. The welcome-back panel has always named the upgrade that
@@ -9543,6 +9701,13 @@ __MODULES["Tycoon"] = function()
 	local BTN = Config.Style.Button
 	local BTN_LOCKED = Config.Style.ButtonLocked
 	local W = Config.World
+	local OV = Config.Offline.Vault
+
+	--- Roblox refuses a part thinner than this on any axis, and silently keeps the
+	--- old size rather than erroring — so an empty gauge would keep whatever height
+	--- it last had. The floor is here rather than in Config because it is a
+	--- property of the engine, not a tuning knob.
+	local MIN_PART = 0.05
 
 	local Tycoon = {}
 	Tycoon.__index = Tycoon
@@ -9571,6 +9736,12 @@ __MODULES["Tycoon"] = function()
 		preview   = Color3.fromRGB(126, 122, 146),
 		vault     = Color3.fromRGB(146, 110, 72),
 		gold      = Color3.fromRGB(255, 205, 90),
+		-- The gauge in its two voices, on the same two-voice principle as
+		-- Style.Button/ButtonLocked: bright gold is tung you can COLLECT, the
+		-- duller amber is tung you would bank by leaving. Colour is not carrying
+		-- the difference on its own — the empty column is also a sliver rather
+		-- than a full pane, and the prompt is off.
+		vaultPromise = Color3.fromRGB(196, 150, 70),
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -10225,9 +10396,10 @@ __MODULES["Tycoon"] = function()
 		-- entirely DOWNSTREAM of the sensor: a solid body overlapping the run-off
 		-- walls the belt off and nothing can ever be collected.
 		local _, beltEnd, exitDir = self:leg(self:legCount(pathIndex), pathIndex)
-		local bodyDepth = headline and 10 or 8
-		local bodyWidth = headline and 18 or 13
-		local bodyHeight = headline and 9 or 6.5
+		local V = L.Vault
+		local bodyDepth = headline and V.bodyDepth or V.plainDepth
+		local bodyWidth = headline and V.bodyWidth or V.plainWidth
+		local bodyHeight = headline and V.bodyHeight or V.plainHeight
 		local centre = path.collectorAt
 		local runOff = (centre - beltEnd).Magnitude
 		assert(runOff > bodyDepth / 2 + 3,
@@ -10241,7 +10413,7 @@ __MODULES["Tycoon"] = function()
 			return self.cf * CFrame.lookAt(point, point + exitDir)
 		end
 
-		newPart(folder, "VaultBase", Vector3.new(bodyWidth, bodyHeight, bodyDepth),
+		local base = newPart(folder, "VaultBase", Vector3.new(bodyWidth, bodyHeight, bodyDepth),
 			alongExit(runOff, bodyHeight / 2, 0), COLORS.vault, Enum.Material.WoodPlanks)
 		newPart(folder, "VaultTrim", Vector3.new(bodyWidth + 1, 1.2, bodyDepth + 1),
 			alongExit(runOff, bodyHeight + 0.4, 0), COLORS.gold, Enum.Material.Metal)
@@ -10275,21 +10447,126 @@ __MODULES["Tycoon"] = function()
 		end
 
 		-- sign
-		local signAnchor = newPart(folder, "SignAnchor", Vector3.new(1, 1, 1), alongExit(runOff, 12, 0), COLORS.vault, nil, false)
+		local signAnchor = newPart(folder, "SignAnchor", Vector3.new(1, 1, 1), alongExit(runOff, V.signY, 0), COLORS.vault, nil, false)
 		signAnchor.Transparency = 1
 
 		local billboard = Style.billboard(signAnchor, {
-			name = "Sign", width = 20, height = 6, distance = "plot",
+			name = "Sign", width = V.signWidth, height = V.signHeight, distance = OV.Distance,
 		})
 		local label = Style.text(billboard, {
 			name = "Rate", text = "SAHUR VAULT", color = COLORS.gold,
 		})
 		self.vaultLabel = label
 
-		local statue = TungModels.buildStatue("classic", 1.6)
-		statue:PivotTo(alongExit(runOff, 13.5, 0) * CFrame.Angles(0, math.pi, 0))
+		-- THE GAUGE, and it goes on a SIDE of the vault rather than on top of it.
+		--
+		-- The lid is spoken for three times over — trim at bodyHeight + 0.4, the
+		-- 20x6 board spanning y 9..15, the statue above that — so a column on the
+		-- roof would grow straight through two of them. The lateral faces are the
+		-- only clear ones, and of the two only one faces the open floor and the
+		-- aisle you actually walk down on your way off the plot; the other faces
+		-- the side wall two studs away, where nobody will ever stand.
+		--
+		-- WHICH ONE THAT IS depends on the sign of the last leg's exit direction.
+		-- alongExit puts lateral on (-exitDir.Z, 0, exitDir.X); the ground belt
+		-- exits along +Z (BeltEnd -> CollectorAt), which makes that perpendicular
+		-- -X, so a NEGATIVE lateral lands at plot-local x = -35 — the open side —
+		-- and a positive one at x = -53, in the wall. Hence the minus signs below.
+		-- Derived, not measured: UNVERIFIED IN STUDIO.
+		local w = V.window
+		local windowCF = alongExit(runOff, w.y, -w.lateral)
+		local window = newPart(folder, "FillWindow", Vector3.new(w.thickness, w.height, w.width),
+			windowCF, COLORS.gold, Enum.Material.Glass, false)
+		window.Transparency = 0.55
+		-- CanQuery off as well as CanCollide: a pane in front of the vault body is
+		-- exactly the sort of thing a raycast-driven prompt or a camera collision
+		-- would otherwise catch on.
+		window.CanQuery = false
+		self.vaultWindow = window
+
+		-- The gold inside the pane. Built at FULL height and centred, which is the
+		-- pose setVaultGauge measures its offsets against — see vaultFillBase.
+		local fill = newPart(folder, "FillBody",
+			Vector3.new(w.thickness * 0.55, w.height, w.width - 0.8),
+			windowCF, COLORS.gold, Enum.Material.Neon, false)
+		fill.CanQuery = false
+		self.vaultFill = fill
+		self.vaultFillBase = windowCF
+
+		-- The small print, bolted UNDER the pane on the same face. Its own tier:
+		-- the headline is the plot's number and carries to the arena, the
+		-- arithmetic behind it only has to resolve once you are standing here.
+		local detailAnchor = newPart(folder, "DetailAnchor", Vector3.new(1, 1, 1),
+			alongExit(runOff, V.detailSignY, -V.detailLateral), COLORS.vault, nil, false)
+		detailAnchor.Transparency = 1
+		local detailBoard = Style.billboard(detailAnchor, {
+			name = "Detail", width = V.detailWidth, height = V.detailHeight, distance = OV.NearDistance,
+		})
+		self.vaultDetailLabel = Style.text(detailBoard, {
+			name = "Detail", text = "", color = COLORS.gold, weight = "body",
+		})
+
+		-- The claim. A ProximityPrompt rather than a remote, because the intent
+		-- here has no payload at all: there is no amount for a client to send and
+		-- therefore none for the server to have to disbelieve. VaultService hangs
+		-- the handler on it — Tycoon does not know what offline earnings are.
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "CollectOffline"
+		prompt.ActionText = "Collect"
+		prompt.ObjectText = "Sahur Vault"
+		prompt.HoldDuration = OV.PromptHoldSeconds
+		prompt.MaxActivationDistance = OV.PromptDistance
+		prompt.RequiresLineOfSight = false
+		prompt.Enabled = false          -- nothing banked until something is
+		prompt.Parent = base
+		self.vaultPrompt = prompt
+
+		local statue = TungModels.buildStatue("classic", V.statueScale)
+		statue:PivotTo(alongExit(runOff, V.statueY, 0) * CFrame.Angles(0, math.pi, 0))
 		statue.Parent = folder
 		self.vaultStatue = statue
+	end
+
+	--- Writes the vault gauge. THE ONLY THING IN THIS FILE THAT DRAWS IT, and it
+	--- decides nothing: every one of these four values is worked out by
+	--- VaultService, which is the module allowed to know what offline earnings are.
+	--- Tycoon must not require SessionService — SessionService derives income from
+	--- a SAVED profile precisely so it never has to reach for a live plot — so the
+	--- arrow points one way and this is the far end of it.
+	---
+	---   fraction  0..1 of the window, bottom-anchored
+	---   headline  the 20x6 board, or nil to hand it back to updateSign
+	---   detail    the small print under the pane
+	---   waiting   true when there is a real grant to collect, which is also the
+	---             only state the prompt is live in
+	function Tycoon:setVaultGauge(fraction: number, headline: string?, detail: string?, waiting: boolean?)
+		self.vaultHeadline = headline
+		if self.vaultLabel and self.vaultLabel.Parent and headline then
+			self.vaultLabel.Text = headline
+		end
+		if self.vaultDetailLabel and self.vaultDetailLabel.Parent then
+			self.vaultDetailLabel.Text = detail or ""
+		end
+
+		local fill = self.vaultFill
+		if fill and fill.Parent then
+			local full = L.Vault.window.height
+			-- MIN_PART, not zero: Roblox rejects a part thinner than 0.05 on any
+			-- axis, and an empty gauge that failed to resize would keep whatever
+			-- height it last had — an empty vault reading as a full one.
+			local height = math.max(full * math.clamp(fraction, 0, 1), MIN_PART)
+			fill.Size = Vector3.new(fill.Size.X, height, fill.Size.Z)
+			-- Bottom-anchored. Resizing a part in Roblox grows it about its centre,
+			-- so a gauge left at the window's centre would creep DOWN through the
+			-- vault floor as it filled instead of rising up the pane.
+			fill.CFrame = self.vaultFillBase * CFrame.new(0, (height - full) / 2, 0)
+			fill.Color = waiting and COLORS.gold or COLORS.vaultPromise
+			fill.Transparency = waiting and 0 or 0.4
+		end
+
+		if self.vaultPrompt and self.vaultPrompt.Parent then
+			self.vaultPrompt.Enabled = waiting == true
+		end
 	end
 
 	function Tycoon:onCollect(hit: BasePart)
@@ -11752,10 +12029,20 @@ __MODULES["Tycoon"] = function()
 				label.Text = ("UNCLAIMED PLOT %d\nstep on the pad to claim"):format(self.index)
 			end
 		end
+		-- ONE writer at a time. PlotService repaints every sign on a 3-second beat
+		-- and VaultService recomputes the gauge on its own schedule, so if both
+		-- wrote this label it would flicker between two different sentences a few
+		-- times a minute. When the gauge has a headline it owns the board; when it
+		-- does not — an unclaimed plot, or a build with Prototypes.Offline off —
+		-- the income readout this sign has always carried is the fallback.
 		if self.vaultLabel then
-			self.vaultLabel.Text = ownerName
-				and ("SAHUR VAULT  •  %s/sec"):format(Util.abbreviate(self:incomePerSecond()))
-				or "SAHUR VAULT"
+			if not ownerName then
+				self.vaultLabel.Text = "SAHUR VAULT"
+			elseif self.vaultHeadline then
+				self.vaultLabel.Text = self.vaultHeadline
+			else
+				self.vaultLabel.Text = ("SAHUR VAULT  •  %s/sec"):format(Util.abbreviate(self:incomePerSecond()))
+			end
 		end
 		-- the whole claim rig (pad, beacon, halo, sign) appears and disappears
 		-- together, so an owned plot never shows a stray "free" marker
@@ -11829,6 +12116,11 @@ __MODULES["Tycoon"] = function()
 			surface.Color = COLORS.belt
 		end)
 		self.roofSign = nil
+		-- Dropped BEFORE updateSign runs below, not left for VaultService to clear
+		-- on the owned-changed that follows: for those few lines the plot has no
+		-- owner, and the last owner's "leaving now banks 2.4M" would be sitting on
+		-- a free plot's sign while the claim beacon lit up next to it.
+		self:setVaultGauge(0, nil, nil, false)
 
 		self:refreshButtons()
 		self:updateSign()
@@ -12668,6 +12960,230 @@ __MODULES["UpgradeService"] = function()
 end
 
 
+__MODULES["VaultService"] = function()
+	--[[
+		VaultService.lua — the number on the side of the vault.
+
+		GROWTH-TODO item 3 is "there is no reason to come back tomorrow", and the
+		part of it offline earnings does NOT cover is that the payout is invisible
+		until after it has already happened. A player who has never been away has no
+		evidence that being away pays anything, and a popup at logout is read by
+		nobody — it arrives at the exact moment attention has already left. So the
+		promise moves onto the plot, all session, as a column you watch and a
+		headline you read on your way out: leaving now banks 2.4M over 8h, and that
+		number goes up every time you buy a dropper.
+
+		BE HONEST ABOUT WHAT THIS IS. Nothing on a plot literally fills while you
+		are away. Config.Economy.OfflineGraceSeconds holds your plot for three
+		minutes and then releases it; you usually come back to a DIFFERENT plot and
+		Tycoon:assign replays your installs onto it. There is no object accruing in
+		your absence, and pretending otherwise would mean lying with an animation.
+		What there is, is one formula:
+
+		    capacity = offline income/sec x Offline.Rate x your cap hours x 3600
+		    banked   = the pending welcome-back grant, or 0
+		    fraction = clamp(banked / capacity, FillMin, 1)
+
+		Online, banked is 0: the column reads empty and the sign reads the promise.
+		Returning, banked is the grant SessionService already computed at join: the
+		column is full, the sign says what is waiting, and the prompt on the vault
+		pays it out while the column drains.
+
+		WHY A THIRD MODULE. SessionService must not require Tycoon or PlotService —
+		its whole reason for existing is that it derives income from a SAVED profile
+		so an absent player can be paid without a plot to ask — and Tycoon must not
+		require SessionService, because Tycoon is required BY it in the other
+		direction of the same argument. A leaf that requires all three keeps both
+		arrows pointing one way. FloorService is the same shape for the same reason.
+
+		AND WHY onOwnedChanged RATHER THAN CLAIM TIME. On return you land on a plot
+		that is not the one you left, and assign() replays your purchases onto it as
+		a sequence. Computing the projection once when the plot is claimed reads a
+		factory that is still half-built. The owned-changed seam fires on every one
+		of those installs — which is also exactly when the promise changes — so the
+		gauge is driven off it, with a slow beat behind it to pick up the things
+		that move without a purchase (a rebirth, a Vault Timer, a grant arriving).
+
+		NET MESSAGES: ZERO. Parts and BillboardGuis replicate on their own, the same
+		way the buy-button labels and the arena title already do, and the claim goes
+		through a ProximityPrompt — a server-side signal with no payload, which
+		satisfies "the client sends an intent, never an amount" more strictly than a
+		remote can, because there is nothing to validate.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Util = Req("Util")
+	local Tycoon = Req("Tycoon")
+	local DataService = Req("DataService")
+	local SessionService = Req("SessionService")
+
+	local VaultService = {}
+
+	local P = Config.Prototypes
+	local O = Config.Offline
+	local V = O.Vault
+
+	-- Slow on purpose. Everything that changes the promise fires onOwnedChanged;
+	-- this beat exists only for what does not — a rebirth landing, a Vault Timer
+	-- bought off the panel, and the welcome-back grant appearing a moment after the
+	-- plot was claimed.
+	local BEAT = 5
+
+	-- Plots whose prompt has been wired. A Tycoon is built once and reused by every
+	-- owner it ever has, so the connection must happen once and not once per claim.
+	local wired: { [any]: boolean } = {}
+
+	-- Plots currently playing the post-claim drain, so a beat landing mid-animation
+	-- does not snap the column back to full underneath it.
+	local draining: { [any]: boolean } = {}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- the two sentences
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- The exit hook. Deliberately in the second person and deliberately about the
+	--- FUTURE: the sign is being read by someone who is about to log off.
+	local function promise(projection): (string, string)
+		return
+			("LEAVING NOW BANKS %s OVER %dh"):format(
+				Util.abbreviate(math.floor(projection.capacity)), projection.capHours),
+			("%dh  •  %d%%  •  %s/sec"):format(
+				projection.capHours, projection.rate * 100, Util.abbreviate(projection.perSecond))
+	end
+
+	--- The entry hook, read by someone who has just walked back in.
+	local function waiting(projection, pending): (string, string)
+		return
+			("%s WAITING"):format(Util.abbreviate(projection.banked)),
+			("hold E at the vault  •  %s away  •  %s/sec"):format(
+				SessionService.describeDuration(pending.seconds), Util.abbreviate(projection.perSecond))
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- the gauge
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- Recompute one plot's gauge from its owner's saved profile. Cheap enough to
+	--- call on every purchase: it is two table walks and no instances.
+	function VaultService.refresh(tycoon)
+		if not P.Offline or draining[tycoon] then
+			return
+		end
+		local player = tycoon.owner
+		if not player then
+			-- Hands the sign back to Tycoon:updateSign, which paints the free-plot
+			-- text on the next pass.
+			tycoon:setVaultGauge(0, nil, nil, false)
+			return
+		end
+		local profile = DataService.get(player)
+		if not profile then
+			return                      -- joined, plot claimed, profile still loading
+		end
+
+		local pending = SessionService.pendingOffline(player)
+		local projection = SessionService.vaultProjectionFor(profile, pending and pending.earned or 0)
+
+		local headline, detail
+		if pending then
+			headline, detail = waiting(projection, pending)
+		elseif projection.capacity > 0 then
+			headline, detail = promise(projection)
+		end
+		-- capacity 0 leaves headline nil, which hands the board back to
+		-- Tycoon:updateSign and its income readout. A plot with no droppers on it
+		-- has nothing to promise, and "LEAVING NOW BANKS 0 OVER 8h" is a worse
+		-- first thing to read than the sign that was already there.
+		tycoon:setVaultGauge(projection.fraction, headline, detail, pending ~= nil)
+	end
+
+	--- Pays the grant out and then EMPTIES THE COLUMN IN FRONT OF THE PLAYER.
+	---
+	--- The drain is the point of the whole feature and not decoration. A popup that
+	--- says "you earned 2.4M" is a thing you dismiss; a column of gold visibly
+	--- draining into a wallet counting up is the same information delivered as
+	--- something you watched happen, and it is what teaches the promise on the sign
+	--- is real — which is what makes it worth reading on the way out tomorrow.
+	local function collect(tycoon, player: Player)
+		if not P.Offline or player ~= tycoon.owner or draining[tycoon] then
+			return
+		end
+		local profile = DataService.get(player)
+		local pending = SessionService.pendingOffline(player)
+		if not profile or not pending then
+			return
+		end
+		-- The double-fire guard lives inside SessionService (entry.offline is
+		-- cleared BEFORE the payout), so this can be a straight call — but it
+		-- reports whether it actually paid, and animating a drain for a claim that
+		-- did not happen would be a lie the player has no way to see through.
+		if not SessionService.claimOfflineFor(player) then
+			return
+		end
+
+		local projection = SessionService.vaultProjectionFor(profile, pending.earned)
+		local _, detail = promise(SessionService.vaultProjectionFor(profile, 0))
+
+		draining[tycoon] = true
+		task.spawn(function()
+			local start = os.clock()
+			while true do
+				local alpha = math.min((os.clock() - start) / V.PulseSeconds, 1)
+				if not tycoon.owner then
+					break                 -- left mid-drain; the release already cleared it
+				end
+				tycoon:setVaultGauge(projection.fraction * (1 - alpha),
+					("+%s COLLECTED"):format(Util.abbreviate(pending.earned)), detail, false)
+				if alpha >= 1 then
+					break
+				end
+				task.wait(0.05)
+			end
+			draining[tycoon] = nil
+			VaultService.refresh(tycoon)
+		end)
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- wiring
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	function VaultService.start()
+		if not P.Offline then
+			return
+		end
+
+		for _, tycoon in ipairs(Tycoon.all()) do
+			if not wired[tycoon] then
+				wired[tycoon] = true
+				tycoon:onOwnedChanged(VaultService.refresh)
+				if tycoon.vaultPrompt then
+					tycoon.vaultPrompt.Triggered:Connect(function(player)
+						collect(tycoon, player)
+					end)
+				end
+			end
+			VaultService.refresh(tycoon)
+		end
+
+		task.spawn(function()
+			while true do
+				task.wait(BEAT)
+				for _, tycoon in ipairs(Tycoon.all()) do
+					local ok, err = pcall(VaultService.refresh, tycoon)
+					if not ok then
+						warn("[Tung] vault gauge error on plot " .. tostring(tycoon.index) .. ": " .. tostring(err))
+					end
+				end
+			end
+		end)
+	end
+
+	return VaultService
+end
+
+
 -- ── entry point ───────────────────────────────────────────────
 
 
@@ -12697,6 +13213,7 @@ local AdminService = Req("AdminService")
 local UpgradeService = Req("UpgradeService")
 local SessionService = Req("SessionService")
 local FloorService = Req("FloorService")
+local VaultService = Req("VaultService")
 
 -- Shipped, and flagless: the friend bonus turns off by setting
 -- Config.Social.BonusPerFriend to 0, on which start() declines to register its
@@ -12733,6 +13250,9 @@ AdminService.start()
 -- 5. sessions, floors, and the one remaining prototype
 UpgradeService.start()
 SessionService.start()
+-- after SessionService: it registers listeners on plots that are already built
+-- and reads the projection SessionService owns
+VaultService.start()
 FloorService.start()
 SocialService.start()
 
