@@ -124,6 +124,12 @@ end
 --- with presence, and banking it while logged out is the opposite of the
 --- point. It includes the rebirth multiplier because that is a property of the
 --- factory, not of the session.
+---
+--- The same exclusion catches SocialService's friend bonus for free, and for
+--- the same reason — it is registered as an Economy multiplier hook and this
+--- function never calls Economy.multiplier. That is intended, not incidental: a
+--- bonus for being in a server with your friends must not pay while you are in
+--- no server. Anything added to this line must survive the same question.
 function SessionService.incomePerSecondFor(profile): number
 	if type(profile) ~= "table" then
 		return 0

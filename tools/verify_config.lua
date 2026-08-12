@@ -311,6 +311,49 @@ end
 check(not grantedArmor[Config.Armor.Tiers[1].id],
 	"Armor.Tiers[1] is what you spawn wearing; selling it would charge for nothing")
 
+-- ── social ──────────────────────────────────────────────────────────────────
+-- A friend in your server is worth income, which makes this a BALANCE lever
+-- wearing a growth feature's clothes. Four of these five bound it against
+-- numbers that already exist elsewhere in this file, because the failure mode
+-- is not "the bonus is wrong", it is "the bonus quietly became the best thing
+-- in the game" or "the number on screen is still zero when the raid lands".
+do
+	local S = Config.Social
+
+	check(type(S.BonusPerFriend) == "number" and S.BonusPerFriend > 0 and S.BonusPerFriend <= 0.25,
+		("Social.BonusPerFriend is %s; a friend is worth between 0 and 25%% income — at zero the hook is never registered and the feature does not exist, above 25%% one friend beats a whole track")
+			:format(tostring(S.BonusPerFriend)))
+
+	-- MaxPlots IS the player cap (World.MaxPlots, with MaxPlayers set to match),
+	-- so there can never be more than MaxPlots - 1 other people in the server.
+	check(type(S.MaxFriends) == "number" and S.MaxFriends >= 1 and S.MaxFriends < Config.World.MaxPlots,
+		("Social.MaxFriends is %s; it must be at least 1 and under World.MaxPlots (%d), because MaxPlots is the player cap and you cannot cap the bonus above the number of other people who can be in the server")
+			:format(tostring(S.MaxFriends), Config.World.MaxPlots))
+
+	local stacked = 1 + S.MaxFriends * S.BonusPerFriend
+	check(stacked <= Config.Rebirth.MultiplierPerRebirth,
+		("a full friend bonus pays x%.2f against a rebirth's x%.2f — the social lever must not out-earn a prestige, or the cheapest route to the top of the curve is a group chat")
+			:format(stacked, Config.Rebirth.MultiplierPerRebirth))
+
+	-- One joining player costs MaxPlots - 1 pairwise IsFriendsWith calls,
+	-- serialised ResolveGap apart. They must all land before the first raid that
+	-- player sees, or the multiplier on their HUD is wrong at the one moment it
+	-- is being read.
+	local fanOut = S.ResolveGap * (Config.World.MaxPlots - 1)
+	local firstRaid = Config.Waves.WarningTime + Config.Waves.FirstWaveDelay
+	check(type(S.ResolveGap) == "number" and S.ResolveGap > 0 and fanOut < firstRaid,
+		("resolving every pair for one joining player takes %.2fs (%d calls at %s apart) but the first raid warning is up at %.0fs — the friend count would still be settling when the number first matters")
+			:format(fanOut, Config.World.MaxPlots - 1, tostring(S.ResolveGap), firstRaid))
+
+	check(type(S.RetrySeconds) == "number" and S.RetrySeconds > S.ResolveGap,
+		("Social.RetrySeconds is %s against a ResolveGap of %s; a retry faster than the stagger re-fires a failing web call into the throttle that just refused it")
+			:format(tostring(S.RetrySeconds), tostring(S.ResolveGap)))
+
+	check(type(S.InviteCooldown) == "number" and S.InviteCooldown > 0,
+		("Social.InviteCooldown is %s; RequestInvite is an untrusted remote and a remote that can be spammed is a remote that will be")
+			:format(tostring(S.InviteCooldown)))
+end
+
 -- ── prototypes ──────────────────────────────────────────────────────────────
 -- Unshipped, but the data still has to be coherent — a prototype that only
 -- fails once you flip its flag is a prototype nobody flips.

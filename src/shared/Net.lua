@@ -39,6 +39,12 @@ Net.NAMES = {
 	"RequestRebirth",-- C->S
 	"RequestReset",  -- C->S  (leave plot)
 	"Sfx",           -- S->C  { name, position }
+	-- The friend bonus. Deliberately NOT folded into the Stats payload above:
+	-- Economy would then have to require SocialService, which is exactly the
+	-- dependency Economy.setMultiplierHook exists to prevent. A separate remote
+	-- keeps Economy ignorant, and lets this one carry friend NAMES for the toast.
+	"SocialState",   -- S->C  { friends, cap, bonus, multiplier, names }
+	"RequestInvite", -- C->S  (no payload; it exists for the server-side cooldown)
 
 	-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 	-- demand so a client that connects with a flag off still resolves them and

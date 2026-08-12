@@ -492,7 +492,10 @@ Config.UI = {
 	-- derived below rather than written, because the bug this table exists to
 	-- catch was two files disagreeing about where this column ends.
 	ColumnWidth = 280,
-	CashPanel    = { Width = 280, Height = 96 },
+	-- 126 rather than 96: the friend-bonus row and its INVITE button sit under
+	-- the multiplier they are a term in. Every panel below derives its Y from
+	-- this, so this is the only number that changes.
+	CashPanel    = { Width = 280, Height = 126 },
 	NextPanel    = { Width = 280, Height = 74 },
 	-- Height is the ordinary panel, TallHeight adds the pending-offline row and
 	-- CompactHeight is the offline-only build that collapses to just that row.
@@ -656,6 +659,42 @@ Config.Persistence = {
 	-- dozen players on one server at once; unjittered retries arrive as a burst
 	-- against a per-key request budget.
 	AcquireRetrySeconds = 4,
+}
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SOCIAL — the one number that makes another human being worth something.
+--
+-- Roblox scores this place on "intentional co-play days": sessions where you
+-- played with a friend through a JOIN, an INVITE or a private server rather
+-- than through matchmaking. The game had no social surface at all — ten plots
+-- in a ring, ten people each watching their own number — so that metric was
+-- structurally zero and no amount of retention work could move it.
+--
+-- A friend in your server is +10% income each, capped at three. Small on
+-- purpose: it has to be legible on the HUD ("+30%") and it must never out-earn
+-- a prestige, which the verifier asserts against MultiplierPerRebirth.
+--
+-- NOT A PROTOTYPE, and deliberately without a Config.Prototypes flag —
+-- verify_config asserts every remaining flag ships false, and the precedent
+-- (FloorService) is that a flag is a thing you delete, not a thing you add. The
+-- kill switch is BonusPerFriend = 0, on which SocialService.start() declines to
+-- register its multiplier hook at all — and note the verifier REFUSES a
+-- committed zero, so that is a hotfix you can paste into a live server, not a
+-- state this repo will let you ship and forget about.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+Config.Social = {
+	BonusPerFriend = 0.10,
+	MaxFriends = 3,           -- capped +30%
+	-- Seconds between IsFriendsWith calls. Friendship is resolved PAIRWISE, one
+	-- web call at a time, so ten people joining at once cannot trip the
+	-- per-player web throttle in a burst. The verifier asserts the whole fan-out
+	-- for one joiner finishes before that joiner's first raid warning.
+	ResolveGap = 0.15,
+	-- A failed call is RETRIED, never cached. Caching a web failure as `false`
+	-- would silently delete the bonus for the rest of the server's life.
+	RetrySeconds = 20,
+	InviteCooldown = 300,     -- per-player floor between RequestInvite remotes
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
