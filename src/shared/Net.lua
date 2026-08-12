@@ -31,8 +31,8 @@ Net.NAMES = {
 	"PlotAssigned",  -- S->C  plotIndex
 	"Purchased",     -- S->C  { id, name, price }
 	"WaveState",     -- S->C  { phase, wave, remaining, seconds }
-	"Swing",         -- C->S  (fired when the player swings a bat)
-	"HitFeedback",   -- S->C  { damage, crit, position }
+	"SwingFx",       -- S->C  { character, combo, duration } — play a swing on that rig
+	"HitFeedback",   -- S->C  { damage, crit, killed, position }
 	"Knockback",     -- S->C  impulse Vector3, applied by the owning client
 	"RequestRebirth",-- C->S
 	"RequestReset",  -- C->S  (leave plot)

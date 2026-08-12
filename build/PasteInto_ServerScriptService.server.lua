@@ -488,11 +488,39 @@ __MODULES["Config"] = function()
 
 	Config.Combat = {
 		ComboWindow = 1.6,          -- seconds to chain a swing
-		ComboMaxStacks = 4,
+		-- One more swing animation than there are combo stacks, because stack 0 is
+		-- the first swing of a chain. Stacks 0,1,2,3 map to SwingAnim.SWINGS 1..4,
+		-- so the chain plays diagonal / backhand / sweep / slam and then repeats.
+		ComboMaxStacks = 3,
+		SwingSteps = 4,             -- must equal #SwingAnim.SWINGS; both sides assert it
 		ComboDamagePerStack = 0.18, -- +18% per stack
 		HitboxSize = Vector3.new(7, 7, 1),
 		ArenaPvP = true,            -- PvP only inside the arena ring
 		RespawnCash = 0,            -- cash lost on death (0 = friendly)
+
+		-- SWING TIMING, as fractions of the bat's cooldown. The hitbox used to be
+		-- evaluated on the same frame the swing started, i.e. a whole animation
+		-- BEFORE the bat visibly reached the target — which is most of why the old
+		-- combat read as clicking rather than as hitting. Damage now lands on the
+		-- strike frame.
+		SwingWindUp = 0.26,         -- fraction spent winding up
+		SwingStrikeAt = 0.40,       -- fraction at which the bat is at the end of its arc
+		-- The strike is a moving arc, so one instantaneous box misses targets that
+		-- are a few frames early or late. Sample twice, this far apart.
+		SwingSampleGap = 0.07,
+		HitStop = 0.07,             -- seconds the swing freezes on a landed hit
+
+		CritMultiplier = 2,
+		CritKnockback = 1.6,
+
+		-- The last step of a combo is the overhead slam. It is slower to reach (it
+		-- is the fourth click) so it pays out.
+		FinisherDamage = 1.5,
+		FinisherKnockback = 1.8,
+		FinisherReach = 1.25,
+
+		WalkSpeed = 19,
+		JumpPower = 52,
 	}
 
 	Config.Waves = {
@@ -507,7 +535,12 @@ __MODULES["Config"] = function()
 		HealthGrowth = 1.20,        -- wave 20 raider ~2.9k HP: ~13s for one player
 		BaseDamage = 9,
 		DamageGrowth = 1.07,
-		MaxDamage = 34,             -- a player has 100 HP; never let a raider 2-shot
+		-- A player has 100 HP. These are ABSOLUTE ceilings: the boss multiplier used
+		-- to be applied to the cap as well as to the damage, so a wave-20 boss hit
+		-- for 61 and killed a full-health player in two swings — exactly what the
+		-- cap was written to prevent.
+		MaxDamage = 34,
+		MaxBossDamage = 45,
 		BossHealthMultiplier = 6,
 		BossDamageMultiplier = 1.8,
 		WalkSpeed = 13,
@@ -515,6 +548,18 @@ __MODULES["Config"] = function()
 		RewardGrowth = 2.3,         -- reward scales with wave number
 		StealPerHit = 0.006,        -- fraction of a player's cash a raider steals on hit
 		BossEvery = 5,
+
+		-- RAIDER ATTACKS. Damage used to land on the same tick the raider decided
+		-- to attack, with no wind-up and no animation, so being hit was pure
+		-- proximity: you could not see it coming and you could not step out of it.
+		-- Raiders now raise the bat, hold, and only then swing — and they stand
+		-- still while they do it, which is the window you punish.
+		AttackRange = 8,
+		AttackWindUp = 0.45,        -- seconds of telegraph before the hit lands
+		AttackRecover = 0.35,       -- seconds rooted after swinging
+		AttackCooldown = 1.35,
+		AttackKnockback = 28,
+		BossWindUpScale = 1.35,     -- bosses telegraph LONGER; they hit much harder
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -905,8 +950,8 @@ __MODULES["Net"] = function()
 		"PlotAssigned",  -- S->C  plotIndex
 		"Purchased",     -- S->C  { id, name, price }
 		"WaveState",     -- S->C  { phase, wave, remaining, seconds }
-		"Swing",         -- C->S  (fired when the player swings a bat)
-		"HitFeedback",   -- S->C  { damage, crit, position }
+		"SwingFx",       -- S->C  { character, combo, duration } — play a swing on that rig
+		"HitFeedback",   -- S->C  { damage, crit, killed, position }
 		"Knockback",     -- S->C  impulse Vector3, applied by the owning client
 		"RequestRebirth",-- C->S
 		"RequestReset",  -- C->S  (leave plot)
@@ -949,6 +994,274 @@ __MODULES["Net"] = function()
 	end
 
 	return Net
+end
+
+
+__MODULES["SwingAnim"] = function()
+	--[[
+		SwingAnim.lua — procedural melee swings that move the CHARACTER, not just
+		the bat.
+
+		The old swing tweened Tool.Grip, which is the offset of the engine's
+		RightGrip weld. That rotates the bat inside a motionless hand: the arm, the
+		shoulders and the torso never moved, so a "swing" read as the bat pivoting
+		in mid-air. This drives the rig itself.
+
+		WHY NOT AN AnimationTrack? Roblox animations are uploaded assets. This game
+		has zero uploads by design (see README), and an animation asset would also
+		have to be authored twice, once per rig type. Writing the joints directly
+		costs one bound render step and works on R6 and R15 from the same pose data.
+
+		THE THREE THINGS THAT MAKE THIS WORK
+		  1. We write Motor6D.Transform, not C0. Transform is the channel the
+		     Animator itself writes into every frame, so setting it replaces the
+		     playing animation's contribution for that joint and leaves the rig's
+		     rest pose (C0/C1) untouched. Stop writing and Roblox's own Animate
+		     script takes the limb straight back over.
+		  2. We bind AFTER Enum.RenderPriority.Character. That is the point in the
+		     frame where character animations are applied; anything written before
+		     it is overwritten in the same frame.
+		  3. Poses are expressed in TORSO space, not joint space, and converted per
+		     joint by conjugating with that joint's own C0 rotation:
+
+		         Transform = C0.Rotation:Inverse() * Q * C0.Rotation
+
+		     R6 and R15 bake completely different rotations into their shoulder C0s,
+		     so a raw joint-space angle that raises an R15 arm forwards swings an R6
+		     arm out sideways. Conjugating makes "rotate the arm 90 degrees about
+		     the torso's X axis" mean the same thing on both rigs, and means this
+		     file never has to know a single rig convention.
+
+		This module runs on the CLIENT ONLY. Motor6D.Transform is not replicated, so
+		every client plays every swing locally: the attacker predicts their own on
+		Tool.Activated and everyone else plays it from the SwingFx broadcast.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+
+	local RunService = game:GetService("RunService")
+
+	local SwingAnim = {}
+
+	local ZERO = Vector3.new(0, 0, 0)
+
+	--- Poses are torso-space Euler angles in DEGREES: (pitch, yaw, roll).
+	---
+	--- The arms hang along -Y at rest and the character faces -Z, so:
+	---   pitch +90  = arm straight forward       pitch +180 = arm straight up
+	---   roll  +90  = right arm out to the side  roll  -90  = across the body
+	---   yaw        = twist
+	---
+	--- Choreography lives here rather than in Config because these are drawings,
+	--- not balance. The timings that damage depends on ARE in Config.
+	local function P(arm: Vector3, offArm: Vector3?, torso: Vector3?)
+		return { arm = arm, offArm = offArm or ZERO, torso = torso or ZERO }
+	end
+
+	--- One entry per step of the combo; `Config.Combat.ComboMaxStacks` swings cycle
+	--- through these. Alternating the direction is what makes a chain read as a
+	--- combo instead of as the same swing played four times.
+	SwingAnim.SWINGS = {
+		{   -- 1. overhead diagonal, right shoulder down to left hip
+			name = "diagonal",
+			windUp = P(Vector3.new(158, 0, 34), Vector3.new(24, 0, -18), Vector3.new(0, -32, 0)),
+			strike = P(Vector3.new(52, 0, -42), Vector3.new(38, 0, 16), Vector3.new(6, 28, 0)),
+		},
+		{   -- 2. backhand, low left sweeping up to the right
+			name = "backhand",
+			windUp = P(Vector3.new(44, 0, -72), Vector3.new(20, 0, 14), Vector3.new(0, 34, 0)),
+			strike = P(Vector3.new(104, 0, 58), Vector3.new(34, 0, -12), Vector3.new(-4, -30, 0)),
+		},
+		{   -- 3. flat horizontal sweep across the body
+			name = "sweep",
+			windUp = P(Vector3.new(96, 0, 74), Vector3.new(28, 0, 10), Vector3.new(0, -40, 0)),
+			strike = P(Vector3.new(92, 0, -66), Vector3.new(46, 0, -20), Vector3.new(0, 38, 0)),
+		},
+		{   -- 4. two-handed overhead slam; the combo finisher
+			name = "slam",
+			windUp = P(Vector3.new(176, 0, 12), Vector3.new(170, 0, -12), Vector3.new(-18, 0, 0)),
+			strike = P(Vector3.new(26, 0, -6), Vector3.new(32, 0, 6), Vector3.new(26, 0, 0)),
+		},
+	}
+
+	-- The server times its hitbox off the same two numbers, so they live in Config
+	-- rather than here. If they drift apart, damage stops landing when the bat
+	-- looks like it connects.
+	assert(#SwingAnim.SWINGS == Config.Combat.SwingSteps,
+		"SwingAnim.SWINGS and Config.Combat.SwingSteps disagree; the combo would repeat a swing")
+
+	local active: { [Model]: any } = {}
+	local bound = false
+
+	local function angles(v: Vector3): CFrame
+		return CFrame.Angles(math.rad(v.X), math.rad(v.Y), math.rad(v.Z))
+	end
+
+	--- The rig's joints, found once per swing. Named by ROLE, not by rig: `arm` is
+	--- whichever joint swings the weapon, `torso` is whichever one twists the upper
+	--- body relative to the root.
+	local function jointsFor(character: Model)
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if not humanoid then
+			return nil
+		end
+
+		if humanoid.RigType == Enum.HumanoidRigType.R6 then
+			local torso = character:FindFirstChild("Torso")
+			local rootPart = character:FindFirstChild("HumanoidRootPart")
+			if not torso or not rootPart then
+				return nil
+			end
+			return {
+				arm = torso:FindFirstChild("Right Shoulder"),
+				offArm = torso:FindFirstChild("Left Shoulder"),
+				-- R6 has no waist, so the whole torso turns on the root joint
+				torso = rootPart:FindFirstChild("RootJoint"),
+			}
+		end
+
+		local rightUpperArm = character:FindFirstChild("RightUpperArm")
+		local leftUpperArm = character:FindFirstChild("LeftUpperArm")
+		local upperTorso = character:FindFirstChild("UpperTorso")
+		return {
+			arm = rightUpperArm and rightUpperArm:FindFirstChild("RightShoulder"),
+			offArm = leftUpperArm and leftUpperArm:FindFirstChild("LeftShoulder"),
+			torso = upperTorso and upperTorso:FindFirstChild("Waist"),
+		}
+	end
+
+	--- Apply a torso-space rotation to a joint. See the header: conjugating by the
+	--- joint's own C0 rotation is what makes one set of angles work on both rigs.
+	local function applyJoint(joint: Motor6D?, rotation: Vector3, weight: number)
+		if not joint or not joint.Parent then
+			return
+		end
+		local target = angles(rotation)
+		if weight < 1 then
+			target = CFrame.identity:Lerp(target, weight)
+		end
+		local basis = joint.C0.Rotation
+		joint.Transform = basis:Inverse() * target * basis
+	end
+
+	local function lerpPose(a, b, alpha: number)
+		return {
+			arm = a.arm:Lerp(b.arm, alpha),
+			offArm = a.offArm:Lerp(b.offArm, alpha),
+			torso = a.torso:Lerp(b.torso, alpha),
+		}
+	end
+
+	local REST = P(ZERO, ZERO, ZERO)
+
+	--- Where the rig should be, `t` seconds into a swing of length `duration`.
+	--- Returns the pose plus a blend weight that fades the whole thing in over the
+	--- first few frames and out over the tail, so nothing pops when Roblox's own
+	--- animation takes the limbs back.
+	local function evaluate(swing, t: number, duration: number)
+		local f = math.clamp(t / duration, 0, 1)
+		local windUpEnd = Config.Combat.SwingWindUp
+		local strikeEnd = Config.Combat.SwingStrikeAt
+
+		local pose
+		if f < windUpEnd then
+			-- decelerating into the top of the wind-up
+			local a = f / windUpEnd
+			pose = lerpPose(REST, swing.windUp, 1 - (1 - a) * (1 - a))
+		elseif f < strikeEnd then
+			-- accelerating through the strike: this is the fast part
+			local a = (f - windUpEnd) / (strikeEnd - windUpEnd)
+			pose = lerpPose(swing.windUp, swing.strike, a * a)
+		else
+			local a = (f - strikeEnd) / (1 - strikeEnd)
+			pose = lerpPose(swing.strike, REST, 1 - (1 - a) * (1 - a))
+		end
+
+		-- ease in over 60ms, ease out over the last 25% of the swing
+		local weight = math.min(1, t / 0.06)
+		if f > 0.75 then
+			weight = math.min(weight, (1 - f) / 0.25)
+		end
+		return pose, weight
+	end
+
+	--- Start (or restart) a swing on `character`.
+	function SwingAnim.play(character: Model?, comboIndex: number, duration: number)
+		if not character or not character.Parent then
+			return
+		end
+		local swing = SwingAnim.SWINGS[((comboIndex - 1) % #SwingAnim.SWINGS) + 1]
+		if not swing then
+			return
+		end
+		active[character] = {
+			swing = swing,
+			joints = jointsFor(character),
+			elapsed = 0,
+			duration = math.max(0.15, duration),
+			freeze = 0,
+		}
+	end
+
+	--- Freeze the pose for a moment. Called on a landed hit: stopping the arc dead
+	--- for two or three frames is most of what makes a hit feel like it connected
+	--- with something solid rather than passing through it.
+	function SwingAnim.hitStop(character: Model?, seconds: number?)
+		local entry = character and active[character]
+		if entry then
+			entry.freeze = math.max(entry.freeze, seconds or 0.07)
+		end
+	end
+
+	function SwingAnim.stop(character: Model?)
+		if character then
+			active[character] = nil
+		end
+	end
+
+	local function step(dt: number)
+		for character, entry in pairs(active) do
+			if not character.Parent then
+				active[character] = nil
+			else
+				if entry.freeze > 0 then
+					entry.freeze -= dt
+				else
+					entry.elapsed += dt
+				end
+
+				if entry.elapsed >= entry.duration then
+					active[character] = nil
+				else
+					local joints = entry.joints
+					if not joints or not joints.arm or not joints.arm.Parent then
+						-- the character can respawn mid-swing
+						joints = jointsFor(character)
+						entry.joints = joints
+					end
+					if joints then
+						local pose, weight = evaluate(entry.swing, entry.elapsed, entry.duration)
+						applyJoint(joints.arm, pose.arm, weight)
+						applyJoint(joints.offArm, pose.offArm, weight)
+						applyJoint(joints.torso, pose.torso, weight * 0.8)
+					end
+				end
+			end
+		end
+	end
+
+	function SwingAnim.start()
+		if bound then
+			return
+		end
+		bound = true
+		-- Enum.RenderPriority.Character is where the engine applies character
+		-- animation. Bind before it and every write is overwritten the same frame.
+		RunService:BindToRenderStep("TungSwingAnim", Enum.RenderPriority.Character.Value + 1, step)
+	end
+
+	return SwingAnim
 end
 
 
@@ -1426,6 +1739,11 @@ __MODULES["TungModels"] = function()
 		tool.RequiresHandle = true
 		tool.CanBeDropped = false
 		tool.ToolTip = ("%d dmg  •  click to swing"):format(batDef.damage)
+		-- Held like a sword rather than straight up out of the fist: the grip drops
+		-- the bat into the palm and cants it forward so the barrel reads as a blade
+		-- you're about to swing. Grip is the offset of the engine's RightGrip weld,
+		-- so this is a pose, not an animation, and it costs nothing.
+		tool.Grip = CFrame.new(0, -0.15, 0.1) * CFrame.Angles(math.rad(-18), 0, math.rad(-8))
 
 		local handle = Instance.new("Part")
 		handle.Name = "Handle"
@@ -1668,13 +1986,13 @@ __MODULES["CombatService"] = function()
 	local Economy = Req("Economy")
 
 	local Players = game:GetService("Players")
-	local TweenService = game:GetService("TweenService")
 	local Debris = game:GetService("Debris")
 
 	local CombatService = {}
 
 	local hitFeedback = Net.event("HitFeedback")
 	local knockbackRemote = Net.event("Knockback")
+	local swingFx = Net.event("SwingFx")
 
 	local state: { [Player]: { lastSwing: number, combo: number, comboAt: number } } = {}
 
@@ -1782,36 +2100,19 @@ __MODULES["CombatService"] = function()
 	-- swinging
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	--- Swings the BAT and nothing else.
+	--- Tells every client to play swing `comboIndex` on this character.
 	---
-	--- Tool.Grip is the offset of the built-in RightGrip weld between the hand and
-	--- the Handle, so tweening it moves the bat within the hand. The character's
-	--- arm keeps whatever pose Roblox's own Animate script gives it — we never
-	--- touch the rig, play an animation, or override a limb.
-	local function animateSwing(tool: Tool, duration: number)
-		local base = tool:GetAttribute("BaseGrip")
-		if typeof(base) ~= "CFrame" then
-			base = tool.Grip
-			tool:SetAttribute("BaseGrip", base)
-		end
-
-		local windUp = TweenService:Create(tool, TweenInfo.new(duration * 0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Grip = base * CFrame.Angles(math.rad(-55), 0, 0),
+	--- The animation itself is client-side (see SwingAnim): Motor6D.Transform does
+	--- not replicate, so the server can only broadcast the fact of the swing and
+	--- let each client draw it. The attacker's own client has already started the
+	--- same swing from Tool.Activated — waiting for this round trip to begin the
+	--- wind-up is exactly what makes networked melee feel like mud.
+	local function broadcastSwing(character: Model, comboIndex: number, duration: number)
+		swingFx:FireAllClients({
+			character = character,
+			combo = comboIndex,
+			duration = duration,
 		})
-		local strike = TweenService:Create(tool, TweenInfo.new(duration * 0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-			Grip = base * CFrame.Angles(math.rad(95), 0, math.rad(20)),
-		})
-		local reset = TweenService:Create(tool, TweenInfo.new(duration * 0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			Grip = base,
-		})
-
-		windUp:Play()
-		windUp.Completed:Once(function()
-			strike:Play()
-			strike.Completed:Once(function()
-				reset:Play()
-			end)
-		end)
 	end
 
 	--- Applies damage to any humanoid, from a player or from an NPC.
@@ -1866,14 +2167,14 @@ __MODULES["CombatService"] = function()
 		return true
 	end
 
-	local function hitscan(character: Model, reach: number): { Model }
+	local function hitscan(character: Model, reach: number, width: number): { Model }
 		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart
 		if not root then
 			return {}
 		end
 		local size = Config.Combat.HitboxSize
 		local box = root.CFrame * CFrame.new(0, 0, -(reach / 2))
-		local boxSize = Vector3.new(size.X, size.Y, reach)
+		local boxSize = Vector3.new(size.X * width, size.Y, reach)
 
 		local params = OverlapParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
@@ -1897,6 +2198,31 @@ __MODULES["CombatService"] = function()
 		return victims
 	end
 
+	--- Resolves one strike: box the area in front of the swinger and damage
+	--- whatever is in it that we're allowed to hurt.
+	local function resolveStrike(player: Player, character: Model, hit: { [Model]: boolean },
+		reach: number, width: number, damage: number, knockback: number, crit: boolean)
+
+		local origin = character:GetPivot().Position
+
+		for _, victim in ipairs(hitscan(character, reach, width)) do
+			-- one swing damages a given victim once, however many samples see them
+			if not hit[victim] and CombatService.canDamage(player, victim) then
+				hit[victim] = true
+				CombatService.damage(victim, damage, origin, knockback, player)
+				local _, victimRoot = Util.getRig(victim)
+				if victimRoot then
+					Fx.burst(victimRoot.Position, crit and Color3.fromRGB(255, 120, 80) or Color3.fromRGB(255, 230, 160),
+						crit and 12 or 7, workspace)
+					Fx.floatingText(victimRoot.Position + Vector3.new(0, 3, 0),
+						(crit and "CRIT " or "") .. tostring(math.floor(damage)),
+						crit and Color3.fromRGB(255, 140, 90) or Color3.fromRGB(255, 250, 220), workspace)
+					Fx.impact(victimRoot, crit and 0.75 or 1)
+				end
+			end
+		end
+	end
+
 	function CombatService.swing(player: Player, tool: Tool)
 		local character = player.Character
 		if not character then
@@ -1915,21 +2241,31 @@ __MODULES["CombatService"] = function()
 		end
 		s.lastSwing = now
 
-		-- combo
+		-- combo. Stack 0 is the first swing of a chain, so the animation index is
+		-- one higher; the last step of the chain is the overhead finisher.
 		if now - s.comboAt <= Config.Combat.ComboWindow then
-			s.combo = math.min(s.combo + 1, Config.Combat.ComboMaxStacks)
+			s.combo = (s.combo + 1) % (Config.Combat.ComboMaxStacks + 1)
 		else
 			s.combo = 0
 		end
 		s.comboAt = now
 
-		animateSwing(tool, cooldown)
+		local comboIndex = s.combo + 1
+		local finisher = comboIndex == Config.Combat.SwingSteps
+
+		broadcastSwing(character, comboIndex, cooldown)
 
 		local handle = tool:FindFirstChild("Handle") :: BasePart
 		local trail = handle and handle:FindFirstChild("SwingTrail") :: Trail
 		if trail then
-			trail.Enabled = true
-			task.delay(cooldown * 0.55, function()
+			-- the trail belongs to the strike, not to the wind-up: leaving it on
+			-- for the whole swing draws a streak of the bat sitting still
+			task.delay(cooldown * Config.Combat.SwingWindUp, function()
+				if trail.Parent then
+					trail.Enabled = true
+				end
+			end)
+			task.delay(cooldown * (Config.Combat.SwingStrikeAt + 0.18), function()
 				if trail.Parent then
 					trail.Enabled = false
 				end
@@ -1939,31 +2275,44 @@ __MODULES["CombatService"] = function()
 			Fx.impact(handle, 1.4 + math.random() * 0.2)
 		end
 
-		local reach = tool:GetAttribute("Reach") or 9
+		local reach = (tool:GetAttribute("Reach") or 9) * (finisher and Config.Combat.FinisherReach or 1)
 		local baseDamage = tool:GetAttribute("Damage") or 18
-		local knockback = tool:GetAttribute("Knockback") or 55
+		local knockback = (tool:GetAttribute("Knockback") or 55) * (finisher and Config.Combat.FinisherKnockback or 1)
 		local critChance = tool:GetAttribute("Crit") or 0.08
 
 		local comboMult = 1 + s.combo * Config.Combat.ComboDamagePerStack
 		local crit = math.random() < critChance
-		local damage = baseDamage * comboMult * (crit and 2 or 1)
-
-		local origin = character:GetPivot().Position
-
-		for _, victim in ipairs(hitscan(character, reach)) do
-			if CombatService.canDamage(player, victim) then
-				CombatService.damage(victim, damage, origin, knockback * (crit and 1.6 or 1), player)
-				local _, victimRoot = Util.getRig(victim)
-				if victimRoot then
-					Fx.burst(victimRoot.Position, crit and Color3.fromRGB(255, 120, 80) or Color3.fromRGB(255, 230, 160),
-						crit and 12 or 7, workspace)
-					Fx.floatingText(victimRoot.Position + Vector3.new(0, 3, 0),
-						(crit and "CRIT " or "") .. tostring(math.floor(damage)),
-						crit and Color3.fromRGB(255, 140, 90) or Color3.fromRGB(255, 250, 220), workspace)
-					Fx.impact(victimRoot, crit and 0.75 or 1)
-				end
-			end
+		local damage = baseDamage * comboMult
+			* (crit and Config.Combat.CritMultiplier or 1)
+			* (finisher and Config.Combat.FinisherDamage or 1)
+		if crit then
+			knockback *= Config.Combat.CritKnockback
 		end
+		-- the slam lands flat in front of you rather than in a narrow line
+		local width = finisher and 1.3 or 1
+
+		-- The swing is resolved on its STRIKE FRAME, not on the frame the player
+		-- clicked. That is the whole point of the rewrite: damage used to land a
+		-- full animation before the bat visibly reached anything, which is why
+		-- combat read as clicking rather than as hitting. The cost is that a target
+		-- can now step out of a telegraphed swing, which is the point.
+		local generation = s.lastSwing
+		local hit: { [Model]: boolean } = {}
+
+		local function strike()
+			-- a second swing (or death) since we were scheduled cancels this one
+			if s.lastSwing ~= generation or humanoid.Health <= 0 or character.Parent == nil then
+				return
+			end
+			resolveStrike(player, character, hit, reach, width, damage, knockback, crit)
+		end
+
+		task.delay(cooldown * Config.Combat.SwingStrikeAt, function()
+			strike()
+			-- The arc is still moving, so one instantaneous box misses anyone a few
+			-- frames early or late. Sample again just after.
+			task.delay(Config.Combat.SwingSampleGap, strike)
+		end)
 	end
 
 	function CombatService.bind(player: Player, tool: Tool)
@@ -1981,8 +2330,8 @@ __MODULES["CombatService"] = function()
 		if not humanoid then
 			return
 		end
-		humanoid.WalkSpeed = 19
-		humanoid.JumpPower = 52
+		humanoid.WalkSpeed = Config.Combat.WalkSpeed
+		humanoid.JumpPower = Config.Combat.JumpPower
 		humanoid.UseJumpPower = true
 
 		task.wait(0.35)
@@ -2012,7 +2361,7 @@ __MODULES["CombatService"] = function()
 		if not npcRoot then
 			return
 		end
-		CombatService.damage(victimModel, damage, npcRoot.Position, 28, nil)
+		CombatService.damage(victimModel, damage, npcRoot.Position, Config.Waves.AttackKnockback, nil)
 	end
 
 	function CombatService.start()
@@ -2835,9 +3184,12 @@ __MODULES["NPCService"] = function()
 	local function spawnRaider(wave: number, index: number, count: number, boss: boolean)
 		local variantName = variantForWave(wave, boss)
 		local health = WV.BaseHealth * (WV.HealthGrowth ^ (wave - 1)) * (boss and WV.BossHealthMultiplier or 1)
+		-- The cap is absolute. It used to be scaled by the boss multiplier along
+		-- with the damage, which meant the ceiling written to stop a raider two-
+		-- shotting a 100 HP player let a late boss hit for 61.
 		local damage = math.min(
 			WV.BaseDamage * (WV.DamageGrowth ^ (wave - 1)) * (boss and WV.BossDamageMultiplier or 1),
-			WV.MaxDamage * (boss and WV.BossDamageMultiplier or 1))
+			boss and WV.MaxBossDamage or WV.MaxDamage)
 
 		local npc = TungModels.buildNPC(variantName, {
 			scale = boss and 2.1 or (0.9 + math.random() * 0.35),
@@ -2854,16 +3206,26 @@ __MODULES["NPCService"] = function()
 		npc.Parent = folder
 
 		local humanoid = npc:FindFirstChildOfClass("Humanoid") :: Humanoid
+		local torso = npc:FindFirstChild("Torso")
+		local arm = torso and torso:FindFirstChild("Right Shoulder")
 		local entry = {
 			wave = wave,
 			boss = boss,
 			damage = damage,
 			nextAttack = 0,
 			nextRepath = 0,
-			sway = npc:FindFirstChild("Torso") and npc.Torso:FindFirstChild("TungSway"),
+			sway = torso and torso:FindFirstChild("TungSway"),
 			phase = math.random() * math.pi * 2,
 			spawnedAt = os.clock(),
 			dead = false,
+			-- attack telegraph. Raiders are server-owned, so unlike player swings
+			-- these Motor6D writes replicate on their own and no remote is needed.
+			arm = arm,
+			armBase = arm and arm.C0,
+			walkSpeed = humanoid.WalkSpeed,
+			windUp = WV.AttackWindUp * (boss and WV.BossWindUpScale or 1),
+			swingAt = nil,
+			rootedUntil = 0,
 		}
 		active[npc] = entry
 		aliveCount += 1
@@ -2906,7 +3268,29 @@ __MODULES["NPCService"] = function()
 				entry.sway.C0 = CFrame.new(0, 0.7 + bob, 0) * CFrame.Angles(0, 0, lean)
 			end
 
-			if now >= entry.nextRepath then
+			-- Raise the bat over the wind-up, hold at the top for an instant, then
+			-- chop down through the hit. The shape matters more than the numbers:
+			-- what makes a raider fair is that the arm is visibly UP before the
+			-- damage lands, and that they are rooted while it is.
+			if entry.arm and entry.armBase then
+				local pitch = 0
+				if entry.swingAt then
+					pitch = 155 * (1 - math.clamp((entry.swingAt - now) / entry.windUp, 0, 1))
+				elseif now < entry.rootedUntil then
+					-- the chop itself: cubic, so it falls fast off the top and
+					-- settles rather than sliding back at a constant rate
+					local k = 1 - math.clamp((entry.rootedUntil - now) / WV.AttackRecover, 0, 1)
+					pitch = 155 * (1 - k) ^ 3
+				end
+				-- The pitch is in TORSO space; conjugating by the joint's own C0
+				-- rotation converts it, so this reads the same way as the player
+				-- swing poses in SwingAnim and doesn't depend on how the raider rig
+				-- happens to orient its shoulder. +X pitch raises the arm forward.
+				local basis = entry.armBase.Rotation
+				entry.arm.C0 = entry.armBase * (basis:Inverse() * CFrame.Angles(math.rad(pitch), 0, 0) * basis)
+			end
+
+			if now >= entry.nextRepath and now >= entry.rootedUntil then
 				entry.nextRepath = now + 0.6
 				local _, targetChar = nearestPlayer(root.Position, 500)
 				if targetChar then
@@ -2923,26 +3307,43 @@ __MODULES["NPCService"] = function()
 				entry.lastPosition = root.Position
 			end
 
-			local target = entry.target
-			if target and target.Parent then
-				local targetRoot = target:FindFirstChild("HumanoidRootPart")
-				if targetRoot then
-					local distance = (targetRoot.Position - root.Position).Magnitude
-					if distance <= 8 and now >= entry.nextAttack then
-						entry.nextAttack = now + 1.15
-						CombatService.npcAttack(npc, target, entry.damage)
-						Fx.impact(root, 0.85)
+			-- Rooted while winding up and recovering. This is the window a player
+			-- punishes: before, the raider closed and dealt damage on the same
+			-- tick, so being hit was pure proximity and there was nothing to read.
+			humanoid.WalkSpeed = (now < entry.rootedUntil) and 0 or entry.walkSpeed
 
-						local victim = Players:GetPlayerFromCharacter(target)
-						if victim then
-							local stolen = Economy.steal(victim, WV.StealPerHit)
-							if stolen > 0 then
-								Fx.floatingText(targetRoot.Position + Vector3.new(0, 4, 0),
-									"-" .. Util.abbreviate(stolen), Color3.fromRGB(255, 110, 110), workspace)
-							end
+			local target = entry.target
+			local targetRoot = target and target.Parent and target:FindFirstChild("HumanoidRootPart")
+			local inRange = targetRoot
+				and (targetRoot.Position - root.Position).Magnitude <= WV.AttackRange
+
+			if entry.swingAt and now >= entry.swingAt then
+				entry.swingAt = nil
+				-- The hit only lands if the target is STILL in range: walking out of
+				-- a telegraphed swing has to actually work or the telegraph is a lie.
+				if inRange then
+					CombatService.npcAttack(npc, target, entry.damage)
+					Fx.impact(root, 0.85)
+
+					local victim = Players:GetPlayerFromCharacter(target)
+					if victim then
+						local stolen = Economy.steal(victim, WV.StealPerHit)
+						if stolen > 0 then
+							Fx.floatingText(targetRoot.Position + Vector3.new(0, 4, 0),
+								"-" .. Util.abbreviate(stolen), Color3.fromRGB(255, 110, 110), workspace)
 						end
 					end
 				end
+			elseif not entry.swingAt and inRange and now >= entry.nextAttack then
+				entry.swingAt = now + entry.windUp
+				entry.rootedUntil = entry.swingAt + WV.AttackRecover
+				entry.nextAttack = entry.rootedUntil + WV.AttackCooldown
+				if targetRoot then
+					-- face the target so the wind-up reads as aimed at you
+					root.CFrame = CFrame.lookAt(root.Position,
+						Vector3.new(targetRoot.Position.X, root.Position.Y, targetRoot.Position.Z))
+				end
+				Fx.impact(root, 1.5)
 			end
 
 			-- despawn stragglers so a wave can't hang forever

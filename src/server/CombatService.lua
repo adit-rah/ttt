@@ -19,13 +19,13 @@ local DataService = Req("DataService")
 local Economy = Req("Economy")
 
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 
 local CombatService = {}
 
 local hitFeedback = Net.event("HitFeedback")
 local knockbackRemote = Net.event("Knockback")
+local swingFx = Net.event("SwingFx")
 
 local state: { [Player]: { lastSwing: number, combo: number, comboAt: number } } = {}
 
@@ -133,36 +133,19 @@ end
 -- swinging
 -- ─────────────────────────────────────────────────────────────────────────────
 
---- Swings the BAT and nothing else.
+--- Tells every client to play swing `comboIndex` on this character.
 ---
---- Tool.Grip is the offset of the built-in RightGrip weld between the hand and
---- the Handle, so tweening it moves the bat within the hand. The character's
---- arm keeps whatever pose Roblox's own Animate script gives it — we never
---- touch the rig, play an animation, or override a limb.
-local function animateSwing(tool: Tool, duration: number)
-	local base = tool:GetAttribute("BaseGrip")
-	if typeof(base) ~= "CFrame" then
-		base = tool.Grip
-		tool:SetAttribute("BaseGrip", base)
-	end
-
-	local windUp = TweenService:Create(tool, TweenInfo.new(duration * 0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Grip = base * CFrame.Angles(math.rad(-55), 0, 0),
+--- The animation itself is client-side (see SwingAnim): Motor6D.Transform does
+--- not replicate, so the server can only broadcast the fact of the swing and
+--- let each client draw it. The attacker's own client has already started the
+--- same swing from Tool.Activated — waiting for this round trip to begin the
+--- wind-up is exactly what makes networked melee feel like mud.
+local function broadcastSwing(character: Model, comboIndex: number, duration: number)
+	swingFx:FireAllClients({
+		character = character,
+		combo = comboIndex,
+		duration = duration,
 	})
-	local strike = TweenService:Create(tool, TweenInfo.new(duration * 0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-		Grip = base * CFrame.Angles(math.rad(95), 0, math.rad(20)),
-	})
-	local reset = TweenService:Create(tool, TweenInfo.new(duration * 0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Grip = base,
-	})
-
-	windUp:Play()
-	windUp.Completed:Once(function()
-		strike:Play()
-		strike.Completed:Once(function()
-			reset:Play()
-		end)
-	end)
 end
 
 --- Applies damage to any humanoid, from a player or from an NPC.
@@ -217,14 +200,14 @@ function CombatService.damage(victimModel: Model, amount: number, sourcePosition
 	return true
 end
 
-local function hitscan(character: Model, reach: number): { Model }
+local function hitscan(character: Model, reach: number, width: number): { Model }
 	local root = character:FindFirstChild("HumanoidRootPart") :: BasePart
 	if not root then
 		return {}
 	end
 	local size = Config.Combat.HitboxSize
 	local box = root.CFrame * CFrame.new(0, 0, -(reach / 2))
-	local boxSize = Vector3.new(size.X, size.Y, reach)
+	local boxSize = Vector3.new(size.X * width, size.Y, reach)
 
 	local params = OverlapParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -248,6 +231,31 @@ local function hitscan(character: Model, reach: number): { Model }
 	return victims
 end
 
+--- Resolves one strike: box the area in front of the swinger and damage
+--- whatever is in it that we're allowed to hurt.
+local function resolveStrike(player: Player, character: Model, hit: { [Model]: boolean },
+	reach: number, width: number, damage: number, knockback: number, crit: boolean)
+
+	local origin = character:GetPivot().Position
+
+	for _, victim in ipairs(hitscan(character, reach, width)) do
+		-- one swing damages a given victim once, however many samples see them
+		if not hit[victim] and CombatService.canDamage(player, victim) then
+			hit[victim] = true
+			CombatService.damage(victim, damage, origin, knockback, player)
+			local _, victimRoot = Util.getRig(victim)
+			if victimRoot then
+				Fx.burst(victimRoot.Position, crit and Color3.fromRGB(255, 120, 80) or Color3.fromRGB(255, 230, 160),
+					crit and 12 or 7, workspace)
+				Fx.floatingText(victimRoot.Position + Vector3.new(0, 3, 0),
+					(crit and "CRIT " or "") .. tostring(math.floor(damage)),
+					crit and Color3.fromRGB(255, 140, 90) or Color3.fromRGB(255, 250, 220), workspace)
+				Fx.impact(victimRoot, crit and 0.75 or 1)
+			end
+		end
+	end
+end
+
 function CombatService.swing(player: Player, tool: Tool)
 	local character = player.Character
 	if not character then
@@ -266,21 +274,31 @@ function CombatService.swing(player: Player, tool: Tool)
 	end
 	s.lastSwing = now
 
-	-- combo
+	-- combo. Stack 0 is the first swing of a chain, so the animation index is
+	-- one higher; the last step of the chain is the overhead finisher.
 	if now - s.comboAt <= Config.Combat.ComboWindow then
-		s.combo = math.min(s.combo + 1, Config.Combat.ComboMaxStacks)
+		s.combo = (s.combo + 1) % (Config.Combat.ComboMaxStacks + 1)
 	else
 		s.combo = 0
 	end
 	s.comboAt = now
 
-	animateSwing(tool, cooldown)
+	local comboIndex = s.combo + 1
+	local finisher = comboIndex == Config.Combat.SwingSteps
+
+	broadcastSwing(character, comboIndex, cooldown)
 
 	local handle = tool:FindFirstChild("Handle") :: BasePart
 	local trail = handle and handle:FindFirstChild("SwingTrail") :: Trail
 	if trail then
-		trail.Enabled = true
-		task.delay(cooldown * 0.55, function()
+		-- the trail belongs to the strike, not to the wind-up: leaving it on
+		-- for the whole swing draws a streak of the bat sitting still
+		task.delay(cooldown * Config.Combat.SwingWindUp, function()
+			if trail.Parent then
+				trail.Enabled = true
+			end
+		end)
+		task.delay(cooldown * (Config.Combat.SwingStrikeAt + 0.18), function()
 			if trail.Parent then
 				trail.Enabled = false
 			end
@@ -290,31 +308,44 @@ function CombatService.swing(player: Player, tool: Tool)
 		Fx.impact(handle, 1.4 + math.random() * 0.2)
 	end
 
-	local reach = tool:GetAttribute("Reach") or 9
+	local reach = (tool:GetAttribute("Reach") or 9) * (finisher and Config.Combat.FinisherReach or 1)
 	local baseDamage = tool:GetAttribute("Damage") or 18
-	local knockback = tool:GetAttribute("Knockback") or 55
+	local knockback = (tool:GetAttribute("Knockback") or 55) * (finisher and Config.Combat.FinisherKnockback or 1)
 	local critChance = tool:GetAttribute("Crit") or 0.08
 
 	local comboMult = 1 + s.combo * Config.Combat.ComboDamagePerStack
 	local crit = math.random() < critChance
-	local damage = baseDamage * comboMult * (crit and 2 or 1)
-
-	local origin = character:GetPivot().Position
-
-	for _, victim in ipairs(hitscan(character, reach)) do
-		if CombatService.canDamage(player, victim) then
-			CombatService.damage(victim, damage, origin, knockback * (crit and 1.6 or 1), player)
-			local _, victimRoot = Util.getRig(victim)
-			if victimRoot then
-				Fx.burst(victimRoot.Position, crit and Color3.fromRGB(255, 120, 80) or Color3.fromRGB(255, 230, 160),
-					crit and 12 or 7, workspace)
-				Fx.floatingText(victimRoot.Position + Vector3.new(0, 3, 0),
-					(crit and "CRIT " or "") .. tostring(math.floor(damage)),
-					crit and Color3.fromRGB(255, 140, 90) or Color3.fromRGB(255, 250, 220), workspace)
-				Fx.impact(victimRoot, crit and 0.75 or 1)
-			end
-		end
+	local damage = baseDamage * comboMult
+		* (crit and Config.Combat.CritMultiplier or 1)
+		* (finisher and Config.Combat.FinisherDamage or 1)
+	if crit then
+		knockback *= Config.Combat.CritKnockback
 	end
+	-- the slam lands flat in front of you rather than in a narrow line
+	local width = finisher and 1.3 or 1
+
+	-- The swing is resolved on its STRIKE FRAME, not on the frame the player
+	-- clicked. That is the whole point of the rewrite: damage used to land a
+	-- full animation before the bat visibly reached anything, which is why
+	-- combat read as clicking rather than as hitting. The cost is that a target
+	-- can now step out of a telegraphed swing, which is the point.
+	local generation = s.lastSwing
+	local hit: { [Model]: boolean } = {}
+
+	local function strike()
+		-- a second swing (or death) since we were scheduled cancels this one
+		if s.lastSwing ~= generation or humanoid.Health <= 0 or character.Parent == nil then
+			return
+		end
+		resolveStrike(player, character, hit, reach, width, damage, knockback, crit)
+	end
+
+	task.delay(cooldown * Config.Combat.SwingStrikeAt, function()
+		strike()
+		-- The arc is still moving, so one instantaneous box misses anyone a few
+		-- frames early or late. Sample again just after.
+		task.delay(Config.Combat.SwingSampleGap, strike)
+	end)
 end
 
 function CombatService.bind(player: Player, tool: Tool)
@@ -332,8 +363,8 @@ function CombatService.onCharacter(player: Player, character: Model)
 	if not humanoid then
 		return
 	end
-	humanoid.WalkSpeed = 19
-	humanoid.JumpPower = 52
+	humanoid.WalkSpeed = Config.Combat.WalkSpeed
+	humanoid.JumpPower = Config.Combat.JumpPower
 	humanoid.UseJumpPower = true
 
 	task.wait(0.35)
@@ -363,7 +394,7 @@ function CombatService.npcAttack(npc: Model, victimModel: Model, damage: number)
 	if not npcRoot then
 		return
 	end
-	CombatService.damage(victimModel, damage, npcRoot.Position, 28, nil)
+	CombatService.damage(victimModel, damage, npcRoot.Position, Config.Waves.AttackKnockback, nil)
 end
 
 function CombatService.start()

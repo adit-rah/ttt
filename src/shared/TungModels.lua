@@ -471,6 +471,11 @@ function TungModels.buildBatTool(batDef): Tool
 	tool.RequiresHandle = true
 	tool.CanBeDropped = false
 	tool.ToolTip = ("%d dmg  •  click to swing"):format(batDef.damage)
+	-- Held like a sword rather than straight up out of the fist: the grip drops
+	-- the bat into the palm and cants it forward so the barrel reads as a blade
+	-- you're about to swing. Grip is the offset of the engine's RightGrip weld,
+	-- so this is a pose, not an animation, and it costs nothing.
+	tool.Grip = CFrame.new(0, -0.15, 0.1) * CFrame.Angles(math.rad(-18), 0, math.rad(-8))
 
 	local handle = Instance.new("Part")
 	handle.Name = "Handle"

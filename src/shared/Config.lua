@@ -456,11 +456,39 @@ Config.Bats = {
 
 Config.Combat = {
 	ComboWindow = 1.6,          -- seconds to chain a swing
-	ComboMaxStacks = 4,
+	-- One more swing animation than there are combo stacks, because stack 0 is
+	-- the first swing of a chain. Stacks 0,1,2,3 map to SwingAnim.SWINGS 1..4,
+	-- so the chain plays diagonal / backhand / sweep / slam and then repeats.
+	ComboMaxStacks = 3,
+	SwingSteps = 4,             -- must equal #SwingAnim.SWINGS; both sides assert it
 	ComboDamagePerStack = 0.18, -- +18% per stack
 	HitboxSize = Vector3.new(7, 7, 1),
 	ArenaPvP = true,            -- PvP only inside the arena ring
 	RespawnCash = 0,            -- cash lost on death (0 = friendly)
+
+	-- SWING TIMING, as fractions of the bat's cooldown. The hitbox used to be
+	-- evaluated on the same frame the swing started, i.e. a whole animation
+	-- BEFORE the bat visibly reached the target — which is most of why the old
+	-- combat read as clicking rather than as hitting. Damage now lands on the
+	-- strike frame.
+	SwingWindUp = 0.26,         -- fraction spent winding up
+	SwingStrikeAt = 0.40,       -- fraction at which the bat is at the end of its arc
+	-- The strike is a moving arc, so one instantaneous box misses targets that
+	-- are a few frames early or late. Sample twice, this far apart.
+	SwingSampleGap = 0.07,
+	HitStop = 0.07,             -- seconds the swing freezes on a landed hit
+
+	CritMultiplier = 2,
+	CritKnockback = 1.6,
+
+	-- The last step of a combo is the overhead slam. It is slower to reach (it
+	-- is the fourth click) so it pays out.
+	FinisherDamage = 1.5,
+	FinisherKnockback = 1.8,
+	FinisherReach = 1.25,
+
+	WalkSpeed = 19,
+	JumpPower = 52,
 }
 
 Config.Waves = {
@@ -475,7 +503,12 @@ Config.Waves = {
 	HealthGrowth = 1.20,        -- wave 20 raider ~2.9k HP: ~13s for one player
 	BaseDamage = 9,
 	DamageGrowth = 1.07,
-	MaxDamage = 34,             -- a player has 100 HP; never let a raider 2-shot
+	-- A player has 100 HP. These are ABSOLUTE ceilings: the boss multiplier used
+	-- to be applied to the cap as well as to the damage, so a wave-20 boss hit
+	-- for 61 and killed a full-health player in two swings — exactly what the
+	-- cap was written to prevent.
+	MaxDamage = 34,
+	MaxBossDamage = 45,
 	BossHealthMultiplier = 6,
 	BossDamageMultiplier = 1.8,
 	WalkSpeed = 13,
@@ -483,6 +516,18 @@ Config.Waves = {
 	RewardGrowth = 2.3,         -- reward scales with wave number
 	StealPerHit = 0.006,        -- fraction of a player's cash a raider steals on hit
 	BossEvery = 5,
+
+	-- RAIDER ATTACKS. Damage used to land on the same tick the raider decided
+	-- to attack, with no wind-up and no animation, so being hit was pure
+	-- proximity: you could not see it coming and you could not step out of it.
+	-- Raiders now raise the bat, hold, and only then swing — and they stand
+	-- still while they do it, which is the window you punish.
+	AttackRange = 8,
+	AttackWindUp = 0.45,        -- seconds of telegraph before the hit lands
+	AttackRecover = 0.35,       -- seconds rooted after swinging
+	AttackCooldown = 1.35,
+	AttackKnockback = 28,
+	BossWindUpScale = 1.35,     -- bosses telegraph LONGER; they hit much harder
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────

@@ -123,6 +123,59 @@ for tier, bat in ipairs(Config.Bats) do
 	end
 end
 
+-- ── swing timing ────────────────────────────────────────────────────────────
+-- Damage lands on the strike frame rather than on the click, so these numbers
+-- are now gameplay, not decoration: get them wrong and the bat either hits
+-- before it moves or so long after that the swing feels unresponsive.
+local CB = Config.Combat
+
+check(CB.SwingWindUp > 0 and CB.SwingWindUp < CB.SwingStrikeAt,
+	("SwingWindUp (%.2f) must come before SwingStrikeAt (%.2f)"):format(CB.SwingWindUp, CB.SwingStrikeAt))
+check(CB.SwingStrikeAt < 0.75,
+	("SwingStrikeAt is %.2f of the swing — the recovery has no room left"):format(CB.SwingStrikeAt))
+check(CB.SwingSampleGap > 0 and CB.SwingSampleGap < 0.2,
+	("SwingSampleGap is %.2fs; the second hitbox sample belongs inside the arc"):format(CB.SwingSampleGap))
+check(CB.SwingSteps == CB.ComboMaxStacks + 1,
+	("SwingSteps (%d) must equal ComboMaxStacks + 1 (%d) or the combo repeats a swing")
+		:format(CB.SwingSteps, CB.ComboMaxStacks + 1))
+check(CB.HitStop >= 0 and CB.HitStop < 0.2,
+	("HitStop is %.2fs — long enough to read as lag rather than as impact"):format(CB.HitStop))
+
+-- Input-to-damage latency, per bat. Anything past ~250ms stops reading as a
+-- response to your click.
+local MAX_STRIKE_LATENCY = 0.25
+for tier, bat in ipairs(Config.Bats) do
+	local latency = bat.cooldown * CB.SwingStrikeAt
+	check(latency <= MAX_STRIKE_LATENCY,
+		("Bats[%d] (%s) lands its hit %.0fms after the click (limit %.0fms)")
+			:format(tier, bat.name, latency * 1000, MAX_STRIKE_LATENCY * 1000))
+end
+
+-- ── raider telegraph ────────────────────────────────────────────────────────
+local WV = Config.Waves
+
+-- The wind-up is the only warning a player gets. Below human reaction time it
+-- is decoration; the raider may as well hit instantly.
+check(WV.AttackWindUp >= 0.3,
+	("Waves.AttackWindUp is %.2fs — under reaction time, so the telegraph is a lie"):format(WV.AttackWindUp))
+check(WV.AttackRange > 0 and WV.AttackRange < 14,
+	("Waves.AttackRange is %.1f studs; raiders would hit you from off-screen"):format(WV.AttackRange))
+
+-- A raider is rooted from wind-up through recovery, so the real attack period
+-- is the whole cycle, not just the cooldown. Check the worst case a player can
+-- face: a boss at MaxDamage, hitting every cycle, against 100 HP.
+local cycle = WV.AttackWindUp * WV.BossWindUpScale + WV.AttackRecover + WV.AttackCooldown
+local worstHit = WV.MaxBossDamage
+local secondsToKill = (100 / worstHit) * cycle
+check(WV.MaxBossDamage >= WV.MaxDamage, "MaxBossDamage should not be below MaxDamage")
+-- The comment on MaxDamage has always said "never let a raider 2-shot"; assert
+-- it, because the boss multiplier used to be applied to the cap as well as to
+-- the damage and quietly broke exactly that promise.
+check(worstHit * 2 < 100,
+	("the worst raider hits for %.0f — two of those kill a full-health player"):format(worstHit))
+check(secondsToKill >= 5,
+	("the worst raider kills a full-health player in %.1fs of solo attention (need 5s)"):format(secondsToKill))
+
 -- ── belt layout ─────────────────────────────────────────────────────────────
 -- The belt is an L: leg 1 (BeltStart -> BeltCorner) carries the droppers,
 -- leg 2 (BeltCorner -> BeltEnd) carries the upgraders.

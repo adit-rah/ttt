@@ -5,8 +5,10 @@
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
+local Config = Req("Config")
 local Net = Req("Net")
 local HUD = Req("HUD")
+local SwingAnim = Req("SwingAnim")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -47,6 +49,80 @@ local function buildHitmarker(gui: ScreenGui)
 	return marker
 end
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- swings
+--
+-- The server is still the only thing that decides whether a swing HIT. All we
+-- do here is draw it, and draw our own immediately instead of waiting for the
+-- round trip — a wind-up that starts 100ms after the click feels broken even
+-- though the damage timing is identical.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+local localSwing = { at = 0, combo = 0 }
+
+--- Mirrors the server's combo bookkeeping in CombatService.swing. A drifted
+--- prediction only ever picks the wrong swing ANIMATION, never the wrong
+--- damage, so it is allowed to be approximate.
+local function predictSwing(tool: Tool)
+	local now = os.clock()
+	local cooldown = tool:GetAttribute("Cooldown") or 0.55
+	if now - localSwing.at < cooldown then
+		return
+	end
+	if now - localSwing.at <= Config.Combat.ComboWindow then
+		localSwing.combo = (localSwing.combo + 1) % (Config.Combat.ComboMaxStacks + 1)
+	else
+		localSwing.combo = 0
+	end
+	localSwing.at = now
+	SwingAnim.play(player.Character, localSwing.combo + 1, cooldown)
+end
+
+local watched: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
+local function watchTool(tool: Instance)
+	-- A tool moves Backpack -> Character on equip and back on unequip, so it
+	-- turns up in ChildAdded on both containers. Connect once.
+	if watched[tool] or not tool:IsA("Tool") or not tool:GetAttribute("BatId") then
+		return
+	end
+	watched[tool] = true
+	tool.Activated:Connect(function()
+		predictSwing(tool)
+	end)
+end
+
+--- Bats are handed out by the server into the Backpack, and moved into the
+--- character on equip, so watch both containers and everything already in them.
+local function watchBats()
+	local function attach(container: Instance?)
+		if not container then
+			return
+		end
+		container.ChildAdded:Connect(watchTool)
+		for _, child in ipairs(container:GetChildren()) do
+			watchTool(child)
+		end
+	end
+
+	attach(player:FindFirstChildOfClass("Backpack"))
+	player.ChildAdded:Connect(function(child)
+		if child:IsA("Backpack") then
+			attach(child)
+		end
+	end)
+
+	local function onCharacter(character: Model)
+		SwingAnim.stop(character)
+		localSwing.combo = 0
+		attach(character)
+	end
+	if player.Character then
+		onCharacter(player.Character)
+	end
+	player.CharacterAdded:Connect(onCharacter)
+end
+
 function CombatClient.start()
 	local gui = HUD.screenGui()
 	if not gui then
@@ -65,6 +141,22 @@ function CombatClient.start()
 			end
 		end
 		shake = math.min(shake + (payload.killed and 1.1 or 0.55), 2)
+		-- Stopping the arc dead for two or three frames is most of what makes a
+		-- hit feel like it connected with something solid.
+		SwingAnim.hitStop(player.Character, Config.Combat.HitStop)
+	end)
+
+	-- Everyone else's swings. Motor6D.Transform is a local visual, so each
+	-- client draws every character's swing itself; skip our own, which we
+	-- already predicted on Tool.Activated.
+	Net.event("SwingFx").OnClientEvent:Connect(function(payload)
+		if typeof(payload) ~= "table" or not payload.character then
+			return
+		end
+		if payload.character == player.Character then
+			return
+		end
+		SwingAnim.play(payload.character, payload.combo or 1, payload.duration or 0.5)
 	end)
 
 	-- knockback is applied here, not on the server: this client owns its own
@@ -104,7 +196,11 @@ function CombatClient.start()
 
 	-- No custom swing button and no auto-equip: the bat is a plain Tool, so
 	-- Roblox's built-in hotbar equips it and its built-in activation (click,
-	-- tap, or the mobile fire button) triggers Tool.Activated for us.
+	-- tap, or the mobile fire button) triggers Tool.Activated for us — on the
+	-- client as well as on the server, which is what makes local prediction
+	-- free rather than something we'd have to send a remote for.
+	SwingAnim.start()
+	watchBats()
 end
 
 return CombatClient

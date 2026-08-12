@@ -89,6 +89,7 @@ src/shared/     replicated to everyone
   Net.lua           declares and hands out the RemoteEvents
   Fx.lua            particle / light / sound recipes per variant
   TungModels.lua    procedural Sahur models: character, drop, NPC rig, weapon
+  SwingAnim.lua     procedural melee swings; drives the rig, client-side only
 
 src/server/
   Main.server.lua   boot order
@@ -222,9 +223,22 @@ A few decisions in here are load-bearing and look arbitrary until they bite:
   the belt so you see a queue of angry faces instead of rolling logs. The bend
   between the two belt legs is a single trigger part that retargets the
   constraint — still no per-frame work.
-- **The bat swings via `Tool.Grip`, not an animation.** Grip is the offset of
-  the built-in RightGrip weld, so tweening it moves the bat inside the hand and
-  leaves the character's arm entirely alone.
+- **Swings are procedural `Motor6D.Transform` writes, not uploaded animations.**
+  Roblox animations are assets, and this game has none. `SwingAnim.lua` writes
+  the joints directly from a bound render step *after*
+  `Enum.RenderPriority.Character` — bind before it and the Animator overwrites
+  every joint in the same frame. Poses are expressed in **torso space** and
+  conjugated by each joint's own `C0` rotation, which is what lets one set of
+  angles drive both R6 and R15 rigs.
+- **Swings are drawn by every client, not by the server.** `Motor6D.Transform`
+  doesn't replicate. The attacker predicts their own swing from `Tool.Activated`
+  (which fires client-side too) and everyone else plays it from the `SwingFx`
+  broadcast. Waiting for that round trip before starting the wind-up is what
+  makes networked melee feel like mud.
+- **Damage lands on the strike frame, not on the click.** It used to resolve on
+  the same frame the swing started — a whole animation before the bat visibly
+  reached anything. `Combat.SwingStrikeAt` is now the delay, and the verifier
+  caps the resulting input-to-damage latency at 250 ms.
 - **The vault shell must sit downstream of the collector sensor.** `Tycoon.lua`
   asserts this at build time — if the solid body overlaps the belt run-off it
   walls the conveyor off and nothing can ever be collected.
