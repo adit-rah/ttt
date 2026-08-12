@@ -638,18 +638,34 @@ world. That is what lets two realms race one DataStore key in the session-lockin
 specs.
 
 Mocks, in load order: `clock`, `vector3`, `instance`, `datastore`, `players`,
-`roblox` (`tools/testing/mock/`), then `runner.lua` and `world.lua`.
-Twelve spec files in `tools/testing/specs/`: `analytics`, `boost`, `boss`,
-`generator`, `lock`, `offline`, `playtime`, `smoke`, `social`, `streak`,
-`vault`, `weekend`.
+`gui`, `roblox` (`tools/testing/mock/`), then `runner.lua` and `world.lua`.
+`gui.lua` is the screen — `Vector2`, `Rect`, `ColorSequence`, `typeof`, a
+`Camera` with a `ViewportSize`, `RenderStepped`, and the `LocalPlayer` with a
+`PlayerGui`. Its header names every claim it makes about Roblox and what each one
+costs; read it before trusting a client spec.
+Fifteen spec files in `tools/testing/specs/`: `analytics`, `boost`, `boss`,
+`floor`, `generator`, `hud`, `lock`, `offline`, `playtime`, `smoke`, `social`,
+`streak`, `structure`, `vault`, `weekend`.
 
 **What executes:** every `src/shared/*.lua` except `Req.lua`, plus exactly the
-modules in `SERVER_MODULES` (`tools/test.py:52-53`):
+modules in `SERVER_MODULES` (`tools/test.py:52-53`) and `CLIENT_MODULES`:
 
 ```python
 SERVER_MODULES = ["DataService", "Analytics", "Economy", "SessionService", "SocialService",
                   "CombatService", "MapBuilder", "Tycoon"]
+CLIENT_MODULES = ["UiKit", "HUD", "CombatClient", "UpgradeUI", "SessionUI", "Main.client"]
 ```
+
+`CLIENT_MODULES` is new in this round and it is **exhaustive**: `client_sources()`
+fails the run if a file in `src/client` is missing from it, because the point of a
+boot smoke is that it covers everything that boots. Note `Main.client` in that
+list — it is an ENTRY script rather than a module, which `pack.py` treats
+differently, but the harness hands it a `Req` like anything else. Requiring it is
+what makes the client's boot ORDER covered rather than transcribed into a spec
+that would not notice a reordering. Before it, no client module
+had ever executed anywhere but Roblox — which is half of why `SessionUI.lua`
+shipped raising at require time with a green CI. A lint catches an undeclared
+identifier; only execution catches a module that raises for any other reason.
 
 Those are **names, not paths** (`server_sources()`, `test.py:112`). `Tycoon`
 resolves inside `src/server/tycoon/`, and when a name resolves inside a folder the
