@@ -81,9 +81,17 @@ end
 --- have been built on the ground floor underneath the deck. One line, and it
 --- was the single blocker for a real second storey.
 ---
---- No-op today. Every source of a button position returns Y = 0 while there is
---- one ground-level path: BeltPaths[1].y is 0, trackButtonPosition hardcodes
---- its Y, and every Layout.MiscButtons entry is on the floor.
+--- IT STOPPED BEING A NO-OP. This used to read "no-op today: every source of a
+--- button position returns Y = 0 while there is one ground-level path". Two of the
+--- three sources answer with a height now — Config.trackButtonPosition takes its Y
+--- from Config.floorTopY, and both side tracks name floor = "mezzanine", so the
+--- weapons and armour columns (nine pads, five and four) are built on the deck at
+--- y = 22 by this line and nothing else. Layout.MiscButtons is still all on the
+--- floor, and the mezzanine's own belt buttons come through pointOnLeg, which bakes
+--- in path.y.
+---
+--- The Studio-only half is the assertion in buildButtons below: whether the pad
+--- that got built is where buttonPosition said. No config check can reach it.
 function Tycoon:buttonBaseCF(def): CFrame
 	local pos = self:buttonPosition(def)
 	return self:at(pos.X, pos.Y, pos.Z)
@@ -225,12 +233,23 @@ end
 --- terrible one twenty-two studs up in open air: before the deck exists there
 --- is nothing under it, so it reads as a bug rather than as a plan. Buttons on
 --- an unbuilt floor are HIDDEN, and appear with the deck.
+---
+--- TWO WAYS A BUTTON NAMES ITS FLOOR, and this used to read only the first. A belt
+--- machine names it by `path`; a side-track button names it on its track's
+--- Layout.Tracks entry, which is how the weapons and armour columns came to stand
+--- on the mezzanine. Nine pads at y = 22 are covered today only by a COINCIDENCE —
+--- Config.TrackUnlock gates both cabinets on `floor2`, the same button that builds
+--- the deck, so `trackUnlocked` happens to answer the same question. A cabinet
+--- track gated on anything else, or a floor that stopped being what unlocked it,
+--- would hang nine pads in open air and this function would have said yes.
 function Tycoon:floorBuiltFor(def): boolean
-	if not def.path then
+	local track = def.track and Config.Layout.Tracks[def.track]
+	local floorId = def.path or (track and track.floor)
+	if not floorId then
 		return true
 	end
 	for _, floor in ipairs(Config.Floors) do
-		if floor.id == def.path then
+		if floor.id == floorId then
 			return self.owned[floor.button] == true
 		end
 	end

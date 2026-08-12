@@ -136,7 +136,15 @@ function Tycoon:ensureCabinets()
 			model.Name = "Cabinet_" .. track
 			model.Parent = self.props
 
-			local baseCF = self:at(centre.X, 0, centre.Z)
+			-- centre.Y, NOT ZERO. Both side tracks stand on the mezzanine now
+			-- (Layout.Tracks names floor = "mezzanine" and Config.trackCabinet takes
+			-- its Y from Config.floorTopY), and this line is the twin of the bug
+			-- Tycoon:buttonBaseCF was written to fix: the height was thrown away in
+			-- every conversion from a stated position to a CFrame, so anything an
+			-- upper floor unlocked was built on the ground floor underneath the deck.
+			-- Config.TrackUnlock has gated both cabinets on floor2 for two rounds —
+			-- the mezzanine was already what opened them, and they were downstairs.
+			local baseCF = self:at(centre.X, centre.Y, centre.Z)
 			newPart(model, "Back", size, baseCF * CFrame.new(0, size.Y / 2, 0),
 				COLORS.metal, Enum.Material.Metal, true)
 			newPart(model, "Trim", Vector3.new(size.X + 1.2, 0.8, size.Z + 1.2),

@@ -282,11 +282,20 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   its position did: 25–45% against three owned droppers, not 10–30% against seven.
   `mezz_dropper1.dropValue` is 12 for this reason and not 1400 — at 1400 the upstairs line
   would be 98% of plot income the second you bought it. `[assert]`
-- **There is no `Floors.pads` table.** The ladder is a `TrussPart` at `Layout.GateCentre`, in
-  front of the deck's front edge, and **the deck's front guard is built in two pieces with a
-  gap over it** — a guard that closes the whole front edge is a ladder to nowhere, and there
-  is nothing to see. `[assert]` ladder in front of the footprint, within stepping distance of
-  the edge, railing gap over the ladder and wider than it, positive overshoot.
+- **The deck SPANS THE PLOT and the climb goes THROUGH it, via `Floors[1].hatch`.** There is no
+  `Floors.pads` table and no `ladder.at` either: the ladder is a `TrussPart` inside the hatch,
+  against the lip named by `hatch.arrival`, and the hatch guard is cut `ladder.gate` wide on
+  that lip — a guard that closes the whole void is a ladder to nowhere. Against the lip and not
+  centred, because you step off a truss horizontally: from the middle of a 10-stud hole there
+  is nothing in reach. `[assert]` hatch inside the deck, clear of the belt, the hopper, the
+  cabinets and the ground floor's spine; truss inside the hatch; gap on the arrival lip and
+  wider than the truss.
+- **`Config.floorLadderAt` and `floorLandingAt` are the only statements of where the climb
+  is.** They exist because `ladder.at` said `z = -6.6` (correct while the deck stopped at
+  z = −8) while the builder derived `z = -8` from the hatch — so **every ladder clearance check
+  was measuring a box nothing builds**, and the hopper's clearance was measured against the
+  deck's front edge 74 studs away and passed for the wrong reason. One derivation, read by the
+  builder and the verifier. `[assert]`
 - **The ladder is floor furniture** and is checked as a BOX against every pedestal, pad and
   cabinet — its predecessor, the ground teleport pad, was the one piece of floor furniture
   nothing checked and it interpenetrated the armour cabinet's slot-2 pedestal by 3×1 studs.
@@ -297,15 +306,25 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **The deck's belt stays on the deck** — legs, the machine row outboard of each leg, and the
   buy-button row inboard of it. This is the check that caught `side = 10`, which needed 11.5.
   `[assert]`
-- **The deck sits flush to the wall, clears the roof columns, and the shortened roof stops
-  short of it; its pillars stand among the ground floor's machines** and must clear every
-  dropper and upgrader slot — they miss the upgrader row today only because no
-  `UpgraderDist` slot happens to land at z = −16, which is a coincidence, not a reason.
-  `[assert]`
-- **The roof is rebuilt when the floor lands.** It shrinks itself when the deck is up, which
-  used to key off a prototype flag and so was the same answer for everyone forever; roof is
-  minute 28 and floor is minute 6, so without the rebuild every player gets a half-roof.
-  `[nothing]`
+- **The deck's faces are coplanar with the wall ring's inner faces, and the roof columns pass
+  THROUGH it.** Both are deliberate: "spans the plot" means wall face to wall face, and a
+  column through a floor reads as a column. The old "the deck clears the roof columns and the
+  shortened roof stops short of it" rule is superseded — there is no shortened roof any more,
+  because the deck IS the ground storey's ceiling. Its pillars still stand among the ground
+  floor's machines and must clear every dropper and upgrader slot. `[assert]` pillars;
+  coplanar deck edges are a z-fight risk only Studio can settle.
+- **The roof LIFTS when the floor lands; it no longer shrinks.** `Config.roofUnderside(hasFloor)`
+  puts it on the top storey that exists, so there is no half-roof state — which is why the old
+  shrink rule and its unfalsifiable companion check are both gone. The rebuild itself still
+  matters: roof is minute 28 and floor is minute 6. `[nothing]` that the rebuild fires;
+  `[assert]` where it lands.
+- **FloorService owns the upper storey's WALLS, not the `Structure` installer.** `walls` is
+  bought around minute three, when there is no deck to stand a wall on, and an installer never
+  runs again — the same hole `refreshRoof` exists to plug. Off `onOwnedChanged` the walls live
+  in the deck's own folder, so the storey arrives and leaves as one object and there is no
+  state where a deck has no walls. **Sharp edge:** `GateService` looks for leaves in
+  `tycoon.machines`, and these walls are not there. No upper-storey opening exists today; the
+  day one does, that lookup has to widen. `[nothing]`
 
 ### The building shell
 

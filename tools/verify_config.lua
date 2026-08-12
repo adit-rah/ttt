@@ -1520,94 +1520,36 @@ do
 			:format(O.CapHours * O.Rate))
 end
 
--- FLOOR FURNITURE. Everything that isn't on the belt is placed by absolute
--- plot-local coordinate, so growing the plot silently leaves these behind (or
--- growing the belt runs them over). Each one is 12 studs wide at most.
--- Every buy button that stands on the floor rather than beside a belt machine,
--- from BOTH sources: the hand-placed factory column in Layout.MiscButtons and
--- the derived side-track columns. One list, so the spacing and row-clearance
--- checks below cover the cabinets without being written twice — and so a
--- cabinet pedestal colliding with a misc pedestal is caught, which it would
--- not be if each source policed only itself.
-local miscList = {}
-for id, spot in pairs(L.MiscButtons) do
-	table.insert(miscList, { id = "MiscButtons." .. id, spot = spot })
+-- ── floors, boxes and belt legs ─────────────────────────────────────────────
+--
+-- WHAT THE FLOOR KEY IS FOR. Everything below here used to be able to assume
+-- that "on the plot" meant "on one floor", because it did: the deck covered the
+-- back 60 studs and nothing was ever bought on it. The deck spans the plot now
+-- and both side-track cabinets stand on it, so two pieces of furniture four
+-- studs apart in plan can be twenty-two studs apart in Y and never touch. Every
+-- piece of furniture carries the floor it stands on, and a collision check
+-- compares that before it compares geometry.
+--
+-- The key is deliberately also a Config.BeltPaths id — the plot floor's path is
+-- `"ground"` and a Config.Floors path is that floor's own id — which is what
+-- lets a piece of furniture find the belt it has to stay off without a second
+-- table mapping one to the other.
+local GROUND = "ground"
+local floorsById = {}
+for _, floor in ipairs(Config.Floors) do
+	floorsById[floor.id] = floor
 end
-for _, track in ipairs(Config.TrackOrder) do
-	local layout = L.Tracks[track]
-	if layout then
-		-- Check every SLOT, not every button: the empty slots are where the
-		-- next tier will land, and finding out then is finding out too late.
-		for slot = 1, layout.slots do
-			table.insert(miscList, {
-				id = ("Tracks.%s[%d]"):format(track, slot),
-				spot = Config.trackButtonPosition(track, slot),
-			})
-		end
-		check(#Config.Tracks[track] <= layout.slots,
-			("the %s track has %d buttons but Layout.Tracks.%s only has %d slots; the extras would stack on the last pedestal")
-				:format(track, #Config.Tracks[track], track, layout.slots))
-	end
+local beltPathById = {}
+for _, path in ipairs(Config.BeltPaths) do
+	beltPathById[path.id] = path
 end
-table.sort(miscList, function(a, b) return a.id < b.id end)
+check(beltPathById[GROUND] ~= nil,
+	("no belt path is called %q, so the plot floor's furniture has no belt row to be checked against")
+		:format(GROUND))
 
-local floorSpots = {
-	{ "RebirthPadAt", L.RebirthPadAt, 6 },
-	{ "ClaimPadAt", L.ClaimPadAt, 17 },
-	{ "OwnerSpawnAt", L.OwnerSpawnAt, 3 },
-}
-for _, entry in ipairs(miscList) do
-	table.insert(floorSpots, { entry.id, entry.spot, 3 })
-end
-for _, entry in ipairs(floorSpots) do
-	inPlot(entry[1], entry[2], entry[3])
-end
-
--- The pads are floor furniture too, and a pedestal standing on the rebirth pad
--- or in the owner's spawn is the same class of bug as two pedestals stacked.
-for _, entry in ipairs(miscList) do
-	for _, pad in ipairs({
-		{ "RebirthPadAt", L.RebirthPadAt },
-		{ "ClaimPadAt", L.ClaimPadAt },
-		{ "OwnerSpawnAt", L.OwnerSpawnAt },
-	}) do
-		local d = len(sub(entry.spot, pad[2]))
-		check(d >= L.MiscButtonSpacing,
-			("%s is only %.1f studs from %s (need %d)")
-				:format(entry.id, d, pad[1], L.MiscButtonSpacing))
-	end
-end
-
-for i, a in ipairs(miscList) do
-	for j = i + 1, #miscList do
-		local b = miscList[j]
-		local d = len(sub(a.spot, b.spot))
-		check(d >= L.MiscButtonSpacing,
-			("%s and %s are only %.1f studs apart (need %d)")
-				:format(a.id, b.id, d, L.MiscButtonSpacing))
-	end
-end
-
--- ...and stay clear of the buy buttons attached to belt machines, which sit
--- ButtonOffset studs INBOARD of each leg. Overlapping pedestals were already
--- shipped once and only stayed invisible because the unlock chain happened to
--- hide one before the other appeared.
-local BUTTON_PAD = 5
-local dropperButtonZ = L.BeltStart.Z + L.ButtonOffset      -- leg 1 runs along -Z
-local upgraderButtonX = L.BeltCorner.X + L.ButtonOffset    -- leg 2 runs along -X
-for _, entry in ipairs(miscList) do
-	check(math.abs(entry.spot.Z - dropperButtonZ) >= BUTTON_PAD,
-		("%s sits on the dropper buy-button row at z=%.1f")
-			:format(entry.id, dropperButtonZ))
-	check(math.abs(entry.spot.X - upgraderButtonX) >= BUTTON_PAD,
-		("%s sits on the upgrader buy-button row at x=%.1f")
-			:format(entry.id, upgraderButtonX))
-end
-
--- ── side-track cabinets ─────────────────────────────────────────────────────
--- The cabinet BODIES are the only solid, collidable things this change adds to
--- the plot floor, so they get the treatment the vault and the belt already
--- have: an explicit box, checked against everything else that occupies floor.
+--- A buy-button pedestal, in plan. The one box every piece of furniture in the
+--- lists below shares.
+local PEDESTAL = Vector3.new(5, 1, 5)
 
 --- Gap between an axis-aligned box (centre + full size) and a point, 0 inside.
 --- Written component-wise because the Vector3 in this harness is a bare table
@@ -1618,7 +1560,310 @@ local function boxPointGap(centre, size, point)
 	return math.sqrt(dx * dx + dz * dz)
 end
 
+--- Gap between two axis-aligned boxes in plan, 0 if they overlap. The deleted
+--- teleport pads were 9x9 against 5x5 pedestals, so the centre-distance rule the
+--- furniture list uses is the wrong instrument for them: two boxes can be 14
+--- studs apart centre to centre and still interpenetrate.
+local function boxBoxGap(aCentre, aSize, bCentre, bSize)
+	local dx = math.max(math.abs(aCentre.X - bCentre.X) - (aSize.X + bSize.X) / 2, 0)
+	local dz = math.max(math.abs(aCentre.Z - bCentre.Z) - (aSize.Z + bSize.Z) / 2, 0)
+	return math.sqrt(dx * dx + dz * dz)
+end
+
+--- How much two axis-aligned boxes interpenetrate in plan: 0 if they are clear
+--- of each other. The complement of boxBoxGap, and needed because that function
+--- saturates at 0 — it can say "they overlap" but not "by how much", and a
+--- message that reads "0.0 studs" tells you nothing about how far to move.
+local function boxBoxOverlap(aCentre, aSize, bCentre, bSize)
+	local dx = (aSize.X + bSize.X) / 2 - math.abs(aCentre.X - bCentre.X)
+	local dz = (aSize.Z + bSize.Z) / 2 - math.abs(aCentre.Z - bCentre.Z)
+	if dx <= 0 or dz <= 0 then
+		return 0
+	end
+	return math.min(dx, dz)
+end
+
+--- How far inside an outer box an inner box sits, in plan: the smallest clearance
+--- from any of the outer box's four edges. Negative when the inner box hangs
+--- over one of them, and the magnitude is the overhang, so a message can say
+--- which way to move and by how much.
+local function boxInsetBy(outerAt, outerSize, innerAt, innerSize)
+	local dx = (outerSize.X - innerSize.X) / 2 - math.abs(innerAt.X - outerAt.X)
+	local dz = (outerSize.Z - innerSize.Z) / 2 - math.abs(innerAt.Z - outerAt.Z)
+	return math.min(dx, dz)
+end
+
+-- HOW FAR THE BELT'S SOLID SLAB STANDS PROUD OF ITS RUNNING SURFACE. Mirrored
+-- from Belt.lua, where `BeltBase` is built `BeltWidth + 1.2` wide — the surface
+-- is 8 studs but the collidable thing under it is 9.2, so the belt reaches 0.6
+-- further each side than BeltWidth says. Config already reasons in those terms in
+-- two places (the mezzanine hatch's back lip, and the pillar note's "leg 2 reaches
+-- x = -48.6", which is -44 less 4.6), and measuring against the surface instead is
+-- how the stairwell's guard came to be 0.1 studs inside the belt base while
+-- looking like it cleared by a stud. Same standing coupling as the cabinet sign
+-- below: a builder literal this file cannot derive, named where it is used.
+local BELT_BASE_PROUD = 1.2
+
+--- The three rectangles one belt leg occupies in plan: the collidable base, the
+--- machine row OUTBOARD of it, and the buy-button row INBOARD of it.
+---
+--- The outboard normal is `sign * (-dir.Z, 0, dir.X)`, which is the expression
+--- Belt.lua's resolvePath uses, read from the path's own `outboard` table. That
+--- matters more here than anywhere else: the mezzanine's return leg runs back
+--- across the middle of its own zone, which is exactly where the old
+--- "point away from the plot origin" heuristic inverts. A check that guessed the
+--- side would reserve the machine strip on the empty side of that leg and pass
+--- anything standing on the occupied one.
+local function legBoxes(path)
+	local boxes = {}
+	for index = 1, #path.points - 1 do
+		local a, b = path.points[index], path.points[index + 1]
+		local dirX = (b.X > a.X and 1) or (b.X < a.X and -1) or 0
+		local dirZ = (b.Z > a.Z and 1) or (b.Z < a.Z and -1) or 0
+		local sign = (path.outboard and path.outboard[index]) or 1
+		local nX, nZ = -dirZ * sign, dirX * sign
+		local midX, midZ = (a.X + b.X) / 2, (a.Z + b.Z) / 2
+		local along = math.abs(b.X - a.X) + math.abs(b.Z - a.Z)
+		-- `pad` extends the strip ALONG the leg, because a machine or a pedestal at
+		-- the last distance on a leg is centred on the endpoint and half of it
+		-- hangs past it. The running surface gets none: the belt ends where the
+		-- corner is.
+		local function strip(offset, cross, pad)
+			return {
+				centre = Vector3.new(midX + nX * offset, 0, midZ + nZ * offset),
+				size = Vector3.new(
+					math.abs(dirX) * (along + pad) + math.abs(nX) * cross, 1,
+					math.abs(dirZ) * (along + pad) + math.abs(nZ) * cross),
+			}
+		end
+		table.insert(boxes, {
+			index = index,
+			belt = strip(0, L.BeltWidth + BELT_BASE_PROUD, 0),
+			machines = strip(L.MachineOffset, L.MachineFootprint, L.MachineFootprint),
+			buttons = strip(-L.ButtonOffset, PEDESTAL.X, PEDESTAL.X),
+		})
+	end
+	return boxes
+end
+
+-- HOW MANY PLAN COMPARISONS THE FURNITURE BLOCK MAKES, printed at the end.
+-- Partitioning the furniture by floor removes pairs by construction — a cabinet
+-- on the deck against a pad on the plot floor is no longer a comparison worth
+-- making — and the honest way to show that the partition did not quietly hollow
+-- the block out is to count them.
+local furniturePairs = 0
+
+-- FLOOR FURNITURE. Everything that isn't on the belt is placed by absolute
+-- plot-local coordinate, so growing the plot silently leaves these behind (or
+-- growing the belt runs them over). Each one is 12 studs wide at most.
+-- Every buy button that stands on the floor rather than beside a belt machine,
+-- from BOTH sources: the hand-placed factory column in Layout.MiscButtons and
+-- the derived side-track columns. One list, so the spacing and row-clearance
+-- checks below cover the cabinets without being written twice — and so a
+-- cabinet pedestal colliding with a misc pedestal is caught, which it would
+-- not be if each source policed only itself.
+local miscList = {}
+-- The side tracks whose `floor` names a floor that exists. Everything below reads
+-- a position through Config.floorTopY, which RAISES on an id it does not know, so
+-- a track with a broken floor key is reported once (below) and then left out of
+-- the geometry rather than taking the whole suite down with a stack trace from
+-- inside Config.
+local placedTracks = {}
+for id, spot in pairs(L.MiscButtons) do
+	table.insert(miscList, { id = "MiscButtons." .. id, spot = spot, floor = GROUND })
+end
+for _, track in ipairs(Config.TrackOrder) do
+	local layout = L.Tracks[track]
+	if layout then
+		-- WHICH STOREY THE COLUMN STANDS ON. `floor` names a Config.Floors id, and
+		-- this is checked BEFORE anything reads a position, so that a mistyped id
+		-- comes out of this file as a named failure rather than as the stack trace
+		-- Config.floorTopY now raises from underneath the whole suite. Every
+		-- geometric check below would otherwise pass on a typo, consistently,
+		-- because they would all be measuring the ground floor and agreeing with
+		-- each other.
+		local floorKey = layout.floor or GROUND
+		local known = layout.floor == nil or floorsById[layout.floor] ~= nil
+		placedTracks[track] = known
+		check(known,
+			("Layout.Tracks.%s stands on floor %q, which is not a Config.Floors id; the whole column has no stated height")
+				:format(track, tostring(layout.floor)))
+		check(beltPathById[floorKey] ~= nil,
+			("Layout.Tracks.%s stands on floor %q, which has no belt path, so its pedestals cannot be checked against the belt they share a storey with")
+				:format(track, tostring(floorKey)))
+		-- Check every SLOT, not every button: the empty slots are where the
+		-- next tier will land, and finding out then is finding out too late.
+		for slot = 1, (known and layout.slots or 0) do
+			table.insert(miscList, {
+				id = ("Tracks.%s[%d]"):format(track, slot),
+				spot = Config.trackButtonPosition(track, slot),
+				floor = floorKey,
+			})
+		end
+		check(#Config.Tracks[track] <= layout.slots,
+			("the %s track has %d buttons but Layout.Tracks.%s only has %d slots; the extras would stack on the last pedestal")
+				:format(track, #Config.Tracks[track], track, layout.slots))
+	end
+end
+table.sort(miscList, function(a, b) return a.id < b.id end)
+
+-- THE PADS ARE GROUND-FLOOR FURNITURE, all three of them: you claim a plot,
+-- rebirth and respawn on the plot floor, and none of the three has an upstairs
+-- counterpart. Each carries a point margin (for containment) and a box (for
+-- collisions), because a 14x14 claim pad against a 5x5 pedestal is exactly the
+-- case a centre-distance rule gets wrong.
+local pads = {
+	{ id = "RebirthPadAt", spot = L.RebirthPadAt, margin = 6, size = Vector3.new(12, 1, 12), floor = GROUND },
+	{ id = "ClaimPadAt", spot = L.ClaimPadAt, margin = 17, size = Vector3.new(14, 1, 14), floor = GROUND },
+	-- not a pad: the volume a body occupies where the owner is put down
+	{ id = "OwnerSpawnAt", spot = L.OwnerSpawnAt, margin = 3, size = Vector3.new(6, 1, 6), floor = GROUND },
+}
+
+-- THE SOLID THINGS ON THE PLOT FLOOR THAT ARE NOT PEDESTALS. Just the vault
+-- today, and it is here because the vault is the biggest single object on the
+-- ground floor and nothing in this file has ever compared a piece of furniture
+-- against it — the checks it has are about the belt reaching it and it reaching
+-- the wall. The stairwell is what made that a gap worth closing: the truss now
+-- lands in the deck's front-left quarter, which is the vault's corner of the plot
+-- 22 studs below, and Config's hatch comment claims it clears it. `bodyDepth` is
+-- along Z and `bodyWidth` along X — the same orientation `vaultFar` above uses.
+local groundSolids = {
+	{
+		id = "the vault shell",
+		at = L.CollectorAt,
+		size = Vector3.new(L.Vault.bodyWidth, 1, L.Vault.bodyDepth),
+	},
+}
+
+local floorSpots = {}
+for _, pad in ipairs(pads) do
+	table.insert(floorSpots,
+		{ id = pad.id, spot = pad.spot, margin = pad.margin, size = pad.size, floor = pad.floor })
+end
+for _, entry in ipairs(miscList) do
+	table.insert(floorSpots,
+		{ id = entry.id, spot = entry.spot, margin = 3, size = PEDESTAL, floor = entry.floor })
+end
+-- Containment is NOT floor-aware and must not become so: a deck sits inside the
+-- plot's wall ring, so anything standing on any floor of it is still inside the
+-- plot, and this is the check that says the empty slots a future tier lands in
+-- are too.
+for _, entry in ipairs(floorSpots) do
+	inPlot(entry.id, entry.spot, entry.margin)
+end
+
+-- RE-AUTHORED, PREMISE OVERTURNED (see HANDOFF_v6 §3 for the convention).
+--
+-- The three loops below compared every piece of floor furniture against every
+-- other piece, against the three pads, and against both belt buy-button rows, in
+-- PLAN and with no notion of height. That was right — and load-bearing — for the
+-- plot it was written against, because everything on that plot stood on ONE
+-- floor: the deck covered the back 60 studs, nothing could be bought on it, and
+-- the deleted teleport pad interpenetrated the armour cabinet's slot-2 pedestal
+-- by 3x1 studs precisely because two pieces of furniture were not compared. On a
+-- one-floor plot a 2D rule is a complete rule.
+--
+-- The second floor spans the plot now and both side-track cabinets have moved
+-- onto it, so "4 studs apart in plan" no longer implies "touching": the cabinets
+-- and their nine pedestals stand 22 studs above the pads they used to share a
+-- floor with. Two boxes on DIFFERENT floors cannot collide, so comparing them
+-- reports a failure that is not a defect — which is exactly what
+-- `Tracks.weapons cabinet comes within 4.0 studs of ClaimPadAt` was. Two boxes on
+-- the SAME floor still must not, and that half is untouched and is still the
+-- whole reason this block exists.
+--
+-- The floor key is the only thing added. What it must not do is quietly reduce
+-- what is covered, so every pair it stops comparing is replaced by a comparison
+-- against something on the pair's own floor: that floor's belt rows below, and
+-- the deck, the armoury zone and the hatch in the mezzanine block.
+for _, entry in ipairs(miscList) do
+	for _, pad in ipairs(pads) do
+		if entry.floor == pad.floor then
+			furniturePairs += 1
+			local d = len(sub(entry.spot, pad.spot))
+			check(d >= L.MiscButtonSpacing,
+				("%s is only %.1f studs from %s (need %d)")
+					:format(entry.id, d, pad.id, L.MiscButtonSpacing))
+		end
+	end
+end
+
+for i, a in ipairs(miscList) do
+	for j = i + 1, #miscList do
+		local b = miscList[j]
+		if a.floor == b.floor then
+			furniturePairs += 1
+			local d = len(sub(a.spot, b.spot))
+			check(d >= L.MiscButtonSpacing,
+				("%s and %s both stand on the %s floor and are only %.1f studs apart (need %d)")
+					:format(a.id, b.id, a.floor, d, L.MiscButtonSpacing))
+		end
+	end
+end
+
+-- ...and stay clear of the belt on their OWN floor: the running surface, the
+-- machine row OUTBOARD of each leg, and the buy-button row ButtonOffset studs
+-- INBOARD of it. Overlapping pedestals were already shipped once and only stayed
+-- invisible because the unlock chain happened to hide one before the other
+-- appeared.
+--
+-- ONE BELT PER FLOOR, found by the floor key. This was two hardcoded scalars —
+-- `BeltStart.Z + ButtonOffset` and `BeltCorner.X + ButtonOffset` — which are the
+-- GROUND floor's two button rows and nothing else. So the nine side-track
+-- pedestals were being measured against a belt on a different storey while the
+-- belt they actually share a storey with was not looked at at all, and neither
+-- the running surface nor the machine row was looked at on either floor. legBoxes
+-- derives all three strips of every leg of the path whose id is the floor key.
+for _, entry in ipairs(miscList) do
+	local path = beltPathById[entry.floor]
+	if path then
+		for _, leg in ipairs(legBoxes(path)) do
+			for _, strip in ipairs({
+				{ "belt base", leg.belt },
+				{ "machine row", leg.machines },
+				{ "buy-button row", leg.buttons },
+			}) do
+				furniturePairs += 1
+				local into = boxBoxOverlap(strip[2].centre, strip[2].size, entry.spot, PEDESTAL)
+				check(into == 0,
+					("%s stands %.1f studs into the %s of belt %q's leg %d")
+						:format(entry.id, into, strip[1], path.id, leg.index))
+			end
+		end
+	end
+end
+
+-- ── side-track cabinets ─────────────────────────────────────────────────────
+-- The cabinet BODIES are the only solid, collidable things the side tracks add
+-- to the plot, so they get the treatment the vault and the belt already have: an
+-- explicit box, checked against everything else that occupies floor — on the
+-- floor they stand on.
+--
+-- THEY ARE ON THE MEZZANINE NOW, which is what pulls the deck, its armoury zone
+-- and its stairwell into this loop. Two of the checks below used to be about the
+-- ground floor and had to be re-authored for that; the rest are new, and they
+-- exist because "inside the plot" stopped being a useful bound for a cabinet the
+-- moment the cabinet left the plot floor. A 116x136 deck sits inside a 120x140
+-- plot, so a cabinet can pass every containment check in this file and still
+-- stand two studs off the edge of the floor it is supposed to be standing on.
+
 local gateFrom, gateTo = L.GateCentre - L.GateWidth / 2, L.GateCentre + L.GateWidth / 2
+
+-- WHAT THE CABINET IS, ABOVE ITS BOX. Mirrored from Props.lua's ensureCabinets,
+-- where all four are literals: the trim cap is `size.Y + 0.4` tall and 0.8 thick,
+-- the sign anchor stands 2.5 above the body, and a billboard 4 studs tall hangs
+-- centred on the anchor. So the tallest part of a cabinet is its LABEL, at
+-- `height + 4.5`, and not the case.
+--
+-- THIS IS A MIRROR, AND SAYING SO IS THE POINT. verify_config reads Config and
+-- nothing else, so these four numbers cannot be derived here; the block below
+-- asserts Structure.UpperClear against the object's shape and will not notice the
+-- BUILDER changing that shape. Config.Structure.Trim exists because
+-- shellPartCount had to count a trim cap it could not see, and these want exactly
+-- the same treatment — the geometry of a cabinet belongs in Config.Layout.Tracks
+-- beside `height`. Until it moves there, this is the coupling, declared.
+local CABINET_TRIM_LIFT, CABINET_TRIM_THICK = 0.4, 0.8
+local CABINET_SIGN_LIFT, CABINET_SIGN_HEIGHT, CABINET_ANCHOR = 2.5, 4, 1
 
 -- THE FOUR ROOF COLUMNS, derived rather than typed. These were the literals
 -- (halfX - 4, halfZ - 4) in the loop below, which is "the wall ring minus
@@ -1631,13 +1876,23 @@ local gateFrom, gateTo = L.GateCentre - L.GateWidth / 2, L.GateCentre + L.GateWi
 local roofColumnX = halfX - 1 - Config.Structure.Roof.columnInset
 local roofColumnZ = halfZ - 1 - Config.Structure.Roof.columnInset
 
+-- The gap a piece of furniture has to leave round a hole in the floor it stands
+-- on, and round the belt that shares it: enough to walk past, which is the same
+-- number the pillars and the pedestals already use.
+local FURNITURE_GAP = 2
+
 for _, track in ipairs(Config.TrackOrder) do
 	local layout = L.Tracks[track]
-	if layout then
+	if layout and placedTracks[track] then
 		local centre, size = Config.trackCabinet(track)
 		local where = "Tracks." .. track .. " cabinet"
+		local floorKey = layout.floor or GROUND
+		local floor = floorsById[layout.floor]
 
-		-- inside the wall ring, which stands 1 stud in from the pad edge
+		-- inside the wall ring, which stands 1 stud in from the pad edge. NOT
+		-- floor-aware, and must not become so: the shell is a ring at every
+		-- storey, so a cabinet upstairs has the same wall to grow through as one
+		-- downstairs.
 		check(math.abs(centre.X) + size.X / 2 <= halfX - 2,
 			("%s spans x %.1f..%.1f, into the side wall at x=%.1f")
 				:format(where, centre.X - size.X / 2, centre.X + size.X / 2, halfX - 1))
@@ -1645,12 +1900,20 @@ for _, track in ipairs(Config.TrackOrder) do
 			("%s spans z %.1f..%.1f, into the end wall at z=%.1f")
 				:format(where, centre.Z - size.Z / 2, centre.Z + size.Z / 2, halfZ - 1))
 
-		-- not standing on the floor furniture
+		-- RE-AUTHORED, PREMISE OVERTURNED. Not standing on the floor furniture —
+		-- on its own floor. This is the check that reported `Tracks.weapons cabinet
+		-- comes within 4.0 studs of ClaimPadAt (needs 17)`: a 17-stud bound between
+		-- a display case on the deck and the pad you claim the plot on, 22 studs
+		-- below it. The bound was right while both stood on the plot floor, and it
+		-- is the one that found a 9x9 pad inside a 5x5 pedestal.
 		for _, spot in ipairs(floorSpots) do
-			local gap = boxPointGap(centre, size, spot[2])
-			check(gap >= spot[3],
-				("%s comes within %.1f studs of %s (needs %d)")
-					:format(where, gap, spot[1], spot[3]))
+			if spot.floor == floorKey then
+				furniturePairs += 1
+				local gap = boxPointGap(centre, size, spot.spot)
+				check(gap >= spot.margin,
+					("%s comes within %.1f studs of %s on the %s floor (needs %d)")
+						:format(where, gap, spot.id, spot.floor, spot.margin))
+			end
 		end
 
 		-- ...and far enough off its own pedestals that a shelf display does
@@ -1659,17 +1922,35 @@ for _, track in ipairs(Config.TrackOrder) do
 			("%s stands %.1f studs from its own button column; the shelf would clip the pads")
 				:format(where, math.abs(layout.buttonX - layout.cabinetX) - size.X / 2))
 
-		-- ...and off both belt legs. Leg 1 runs along z = BeltStart.Z, leg 2
-		-- along x = BeltCorner.X; a cabinet over either would wall the belt.
-		check(math.abs(centre.Z - L.BeltStart.Z) - size.Z / 2 >= L.BeltWidth,
-			("%s reaches the dropper belt leg at z=%.1f"):format(where, L.BeltStart.Z))
-		check(math.abs(centre.X - L.BeltCorner.X) - size.X / 2 >= L.BeltWidth,
-			("%s reaches the upgrader belt leg at x=%.1f"):format(where, L.BeltCorner.X))
+		-- ...and off the belt ON ITS OWN FLOOR. This was two scalars naming the
+		-- GROUND floor's two legs — `BeltStart.Z` and `BeltCorner.X` — which is the
+		-- belt these cabinets no longer share a storey with. The belt they do share
+		-- one with was not checked at all, and it is the one they can reach: the
+		-- mezzanine's return leg ends 6 studs from the weapons cabinet.
+		local ownBelt = beltPathById[floorKey]
+		if ownBelt then
+			for _, leg in ipairs(legBoxes(ownBelt)) do
+				for _, strip in ipairs({
+					{ "belt base", leg.belt },
+					{ "machine row", leg.machines },
+					{ "buy-button row", leg.buttons },
+				}) do
+					furniturePairs += 1
+					local gap = boxBoxGap(centre, size, strip[2].centre, strip[2].size)
+					check(gap >= FURNITURE_GAP,
+						("%s comes within %.1f studs of the %s of belt %q's leg %d (need %d) — a display case over a belt walls the conveyor off")
+							:format(where, gap, strip[1], ownBelt.id, leg.index, FURNITURE_GAP))
+				end
+			end
+		end
 
 		-- ...and clear of the four roof columns, which stand Roof.columnInset
-		-- studs in from the wall ring (see roofColumnX/Z above)
+		-- studs in from the wall ring (see roofColumnX/Z above). Also not
+		-- floor-aware: a column runs from the plot floor to the roof and passes
+		-- through every storey on the way.
 		for _, sx in ipairs({ -1, 1 }) do
 			for _, sz in ipairs({ -1, 1 }) do
+				furniturePairs += 1
 				local column = Vector3.new(sx * roofColumnX, 0, sz * roofColumnZ)
 				check(boxPointGap(centre, size, column) >= 2,
 					("%s overlaps the roof column at (%.0f, %.0f)")
@@ -1677,13 +1958,151 @@ for _, track in ipairs(Config.TrackOrder) do
 			end
 		end
 
-		-- and the walk in from the gateway must not run into a display case
-		local clearsGate = (centre.X - size.X / 2 > gateTo)
-			or (centre.X + size.X / 2 < gateFrom)
-			or (centre.Z + size.Z / 2 < L.OwnerSpawnAt.Z - 8)
-		check(clearsGate,
-			("%s stands in the walk from the gateway to the owner spawn at z=%.0f")
-				:format(where, L.OwnerSpawnAt.Z))
+		-- RE-AUTHORED, PREMISE OVERTURNED. The walk in from the gateway must not
+		-- run into a display case — and the gateway is a hole in the GROUND floor's
+		-- front wall, which a cabinet on the deck cannot stand in. This is the
+		-- second of the two failures the move produced (`stands in the walk from
+		-- the gateway to the owner spawn at z=44`): true of the plan, false of the
+		-- building, because the walk it describes is 22 studs underneath.
+		--
+		-- The upstairs equivalent is not the gateway, it is the stairwell — you
+		-- arrive on that floor through the hatch — and that is the check below.
+		if floorKey == GROUND then
+			local clearsGate = (centre.X - size.X / 2 > gateTo)
+				or (centre.X + size.X / 2 < gateFrom)
+				or (centre.Z + size.Z / 2 < L.OwnerSpawnAt.Z - 8)
+			check(clearsGate,
+				("%s stands in the walk from the gateway to the owner spawn at z=%.0f")
+					:format(where, L.OwnerSpawnAt.Z))
+		end
+
+		-- ── a cabinet that stands on a floor above the plot ──────────────────
+		--
+		-- NEW, and none of it was expressible before the cabinets moved: on the
+		-- plot floor "inside the plot" was the bound, and inPlot said it. A deck is
+		-- smaller than the plot it sits in and is divided into named zones, so a
+		-- cabinet upstairs has three bounds the ground floor never had — the slab
+		-- it stands on, the zone it belongs to, and the hole in that slab.
+		if floor then
+			local zone = floor.zones and floor.zones.armoury
+			check(zone ~= nil,
+				("%s stands on %s, which has no armoury zone; there is nothing that says which part of that floor a display case belongs on")
+					:format(where, floorKey))
+
+			-- ON THE SLAB, inside the perimeter guard. This is the bound that stops
+			-- the fifth weapons slot from becoming a sixth: slot 6 lands at z = 74
+			-- and takes the case with it, six studs past a deck that ends at 68.
+			local deckInset = boxInsetBy(floor.deckAt, floor.deckSize, centre, size)
+			check(deckInset >= floor.rail.thickness,
+				("%s spans x %.1f..%.1f z %.1f..%.1f and clears the edge of %s's deck by %.1f studs; the perimeter guard is %.1f thick, so it stands in the railing or over the drop")
+					:format(where, centre.X - size.X / 2, centre.X + size.X / 2,
+						centre.Z - size.Z / 2, centre.Z + size.Z / 2,
+						floorKey, deckInset, floor.rail.thickness))
+
+			-- IN ITS OWN ZONE. Containment with no margin is the whole of it: a
+			-- zone is a claim about which part of a storey a thing belongs on, and
+			-- the armoury's own edges are the deck's on three sides.
+			if zone then
+				local zoneInset = boxInsetBy(zone.at, zone.size, centre, size)
+				check(zoneInset >= 0,
+					("%s hangs %.1f studs outside %s's armoury zone (which holds %s) — the back of that storey is a production line and this is what says a display case is not part of it")
+						:format(where, -zoneInset, floorKey, tostring(zone.holds)))
+			end
+
+			-- CLEAR OF THE STAIRWELL. You arrive on this floor through the hatch;
+			-- a case across it is a case you cannot get past, and one hanging over
+			-- it is a case standing on air.
+			local hatch = floor.hatch
+			if hatch then
+				furniturePairs += 1
+				local gap = boxBoxGap(centre, size, hatch.at, hatch.size)
+				check(gap >= FURNITURE_GAP,
+					("%s comes within %.1f studs of %s's stairwell at (%.0f, %.0f) (need %d)")
+						:format(where, gap, floorKey, hatch.at.X, hatch.at.Z, FURNITURE_GAP))
+			end
+
+			-- ...and so does every pedestal of its column, empty slots included.
+			for slot = 1, layout.slots do
+				local spot = Config.trackButtonPosition(track, slot)
+				if zone then
+					local inset = boxInsetBy(zone.at, zone.size, spot, PEDESTAL)
+					check(inset >= 0,
+						("Tracks.%s[%d]'s pedestal hangs %.1f studs outside %s's armoury zone")
+							:format(track, slot, -inset, floorKey))
+				end
+				local deckSlot = boxInsetBy(floor.deckAt, floor.deckSize, spot, PEDESTAL)
+				check(deckSlot >= floor.rail.thickness,
+					("Tracks.%s[%d]'s pedestal clears the edge of %s's deck by %.1f studs (need %.1f, the guard's thickness) — the empty slots are where the next tier lands")
+						:format(track, slot, floorKey, deckSlot, floor.rail.thickness))
+				if hatch then
+					furniturePairs += 1
+					local gap = boxBoxGap(spot, PEDESTAL, hatch.at, hatch.size)
+					check(gap >= FURNITURE_GAP,
+						("Tracks.%s[%d]'s pedestal comes within %.1f studs of %s's stairwell (need %d)")
+							:format(track, slot, gap, floorKey, FURNITURE_GAP))
+				end
+			end
+		end
+
+		-- ── the storey it stands IN, not the floor it stands ON ──────────────
+		--
+		-- NEW, and it is the relationship that moved Structure.UpperClear from 16
+		-- to 20. A cabinet is not `height` tall: the trim caps the body, the sign
+		-- anchor stands above the trim and the billboard hangs on the anchor, so
+		-- the tallest part of the object is its LABEL, 4.5 studs over the case. At
+		-- 16 the top 1.5 studs of every cabinet sign were inside the ceiling — a
+		-- defect found by eye, in Studio, on the one class of relationship this
+		-- file exists to hold: two numbers in Config that have to clear each other.
+		--
+		-- The storey is found by matching the floor it stands on to a
+		-- Structure.Storeys `floorY`, because that IS the link between the two
+		-- tables — Storeys[2].floorY is Floors[1].height — and nothing else states
+		-- it. A floor with no storey over it has no stated headroom at all.
+		local floorY = Config.floorTopY(layout.floor)
+		local storey
+		for _, candidate in ipairs(Config.Structure.Storeys) do
+			if math.abs(candidate.floorY - floorY) < 1e-9 then
+				storey = candidate
+			end
+		end
+		check(storey ~= nil,
+			("%s stands at y=%.1f, which is not the floorY of any Config.Structure.Storeys entry, so nothing states how much headroom it has")
+				:format(where, floorY))
+		if storey then
+			for _, part in ipairs({
+				{ "case", size.Y },
+				{ "trim cap", size.Y + CABINET_TRIM_LIFT + CABINET_TRIM_THICK / 2 },
+				{ "sign anchor", size.Y + CABINET_SIGN_LIFT + CABINET_ANCHOR / 2 },
+				{ "sign", size.Y + CABINET_SIGN_LIFT + CABINET_SIGN_HEIGHT / 2 },
+			}) do
+				check(part[2] <= storey.clear,
+					("%s's %s reaches %.1f studs above the %s storey's floor, which has %.1f studs of clear height — the top %.1f studs are inside the ceiling")
+						:format(where, part[1], part[2], storey.id, storey.clear, part[2] - storey.clear))
+			end
+		end
+	end
+end
+
+-- CABINET AGAINST CABINET, which nothing compared. Both cases are 4 studs deep
+-- and up to 64 long, they stand on one storey 34 studs apart in x, and the
+-- furniture list only ever saw their PEDESTALS — two 5x5 points 14 studs apart
+-- pass the spacing rule while the cases behind them interpenetrate, which is the
+-- same 9x9-against-5x5 mistake the pads made from the other direction.
+for i, track in ipairs(Config.TrackOrder) do
+	local layout = L.Tracks[track]
+	for j = i + 1, #Config.TrackOrder do
+		local other = Config.TrackOrder[j]
+		local otherLayout = L.Tracks[other]
+		if layout and otherLayout and placedTracks[track] and placedTracks[other]
+				and (layout.floor or GROUND) == (otherLayout.floor or GROUND) then
+			local aCentre, aSize = Config.trackCabinet(track)
+			local bCentre, bSize = Config.trackCabinet(other)
+			furniturePairs += 1
+			local gap = boxBoxGap(aCentre, aSize, bCentre, bSize)
+			check(gap >= FURNITURE_GAP,
+				("the %s and %s cabinets both stand on the %s floor and come within %.1f studs of each other (need %d)")
+					:format(track, other, layout.floor or GROUND, gap, FURNITURE_GAP))
+		end
 	end
 end
 
@@ -1695,90 +2114,373 @@ end
 -- the roof already shrinks itself when the floor is on, which is the kind of
 -- arrangement that breaks quietly when either side moves.
 
---- Gap between two axis-aligned boxes in plan, 0 if they overlap. The pads are
---- 9x9 against 5x5 pedestals, so the centre-distance rule miscList uses is the
---- wrong instrument for them: two boxes can be 14 studs apart centre to centre
---- and still interpenetrate.
-local function boxBoxGap(aCentre, aSize, bCentre, bSize)
-	local dx = math.max(math.abs(aCentre.X - bCentre.X) - (aSize.X + bSize.X) / 2, 0)
-	local dz = math.max(math.abs(aCentre.Z - bCentre.Z) - (aSize.Z + bSize.Z) / 2, 0)
-	return math.sqrt(dx * dx + dz * dz)
-end
-
-local PEDESTAL = Vector3.new(5, 1, 5)
-
 for _, floor in ipairs(Config.Floors) do
 	local where = "Floors." .. floor.id
 	local deck, deckAt = floor.deckSize, floor.deckAt
 	local deckHalfX, deckHalfZ = deck.X / 2, deck.Z / 2
 
-	-- THE LADDER IS FLOOR FURNITURE. It stands on the plot floor exactly like a
-	-- buy-button pedestal, and its predecessor was the one piece of floor
-	-- furniture nothing checked: the ground teleport pad at (40, -14)
-	-- interpenetrated the armour cabinet's slot-2 pedestal by three studs by
-	-- one, latent only because the floor was behind a flag and invisible
-	-- because the pads were never in this list.
+	local path = Config.floorBeltPath(floor)
+	local legs = legBoxes(path)
+	local reach = L.MachineOffset + L.MachineFootprint / 2 + floor.rail.thickness
+
+	-- ── THE ZONES ────────────────────────────────────────────────────────────
 	--
-	-- The ladder's footprint is far smaller than the 9x9 pad's, which is most
-	-- of why x = 14 works at all: it clears belt1's pedestal by 2.5 studs and
-	-- the weapons cabinet by 3, and there was no clean 9x9 anywhere on that
-	-- edge. Falsify by moving Floors.ladder.at.X to 10 and watching belt1 fire.
-	local ladder = floor.ladder
-	local ladderBox = Vector3.new(ladder.width, 1, ladder.width)
-	for _, entry in ipairs(miscList) do
-		local gap = boxBoxGap(ladder.at, ladderBox, entry.spot, PEDESTAL)
-		check(gap >= 2,
-			("%s's ladder comes within %.1f studs of %s (need 2)")
-				:format(where, gap, entry.id))
-	end
-	for _, pad in ipairs({
-		{ "RebirthPadAt", L.RebirthPadAt, Vector3.new(12, 1, 12) },
-		{ "ClaimPadAt", L.ClaimPadAt, Vector3.new(14, 1, 14) },
-	}) do
-		local gap = boxBoxGap(ladder.at, ladderBox, pad[2], pad[3])
-		check(gap >= 2,
-			("%s's ladder comes within %.1f studs of %s (need 2)")
-				:format(where, gap, pad[1]))
-	end
-	for _, track in pairs(L.Tracks) do
-		local cabinetGap = boxBoxGap(ladder.at, ladderBox,
-			Vector3.new(track.cabinetX, 0, track.firstZ + (track.slots - 1) * track.spacing / 2),
-			Vector3.new(track.depth, 1, (track.slots - 1) * track.spacing + 8))
-		check(cabinetGap >= 2,
-			("%s's ladder comes within %.1f studs of a side-track cabinet (need 2)")
-				:format(where, cabinetGap))
-	end
-
-	-- IN FRONT OF THE DECK, NOT UNDER IT. Coming up through the slab needs a
-	-- hatch in the deck and a hole in the guard; standing clear of the front
-	-- edge needs neither. A ladder that ends up inside the deck's footprint is
-	-- a climb into the underside of a floor.
-	check(ladder.at.Z > deckAt.Z + deckHalfZ,
-		("%s's ladder is at z=%.1f, inside the deck's footprint (front edge is z=%.1f) — it would climb into the underside of the floor")
-			:format(where, ladder.at.Z, deckAt.Z + deckHalfZ))
-	check(ladder.at.Z - ladder.width / 2 <= deckAt.Z + deckHalfZ + 2,
-		("%s's ladder is %.1f studs clear of the deck edge; you cannot step off it onto the floor it serves")
-			:format(where, ladder.at.Z - ladder.width / 2 - (deckAt.Z + deckHalfZ)))
-
-	-- ...AND THE GUARD HAS TO BE OPEN WHERE IT ARRIVES. buildDeck cuts the
-	-- front run in two around ladder.at.X; if the gap were not over the ladder
-	-- you would climb twenty-two studs into an invisible wall, which is the
-	-- worst kind of geometry bug because there is nothing to see.
-	check(math.abs(ladder.at.X - deckAt.X) + ladder.gate / 2 <= deckHalfX,
-		("%s's railing gap runs past the end of the deck's front edge"):format(where))
-	check(ladder.gate >= ladder.width + 2,
-		("%s's railing gap is %.1f studs for a %.1f-stud ladder; you would arrive against the jamb")
-			:format(where, ladder.gate, ladder.width))
-	check(ladder.rise > 0,
-		("%s's ladder stops level with the deck; it has to overshoot to step off")
+	-- NEW, and the reason the rest of this block could be written at all. A deck
+	-- rectangle plus four belt margins could not say that the back of the storey
+	-- is a production line and the front is an armoury — you had to read
+	-- FloorService and Layout.Tracks and hold both in your head. Now that the
+	-- floor says it, the zones are what the belt and the cabinets are measured
+	-- against instead of the deck, and that is not a stylistic preference:
+	--
+	--   the deck is 116 x 136 and the line zone is 112 x 60, so `side = 10` — the
+	--   exact defect the belt-margin check exists for, a machine strip hanging a
+	--   stud and a half over the railing — fits inside the WIDENED deck with half
+	--   a stud to spare. The check that caught it stopped being able to catch it
+	--   the moment the deck grew. Against the line zone it fails again.
+	local line = floor.zones and floor.zones.line
+	local armoury = floor.zones and floor.zones.armoury
+	check(line ~= nil and armoury ~= nil,
+		("%s must name a `line` zone (the belt is derived from it) and an `armoury` zone (the cabinets stand in it); it has neither or one")
 			:format(where))
 
+	if line and armoury then
+		local zoneNames = {}
+		for name in pairs(floor.zones) do
+			table.insert(zoneNames, name)
+		end
+		table.sort(zoneNames)
+
+		local zoneArea = 0
+		for _, name in ipairs(zoneNames) do
+			local zone = floor.zones[name]
+			check(zone.size.X > 0 and zone.size.Z > 0,
+				("%s zone %q has no extent (%.1f x %.1f); an empty zone silently contains nothing")
+					:format(where, name, zone.size.X, zone.size.Z))
+			local inset = boxInsetBy(deckAt, deck, zone.at, zone.size)
+			check(inset >= 0,
+				("%s zone %q spans x %.1f..%.1f z %.1f..%.1f and hangs %.1f studs off the deck — a zone names part of a floor, not the air beside it")
+					:format(where, name,
+						zone.at.X - zone.size.X / 2, zone.at.X + zone.size.X / 2,
+						zone.at.Z - zone.size.Z / 2, zone.at.Z + zone.size.Z / 2, -inset))
+			zoneArea += zone.size.X * zone.size.Z
+		end
+
+		for i = 1, #zoneNames do
+			for j = i + 1, #zoneNames do
+				local a, b = floor.zones[zoneNames[i]], floor.zones[zoneNames[j]]
+				local into = boxBoxOverlap(a.at, a.size, b.at, b.size)
+				check(into == 0,
+					("%s zones %q and %q interpenetrate by %.1f studs; a square of floor cannot be both a production line and an armoury")
+						:format(where, zoneNames[i], zoneNames[j], into))
+			end
+		end
+
+		-- WHAT THE ZONES DO NOT ACCOUNT FOR, asserted rather than left to be
+		-- noticed. They deliberately do not tile the deck: Config's claim is that
+		-- `line` IS the old deck rectangle to the stud, which leaves it narrower
+		-- than the widened deck, while `armoury` takes the full width. So the
+		-- leftover is exactly two strips down the sides of the line zone, and
+		-- these five checks say so — the four edges that must coincide, and then
+		-- the area that must be left over given they do. A third zone, or either
+		-- of these sliding off an edge, stops matching and has to state its own
+		-- leftover.
+		local sideStrip = (deck.X - line.size.X) / 2
+		local expected = 2 * sideStrip * line.size.Z
+		local leftover = deck.X * deck.Z - zoneArea
+		check(math.abs((line.at.Z - line.size.Z / 2) - (deckAt.Z - deckHalfZ)) < 1e-9,
+			("%s's line zone starts at z=%.1f and the deck's back edge is z=%.1f; the production line is the back of the storey")
+				:format(where, line.at.Z - line.size.Z / 2, deckAt.Z - deckHalfZ))
+		check(math.abs((line.at.Z + line.size.Z / 2) - (armoury.at.Z - armoury.size.Z / 2)) < 1e-9,
+			("%s's line zone ends at z=%.1f and its armoury starts at z=%.1f; the gap between them is floor that belongs to neither")
+				:format(where, line.at.Z + line.size.Z / 2, armoury.at.Z - armoury.size.Z / 2))
+		check(math.abs((armoury.at.Z + armoury.size.Z / 2) - (deckAt.Z + deckHalfZ)) < 1e-9,
+			("%s's armoury ends at z=%.1f and the deck's front edge is z=%.1f")
+				:format(where, armoury.at.Z + armoury.size.Z / 2, deckAt.Z + deckHalfZ))
+		check(math.abs(armoury.size.X - deck.X) < 1e-9 and armoury.at.X == deckAt.X,
+			("%s's armoury is %.1f wide on a %.1f-wide deck; it is meant to be the full width of the storey")
+				:format(where, armoury.size.X, deck.X))
+		check(math.abs(leftover - expected) < 1e-9,
+			("%s's zones leave %.0f square studs of deck unaccounted for; the only floor no zone is meant to name is the two %.1f-stud strips down the sides of the line zone, which is %.0f. Say what the rest is for")
+				:format(where, leftover, sideStrip, expected))
+
+		-- THE BELT IS DERIVED FROM `line`, NOT FROM THE DECK — the claim that let
+		-- the deck grow to span the plot without moving a machine. Recomputed here
+		-- from the zone and its margins: if Config.floorBeltPath is ever re-pointed
+		-- at deckSize, all four corners move outward, the belt spreads across the
+		-- whole storey, and the drop budget, the trigger dwell and the mezzanine
+		-- dropper's position go with it. Every one of these numbers is the number
+		-- it was when the deck WAS this rectangle, or this fires.
+		local b = floor.belt
+		local zoneCorners = {
+			Vector3.new(line.at.X + line.size.X / 2 - b.side, 0, line.at.Z - line.size.Z / 2 + b.back),
+			Vector3.new(line.at.X - line.size.X / 2 + b.side, 0, line.at.Z - line.size.Z / 2 + b.back),
+			Vector3.new(line.at.X - line.size.X / 2 + b.side, 0, line.at.Z + line.size.Z / 2 - b.front),
+			Vector3.new(b.collectorX - b.collectorRun, 0, line.at.Z + line.size.Z / 2 - b.front),
+		}
+		check(#path.points == #zoneCorners,
+			("%s's belt has %d corners; the line zone plus its four margins describes %d")
+				:format(where, #path.points, #zoneCorners))
+		for index, want in ipairs(zoneCorners) do
+			local got = path.points[index]
+			check(got ~= nil
+					and math.abs(got.X - want.X) < 1e-9 and math.abs(got.Z - want.Z) < 1e-9,
+				("%s belt corner %d is at (%.1f, %.1f) but the line zone plus its margins puts it at (%.1f, %.1f) — the belt has to be derived from the zone, or a deck that grows drags every machine on the storey with it")
+					:format(where, index, got and got.X or 0 / 1, got and got.Z or 0 / 1,
+						want.X, want.Z))
+		end
+
+		-- ...and each margin has to clear the machine row it holds. This is the
+		-- scalar form of the check `side = 10` failed, stated against the number
+		-- the row actually reaches rather than against whatever rectangle happens
+		-- to be around it.
+		for _, margin in ipairs({ { "back", b.back }, { "side", b.side }, { "front", b.front } }) do
+			check(margin[2] >= reach,
+				("%s's %s belt margin is %.1f studs in from the line zone, against a machine row that reaches %.1f — a machine on that leg hangs over the railing")
+					:format(where, margin[1], margin[2], reach))
+		end
+
+		-- ...and every strip of every leg — surface, machine row, button row — is
+		-- inside the zone that is supposed to hold them.
+		for _, leg in ipairs(legs) do
+			for _, strip in ipairs({
+				{ "belt base", leg.belt },
+				{ "machine row", leg.machines },
+				{ "buy-button row", leg.buttons },
+			}) do
+				local inset = boxInsetBy(line.at, line.size, strip[2].centre, strip[2].size)
+				check(inset >= 0,
+					("%s: the %s of belt leg %d hangs %.1f studs outside the line zone that holds %s")
+						:format(where, strip[1], leg.index, -inset, tostring(line.holds)))
+			end
+		end
+	end
+
+	-- ── THE STAIRWELL ────────────────────────────────────────────────────────
+	--
+	-- RE-AUTHORED, PREMISE OVERTURNED (see HANDOFF_v6 §3 for the convention).
+	--
+	-- This was `ladder.at.Z > deckAt.Z + deckHalfZ` — "the ladder stands in FRONT
+	-- of the deck's front edge, not under it", with a companion saying it stood
+	-- within stepping distance of that edge. Both were right for the design they
+	-- were written against: the deck covered the back 60 studs of the plot, its
+	-- front edge at z = -8 had open air in front of it, and a truss anywhere
+	-- behind that edge would have climbed into the underside of a slab. Coming up
+	-- THROUGH the deck needed a hatch in the slab and a hole in the guard, and
+	-- neither existed.
+	--
+	-- The deck spans the plot now. There is no air in front of it to stand in, so
+	-- the premise inverts: the truss must be INSIDE the footprint, in the void
+	-- Floors.hatch cuts out of it, and what used to be the defect is the
+	-- requirement. The rule is not relaxed by the change, it is bounded harder —
+	-- "in front of a 136-stud deck" was one inequality, "inside a 10 x 10 hatch
+	-- that is itself clear of the belt, the cabinets and the hopper" is a family.
+	--
+	-- `Floors.ladder.at` is gone with it. It said z = -6.6 while the builder had
+	-- started deriving the truss from the hatch at z = -8, so every clearance
+	-- check below was measuring a box nothing builds — the sixth thing this round
+	-- that read as checked and was not. Both sides read Config.floorLadderAt now.
+	local ladder = floor.ladder
+	local hatch = floor.hatch
+	local ladderBox = Vector3.new(ladder.width, 1, ladder.width)
+	check(hatch ~= nil,
+		("%s has no hatch; a deck that spans the plot has no front edge to stand a ladder in front of, so without one there is no way up to it")
+			:format(where))
+	check(ladder.at == nil,
+		("%s.ladder still carries `at`; the truss's position is derived from the hatch by Config.floorLadderAt and a second copy of it is the disagreement that made every clearance check below measure a box nothing built")
+			:format(where))
+
+	if hatch then
+		local truss = Config.floorLadderAt(floor)
+		local landing = Config.floorLandingAt(floor)
+
+		-- WHICH LIP YOU ARRIVE OVER has to be one of the four. floorLadderAt and
+		-- floorLandingAt both fall through to "+Z" for anything else, so a typo
+		-- here is a truss silently against the wrong side of the hole.
+		local ARRIVALS = { ["+Z"] = true, ["-Z"] = true, ["+X"] = true, ["-X"] = true }
+		check(ARRIVALS[hatch.arrival] == true,
+			("%s's hatch arrives over %q, which is not one of +Z/-Z/+X/-X; both position helpers fall through to \"+Z\" and the guard would be cut on a different lip from the one the truss stands against")
+				:format(where, tostring(hatch.arrival)))
+
+		-- INSIDE THE VOID. Flush against the arrival lip is correct and expected —
+		-- that is what floorLadderAt is for — so this is containment with no
+		-- margin, and it is the hatch's SIZE that has to hold the truss and the
+		-- guard that runs round the other three sides of it.
+		local trussInset = boxInsetBy(hatch.at, hatch.size, truss, ladderBox)
+		check(trussInset >= 0,
+			("%s's truss spans x %.1f..%.1f z %.1f..%.1f and hangs %.1f studs outside a hatch of %.1f x %.1f — it would climb into the underside of the deck")
+				:format(where, truss.X - ladder.width / 2, truss.X + ladder.width / 2,
+					truss.Z - ladder.width / 2, truss.Z + ladder.width / 2,
+					-trussInset, hatch.size.X, hatch.size.Z))
+		local guarded = ladder.width + 2 * floor.rail.thickness
+		check(math.min(hatch.size.X, hatch.size.Z) >= guarded,
+			("%s's hatch is %.1f x %.1f for a %.1f-stud truss inside a %.1f-stud guard, which needs %.1f")
+				:format(where, hatch.size.X, hatch.size.Z, ladder.width,
+					floor.rail.thickness, guarded))
+
+		-- THE GUARD HAS TO BE OPEN WHERE YOU ARRIVE, and the gap and the truss have
+		-- to be on the same lip: the guard closes three sides and `ladder.gate` is
+		-- the opening cut in the fourth, centred on the hatch. If the truss were
+		-- not inside that opening you would climb twenty-two studs into an
+		-- invisible wall, which is the worst kind of geometry bug because there is
+		-- nothing to see.
+		--
+		-- RE-AUTHORED: this used to bound the gap against the DECK's front run
+		-- (`|ladder.at.X - deckAt.X| + gate/2 <= deckHalfX`), because that is the
+		-- run it was cut in. The run it is cut in is the hatch guard now, so the
+		-- bound is the hatch's own lip.
+		local acrossLip = (hatch.arrival == "+X" or hatch.arrival == "-X")
+			and hatch.size.Z or hatch.size.X
+		local trussAcross = (hatch.arrival == "+X" or hatch.arrival == "-X")
+			and math.abs(truss.Z - hatch.at.Z) or math.abs(truss.X - hatch.at.X)
+		check(ladder.gate <= acrossLip,
+			("%s's guard gap is %.1f studs cut in a %.1f-stud lip; it would run past the corner of the hatch and open the sides the guard is there to close")
+				:format(where, ladder.gate, acrossLip))
+		check(ladder.gate >= ladder.width + 2,
+			("%s's guard gap is %.1f studs for a %.1f-stud truss; you would arrive against the jamb")
+				:format(where, ladder.gate, ladder.width))
+		check(trussAcross + ladder.width / 2 <= ladder.gate / 2,
+			("%s's truss stands %.1f studs off the centre of a %.1f-stud gap; the gap is cut on the hatch's centre line, so the climb would end at the guard beside it")
+				:format(where, trussAcross, ladder.gate))
+		check(ladder.rise > 0,
+			("%s's truss stops level with the deck; it has to overshoot to step off")
+				:format(where))
+
+		-- WHERE YOU STAND WHEN YOU STEP OFF has to be slab, not more hole.
+		check(boxPointGap(hatch.at, hatch.size, landing) > 0,
+			("%s's landing is at (%.1f, %.1f), inside its own hatch; you would step off the truss into the hole you climbed through")
+				:format(where, landing.X, landing.Z))
+		check(boxPointGap(deckAt, deck, landing) == 0,
+			("%s's landing is at (%.1f, %.1f), off the deck entirely"):format(where, landing.X, landing.Z))
+
+		-- THE HATCH INSIDE THE DECK, with a stated margin. A hole in a slab needs
+		-- slab round it, and the margin is what that slab is for: the deck's
+		-- perimeter guard stands on the outer edge, the hatch's guard stands on the
+		-- inner one, and between the two there has to be somewhere to put a body —
+		-- 2 studs of it — or the strip between them is a place you can see and
+		-- cannot stand. Derived from the rail rather than typed, because it is the
+		-- rail that eats the difference.
+		local HATCH_EDGE = floor.rail.thickness + 2
+		local hatchInset = boxInsetBy(deckAt, deck, hatch.at, hatch.size)
+		check(hatchInset >= HATCH_EDGE,
+			("%s's hatch comes within %.1f studs of the edge of its own deck (need %.1f: a %.1f-stud perimeter guard and a body between it and the hatch's own guard)")
+				:format(where, hatchInset, HATCH_EDGE, floor.rail.thickness))
+
+		-- CLEAR OF THE PRODUCTION LINE. The hatch is a hole in the floor the belt
+		-- stands on: a leg over it is a conveyor over a void, and a machine or a
+		-- buy button in it is one you cannot reach or cannot buy.
+		--
+		-- Two things this measures that the obvious version does not. The obstacle
+		-- is the hatch PLUS ITS GUARD, which stands on the lip and so reaches half
+		-- a rail thickness further out on every side — measuring the bare rectangle
+		-- against the belt's running surface is what put the guard 0.1 studs inside
+		-- the belt base while appearing to clear it by a stud. And each leg's
+		-- machine row is placed on the side its `outboard` sign NAMES, not on a
+		-- symmetric reach: the mezzanine's return leg carries its row on the armoury
+		-- side, which is the side the stairwell is on, and a symmetric test would
+		-- have reserved the empty side of it too.
+		local guardSize = Vector3.new(hatch.size.X + floor.rail.thickness, 1,
+			hatch.size.Z + floor.rail.thickness)
+		for _, leg in ipairs(legs) do
+			for _, strip in ipairs({
+				{ "belt base", leg.belt },
+				{ "machine row", leg.machines },
+				{ "buy-button row", leg.buttons },
+			}) do
+				local box = strip[2]
+				local into = boxBoxOverlap(hatch.at, guardSize, box.centre, box.size)
+				check(into == 0,
+					("%s's hatch and guard cut %.1f studs into the %s of belt leg %d (that row runs x %.1f..%.1f z %.1f..%.1f) — the hole in the slab is where the %s stands, and nothing is standing there today only because the floor's one machine is on leg 1")
+						:format(where, into, strip[1], leg.index,
+							box.centre.X - box.size.X / 2, box.centre.X + box.size.X / 2,
+							box.centre.Z - box.size.Z / 2, box.centre.Z + box.size.Z / 2,
+							strip[1]))
+			end
+		end
+
+		-- ...AND OF THE HOPPER, by the number that names it. Measured from the
+		-- LANDING — where the climb puts you down — which is what
+		-- belt.ladderClearance has always been about.
+		--
+		-- RE-AUTHORED: the landing used to be `(ladder.at.X, deckAt.Z + deckHalfZ)`,
+		-- the point on the deck's front edge, which was where you arrived while the
+		-- deck stopped at z = -8. After the deck grew that expression returns
+		-- z = 68 — 73 studs from the truss and 90 from the hopper — so the check
+		-- passed by construction, for entirely the wrong reason, exactly like the
+		-- `deckAt.Z + halfZ + 2 > deckAt.Z + halfZ` one this block already carried a
+		-- note about. Config.floorLandingAt is the derivation both sides read.
+		local hopperGap = len(sub(path.collectorAt, landing))
+		check(hopperGap >= floor.belt.ladderClearance,
+			("%s's collector is %.1f studs from the landing at (%.1f, %.1f), where the truss puts you down (need %d)")
+				:format(where, hopperGap, landing.X, landing.Z, floor.belt.ladderClearance))
+
+		-- THE TRUSS IS THE ONE THING ON THIS PLOT THAT STANDS ON TWO STOREYS. It
+		-- runs from the plot floor up through the void to `rise` above the deck, so
+		-- it is the single exception to the same-floor rule the furniture block
+		-- applies: it is checked against EVERY floor's furniture, not against one.
+		-- Its predecessor was the one piece of floor furniture nothing checked at
+		-- all — the ground teleport pad at (40, -14) interpenetrated the armour
+		-- cabinet's slot-2 pedestal by 3x1 studs, latent only because the floor was
+		-- behind a flag.
+		--
+		-- Note what is NOT asserted here, so nobody adds it as an unsatisfiable
+		-- bound: the HATCH is not required to clear the ground floor's misc-button
+		-- spine. It cannot be. The spine's pedestals occupy x 5.5..10.5 and the
+		-- weapons cabinet starts at x = 18, which leaves 7.5 studs for a hatch that
+		-- is 10 wide, at the one x (GateCentre, 14) the stairwell is allowed to be.
+		-- A hole in a ceiling 22 studs over a pedestal collides with nothing; the
+		-- thing that occupies both storeys is the truss inside it, and the truss is
+		-- what these three loops measure. It clears belt1's pedestal by 2.5 studs
+		-- and the weapons cabinet by 3. Falsify by moving the hatch's x to 10.
+		inPlot(where .. "'s truss", truss, ladder.width / 2)
+		for _, entry in ipairs(miscList) do
+			furniturePairs += 1
+			local gap = boxBoxGap(truss, ladderBox, entry.spot, PEDESTAL)
+			check(gap >= FURNITURE_GAP,
+				("%s's truss comes within %.1f studs of %s on the %s floor (need %d) — it passes through every storey")
+					:format(where, gap, entry.id, entry.floor, FURNITURE_GAP))
+		end
+		for _, pad in ipairs(pads) do
+			furniturePairs += 1
+			local gap = boxBoxGap(truss, ladderBox, pad.spot, pad.size)
+			check(gap >= FURNITURE_GAP,
+				("%s's truss comes within %.1f studs of %s (need %d)")
+					:format(where, gap, pad.id, FURNITURE_GAP))
+			-- ...and neither does the hole it climbs through: you would drop out of
+			-- the ceiling onto the pad you claim the plot on.
+			furniturePairs += 1
+			local hatchGap = boxBoxGap(hatch.at, hatch.size, pad.spot, pad.size)
+			check(hatchGap >= FURNITURE_GAP,
+				("%s's hatch is %.1f studs from %s directly below it (need %d)")
+					:format(where, hatchGap, pad.id, FURNITURE_GAP))
+		end
+		for _, solid in ipairs(groundSolids) do
+			furniturePairs += 2
+			local trussGap = boxBoxGap(truss, ladderBox, solid.at, solid.size)
+			check(trussGap >= FURNITURE_GAP,
+				("%s's truss comes within %.1f studs of %s on the plot floor (need %d)")
+					:format(where, trussGap, solid.id, FURNITURE_GAP))
+			local hatchGap = boxBoxGap(hatch.at, hatch.size, solid.at, solid.size)
+			check(hatchGap >= FURNITURE_GAP,
+				("%s's hatch is %.1f studs from %s directly below it (need %d) — you would drop out of the ceiling onto it")
+					:format(where, hatchGap, solid.id, FURNITURE_GAP))
+		end
+		for _, track in ipairs(Config.TrackOrder) do
+			if L.Tracks[track] and placedTracks[track] then
+				local cabinetAt, cabinetSize = Config.trackCabinet(track)
+				furniturePairs += 1
+				local gap = boxBoxGap(truss, ladderBox, cabinetAt, cabinetSize)
+				check(gap >= FURNITURE_GAP,
+					("%s's truss comes within %.1f studs of the %s cabinet (need %d)")
+						:format(where, gap, track, FURNITURE_GAP))
+			end
+		end
+	end
+
 	-- THE DECK'S BELT STAYS ON THE DECK — legs, the machine row outboard of
-	-- each leg, and the buy-button row inboard of it. This is the check that
-	-- catches a belt margin too small for the machines that stand on it, which
-	-- is what `side = 10` was: it needed 11.5 and overshot by a stud and a half.
-	local path = Config.floorBeltPath(floor)
-	local reach = L.MachineOffset + L.MachineFootprint / 2 + floor.rail.thickness
+	-- each leg, and the buy-button row inboard of it. Kept, and now the LOOSER of
+	-- the two: the line-zone version above is the one that still catches
+	-- `side = 10`. This one is what says the zone the belt lives in is on the slab
+	-- rather than beside it.
 	for index, point in ipairs(path.points) do
 		check(math.abs(point.X - deckAt.X) + reach <= deckHalfX,
 			("%s belt corner %d is at x=%.1f; its machine row reaches %.1f studs past the deck rail")
@@ -1789,16 +2491,6 @@ for _, floor in ipairs(Config.Floors) do
 				:format(where, index, point.Z,
 					math.abs(point.Z - deckAt.Z) + reach - deckHalfZ))
 	end
-
-	-- The hopper has to clear where you arrive, or you land on top of the
-	-- collector. Measured against the LANDING — the point on the deck the
-	-- ladder delivers you to — rather than against the ladder itself, which is
-	-- outboard of the deck and would always be far away by construction.
-	local landing = Vector3.new(ladder.at.X, 0, deckAt.Z + deckHalfZ)
-	local hopperGap = len(sub(path.collectorAt, landing))
-	check(hopperGap >= floor.belt.ladderClearance,
-		("%s's collector is %.1f studs from where the ladder lands you (need %d)")
-			:format(where, hopperGap, floor.belt.ladderClearance))
 
 	-- THE DECK AGAINST THE PLOT IT SITS IN. Its back edge is flush to the wall
 	-- and it clears the roof columns by less than a stud; both sides are now
@@ -2361,7 +3053,7 @@ for index = 1, #groundPath.points - 1 do
 	end
 end
 for _, track in ipairs(Config.TrackOrder) do
-	if L.Tracks[track] then
+	if L.Tracks[track] and placedTracks[track] then
 		local centre, size = Config.trackCabinet(track)
 		table.insert(obstacles, { label = ("the %s cabinet"):format(track), centre = centre, size = size })
 	end
@@ -3532,6 +4224,7 @@ print(("first rebirth:     %.3g at minute %.0f (save from %s), %d spine rung(s) 
 	:format(Config.Rebirth.BaseCost, rebirthAt, tostring(rebirthStop), rebirthLeftover))
 print(("credit cap:        build ends at %.0f min, %.0f min of the %d-minute daily window unused")
 	:format(buildMinutes, CREDIT_CAP_MINUTES - buildMinutes, CREDIT_CAP_MINUTES))
+print(("furniture pairs:  %d"):format(furniturePairs))
 print(("rebirth pacing:    each one takes %.2fx as long as the last"):format(costRatio))
 print("\nprogression curve (minutes of grind per purchase):")
 for _, row in ipairs(curve) do
