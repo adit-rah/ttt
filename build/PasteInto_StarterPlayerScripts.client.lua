@@ -500,11 +500,20 @@ __MODULES["Config"] = function()
 	-- COMBAT
 	-- ─────────────────────────────────────────────────────────────────────────────
 
+	-- ORDER MATTERS: index = tier, and profile.batTier stores that INDEX. Inserting
+	-- a tier therefore renumbers everything above it, which is why DataService
+	-- carries a profile-version remap — see LEGACY_BAT_TIERS there. Appending is
+	-- free; inserting is not.
+	--
+	-- ash and crimson slot between oak and void, so every stat on the three
+	-- original tiers is untouched: this is a longer ladder, not a rebalance.
 	Config.Bats = {
-		-- order matters: index = tier, higher tier replaces lower
-		{ id = "starter", name = "Sahur Bat",      variant = "classic", damage = 18, cooldown = 0.55, knockback = 55,  reach = 9,  crit = 0.08 },
-		{ id = "oak",     name = "Oak Sahur Bat",  variant = "golden",  damage = 34, cooldown = 0.5,  knockback = 75,  reach = 10, crit = 0.14 },
-		{ id = "void",    name = "Void Sahur Bat", variant = "void",    damage = 62, cooldown = 0.44, knockback = 105, reach = 11.5, crit = 0.22 },
+		{ id = "starter", name = "Sahur Bat",         variant = "classic", damage = 18, cooldown = 0.55, knockback = 55,  reach = 9,    crit = 0.08 },
+		{ id = "oak",     name = "Oak Sahur Bat",     variant = "golden",  damage = 34, cooldown = 0.5,  knockback = 75,  reach = 10,   crit = 0.14 },
+		{ id = "ash",     name = "Ash Sahur Bat",     variant = "ash",     damage = 42, cooldown = 0.48, knockback = 85,  reach = 10.5, crit = 0.16 },
+		{ id = "crimson", name = "Crimson Sahur Bat", variant = "crimson", damage = 52, cooldown = 0.46, knockback = 95,  reach = 11,   crit = 0.19 },
+		{ id = "void",    name = "Void Sahur Bat",    variant = "void",    damage = 62, cooldown = 0.44, knockback = 105, reach = 11.5, crit = 0.22 },
+		{ id = "eclipse", name = "Eclipse Sahur Bat", variant = "eclipse", damage = 86, cooldown = 0.42, knockback = 130, reach = 12,   crit = 0.26 },
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -522,6 +531,14 @@ __MODULES["Config"] = function()
 	-- is what is stopping you, not because the belt is waiting on it.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
+	-- Prices are set against the DETOUR the verifier measures: how many minutes of
+	-- the income you have when a rung first comes within reach it costs you. The
+	-- ceiling is four minutes, because past that buying a bat means visibly
+	-- stalling the factory — which is the coupling this whole split removes.
+	--
+	-- `batforge` and `batforge2` KEEP THEIR IDS. DataService prunes owned ids it
+	-- cannot find in Config, so renaming them would silently un-buy every weapon
+	-- every existing player owns.
 	Config.WeaponButtons = {
 		{
 			id = "batforge", name = "Bat Forge", price = 2500,
@@ -529,9 +546,24 @@ __MODULES["Config"] = function()
 			blurb = "Unlocks the Oak Sahur Bat.",
 		},
 		{
+			id = "batforge_ash", name = "Ash Bat Forge", price = 60000,
+			kind = "Gear", grants = "ash",
+			blurb = "Unlocks the Ash Sahur Bat.",
+		},
+		{
+			id = "batforge_crimson", name = "Crimson Bat Forge", price = 600000,
+			kind = "Gear", grants = "crimson",
+			blurb = "Unlocks the Crimson Sahur Bat.",
+		},
+		{
 			id = "batforge2", name = "Void Bat Forge", price = 6000000,
 			kind = "Gear", grants = "void",
 			blurb = "Unlocks the Void Sahur Bat.",
+		},
+		{
+			id = "batforge_eclipse", name = "Eclipse Bat Forge", price = 120000000,
+			kind = "Gear", grants = "eclipse",
+			blurb = "Unlocks the Eclipse Sahur Bat.",
 		},
 	}
 
