@@ -465,6 +465,77 @@ Config.FactoryButtons = {
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- THE BAT SILHOUETTE
+--
+-- Every Sahur in this game IS a bat — the character's body, the little one in
+-- its hand, the weapon, the statues. So this one profile decides how the whole
+-- game looks, which is why it lives here where it can be asserted rather than
+-- being five literals inside a model function.
+--
+-- The old shape was a constant 0.44 handle for 31% of the length, then a single
+-- 0.55-tall step to 0.80, then a constant 1.34 barrel for 43%. Measured against
+-- a real bat that is one defect and it is not the diameters: 1.34 over 0.44 is
+-- a ratio of 3.05 against a real bat's 2.8, which is close. It is the SWEEP.
+-- A real bat holds the handle nearly constant for the first third, tapers
+-- CONTINUOUSLY through the middle third, and only then runs out to a
+-- near-constant barrel. The old model spent 11% of its length on that middle
+-- third and crossed it in one step, which is exactly what reads as a stick with
+-- a lump on the end.
+--
+-- Stations are (position along the bat from the knob base, 0..1; diameter in
+-- studs at scale 1) and are linearly interpolated between. Segments are the
+-- stacked cylinders that sample it — more is smoother and costs parts, and
+-- every raider carries two of these.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+Config.BatShape = {
+	Length = 4.80,
+	Segments = 10,
+	-- Fewer segments for bats that are small on screen: the mini-bat in an
+	-- NPC's hand is 0.34 scale and a late wave has 26 of them, each with a
+	-- body bat as well.
+	MiniSegments = 5,
+	MiniScaleBelow = 0.5,   -- ...applied to any bat built below this scale
+	Stations = {
+		{ at = 0.00, dia = 0.66 },  -- knob flare
+		{ at = 0.05, dia = 0.42 },  -- knob shoulder, into the grip
+		{ at = 0.32, dia = 0.46 },  -- end of the handle: 32% of the length
+		{ at = 0.46, dia = 0.62 },  -- \
+		{ at = 0.60, dia = 0.94 },  --  ) the sweep: 32% -> 86%, continuous
+		{ at = 0.72, dia = 1.24 },  -- /
+		{ at = 0.86, dia = 1.34 },  -- barrel at full width
+		{ at = 1.00, dia = 1.16 },  -- rounding into the cap
+	},
+	GrainRings = 2,
+
+	-- Where the knob base sits in MODEL space when the bat IS the character's
+	-- body, in studs at scale 1. buildBatBody centres a bat on its origin, but
+	-- the Sahur's legs hang from -2.15 and its face sits at 1.62 — so the body
+	-- has to be positioned by its base, not its middle, or a change to Length
+	-- silently slides the torso down through the hips.
+	BodyBaseY = -1.66,
+}
+
+--- Barrel diameter at `u` along the bat, 0 at the knob base and 1 at the crown,
+--- in studs at scale 1. Exported because the character's face plate has to sit
+--- flush against the body and the body is this profile — a hardcoded Z offset
+--- floats the face off a barrel that is no longer a constant width.
+function Config.batDiameterAt(u: number): number
+	local stations = Config.BatShape.Stations
+	u = math.clamp(u, 0, 1)
+	for i = 2, #stations do
+		local b = stations[i]
+		if u <= b.at then
+			local a = stations[i - 1]
+			local span = b.at - a.at
+			local t = span > 0 and (u - a.at) / span or 0
+			return a.dia + (b.dia - a.dia) * t
+		end
+	end
+	return stations[#stations].dia
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- COMBAT
 -- ─────────────────────────────────────────────────────────────────────────────
 
