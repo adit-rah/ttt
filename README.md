@@ -1,6 +1,6 @@
 # Tung Tung Tycoon
 
-A complete, end-to-end Roblox tycoon. Six plots ring a central arena.
+A complete, end-to-end Roblox tycoon. Ten plots ring a central arena.
 You buy droppers, each one a louder variation of Tung Tung Tung Sahur, watch
 little angry bat-men ride a conveyor through upgrader arches into your vault,
 and beat back raids with a bat.
@@ -67,15 +67,24 @@ source of truth and re-run the packer after any change.
   applies to everything.
 - **PvP is geographic.** You can only hit another player when you are *both*
   inside the arena ring. Your plot is a safe zone.
-- Every 3½ minutes a **Sahur Raid** spawns at the arena. Raiders chase players,
-  chip your bank on every hit, and pay out well when you knock them down. Every
-  5th wave brings a boss.
-- The **Bat Forge** buttons upgrade your weapon: Sahur Bat → Oak → Void. Bats
-  are ordinary Roblox `Tool`s, so the built-in hotbar and backpack equip them.
+- A **Sahur Raid** lands 30 seconds after the world loads, and the next one 30
+  seconds after you clear the last. Waves start at 6 raiders and climb to 40 —
+  but only 8 can engage you at once, so a bigger wave is reinforcements arriving
+  rather than more raiders swinging. Every 5th wave brings a boss. The state of
+  it is a sign over the statue in the middle of the arena.
+- Halfway through the build you buy **the mezzanine**: a second storey with its
+  own belt, its own dropper, and a pair of lift pads. The weapon and armour
+  cabinets arrive with it.
+- Behind the plot is the **generator yard**. Each rung speeds up the droppers and
+  the belt together — the belt half is what stops a faster line simply running
+  out of room.
+- The **Bat Forge** buttons upgrade your weapon, six tiers from Sahur Bat to
+  Eclipse. Bats are ordinary Roblox `Tool`s, so the built-in hotbar and backpack
+  equip them.
 - The rebirth pad wipes your factory for a compounding payout multiplier.
 
-Roughly **88 minutes** to a full factory, first rebirth around 98 minutes.
-That curve is measured, not guessed — see *Verification* below.
+Roughly **67 minutes** to a full factory, first rebirth about 10 minutes past
+it. That curve is measured, not guessed — see *Verification* below.
 
 ---
 
@@ -147,6 +156,9 @@ Supported `kind` values and what each needs:
 | `Belt` | `speedBonus` | speeds up the conveyor |
 | `Structure` | `structure` (`"walls"` / `"roof"`) | plot buildout |
 | `Gear` | `grants` (a `Config.Bats` id) | anvil display + weapon upgrade |
+| `Armor` | `grants` (a `Config.Armor.Tiers` id) | cabinet shelf + max-health upgrade |
+| `Floor` | `floor` (a `Config.Floors` id) | the mezzanine deck, belt, collector and lift pads |
+| `Power` | `slot`, `factor`, `variant` | a generator in the yard; speeds up droppers and belt together |
 
 To invent a new kind, add an entry to `Tycoon.INSTALLERS`.
 
@@ -166,14 +178,16 @@ python3 tools/verify.py
 ```
 
 Needs the [Luau CLI](https://github.com/luau-lang/luau/releases) on your PATH
-(`luau`, `luau-compile`, `luau-analyze`). It runs four passes:
+(`luau`, `luau-compile`, `luau-analyze`). It runs five passes:
 
 1. **Syntax** — compiles every file in `src/`
 2. **Static analysis** — `luau-analyze`, filtering the Roblox globals it can't know about
-3. **Config integrity** — 370+ assertions: duplicate ids, dangling `requires`,
+3. **Style ownership** — nothing outside `Style.lua` may name a font, an
+   outline or a view distance
+4. **Config integrity** — 1700+ assertions: duplicate ids, dangling `requires`,
    slot collisions, upgraders placed upstream of droppers, plots that would
    overlap on the ring, bats that aren't stronger than the tier below…
-4. **Packed build** — regenerates the paste-in scripts and compiles those too
+5. **Packed build** — regenerates the paste-in scripts and compiles those too
 
 Pass 3 also *simulates the whole economy*, purchase by purchase, and fails the
 build if the curve breaks — a first dropper you can't afford, a mid-game wall
@@ -184,7 +198,7 @@ over 15 minutes, or a total build outside 45–150 minutes. It prints the curve:
   dropper2      0.6m  =                                  @   0.6m
   upgrader1     1.2m  ===                                @   1.9m
   ...
-  dropper10    10.5m  ===============================    @  87.7m
+  dropper10     5.2m  ===============================    @  66.7m
 ```
 
 If you retune prices, run this before you playtest. It catches in one second

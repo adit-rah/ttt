@@ -7,7 +7,8 @@ it covers, and each says explicitly what it does *not* supersede.
 
 | File | Still the reference for |
 | --- | --- |
-| `dev/HANDOFF_v4.md` | progression tracks, the cabinets, waves and raider AI, the verifier |
+| `dev/HANDOFF_v5.md` | the second floor, world text, the belt's triggers, the generator, the verifier |
+| `dev/HANDOFF_v4.md` | progression tracks, raider AI, and the persistence landmines |
 | `dev/HANDOFF_v3.md` | procedural animation — read §2 before touching `SwingAnim.lua` |
 | `dev/HANDOFF_v2.md` | plot geometry, the prototypes, and the parts of the open list v4 does not restate |
 | `dev/HANDOFF.md` | the base game, and the original landmine list |
