@@ -205,6 +205,88 @@ check(not grantedBats[Config.Bats[1].id],
 	("Bats[1] (%s) is the bat you spawn holding; selling it would charge for nothing")
 		:format(tostring(Config.Bats[1].name)))
 
+-- ── the bat silhouette ──────────────────────────────────────────────────────
+-- These exist because the verifier can only see Config.lua. Moving the bat's
+-- profile out of TungModels and into data is what makes a geometric fix in a
+-- model function assertable at all — and the assertion below about the sweep is
+-- precisely the one that would have caught the shape being replaced.
+do
+	local B = Config.BatShape
+
+	check(B.Length > 4.0 and B.Length < 5.6,
+		("BatShape.Length is %.2f studs; the bats' reach values (%.1f..%.1f) are tuned against a ~4.8-stud model and would visibly overshoot")
+			:format(B.Length, Config.Bats[1].reach, Config.Bats[#Config.Bats].reach))
+	check(B.Segments >= 6, ("BatShape.Segments is %d; below about 6 the sweep is a staircase again"):format(B.Segments))
+	check(B.MiniSegments >= 3 and B.MiniSegments <= B.Segments,
+		"MiniSegments is the low-detail count and must be between 3 and Segments")
+	check(B.MiniScaleBelow > 0 and B.MiniScaleBelow < 1,
+		"MiniScaleBelow is a scale threshold, not a count")
+	check(B.GrainRings >= 0 and B.GrainRings <= 4,
+		("BatShape.GrainRings is %d; every one is a part on every bat, and a raider carries two bats"):format(B.GrainRings))
+
+	local stations = B.Stations
+	check(#stations >= 4, "a bat profile needs at least four stations to have a handle, a sweep and a barrel")
+	check(stations[1].at == 0 and stations[#stations].at == 1,
+		"BatShape.Stations must span the whole bat, 0 to 1")
+
+	local minDia, maxDia, maxAt = math.huge, 0, 0
+	for i, station in ipairs(stations) do
+		check(station.at >= 0 and station.at <= 1,
+			("BatShape.Stations[%d].at is %.2f, outside 0..1"):format(i, station.at))
+		check(station.dia > 0, ("BatShape.Stations[%d] has no diameter"):format(i))
+		if i > 1 then
+			check(station.at > stations[i - 1].at,
+				("BatShape.Stations[%d] is not further along the bat than the one before it"):format(i))
+		end
+		-- the knob flares wider than the grip, so it is excluded from the
+		-- handle/barrel ratio below
+		if i > 1 then
+			minDia = math.min(minDia, station.dia)
+			if station.dia > maxDia then
+				maxDia, maxAt = station.dia, station.at
+			end
+		end
+	end
+
+	-- A real bat is about 2.6" over 0.9". Much under 2 and it is a rod; much
+	-- over 3.6 and it is a mallet.
+	local ratio = maxDia / minDia
+	check(ratio >= 2.0 and ratio <= 3.6,
+		("the barrel is %.2fx the handle; a bat is about 2.8x (under 2 is a rod, over 3.6 is a mallet)"):format(ratio))
+
+	-- THE ONE THAT MATTERS. Find how much of the bat's length the diameter
+	-- spends crossing the middle 20-80% of its range. On a real bat that sweep
+	-- is continuous and covers roughly a third of the length. The shape this
+	-- replaced crossed it in a single 0.55-stud step — 11% — which is exactly
+	-- what read as a stick with a lump on the end.
+	local lowMark = minDia + (maxDia - minDia) * 0.2
+	local highMark = minDia + (maxDia - minDia) * 0.8
+	local sweepFrom, sweepTo
+	for u = 0, 1000 do
+		local at = u / 1000
+		local dia = Config.batDiameterAt(at)
+		if not sweepFrom and dia >= lowMark and at > stations[2].at then
+			sweepFrom = at
+		end
+		if not sweepTo and dia >= highMark and at > stations[2].at then
+			sweepTo = at
+		end
+	end
+	local sweep = (sweepFrom and sweepTo) and (sweepTo - sweepFrom) or 0
+	check(sweep >= 0.20,
+		("the handle meets the barrel over %.0f%% of the bat's length; under 20%% it reads as a step rather than a taper — a stick with a lump on the end")
+			:format(sweep * 100))
+
+	-- ...and the barrel has to actually be a barrel, not a spike: full width
+	-- has to arrive before the crown and hold.
+	check(maxAt <= 0.92,
+		("the bat only reaches full width at %.0f%% of its length; there is no barrel left to hit with"):format(maxAt * 100))
+
+	-- The crown rounds IN. A last station wider than the barrel is a hammer.
+	check(stations[#stations].dia <= maxDia,
+		"the last station is wider than the barrel; the cap should round in, not flare out")
+end
+
 -- ── armour ──────────────────────────────────────────────────────────────────
 local seenArmor = {}
 for tier, armor in ipairs(Config.Armor.Tiers) do
