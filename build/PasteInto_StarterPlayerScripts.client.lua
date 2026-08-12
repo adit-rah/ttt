@@ -601,9 +601,16 @@ __MODULES["Config"] = function()
 		-- this, so this is the only number that changes.
 		CashPanel    = { Width = 280, Height = 126 },
 		NextPanel    = { Width = 280, Height = 74 },
-		-- Height is the ordinary panel, TallHeight adds the pending-offline row and
-		-- CompactHeight is the offline-only build that collapses to just that row.
-		SessionPanel = { Width = 280, Height = 216, TallHeight = 258, CompactHeight = 88 },
+		-- Height is the ordinary panel; TallHeight adds the pending-offline row.
+		--
+		-- There used to be a third, CompactHeight = 88: the panel a build with
+		-- Prototypes.Sessions OFF collapsed to, showing the offline row alone. That
+		-- flag graduated in #50 and the local that chose between the two heights was
+		-- deleted with it — but both READS of that local were left behind, in a file
+		-- that had also lost its `Req("Config")`. The number outlived the only state
+		-- that could select it, so it is gone: a height nothing can reach is a
+		-- height that reads as a supported layout and is not one.
+		SessionPanel = { Width = 280, Height = 216, TallHeight = 258 },
 
 		-- THE UPGRADE SHOP IS A SECOND COLUMN, not the bottom of the first. It is
 		-- bottom-anchored and proportionally tall, so on a short screen it grows
@@ -4642,7 +4649,15 @@ __MODULES["CombatClient"] = function()
 
 	local shake = 0
 
-	local function buildHitmarker(gui: ScreenGui)
+	--- The crosshair flash on a landed hit.
+	---
+	--- It goes in HUD.root(), not in the ScreenGui itself. Parenting straight to the
+	--- ScreenGui puts it outside the UIScale AND outside the safe-area padding — the
+	--- exact failure the one-ScreenGui lint exists to prevent, reached through a
+	--- different door, because nothing had to make a second ScreenGui to get there.
+	--- A 44x44 marker at MinScale would have drawn 44 physical pixels on a phone
+	--- while every other 44 in the game drew 27.
+	local function buildHitmarker(root: Instance)
 		local marker = Instance.new("Frame")
 		marker.Name = "Hitmarker"
 		marker.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -4650,7 +4665,7 @@ __MODULES["CombatClient"] = function()
 		marker.Size = UDim2.fromOffset(44, 44)
 		marker.BackgroundTransparency = 1
 		marker.Visible = false
-		marker.Parent = gui
+		marker.Parent = root
 
 		for i, rot in ipairs({ 45, -45 }) do
 			for j, offset in ipairs({ -1, 1 }) do
@@ -4747,12 +4762,12 @@ __MODULES["CombatClient"] = function()
 	end
 
 	function CombatClient.start()
-		local gui = HUD.screenGui()
-		if not gui then
+		local root = HUD.root()
+		if not root then
 			return
 		end
 
-		local marker = buildHitmarker(gui)
+		local marker = buildHitmarker(root)
 		local hideAt = 0
 
 		Net.event("HitFeedback").OnClientEvent:Connect(function(payload)
@@ -5682,9 +5697,13 @@ __MODULES["HUD"] = function()
 		return gui
 	end
 
-	function HUD.screenGui(): ScreenGui
-		return gui
-	end
+	-- THERE IS DELIBERATELY NO HUD.screenGui().
+	--
+	-- There was, and CombatClient used it to parent the hitmarker straight to the
+	-- ScreenGui — outside the UIScale and outside the safe-area padding. The
+	-- one-ScreenGui lint could not see it, because nothing had to make a second
+	-- ScreenGui to escape the first one's layers: an accessor handed the way out.
+	-- Panels get root() or overlay(); the gui itself is this file's business.
 
 	--- The layer persistent furniture belongs on: scaled, and padded clear of the
 	--- notch and the home indicator.
@@ -5725,6 +5744,7 @@ __MODULES["SessionUI"] = function()
 	]]
 
 	local Req = __Req
+	local Config = Req("Config")
 	local Style = Req("Style")
 	local Util = Req("Util")
 	local Net = Req("Net")
@@ -6274,11 +6294,9 @@ __MODULES["SessionUI"] = function()
 				Util.abbreviate(payload.offline.earned), describe(payload.offline.seconds))
 			offlineRow.sub.TextColor3 = PALETTE.gold
 			offlineRow.action.Visible = true
-			panel.Size = UDim2.fromOffset(PANEL_W,
-				compact and UI.SessionPanel.CompactHeight or UI.SessionPanel.TallHeight)
+			panel.Size = UDim2.fromOffset(PANEL_W, UI.SessionPanel.TallHeight)
 		else
 			offlineRow.row.Visible = false
-			panel.Visible = not compact
 			panel.Size = UDim2.fromOffset(PANEL_W, UI.SessionPanel.Height)
 		end
 

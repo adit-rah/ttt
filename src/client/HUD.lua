@@ -842,9 +842,13 @@ function HUD.start()
 	return gui
 end
 
-function HUD.screenGui(): ScreenGui
-	return gui
-end
+-- THERE IS DELIBERATELY NO HUD.screenGui().
+--
+-- There was, and CombatClient used it to parent the hitmarker straight to the
+-- ScreenGui — outside the UIScale and outside the safe-area padding. The
+-- one-ScreenGui lint could not see it, because nothing had to make a second
+-- ScreenGui to escape the first one's layers: an accessor handed the way out.
+-- Panels get root() or overlay(); the gui itself is this file's business.
 
 --- The layer persistent furniture belongs on: scaled, and padded clear of the
 --- notch and the home indicator.

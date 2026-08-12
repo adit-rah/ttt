@@ -180,18 +180,26 @@ python3 tools/verify.py
 ```
 
 Needs the [Luau CLI](https://github.com/luau-lang/luau/releases) on your PATH
-(`luau`, `luau-compile`, `luau-analyze`). It runs five passes:
+(`luau`, `luau-compile`, `luau-analyze`). It runs nine passes:
 
-1. **Syntax** — compiles every file in `src/`
-2. **Static analysis** — `luau-analyze`, filtering the Roblox globals it can't know about
+1. **Syntax** — compiles every file in `src/` and `tools/testing/`
+2. **Static analysis** — `luau-analyze`, with the Roblox globals *named* in a
+   list. Anything else that reads as a global is an undeclared identifier and
+   fails the build; the old blanket "ignore Unknown global" filter is what let a
+   deleted `require` take the entire client down for two rounds
 3. **Style ownership** — nothing outside `Style.lua` may name a font, an
    outline or a view distance
-4. **Config integrity** — 1700+ assertions: duplicate ids, dangling `requires`,
+4. **Prototype flags** — every `Config.Prototypes` flag read is one that exists
+   (a graduated flag is deleted, so a leftover guard reads `nil` forever)
+5. **UI geometry** — no card-scale literal in `src/client`; it comes from `Config.UI`
+6. **One ScreenGui** — `HUD.lua` owns it, so there is exactly one `UIScale`
+7. **Config integrity** — 2300+ assertions: duplicate ids, dangling `requires`,
    slot collisions, upgraders placed upstream of droppers, plots that would
    overlap on the ring, bats that aren't stronger than the tier below…
-5. **Packed build** — regenerates the paste-in scripts and compiles those too
+8. **Runtime specs** — `tools/test.py` runs the game headless under `luau`
+9. **Packed build** — regenerates the paste-in scripts and compiles those too
 
-Pass 3 also *simulates the whole economy*, purchase by purchase, and fails the
+Pass 7 also *simulates the whole economy*, purchase by purchase, and fails the
 build if the curve breaks — a first dropper you can't afford, a mid-game wall
 over 15 minutes, or a total build outside 45–150 minutes. It prints the curve:
 

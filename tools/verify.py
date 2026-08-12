@@ -4,14 +4,20 @@ verify.py — full pre-flight check for Tung Tung Tycoon.
 
     python3 tools/verify.py [--luau /path/to/luau] [--analyze /path/to/luau-analyze]
 
-Runs, in order:
-  1. syntax check on every source file (luau-compile)
-  2. static analysis, ignoring the Roblox globals luau-analyze can't know about
-  3. style ownership: no file but Style.lua names a font, outline or view distance
-  4. UI ownership: no card-scale literal in src/client, and one ScreenGui
-  5. the Config integrity suite in tools/verify_config.lua
-  6. the runtime specs in tools/testing
-  7. regenerates the packed build and syntax-checks that too
+Runs NINE passes, in order. Keep this list and main() in step -- it has said
+five, seven and eight while main() ran nine, and a pass count nobody can trust
+is a pass somebody can quietly delete.
+
+  1. syntax        every file in src/ and tools/testing/ compiles (luau-compile)
+  2. analysis      luau-analyze, with the Roblox globals NAMED (see ROBLOX_GLOBALS)
+                   rather than the whole "Unknown global" class waved through
+  3. style         nothing but Style.lua names a font, an outline or a view distance
+  4. prototypes    every Config.Prototypes flag read is a flag that exists
+  5. ui geometry   no card-scale literal in src/client; it comes from Config.UI
+  6. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
+  7. config        the integrity suite in tools/verify_config.lua
+  8. specs         the runtime specs in tools/testing, via tools/test.py
+  9. packed build  regenerates build/ and syntax-checks the output
 
 Exit code is non-zero if anything fails, so it drops straight into CI.
 """
@@ -29,9 +35,40 @@ SRC = ROOT / "src"
 
 # luau-analyze has no Roblox type definitions, so these are expected noise.
 IGNORED_ANALYSIS = re.compile(
-    r"Unknown global|unknown require|Unknown type|could not be converted|"
+    r"unknown require|Unknown type|could not be converted|"
     r"does not have key 'IsA'|does not have key 'FindFirstChild'"
 )
+
+# THE ROBLOX GLOBALS, NAMED RATHER THAN WAVED THROUGH.
+#
+# `Unknown global` used to be in the filter above, because luau-analyze has no
+# Roblox definitions and reports every Vector3 and every Instance. Dropping the
+# whole diagnostic class is what let `local UI = Config.UI` survive in a file
+# whose `local Config = Req("Config")` had been deleted (#50, SessionUI.lua),
+# together with two reads of a `compact` local deleted in the same hunk. Req
+# re-raises a failed require and Main.client.lua requires SessionUI BEFORE it
+# calls HUD.start(), so the whole client died at boot: no cash label, no
+# NEXT UPGRADE panel, no toasts. The analyser had reported it, in as many words,
+# once per read -- and the filter swallowed all three as noise.
+#
+# So the globals are listed. Anything not on this list is a real undeclared
+# identifier: a deleted require, a typo, or a local removed with its uses left
+# behind. Add a name here only when Roblox adds an API -- never to quiet a
+# finding, because quieting a finding is what this list replaced.
+ROBLOX_GLOBALS = frozenset(
+    """
+    game workspace script shared plugin
+    Instance Enum Font BrickColor Random DateTime
+    Vector2 Vector3 Vector2int16 Vector3int16 CFrame Color3 Color3uint8
+    UDim UDim2 Rect Axes Faces Ray Region3 Region3int16 PathWaypoint
+    NumberRange NumberSequence NumberSequenceKeypoint
+    ColorSequence ColorSequenceKeypoint
+    TweenInfo PhysicalProperties OverlapParams RaycastParams FloatCurveKey
+    task warn tick time delay spawn wait typeof
+    """.split()
+)
+
+UNKNOWN_GLOBAL = re.compile(r"Unknown global '(\w+)'")
 
 GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
@@ -83,16 +120,31 @@ def check_syntax(compiler, files, label):
 def check_analysis(analyzer, files):
     step("static analysis")
     result = run([analyzer, "--formatter=plain"] + [str(p) for p in files])
-    lines = [
-        line for line in (result.stdout + result.stderr).splitlines()
-        if line.strip() and not IGNORED_ANALYSIS.search(line)
-    ]
-    if lines:
-        print(f"  {YELLOW}{len(lines)} finding(s){RESET}")
-        for line in lines:
+    findings = []
+    for line in (result.stdout + result.stderr).splitlines():
+        if not line.strip():
+            continue
+        unknown = UNKNOWN_GLOBAL.search(line)
+        if unknown:
+            name = unknown.group(1)
+            if name in ROBLOX_GLOBALS:
+                continue
+            findings.append(
+                (line, f"{name!r} is undeclared — was a require or a local deleted "
+                       f"with its uses left behind?")
+            )
+            continue
+        if IGNORED_ANALYSIS.search(line):
+            continue
+        findings.append((line, None))
+    if findings:
+        print(f"  {YELLOW}{len(findings)} finding(s){RESET}")
+        for line, hint in findings:
             print("    " + line)
+            if hint:
+                print(f"      {DIM}{hint}{RESET}")
         return False
-    print(f"  {GREEN}ok{RESET}  no findings outside the Roblox-global noise")
+    print(f"  {GREEN}ok{RESET}  every global named is a Roblox global; nothing is undeclared")
     return True
 
 
