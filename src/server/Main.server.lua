@@ -25,6 +25,7 @@ local AdminService = Req("AdminService")
 local UpgradeService = Req("UpgradeService")
 local SessionService = Req("SessionService")
 local FloorService = Req("FloorService")
+local VaultService = Req("VaultService")
 
 -- Shipped, and flagless: the friend bonus turns off by setting
 -- Config.Social.BonusPerFriend to 0, on which start() declines to register its
@@ -61,6 +62,9 @@ AdminService.start()
 -- 5. sessions, floors, and the one remaining prototype
 UpgradeService.start()
 SessionService.start()
+-- after SessionService: it registers listeners on plots that are already built
+-- and reads the projection SessionService owns
+VaultService.start()
 FloorService.start()
 SocialService.start()
 

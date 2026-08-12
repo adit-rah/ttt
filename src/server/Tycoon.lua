@@ -32,6 +32,13 @@ local L = Config.Layout
 local BTN = Config.Style.Button
 local BTN_LOCKED = Config.Style.ButtonLocked
 local W = Config.World
+local OV = Config.Offline.Vault
+
+--- Roblox refuses a part thinner than this on any axis, and silently keeps the
+--- old size rather than erroring — so an empty gauge would keep whatever height
+--- it last had. The floor is here rather than in Config because it is a
+--- property of the engine, not a tuning knob.
+local MIN_PART = 0.05
 
 local Tycoon = {}
 Tycoon.__index = Tycoon
@@ -60,6 +67,12 @@ local COLORS = {
 	preview   = Color3.fromRGB(126, 122, 146),
 	vault     = Color3.fromRGB(146, 110, 72),
 	gold      = Color3.fromRGB(255, 205, 90),
+	-- The gauge in its two voices, on the same two-voice principle as
+	-- Style.Button/ButtonLocked: bright gold is tung you can COLLECT, the
+	-- duller amber is tung you would bank by leaving. Colour is not carrying
+	-- the difference on its own — the empty column is also a sliver rather
+	-- than a full pane, and the prompt is off.
+	vaultPromise = Color3.fromRGB(196, 150, 70),
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -714,9 +727,10 @@ function Tycoon:buildCollector(pathIndex: number?, parent: Instance?, headline: 
 	-- entirely DOWNSTREAM of the sensor: a solid body overlapping the run-off
 	-- walls the belt off and nothing can ever be collected.
 	local _, beltEnd, exitDir = self:leg(self:legCount(pathIndex), pathIndex)
-	local bodyDepth = headline and 10 or 8
-	local bodyWidth = headline and 18 or 13
-	local bodyHeight = headline and 9 or 6.5
+	local V = L.Vault
+	local bodyDepth = headline and V.bodyDepth or V.plainDepth
+	local bodyWidth = headline and V.bodyWidth or V.plainWidth
+	local bodyHeight = headline and V.bodyHeight or V.plainHeight
 	local centre = path.collectorAt
 	local runOff = (centre - beltEnd).Magnitude
 	assert(runOff > bodyDepth / 2 + 3,
@@ -730,7 +744,7 @@ function Tycoon:buildCollector(pathIndex: number?, parent: Instance?, headline: 
 		return self.cf * CFrame.lookAt(point, point + exitDir)
 	end
 
-	newPart(folder, "VaultBase", Vector3.new(bodyWidth, bodyHeight, bodyDepth),
+	local base = newPart(folder, "VaultBase", Vector3.new(bodyWidth, bodyHeight, bodyDepth),
 		alongExit(runOff, bodyHeight / 2, 0), COLORS.vault, Enum.Material.WoodPlanks)
 	newPart(folder, "VaultTrim", Vector3.new(bodyWidth + 1, 1.2, bodyDepth + 1),
 		alongExit(runOff, bodyHeight + 0.4, 0), COLORS.gold, Enum.Material.Metal)
@@ -764,21 +778,126 @@ function Tycoon:buildCollector(pathIndex: number?, parent: Instance?, headline: 
 	end
 
 	-- sign
-	local signAnchor = newPart(folder, "SignAnchor", Vector3.new(1, 1, 1), alongExit(runOff, 12, 0), COLORS.vault, nil, false)
+	local signAnchor = newPart(folder, "SignAnchor", Vector3.new(1, 1, 1), alongExit(runOff, V.signY, 0), COLORS.vault, nil, false)
 	signAnchor.Transparency = 1
 
 	local billboard = Style.billboard(signAnchor, {
-		name = "Sign", width = 20, height = 6, distance = "plot",
+		name = "Sign", width = V.signWidth, height = V.signHeight, distance = OV.Distance,
 	})
 	local label = Style.text(billboard, {
 		name = "Rate", text = "SAHUR VAULT", color = COLORS.gold,
 	})
 	self.vaultLabel = label
 
-	local statue = TungModels.buildStatue("classic", 1.6)
-	statue:PivotTo(alongExit(runOff, 13.5, 0) * CFrame.Angles(0, math.pi, 0))
+	-- THE GAUGE, and it goes on a SIDE of the vault rather than on top of it.
+	--
+	-- The lid is spoken for three times over — trim at bodyHeight + 0.4, the
+	-- 20x6 board spanning y 9..15, the statue above that — so a column on the
+	-- roof would grow straight through two of them. The lateral faces are the
+	-- only clear ones, and of the two only one faces the open floor and the
+	-- aisle you actually walk down on your way off the plot; the other faces
+	-- the side wall two studs away, where nobody will ever stand.
+	--
+	-- WHICH ONE THAT IS depends on the sign of the last leg's exit direction.
+	-- alongExit puts lateral on (-exitDir.Z, 0, exitDir.X); the ground belt
+	-- exits along +Z (BeltEnd -> CollectorAt), which makes that perpendicular
+	-- -X, so a NEGATIVE lateral lands at plot-local x = -35 — the open side —
+	-- and a positive one at x = -53, in the wall. Hence the minus signs below.
+	-- Derived, not measured: UNVERIFIED IN STUDIO.
+	local w = V.window
+	local windowCF = alongExit(runOff, w.y, -w.lateral)
+	local window = newPart(folder, "FillWindow", Vector3.new(w.thickness, w.height, w.width),
+		windowCF, COLORS.gold, Enum.Material.Glass, false)
+	window.Transparency = 0.55
+	-- CanQuery off as well as CanCollide: a pane in front of the vault body is
+	-- exactly the sort of thing a raycast-driven prompt or a camera collision
+	-- would otherwise catch on.
+	window.CanQuery = false
+	self.vaultWindow = window
+
+	-- The gold inside the pane. Built at FULL height and centred, which is the
+	-- pose setVaultGauge measures its offsets against — see vaultFillBase.
+	local fill = newPart(folder, "FillBody",
+		Vector3.new(w.thickness * 0.55, w.height, w.width - 0.8),
+		windowCF, COLORS.gold, Enum.Material.Neon, false)
+	fill.CanQuery = false
+	self.vaultFill = fill
+	self.vaultFillBase = windowCF
+
+	-- The small print, bolted UNDER the pane on the same face. Its own tier:
+	-- the headline is the plot's number and carries to the arena, the
+	-- arithmetic behind it only has to resolve once you are standing here.
+	local detailAnchor = newPart(folder, "DetailAnchor", Vector3.new(1, 1, 1),
+		alongExit(runOff, V.detailSignY, -V.detailLateral), COLORS.vault, nil, false)
+	detailAnchor.Transparency = 1
+	local detailBoard = Style.billboard(detailAnchor, {
+		name = "Detail", width = V.detailWidth, height = V.detailHeight, distance = OV.NearDistance,
+	})
+	self.vaultDetailLabel = Style.text(detailBoard, {
+		name = "Detail", text = "", color = COLORS.gold, weight = "body",
+	})
+
+	-- The claim. A ProximityPrompt rather than a remote, because the intent
+	-- here has no payload at all: there is no amount for a client to send and
+	-- therefore none for the server to have to disbelieve. VaultService hangs
+	-- the handler on it — Tycoon does not know what offline earnings are.
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "CollectOffline"
+	prompt.ActionText = "Collect"
+	prompt.ObjectText = "Sahur Vault"
+	prompt.HoldDuration = OV.PromptHoldSeconds
+	prompt.MaxActivationDistance = OV.PromptDistance
+	prompt.RequiresLineOfSight = false
+	prompt.Enabled = false          -- nothing banked until something is
+	prompt.Parent = base
+	self.vaultPrompt = prompt
+
+	local statue = TungModels.buildStatue("classic", V.statueScale)
+	statue:PivotTo(alongExit(runOff, V.statueY, 0) * CFrame.Angles(0, math.pi, 0))
 	statue.Parent = folder
 	self.vaultStatue = statue
+end
+
+--- Writes the vault gauge. THE ONLY THING IN THIS FILE THAT DRAWS IT, and it
+--- decides nothing: every one of these four values is worked out by
+--- VaultService, which is the module allowed to know what offline earnings are.
+--- Tycoon must not require SessionService — SessionService derives income from
+--- a SAVED profile precisely so it never has to reach for a live plot — so the
+--- arrow points one way and this is the far end of it.
+---
+---   fraction  0..1 of the window, bottom-anchored
+---   headline  the 20x6 board, or nil to hand it back to updateSign
+---   detail    the small print under the pane
+---   waiting   true when there is a real grant to collect, which is also the
+---             only state the prompt is live in
+function Tycoon:setVaultGauge(fraction: number, headline: string?, detail: string?, waiting: boolean?)
+	self.vaultHeadline = headline
+	if self.vaultLabel and self.vaultLabel.Parent and headline then
+		self.vaultLabel.Text = headline
+	end
+	if self.vaultDetailLabel and self.vaultDetailLabel.Parent then
+		self.vaultDetailLabel.Text = detail or ""
+	end
+
+	local fill = self.vaultFill
+	if fill and fill.Parent then
+		local full = L.Vault.window.height
+		-- MIN_PART, not zero: Roblox rejects a part thinner than 0.05 on any
+		-- axis, and an empty gauge that failed to resize would keep whatever
+		-- height it last had — an empty vault reading as a full one.
+		local height = math.max(full * math.clamp(fraction, 0, 1), MIN_PART)
+		fill.Size = Vector3.new(fill.Size.X, height, fill.Size.Z)
+		-- Bottom-anchored. Resizing a part in Roblox grows it about its centre,
+		-- so a gauge left at the window's centre would creep DOWN through the
+		-- vault floor as it filled instead of rising up the pane.
+		fill.CFrame = self.vaultFillBase * CFrame.new(0, (height - full) / 2, 0)
+		fill.Color = waiting and COLORS.gold or COLORS.vaultPromise
+		fill.Transparency = waiting and 0 or 0.4
+	end
+
+	if self.vaultPrompt and self.vaultPrompt.Parent then
+		self.vaultPrompt.Enabled = waiting == true
+	end
 end
 
 function Tycoon:onCollect(hit: BasePart)
@@ -2241,10 +2360,20 @@ function Tycoon:updateSign()
 			label.Text = ("UNCLAIMED PLOT %d\nstep on the pad to claim"):format(self.index)
 		end
 	end
+	-- ONE writer at a time. PlotService repaints every sign on a 3-second beat
+	-- and VaultService recomputes the gauge on its own schedule, so if both
+	-- wrote this label it would flicker between two different sentences a few
+	-- times a minute. When the gauge has a headline it owns the board; when it
+	-- does not — an unclaimed plot, or a build with Prototypes.Offline off —
+	-- the income readout this sign has always carried is the fallback.
 	if self.vaultLabel then
-		self.vaultLabel.Text = ownerName
-			and ("SAHUR VAULT  •  %s/sec"):format(Util.abbreviate(self:incomePerSecond()))
-			or "SAHUR VAULT"
+		if not ownerName then
+			self.vaultLabel.Text = "SAHUR VAULT"
+		elseif self.vaultHeadline then
+			self.vaultLabel.Text = self.vaultHeadline
+		else
+			self.vaultLabel.Text = ("SAHUR VAULT  •  %s/sec"):format(Util.abbreviate(self:incomePerSecond()))
+		end
 	end
 	-- the whole claim rig (pad, beacon, halo, sign) appears and disappears
 	-- together, so an owned plot never shows a stray "free" marker
@@ -2318,6 +2447,11 @@ function Tycoon:release()
 		surface.Color = COLORS.belt
 	end)
 	self.roofSign = nil
+	-- Dropped BEFORE updateSign runs below, not left for VaultService to clear
+	-- on the owned-changed that follows: for those few lines the plot has no
+	-- owner, and the last owner's "leaving now banks 2.4M" would be sitting on
+	-- a free plot's sign while the claim beacon lit up next to it.
+	self:setVaultGauge(0, nil, nil, false)
 
 	self:refreshButtons()
 	self:updateSign()

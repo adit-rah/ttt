@@ -261,6 +261,56 @@ local function computeOffline(profile)
 	}
 end
 
+--- The pending welcome-back grant, or nil. A getter over the live table,
+--- because the vault gauge has to know whether there is anything IN the vault
+--- and `live` is file-local on purpose.
+function SessionService.pendingOffline(player: Player)
+	local entry = live[player]
+	return entry and entry.offline or nil
+end
+
+--- WHAT THE VAULT IS WORTH, in one formula with two modes falling out of it.
+---
+--- Capacity is the most this profile can bank in a single absence: its offline
+--- income per second, for as many hours as its Vault Timer allows. That number
+--- is the PROMISE the gauge makes while you are standing on the plot — "leaving
+--- now banks this much" — and it is the denominator of the fill.
+---
+--- `banked` is what is actually sitting there, which is zero for everyone who
+--- has not just arrived. So the same call answers both halves: an online player
+--- reads an empty column against a big promise, and a returning one reads a
+--- full column against the grant waiting in it.
+---
+--- NOTE WHICH INCOME. incomePerSecondFor, never Tycoon:incomePerSecond — the
+--- boost, the weekend and the friend bonus all reach the latter and are
+--- deliberately excluded from the former. Quoting the boosted rate here would
+--- have the vault promise an offline payout at a rate offline will never pay,
+--- which is a worse bug than quoting nothing.
+function SessionService.vaultProjectionFor(profile, banked: number?)
+	local perSecond = SessionService.incomePerSecondFor(profile)
+	local capHours = SessionService.offlineCapHours(profile)
+	local capacity = perSecond * O.Rate * capHours * 3600
+	banked = math.max(0, tonumber(banked) or 0)
+
+	-- FillMin is the floor rather than zero because the gauge is a physical
+	-- part: see Tycoon.MIN_PART. An empty factory has capacity 0 and would
+	-- divide by it, so it takes the same floor from the other direction — an
+	-- empty vault and a vault with nothing in it look the same, which they are.
+	local fraction = O.Vault.FillMin
+	if capacity > 0 then
+		fraction = math.clamp(banked / capacity, O.Vault.FillMin, 1)
+	end
+
+	return {
+		perSecond = perSecond,
+		rate = O.Rate,
+		capHours = capHours,
+		capacity = capacity,
+		banked = banked,
+		fraction = fraction,
+	}
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- daily streak
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -553,6 +603,27 @@ local function claimOffline(player: Player, entry: Live)
 			Util.abbreviate(pending.earned), SessionService.describeDuration(pending.seconds)),
 	})
 	entry.dirty = true
+end
+
+--- The SECOND way to collect the welcome-back grant: the ProximityPrompt on the
+--- vault, wired by VaultService. Public so that path exists at all, and a thin
+--- wrapper rather than a second implementation — the guard that matters is the
+--- one already inside claimOffline, which clears entry.offline BEFORE it pays.
+--- Two claim paths racing each other is exactly the double-fire that guard was
+--- written for; a prompt held down while the panel button is clicked is now a
+--- reachable way to make them race.
+---
+--- Pushes state itself: the remote path does that at the end of its handler and
+--- the prompt has no handler to do it in, and a panel still offering a grant
+--- that has already been paid is how a player learns the button lies.
+function SessionService.claimOfflineFor(player: Player): boolean
+	local entry = live[player]
+	if not entry or not entry.offline then
+		return false
+	end
+	claimOffline(player, entry)
+	pushState(player)
+	return true
 end
 
 --- THE VAULT TIMER. The welcome-back panel has always named the upgrade that

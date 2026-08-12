@@ -275,6 +275,60 @@ __MODULES["Config"] = function()
 	Config.Layout.RoofColumn = 2.4
 	Config.Layout.RoofColumnInset = 3   -- in from the plot's wall ring
 
+	-- THE VAULT SHELL, which now carries a gauge as well as a sign.
+	--
+	-- Every number below was a literal inside Tycoon:buildCollector — the body's
+	-- 18x9x10, the sign anchor's +12, the statue's +13.5 — which is exactly the
+	-- situation RoofY above was written to fix. The lid is crowded: the trim sits
+	-- at bodyHeight + 0.4, the 20x6 sign spans y 9..15 and the statue stands over
+	-- both of them, so ANYTHING added to this object has to be checked against
+	-- three neighbours at once, and the verifier could not see a single one of
+	-- them while they lived in code.
+	--
+	-- The gauge therefore goes on a LATERAL face rather than on the lid. Note
+	-- which axis that puts it on: the body is 18 WIDE and 10 DEEP, so a lateral
+	-- face measures depth x height, and the window's horizontal extent is bounded
+	-- by bodyDepth, not by bodyWidth. That is the check in verify_config, and it
+	-- is the tighter of the two.
+	Config.Layout.Vault = {
+		-- the headline shell: ground floor only, the one with the statue on it
+		bodyWidth  = 18,
+		bodyHeight = 9,
+		bodyDepth  = 10,
+
+		-- the plain catcher every upper floor gets instead. No sign, no statue and
+		-- no gauge: a second income readout per floor would quote the whole plot.
+		plainWidth  = 13,
+		plainHeight = 6.5,
+		plainDepth  = 8,
+
+		signY = 12,          -- the headline board's anchor, plot-local
+		signWidth = 20,
+		signHeight = 6,
+
+		statueY = 13.5,
+		statueScale = 1.6,
+
+		-- THE FILL GAUGE. A glass inlay half-sunk into the lateral face with a
+		-- neon slab inside it, anchored to the window's BOTTOM edge so it grows
+		-- upward like a filling tank rather than outward from the middle.
+		window = {
+			width     = 7,     -- along the body's depth, because this is a side face
+			height    = 5,
+			y         = 5.5,   -- centre, plot-local; spans 3.0 .. 8.0 of a 9-tall shell
+			thickness = 0.6,
+			lateral   = 9.2,   -- |x| from the body centre: 0.1 sunk, 0.5 proud of the face
+		},
+
+		-- The small print, bolted to the same face UNDER the window. It cannot go
+		-- on the lid: the headline board already owns y 9..15 across the full
+		-- width, and two billboards sharing that volume read as one smeared label.
+		detailSignY  = 1.6,
+		detailWidth  = 9,
+		detailHeight = 2.2,
+		detailLateral = 9.6,
+	}
+
 	-- THE GENERATOR YARD — its own slab, BEHIND the plot rather than part of it.
 	--
 	-- Everything on a plot is placed at a fixed plot-local coordinate, so growing
@@ -1747,6 +1801,39 @@ __MODULES["Config"] = function()
 		CapUpgradeHours = { 12, 16, 24 },
 		CapUpgradeCost = { 250000, 5000000, 120000000 },
 		MinimumSeconds = 120,    -- below this, don't bother with the panel
+
+		-- THE VAULT GAUGE — offline earnings made VISIBLE ON THE WAY OUT.
+		--
+		-- The panel on the way back in was never the missing half. A player who has
+		-- not yet been away has no reason to believe that being away pays, and a
+		-- popup at logout is read by nobody: it appears at the exact moment
+		-- attention has already left. So the vault wears the number instead, all
+		-- session, as a column you watch and a headline you read walking off the
+		-- plot — "leaving now banks X over 8h", which grows with every dropper.
+		--
+		-- Two modes out of one formula. Online, banked is zero, the column reads
+		-- empty and the headline is the PROMISE. On return, banked is the pending
+		-- offline grant, the column is full and the headline is what is WAITING.
+		Vault = {
+			-- Roblox will not accept a zero-height part, and a gauge that vanishes
+			-- when empty reads as "broken" rather than as "nothing yet". The empty
+			-- column keeps a visible sliver.
+			FillMin = 0.02,
+			-- The headline is the plot's own number, read from the arena; the small
+			-- print resolves only when you walk up to it. Names, not studs — the
+			-- numbers behind them belong to Config.Style.Distance.
+			Distance = "plot",
+			NearDistance = "prop",
+			-- How long the column takes to drain after a claim. It has to be long
+			-- enough to WATCH: the drain is the counter ticking, and a gauge that
+			-- snaps to empty shows nothing at all.
+			PulseSeconds = 2.0,
+			-- ProximityPrompt reach. Deliberately short and unrelated to the label
+			-- tiers above: a prompt you can trigger from across the plot is a
+			-- prompt you trigger by accident.
+			PromptDistance = 12,
+			PromptHoldSeconds = 0.4,
+		},
 	}
 
 	-- ── session loops ────────────────────────────────────────────────────────────
