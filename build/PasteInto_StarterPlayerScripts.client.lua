@@ -1624,12 +1624,31 @@ __MODULES["SwingAnim"] = function()
 
 	local ZERO = Vector3.new(0, 0, 0)
 
-	--- Poses are torso-space Euler angles in DEGREES: (pitch, yaw, roll).
+	--- Poses are ABSOLUTE torso-space Euler angles in DEGREES: (pitch, yaw, roll),
+	--- measured from the rig's bind pose — arms hanging straight down. They are not
+	--- offsets from whatever the character is currently doing; see applyJoint.
 	---
-	--- The arms hang along -Y at rest and the character faces -Z, so:
-	---   pitch +90  = arm straight forward       pitch +180 = arm straight up
-	---   roll  +90  = right arm out to the side  roll  -90  = across the body
-	---   yaw        = twist
+	--- THE FRAME. A Roblox character faces -Z, up is +Y, and +X is its own right.
+	--- Both arms hang along -Y from their shoulder. So for an ARM joint:
+	---
+	---   pitch    0 = straight down      90 = straight forward (horizontal)
+	---          180 = straight up       270 = straight back
+	---   roll   +90 = out to the character's RIGHT      -90 = out to its LEFT
+	---   yaw        = twist about the limb's own length; unused here
+	---
+	--- Note "right" and "left" are the CHARACTER's, in torso space, for BOTH arms.
+	--- The rotation is applied to each arm identically, so a symmetric two-handed
+	--- pose needs the off-arm's roll to reach ACROSS: positive roll swings the left
+	--- arm toward the body's centre, negative swings it away. Mirroring the sign,
+	--- which is the intuitive thing to write, splays the arms apart instead.
+	---
+	--- ORDER MATTERS. CFrame.Angles(x, y, z) composes as Rx * Ry * Rz, so roll is
+	--- applied first, in the hanging frame, and pitch then swings the result up and
+	--- over. Reading a pair as "point the arm here, then rotate to there" is why
+	--- these are easier to reason about as a cone than as a direction vector.
+	---
+	--- For a TORSO joint (R15 Waist, R6 RootJoint) the same frame applies to the
+	--- upper body: pitch +  leans BACK, pitch - leans forward, yaw + turns left.
 	---
 	--- Choreography lives here rather than in Config because these are drawings,
 	--- not balance. The timings that damage depends on ARE in Config.
@@ -1642,25 +1661,33 @@ __MODULES["SwingAnim"] = function()
 	--- among these. Alternating the direction is what makes a chain read as a combo
 	--- instead of as the same swing played four times.
 	SwingAnim.SWINGS = {
-		{   -- 1. overhead diagonal, right shoulder down to left hip
+		{   -- 1. overhead diagonal: cocked over the right shoulder, chopped down
+		    -- across to the left hip. Wind-up pitch is past 180 so the arm goes up
+		    -- and BEHIND; at 158 it was raised up and in FRONT, which reads as
+		    -- presenting the bat rather than loading a swing.
 			name = "diagonal",
-			windUp = P(Vector3.new(158, 0, 34), Vector3.new(24, 0, -18), Vector3.new(0, -32, 0)),
-			strike = P(Vector3.new(52, 0, -42), Vector3.new(38, 0, 16), Vector3.new(6, 28, 0)),
+			windUp = P(Vector3.new(200, 0, 35), Vector3.new(30, 0, -20), Vector3.new(-6, -30, 0)),
+			strike = P(Vector3.new(60, 0, -45), Vector3.new(20, 0, 25), Vector3.new(-10, 28, 0)),
 		},
-		{   -- 2. backhand, low left sweeping up to the right
+		{   -- 2. backhand: low across the body on the left, swept up to the right
 			name = "backhand",
-			windUp = P(Vector3.new(44, 0, -72), Vector3.new(20, 0, 14), Vector3.new(0, 34, 0)),
-			strike = P(Vector3.new(104, 0, 58), Vector3.new(34, 0, -12), Vector3.new(-4, -30, 0)),
+			windUp = P(Vector3.new(55, 0, -70), Vector3.new(25, 0, 20), Vector3.new(-4, 32, 0)),
+			strike = P(Vector3.new(120, 0, 60), Vector3.new(30, 0, -18), Vector3.new(-8, -30, 0)),
 		},
-		{   -- 3. flat horizontal sweep across the body
+		{   -- 3. flat horizontal sweep, right to left. Pitch stays near 90 through
+		    -- both poses so the arm stays level and only the roll travels — that
+		    -- level arc is what distinguishes it from the two diagonals.
 			name = "sweep",
-			windUp = P(Vector3.new(96, 0, 74), Vector3.new(28, 0, 10), Vector3.new(0, -40, 0)),
-			strike = P(Vector3.new(92, 0, -66), Vector3.new(46, 0, -20), Vector3.new(0, 38, 0)),
+			windUp = P(Vector3.new(95, 0, 75), Vector3.new(28, 0, -22), Vector3.new(0, -38, 0)),
+			strike = P(Vector3.new(95, 0, -68), Vector3.new(35, 0, 28), Vector3.new(0, 36, 0)),
 		},
-		{   -- 4. two-handed overhead slam; the combo finisher
+		{   -- 4. two-handed overhead slam; the combo finisher. Both rolls are
+		    -- POSITIVE so the off-arm reaches across to meet the bat instead of
+		    -- splaying away from it, and the torso leans back to load and forward
+		    -- to land — which is the way round it was NOT written the first time.
 			name = "slam",
-			windUp = P(Vector3.new(176, 0, 12), Vector3.new(170, 0, -12), Vector3.new(-18, 0, 0)),
-			strike = P(Vector3.new(26, 0, -6), Vector3.new(32, 0, 6), Vector3.new(26, 0, 0)),
+			windUp = P(Vector3.new(196, 0, 6), Vector3.new(190, 0, 20), Vector3.new(16, 0, 0)),
+			strike = P(Vector3.new(58, 0, -4), Vector3.new(62, 0, 12), Vector3.new(-24, 0, 0)),
 		},
 	}
 
@@ -1733,26 +1760,23 @@ __MODULES["SwingAnim"] = function()
 		}
 	end
 
-	--- Apply a torso-space rotation to a joint, layered on top of whatever the
-	--- Animator put there this frame. See the header: conjugating by the joint's
-	--- own C0 rotation is what makes one set of angles work on both rigs.
+	--- Blend a joint from whatever the Animator put there this frame toward an
+	--- absolute torso-space pose. See the header: conjugating by the joint's own
+	--- C0 rotation is what makes one set of angles work on both rigs.
 	---
 	--- `state` carries, per joint, the Transform we wrote last frame and the pose
-	--- we layered it onto. That pair is what stops the offset compounding. Normally
-	--- the Animator resets Transform before every PreSimulation, so `current` is a
+	--- we blended from. That pair is what stops the pose drifting. Normally the
+	--- Animator resets Transform before every PreSimulation, so `current` is a
 	--- fresh pose and there is nothing to undo — but it does NOT reset when the
 	--- Animator is throttled (it reuses the previous frame's pose for distant
 	--- characters, see Animator.EvaluationThrottled) or when no track is playing at
 	--- all. In those frames Transform is still exactly what we wrote, so without
-	--- this check we would multiply our own offset into itself every frame and the
-	--- arm would wind away like a propeller.
+	--- this check a partial-weight blend would creep toward the target a little
+	--- more every frame and the pose would slowly overshoot into a pose we never
+	--- authored.
 	local function applyJoint(state, joint: Instance?, rotation: Vector3, weight: number)
 		if not joint or not joint.Parent then
 			return
-		end
-		local target = angles(rotation)
-		if weight < 1 then
-			target = CFrame.identity:Lerp(target, weight)
 		end
 
 		local current = (joint :: any).Transform
@@ -1761,8 +1785,19 @@ __MODULES["SwingAnim"] = function()
 		end
 		state.baseline[joint] = current
 
+		-- BLEND toward the pose, do not stack onto it. Multiplying our rotation
+		-- into the Animator's looks right until you remember the tool-hold has
+		-- already raised the right arm about 90 degrees forward: a 200-degree
+		-- wind-up then becomes 290 and the bat starts somewhere behind the
+		-- character's back. Poses are absolute, so the Animator's contribution is
+		-- what we blend FROM, not something we add to.
+		--
+		-- Lerping also makes the weight envelope do the whole job of easing in and
+		-- out: at weight 0 this is exactly the Animator's pose, so a swing can
+		-- start and end without a pop and without ever needing to restore anything.
 		local basis = (joint :: any).C0.Rotation
-		local result = (basis:Inverse() * target * basis) * current
+		local target = basis:Inverse() * angles(rotation) * basis
+		local result = current:Lerp(target, weight)
 		;(joint :: any).Transform = result
 		state.written[joint] = result
 	end
@@ -1796,14 +1831,26 @@ __MODULES["SwingAnim"] = function()
 			local a = (f - windUpEnd) / (strikeEnd - windUpEnd)
 			pose = lerpPose(swing.windUp, swing.strike, a * a)
 		else
-			local a = (f - strikeEnd) / (1 - strikeEnd)
-			pose = lerpPose(swing.strike, REST, 1 - (1 - a) * (1 - a))
+			-- HOLD the strike and let the weight envelope carry the arm back into
+			-- whatever the Animator is doing. This used to lerp the pose toward
+			-- REST, which is the bind pose — arms hanging at the sides — so at full
+			-- weight the arm was driven down to the hip and then snapped back up to
+			-- the tool-hold as the weight finally released. That was the odd ending.
+			pose = swing.strike
 		end
 
-		-- ease in over 60ms, ease out over the last 25% of the swing
-		local weight = math.min(1, t / 0.06)
-		if f > 0.75 then
-			weight = math.min(weight, (1 - f) / 0.25)
+		-- The weight envelope does all the easing in and out of the Animator's
+		-- pose, so it has to reach 1 before the strike and be back at 0 by the end.
+		local weight
+		local riseEnd = windUpEnd * 0.6
+		if f < riseEnd then
+			local a = f / riseEnd
+			weight = a * a
+		elseif f < strikeEnd then
+			weight = 1
+		else
+			local a = (f - strikeEnd) / (1 - strikeEnd)
+			weight = (1 - a) * (1 - a)
 		end
 		return pose, weight
 	end
