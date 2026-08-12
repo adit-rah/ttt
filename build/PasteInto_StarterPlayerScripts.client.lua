@@ -244,6 +244,22 @@ __MODULES["Config"] = function()
 	-- see. If you raise the arm, raise this.
 	Config.Layout.MachineTopY = Config.Layout.BeltY + 5.5
 
+	-- HOW THICK A TRIGGER ON THE BELT HAS TO BE.
+	--
+	-- Everything that happens to a drop happens in a Touched handler on a volume it
+	-- passes through: the upgrader that multiplies it, the corner that turns it,
+	-- the collector that pays it. A drop crosses one of those in
+	-- thickness / beltSpeed seconds, and it is only seen if a physics step lands
+	-- inside that window. Roblox demotes an unattended assembly to 60 Hz and then
+	-- to 30 Hz — and an unattended plot is the COMMON case on a ten-player server,
+	-- because nine of the ten people are standing somewhere else.
+	--
+	-- The upgrader's scanner was 1 stud. At the shipped top belt speed of 37 that
+	-- is 27 milliseconds, which is already under a 30 Hz step: a drop can pass
+	-- through an upgrader between two physics frames and pay out unrefined. At 5
+	-- studs it is 135ms, which is four steps even demoted.
+	Config.Layout.TriggerThickness = 5
+
 	-- THE ROOF, which the mezzanine deck has to share a plot with.
 	--
 	-- These were literals inside the `roof` structure installer. They are here

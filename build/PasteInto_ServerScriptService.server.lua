@@ -244,6 +244,22 @@ __MODULES["Config"] = function()
 	-- see. If you raise the arm, raise this.
 	Config.Layout.MachineTopY = Config.Layout.BeltY + 5.5
 
+	-- HOW THICK A TRIGGER ON THE BELT HAS TO BE.
+	--
+	-- Everything that happens to a drop happens in a Touched handler on a volume it
+	-- passes through: the upgrader that multiplies it, the corner that turns it,
+	-- the collector that pays it. A drop crosses one of those in
+	-- thickness / beltSpeed seconds, and it is only seen if a physics step lands
+	-- inside that window. Roblox demotes an unattended assembly to 60 Hz and then
+	-- to 30 Hz — and an unattended plot is the COMMON case on a ten-player server,
+	-- because nine of the ten people are standing somewhere else.
+	--
+	-- The upgrader's scanner was 1 stud. At the shipped top belt speed of 37 that
+	-- is 27 milliseconds, which is already under a 30 Hz step: a drop can pass
+	-- through an upgrader between two physics frames and pay out unrefined. At 5
+	-- studs it is 135ms, which is four steps even demoted.
+	Config.Layout.TriggerThickness = 5
+
 	-- THE ROOF, which the mezzanine deck has to share a plot with.
 	--
 	-- These were literals inside the `roof` structure installer. They are here
@@ -7194,7 +7210,16 @@ __MODULES["Tycoon"] = function()
 			return {
 				{ "Post", Vector3.new(1.8, 6, 1.8), L.MachineOffset, 3, true },
 				{ "Beam", Vector3.new(reach, 1.5, 2.2), (L.MachineOffset - L.BeltWidth / 2) / 2, L.BeltY + 4.6, false },
+				-- The VISIBLE plate. One stud thick, because that is what it should
+				-- look like: a scanner beam, not a wall. It no longer does the
+				-- catching.
 				{ "Scanner", Vector3.new(L.BeltWidth, 3.6, 1), 0, L.BeltY + 1.8, false },
+				-- ...and the volume that actually catches drops, invisible and five
+				-- studs deep. Same split, and for the same reason, as the
+				-- mezzanine's invisible guard behind its visible railing: what a
+				-- thing looks like and what it has to physically be are different
+				-- questions, and a 1-stud trigger loses drops at belt speed.
+				{ "ScanTrigger", Vector3.new(L.BeltWidth, 3.6, L.TriggerThickness), 0, L.BeltY + 1.8, false },
 			}
 		end,
 	}
@@ -7501,8 +7526,14 @@ __MODULES["Tycoon"] = function()
 		-- path costs N-1 triggers and still no per-frame work.
 		for index = 1, legs - 1 do
 			local _, _, _, length = self:leg(index, pathIndex)
-			local turn = newPart(folder, "TurnSensor" .. index, Vector3.new(width + 1, 6, 2.5),
-				self:segmentCF(index, length, 0, surfaceY + 3, pathIndex),
+			-- Widened like the others, but SHIFTED DOWNSTREAM by half the extra so
+			-- its leading face stays where it was. An early trigger is harmless at
+			-- an upgrader or the collector; at a corner it retargets the drop
+			-- before it has reached the corner, which cuts it and puts it on the
+			-- next leg off-centre.
+			local turn = newPart(folder, "TurnSensor" .. index,
+				Vector3.new(width + 1, 6, L.TriggerThickness),
+				self:segmentCF(index, length + (L.TriggerThickness - 2.5) / 2, 0, surfaceY + 3, pathIndex),
 				Color3.new(1, 1, 1), Enum.Material.Neon, false)
 			turn.Transparency = 1
 			turn.CanQuery = false
@@ -7749,7 +7780,11 @@ __MODULES["Tycoon"] = function()
 			COLORS.belt, Enum.Material.SmoothPlastic)
 		ramp.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
 
-		local sensor = newPart(folder, "Sensor", Vector3.new(L.BeltWidth + 3, 7, 2.5), alongExit(2, L.BeltY + 3, 0),
+		-- The most expensive one to miss: a drop the collector does not see is 100%
+		-- of its value, not a fraction of it. It sits at alongExit(2), so at 5
+		-- thick it spans -0.5..4.5 against a vault mouth at 6.5 — no overlap.
+		local sensor = newPart(folder, "Sensor", Vector3.new(L.BeltWidth + 3, 7, L.TriggerThickness),
+			alongExit(2, L.BeltY + 3, 0),
 			Color3.fromRGB(255, 255, 255), Enum.Material.Neon, false)
 		sensor.Transparency = 1
 		sensor.CanTouch = true
@@ -8236,7 +8271,16 @@ __MODULES["Tycoon"] = function()
 		model.Name = "Ghost_" .. def.id
 
 		local parts = self:buildMasses(def, model, variant.wood, Enum.Material.ForceField)
-		for _, part in pairs(parts) do
+		for name, part in pairs(parts) do
+			-- A mass whose whole job is to be an invisible trigger has no business
+			-- in a silhouette: drawn as a ghost, the upgrader's 5-stud ScanTrigger
+			-- is a translucent slab across the belt where the real machine shows a
+			-- 1-stud beam. The ghost is built from the same description as the real
+			-- machine ON PURPOSE, so this is the one exception and it is named.
+			if name:match("Trigger$") then
+				part:Destroy()
+				continue
+			end
 			part.Transparency = 0.72
 			-- A ghost must never be walked into, stood on, or hit by a drop: it is
 			-- a drawing, and the belt has to run through where it will stand.
@@ -8640,11 +8684,20 @@ __MODULES["Tycoon"] = function()
 		beam.Material = variant.material
 		Fx.applyVariant(beam, variant)
 
+		-- The plate you see, which catches nothing...
 		local scanner = parts.Scanner
 		scanner.Color = variant.light and variant.light.color or variant.wood
 		scanner.Material = Enum.Material.Neon
 		scanner.Transparency = 0.55
-		scanner.CanTouch = true
+		scanner.CanTouch = false
+
+		-- ...and the volume that does, which you don't. Five studs deep so a drop
+		-- cannot cross it between two physics steps on a plot nobody is standing on.
+		local trigger = parts.ScanTrigger
+		trigger.Transparency = 1
+		trigger.CanTouch = true
+		trigger.CanQuery = false
+		trigger.CastShadow = false
 
 		local billboard = Style.billboard(beam, {
 			name = "Plate", width = 11, height = 3, distance = "machine", offset = 3,
@@ -8655,7 +8708,7 @@ __MODULES["Tycoon"] = function()
 		})
 
 		local flagName = "up_" .. def.id
-		scanner.Touched:Connect(function(hit)
+		trigger.Touched:Connect(function(hit)
 			local drop = hit.Parent
 			if not drop or not drop:IsA("Model") then
 				return

@@ -110,7 +110,16 @@ local MACHINE_MASSES = {
 		return {
 			{ "Post", Vector3.new(1.8, 6, 1.8), L.MachineOffset, 3, true },
 			{ "Beam", Vector3.new(reach, 1.5, 2.2), (L.MachineOffset - L.BeltWidth / 2) / 2, L.BeltY + 4.6, false },
+			-- The VISIBLE plate. One stud thick, because that is what it should
+			-- look like: a scanner beam, not a wall. It no longer does the
+			-- catching.
 			{ "Scanner", Vector3.new(L.BeltWidth, 3.6, 1), 0, L.BeltY + 1.8, false },
+			-- ...and the volume that actually catches drops, invisible and five
+			-- studs deep. Same split, and for the same reason, as the
+			-- mezzanine's invisible guard behind its visible railing: what a
+			-- thing looks like and what it has to physically be are different
+			-- questions, and a 1-stud trigger loses drops at belt speed.
+			{ "ScanTrigger", Vector3.new(L.BeltWidth, 3.6, L.TriggerThickness), 0, L.BeltY + 1.8, false },
 		}
 	end,
 }
@@ -417,8 +426,14 @@ function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
 	-- path costs N-1 triggers and still no per-frame work.
 	for index = 1, legs - 1 do
 		local _, _, _, length = self:leg(index, pathIndex)
-		local turn = newPart(folder, "TurnSensor" .. index, Vector3.new(width + 1, 6, 2.5),
-			self:segmentCF(index, length, 0, surfaceY + 3, pathIndex),
+		-- Widened like the others, but SHIFTED DOWNSTREAM by half the extra so
+		-- its leading face stays where it was. An early trigger is harmless at
+		-- an upgrader or the collector; at a corner it retargets the drop
+		-- before it has reached the corner, which cuts it and puts it on the
+		-- next leg off-centre.
+		local turn = newPart(folder, "TurnSensor" .. index,
+			Vector3.new(width + 1, 6, L.TriggerThickness),
+			self:segmentCF(index, length + (L.TriggerThickness - 2.5) / 2, 0, surfaceY + 3, pathIndex),
 			Color3.new(1, 1, 1), Enum.Material.Neon, false)
 		turn.Transparency = 1
 		turn.CanQuery = false
@@ -665,7 +680,11 @@ function Tycoon:buildCollector(pathIndex: number?, parent: Instance?, headline: 
 		COLORS.belt, Enum.Material.SmoothPlastic)
 	ramp.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
 
-	local sensor = newPart(folder, "Sensor", Vector3.new(L.BeltWidth + 3, 7, 2.5), alongExit(2, L.BeltY + 3, 0),
+	-- The most expensive one to miss: a drop the collector does not see is 100%
+	-- of its value, not a fraction of it. It sits at alongExit(2), so at 5
+	-- thick it spans -0.5..4.5 against a vault mouth at 6.5 — no overlap.
+	local sensor = newPart(folder, "Sensor", Vector3.new(L.BeltWidth + 3, 7, L.TriggerThickness),
+		alongExit(2, L.BeltY + 3, 0),
 		Color3.fromRGB(255, 255, 255), Enum.Material.Neon, false)
 	sensor.Transparency = 1
 	sensor.CanTouch = true
@@ -1152,7 +1171,16 @@ function Tycoon:buildGhost(def)
 	model.Name = "Ghost_" .. def.id
 
 	local parts = self:buildMasses(def, model, variant.wood, Enum.Material.ForceField)
-	for _, part in pairs(parts) do
+	for name, part in pairs(parts) do
+		-- A mass whose whole job is to be an invisible trigger has no business
+		-- in a silhouette: drawn as a ghost, the upgrader's 5-stud ScanTrigger
+		-- is a translucent slab across the belt where the real machine shows a
+		-- 1-stud beam. The ghost is built from the same description as the real
+		-- machine ON PURPOSE, so this is the one exception and it is named.
+		if name:match("Trigger$") then
+			part:Destroy()
+			continue
+		end
 		part.Transparency = 0.72
 		-- A ghost must never be walked into, stood on, or hit by a drop: it is
 		-- a drawing, and the belt has to run through where it will stand.
@@ -1556,11 +1584,20 @@ Tycoon.INSTALLERS.Upgrader = function(self, def, silent)
 	beam.Material = variant.material
 	Fx.applyVariant(beam, variant)
 
+	-- The plate you see, which catches nothing...
 	local scanner = parts.Scanner
 	scanner.Color = variant.light and variant.light.color or variant.wood
 	scanner.Material = Enum.Material.Neon
 	scanner.Transparency = 0.55
-	scanner.CanTouch = true
+	scanner.CanTouch = false
+
+	-- ...and the volume that does, which you don't. Five studs deep so a drop
+	-- cannot cross it between two physics steps on a plot nobody is standing on.
+	local trigger = parts.ScanTrigger
+	trigger.Transparency = 1
+	trigger.CanTouch = true
+	trigger.CanQuery = false
+	trigger.CastShadow = false
 
 	local billboard = Style.billboard(beam, {
 		name = "Plate", width = 11, height = 3, distance = "machine", offset = 3,
@@ -1571,7 +1608,7 @@ Tycoon.INSTALLERS.Upgrader = function(self, def, silent)
 	})
 
 	local flagName = "up_" .. def.id
-	scanner.Touched:Connect(function(hit)
+	trigger.Touched:Connect(function(hit)
 		local drop = hit.Parent
 		if not drop or not drop:IsA("Model") then
 			return

@@ -830,6 +830,31 @@ for _, path in ipairs(Config.BeltPaths) do
 	end
 end
 
+-- TRIGGER DWELL. Everything that happens to a drop happens in a Touched
+-- handler on a volume it passes through — the upgrader that multiplies it, the
+-- corner that turns it, the collector that pays it — and it is only seen if a
+-- physics step lands inside the window it spends crossing that volume.
+--
+-- Roblox demotes an unattended assembly to 60 Hz and then to 30 Hz, and an
+-- unattended plot is the COMMON case on a ten-player server: nine of the ten
+-- people are standing somewhere else. So the window has to clear a 30 Hz step
+-- with margin, not an ideal 240 Hz one.
+--
+-- This is the check that says the 1-stud scanner was already too thin at
+-- shipped speeds, never mind faster ones.
+local PHYSICS_STEP_DEMOTED = 1 / 30
+local maxSpeedBonus = 0
+for _, def in ipairs(Config.Buttons) do
+	if def.kind == "Belt" then
+		maxSpeedBonus += def.speedBonus
+	end
+end
+local maxBeltSpeed = L.BeltSpeed + maxSpeedBonus
+local dwell = L.TriggerThickness / maxBeltSpeed
+check(dwell >= PHYSICS_STEP_DEMOTED * 2,
+	("a drop crosses a %.1f-stud trigger in %.0f ms at the top belt speed of %.0f studs/s; Roblox demotes an unattended assembly to 30 Hz (%.0f ms steps), so under two of those an upgrader can be tunnelled through and the drop pays out unrefined")
+		:format(L.TriggerThickness, dwell * 1000, maxBeltSpeed, PHYSICS_STEP_DEMOTED * 1000))
+
 check(totalInFlight <= Config.Economy.MaxDropsPerPlot,
 	("the plot carries %.0f drops at peak across %d belts but MaxDropsPerPlot is %d — the cap would silently eat income; raise BeltSpeed or thin a dropper")
 		:format(totalInFlight, #Config.BeltPaths, Config.Economy.MaxDropsPerPlot))
@@ -1672,6 +1697,8 @@ print(("solo clear:        %.0fs with %s, %.0fs with %s (deadline %ds)")
 print(("belt:              %.0f studs, %.1fs transit, %.0f drops in flight at peak (%.0f%% full)")
 	:format(beltLength, transit, inFlight, inFlight * DROP_LENGTH / beltLength * 100))
 if floorReport then print(floorReport) end
+print(("trigger dwell:     %.0f ms at %.0f studs/s (30 Hz step is %.0f ms)")
+	:format(dwell * 1000, maxBeltSpeed, PHYSICS_STEP_DEMOTED * 1000))
 print(("plot drop budget:  %.0f in flight across %d belts, cap %d (%.0f%%)")
 	:format(totalInFlight, #Config.BeltPaths, Config.Economy.MaxDropsPerPlot,
 		totalInFlight / Config.Economy.MaxDropsPerPlot * 100))
