@@ -1792,9 +1792,80 @@ check(elapsed / 60 >= MIN_TOTAL_MINUTES,
 check(elapsed / 60 <= MAX_TOTAL_MINUTES,
 	("full build takes %.0f min (want <= %d) — too grindy"):format(elapsed / 60, MAX_TOTAL_MINUTES))
 
-local rebirthMinutes = Config.Rebirth.BaseCost / endgameIncome / 60
-check(rebirthMinutes >= 4 and rebirthMinutes <= 40,
-	("first rebirth is %.1f min of endgame income; want 4-40"):format(rebirthMinutes))
+-- ── the sixty-minute credit cap ─────────────────────────────────────────────
+--
+-- Roblox's `7 Day Playtime Per User` signal counts "a maximum of 60 minutes per
+-- user, per experience, per day". Everything past minute sixty of one sitting
+-- is work the ranking system cannot see. When this file was written the build
+-- was 88 minutes, which meant the last three purchases — a third of the ladder
+-- — were worth exactly zero to discovery.
+--
+-- TWO CHECKS, NOT ONE, and deliberately so. MAX_BUILD_MINUTES is an opinion
+-- someone may legitimately want to widen; CREDIT_CAP_MINUTES is a platform fact
+-- that has to keep refusing when they do.
+local CREDIT_CAP_MINUTES = 60
+local buildMinutes = elapsed / 60
+
+check(buildMinutes <= CREDIT_CAP_MINUTES,
+	("the full build takes %.0f min, but Roblox credits a maximum of %d minutes per user " ..
+		"per experience per day — the last %.0f minutes of the ladder are work the ranking " ..
+		"signal cannot see"):format(buildMinutes, CREDIT_CAP_MINUTES, buildMinutes - CREDIT_CAP_MINUTES))
+
+-- ── when the rebirth pad actually lights up ─────────────────────────────────
+--
+-- REPLACES `BaseCost / endgameIncome`, which asked how many minutes of FULLY
+-- BUILT income the pad costs. That is a reasonable-sounding question and it is
+-- the wrong one: a pad priced at a perfectly sensible 10 minutes of endgame
+-- income lands at minute 77 of a 67-minute build, and the old check passed
+-- while nobody ever saw a rebirth. It measured the price and called it pacing.
+--
+-- This walks the curve instead, over every point where a player might stop
+-- buying and start saving, and takes the earliest wall-clock minute the pad
+-- could be pressed. Cash is ~0 after each purchase, so the money for the pad
+-- has to be earned from that point at that point's income.
+local MIN_FIRST_REBIRTH_MINUTES = 25
+local MAX_FIRST_REBIRTH_MINUTES = 50
+local MIN_REBIRTH_LEFTOVER = 2
+
+local rebirthAt, rebirthStop, rebirthStopIndex = math.huge, nil, 0
+for index, row in ipairs(curve) do
+	if row.income > 0 then
+		local minute = row.at / 60 + Config.Rebirth.BaseCost / row.income / 60
+		if minute < rebirthAt then
+			rebirthAt, rebirthStop, rebirthStopIndex = minute, row.id, index
+		end
+	end
+end
+
+check(rebirthAt <= MAX_FIRST_REBIRTH_MINUTES,
+	("the first rebirth is not affordable until minute %.0f (want <= %d) — rebirth is what " ..
+		"makes this game repeatable, and past the credit cap almost nobody will ever see one")
+		:format(rebirthAt, MAX_FIRST_REBIRTH_MINUTES))
+check(rebirthAt >= MIN_FIRST_REBIRTH_MINUTES,
+	("the first rebirth is affordable at minute %.0f (want >= %d) — there is no factory to " ..
+		"have prestiged out of yet, so the multiplier is paying for nothing")
+		:format(rebirthAt, MIN_FIRST_REBIRTH_MINUTES))
+
+-- SOMETHING OBVIOUSLY WAITING. The brief asks for "one satisfying run that
+-- finishes in about 50 minutes, and then something obviously waiting that they
+-- can't get to tonight. End on wanting more, not on being done."
+--
+-- This is that sentence as a property of the config rather than as a hope. It
+-- has margin rather than sitting on a knife edge, because PriceRung = 4 makes a
+-- leftover of 3 structural.
+local rebirthLeftover = #curve - rebirthStopIndex
+check(rebirthLeftover >= MIN_REBIRTH_LEFTOVER,
+	("the first rebirth is affordable at minute %.0f with only %d spine rung(s) unbought " ..
+		"(want >= %d) — the session ends on being finished rather than on a choice")
+		:format(rebirthAt, rebirthLeftover, MIN_REBIRTH_LEFTOVER))
+
+-- The pad must not be a mid-game button. If it costs less than the eighth most
+-- expensive thing on the spine it stops being a fork and becomes a rung.
+local spinePrices = Config.spinePricesDescending()
+check(Config.Rebirth.BaseCost >= (spinePrices[8] or 0),
+	("the rebirth pad costs %.3g, less than the eighth-most-expensive spine rung (%.3g) — " ..
+		"at that price it is a purchase on the ladder rather than the choice that ends the run")
+		:format(Config.Rebirth.BaseCost, spinePrices[8] or 0))
 
 -- WHAT EACH GENERATOR RUNG ACTUALLY EARNS YOU BEFORE THE BUILD ENDS.
 --
@@ -1832,7 +1903,8 @@ local function curveRow(id: string)
 	return nil
 end
 
-local buildMinutes = elapsed / 60
+-- buildMinutes is declared with the credit-cap check above, where it is first
+-- needed; the floor's own checks read the same one.
 local floorReport = nil
 for _, floor in ipairs(Config.Floors) do
 	local row = curveRow(floor.button)
@@ -2047,9 +2119,16 @@ check(elapsed / 60 + sideTotal <= MAX_TOTAL_MINUTES,
 -- rebirth must stay worth doing: payouts compound, so income has to grow at
 -- least as fast as the cost of the next rebirth or the loop dead-ends
 check(Config.Rebirth.MultiplierPerRebirth > 1, "MultiplierPerRebirth must be > 1")
+-- TIGHTENED from (1, 2). That band was wide enough to admit both a ladder that
+-- is over in an afternoon and one whose top half nobody will ever see, which is
+-- most of the range it was supposed to be ruling out. Now that the pad is priced
+-- as a rung rather than as a constant, this is the number that decides whether
+-- MaxRebirths = 25 means anything.
 local costRatio = Config.Rebirth.CostGrowth / Config.Rebirth.MultiplierPerRebirth
-check(costRatio > 1 and costRatio < 2,
-	("each rebirth takes %.2fx longer than the last; want between 1x and 2x"):format(costRatio))
+check(costRatio >= 1.2 and costRatio <= 1.7,
+	("each rebirth takes %.2fx as long as the last; want 1.2-1.7. Under 1.2 the whole " ..
+		"25-rung ladder is an afternoon; over 1.7 the top of it is a number nobody will see")
+		:format(costRatio))
 
 -- ── report ──────────────────────────────────────────────────────────────────
 print(("checks run:        %d"):format(checks))
@@ -2081,7 +2160,10 @@ print(("trigger dwell:     %.0f ms at %.0f studs/s (30 Hz step is %.0f ms)")
 print(("plot drop budget:  %.0f in flight across %d belts, cap %d (%.0f%%)")
 	:format(totalInFlight, #Config.BeltPaths, Config.Economy.MaxDropsPerPlot,
 		totalInFlight / Config.Economy.MaxDropsPerPlot * 100))
-print(("first rebirth:     %.3g  (+%.0f min after full build)"):format(Config.Rebirth.BaseCost, rebirthMinutes))
+print(("first rebirth:     %.3g at minute %.0f (save from %s), %d spine rung(s) still unbought")
+	:format(Config.Rebirth.BaseCost, rebirthAt, tostring(rebirthStop), rebirthLeftover))
+print(("credit cap:        build ends at %.0f min, %.0f min of the %d-minute daily window unused")
+	:format(buildMinutes, CREDIT_CAP_MINUTES - buildMinutes, CREDIT_CAP_MINUTES))
 print(("rebirth pacing:    each one takes %.2fx as long as the last"):format(costRatio))
 print("\nprogression curve (minutes of grind per purchase):")
 for _, row in ipairs(curve) do
