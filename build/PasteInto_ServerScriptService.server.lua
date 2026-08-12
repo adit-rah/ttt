@@ -47,13 +47,24 @@ __MODULES["Config"] = function()
 	Config.World = {
 		-- Plot count is derived from the place's player cap at the bottom of this
 		-- file, so every player who can join has somewhere to build.
-		MinPlots = 6,
-		MaxPlots = 24,           -- geometry budget ceiling; raise MaxPlayers to match
-		PlotGap = 20,            -- clear studs between neighbouring plot edges
-		RingGap = 24,            -- clear studs between concentric plot rings
-		MinPlotRadius = 180,     -- how far the FIRST ring sits from the centre
+		--
+		-- FEWER, BIGGER PLOTS. 24 small plots packed onto two rings read as one
+		-- continuous industrial estate: you could not tell where your factory
+		-- ended and your neighbour's began, and the second ring put a third of
+		-- the server behind a wall of other people's roofs. Ten plots on a single
+		-- ring, each half again as large with double the gap, means every plot is
+		-- visibly its own building with open grass around it.
+		--
+		-- Set the place's MaxPlayers to MaxPlots. It is a Studio setting, not a
+		-- scriptable one, so nothing here can enforce it; PlotService just leaves
+		-- late joiners plotless until someone disconnects.
+		MinPlots = 4,
+		MaxPlots = 10,           -- geometry budget ceiling; set MaxPlayers to match
+		PlotGap = 44,            -- clear studs between neighbouring plot edges
+		RingGap = 48,            -- clear studs between concentric plot rings
+		MinPlotRadius = 210,     -- closest the first ring may ever sit to the centre
 
-		PlotSize = Vector3.new(88, 2, 104),
+		PlotSize = Vector3.new(120, 2, 140),
 		BaseplateSize = 1800,
 		ArenaRadius = 70,
 		ArenaWallHeight = 22,
@@ -66,12 +77,25 @@ __MODULES["Config"] = function()
 		PlotSurfaceY   = 0.60,   -- plot-local y = 0 lives here, not on the ground
 	}
 
+	-- Most plots a single ring may hold before we start a second one. At MaxPlots
+	-- = 10 this is never reached, which is the point: everybody lives on one ring,
+	-- at the same distance from the arena, and can see every other factory. The
+	-- multi-ring path is kept (and still verified) so raising MaxPlots later
+	-- degrades gracefully instead of producing a 900-stud ring.
+	Config.World.MaxPlotsPerRing = 14
+
 	--- Where each plot sits: { radius, angle, ring }.
 	---
-	--- A single ring would work, but its radius grows linearly with the plot
-	--- count — 24 plots on one ring puts the far plots 650 studs out, which is a
-	--- 35-second walk. Instead we fill an inner ring first and only start a
-	--- second ring once the first is full, so most players stay close to spawn.
+	--- The ring is sized to the plots on it rather than fixed. Two plots on a ring
+	--- big enough for fourteen would sit a quarter of the map apart for no reason,
+	--- and a fixed small radius would bunch fourteen shoulder to shoulder. So we
+	--- solve for the radius that puts exactly `PlotGap` studs of grass between
+	--- neighbouring plot EDGES, and only clamp it up to MinPlotRadius so the inner
+	--- ring never eats the arena.
+	---
+	--- Note this is a chord, not an arc: neighbouring plot centres are
+	--- `2r·sin(π/n)` apart, and using the arc length instead (the old
+	--- `2πr/pitch` capacity formula) silently under-spaces small rings.
 	function Config.plotPlacements(count: number)
 		local pitch = Config.World.PlotSize.X + Config.World.PlotGap
 		local depth = Config.World.PlotSize.Z + Config.World.RingGap
@@ -79,11 +103,18 @@ __MODULES["Config"] = function()
 		local placements = {}
 		local remaining = count
 		local ring = 0
+		local previousRadius = nil
 
 		while remaining > 0 do
-			local radius = Config.World.MinPlotRadius + ring * depth
-			local capacity = math.max(1, math.floor((2 * math.pi * radius) / pitch))
-			local take = math.min(remaining, capacity)
+			local take = math.min(remaining, Config.World.MaxPlotsPerRing)
+
+			-- radius at which the chord between neighbours equals the pitch
+			local radius = (take > 1) and (pitch / (2 * math.sin(math.pi / take))) or 0
+			radius = math.max(radius, Config.World.MinPlotRadius)
+			-- and never closer than a full plot depth + gap to the ring inside it
+			if previousRadius then
+				radius = math.max(radius, previousRadius + depth)
+			end
 
 			for i = 1, take do
 				table.insert(placements, {
@@ -94,6 +125,7 @@ __MODULES["Config"] = function()
 				})
 			end
 
+			previousRadius = radius
 			remaining -= take
 			ring += 1
 		end
@@ -133,27 +165,52 @@ __MODULES["Config"] = function()
 	--    +---------------+
 	--        front edge (faces the arena)
 	Config.Layout = {
-		BeltStart  = Vector3.new( 32, 0, -40),   -- back-right corner
-		BeltCorner = Vector3.new(-30, 0, -40),   -- back-left corner
-		BeltEnd    = Vector3.new(-30, 0,  30),   -- front-left
-		CollectorAt = Vector3.new(-30, 0, 40),
+		BeltStart  = Vector3.new( 46, 0, -56),   -- back-right corner
+		BeltCorner = Vector3.new(-44, 0, -56),   -- back-left corner
+		BeltEnd    = Vector3.new(-44, 0,  46),   -- front-left
+		CollectorAt = Vector3.new(-44, 0, 58),
 
 		BeltY = 1.4,             -- TOP of the belt surface; low enough to step onto
 		BeltWidth = 8,
 		-- Fast enough that the belt never runs bumper-to-bumper. At 14 the peak
 		-- spawn rate put ~80 drops in flight against a 70 cap: the belt was over
-		-- capacity and jammed on its own. verify_config models this.
-		BeltSpeed = 22,          -- studs/sec, base
+		-- capacity and jammed on its own. verify_config models this. The bigger
+		-- plot lengthened the run from 142 to 206 studs, which is 45% more time in
+		-- flight, so this went up with it. Belt speed does not affect income.
+		BeltSpeed = 28,          -- studs/sec, base
 
-		MachineOffset = 7,       -- droppers/upgraders sit this far OUTBOARD of the belt
-		ButtonOffset = 9,        -- buy buttons sit this far INBOARD, facing the floor
+		MachineOffset = 8,       -- droppers/upgraders sit this far OUTBOARD of the belt
+		ButtonOffset = 11,       -- buy buttons sit this far INBOARD, facing the floor
 		ButtonHeight = 1.4,      -- total button height; must be low enough to run over
 		MachineFootprint = 5,    -- machines are this deep along the belt
 
 		-- distance along leg 1 (back edge) for dropper slot 1..10
-		DropperDist  = { 4, 10, 16, 22, 28, 34, 40, 46, 52, 58 },
+		DropperDist  = { 5, 14, 23, 32, 41, 50, 59, 68, 77, 86 },
 		-- distance along leg 2 (left edge) for upgrader slot 1..6
-		UpgraderDist = { 10, 21, 32, 43, 54, 65 },
+		UpgraderDist = { 14, 30, 46, 62, 78, 94 },
+
+		-- Buttons with no machine on the belt stand in a row down the middle of the
+		-- open floor, in purchase order, so the aisle you walk reads as a queue.
+		MiscButtons = {
+			walls     = Vector3.new(8, 0, -34),
+			batforge  = Vector3.new(8, 0, -20),
+			belt1     = Vector3.new(8, 0,  -6),
+			roof      = Vector3.new(8, 0,   8),
+			batforge2 = Vector3.new(8, 0,  22),
+		},
+		MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
+
+		RebirthPadAt = Vector3.new(42, 0, 40),   -- front-right, away from the vault
+		ClaimPadAt   = Vector3.new(14, 0, 52),   -- front-centre-right, on the aisle
+		-- Where the owner lands on claim and on every respawn: just inside the
+		-- gateway, on the aisle, looking down plot-local -Z at the machines.
+		OwnerSpawnAt = Vector3.new(14, 5, 44),
+
+		-- The front wall's gateway. It sits over the open aisle on the right, NOT
+		-- at x = 0: the belt and the vault occupy the left half of the plot, and a
+		-- centred gate would open onto machinery.
+		GateCentre = 14,
+		GateWidth = 22,
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -2587,11 +2644,14 @@ __MODULES["MapBuilder"] = function()
 		local pad = newPart(model, "Pad", W.PlotSize, cf * CFrame.new(0, -W.PlotSize.Y / 2, 0), PALETTE.pad, Enum.Material.Concrete)
 		pad:SetAttribute("PlotIndex", index)
 
-		-- glowing border
+		-- glowing border. The pad is no longer square, so the front/back strips key
+		-- off half the DEPTH and the side strips off half the width; using one
+		-- `half` for both left the front and back edges floating inside the pad.
 		local half = W.PlotSize.X / 2
+		local halfZ = W.PlotSize.Z / 2
 		local edges = {
-			{ Vector3.new(W.PlotSize.X, 1, 2), CFrame.new(0, 0.2, half) },
-			{ Vector3.new(W.PlotSize.X, 1, 2), CFrame.new(0, 0.2, -half) },
+			{ Vector3.new(W.PlotSize.X, 1, 2), CFrame.new(0, 0.2, halfZ) },
+			{ Vector3.new(W.PlotSize.X, 1, 2), CFrame.new(0, 0.2, -halfZ) },
 			{ Vector3.new(2, 1, W.PlotSize.Z), CFrame.new(half, 0.2, 0) },
 			{ Vector3.new(2, 1, W.PlotSize.Z), CFrame.new(-half, 0.2, 0) },
 		}
@@ -2600,9 +2660,11 @@ __MODULES["MapBuilder"] = function()
 			e.CanCollide = false
 		end
 
-		-- Claim totem, parked in the front-left corner. It used to stand at x = 0,
-		-- which is directly on top of the pad you are meant to step on.
-		local totemCF = cf * CFrame.new(-half + 12, 6, half - 8)
+		-- Claim totem, parked in the front-RIGHT corner. It used to stand at x = 0,
+		-- directly on top of the pad you are meant to step on, and then in the
+		-- front-left corner, which is where Tycoon builds the vault — the two
+		-- models were interpenetrating on every plot.
+		local totemCF = cf * CFrame.new(half - 12, 6, halfZ - 8)
 		local totem = newPart(model, "Totem", Vector3.new(4, 12, 4), totemCF, Color3.fromRGB(70, 52, 40), Enum.Material.Wood)
 		totem:SetAttribute("PlotIndex", index)
 
@@ -3202,14 +3264,9 @@ __MODULES["Tycoon"] = function()
 	Tycoon.__index = Tycoon
 
 	-- Buttons that aren't attached to a belt machine sit in a row on the open
-	-- floor, spaced further apart than a button is wide.
-	local MISC_SPOTS = {
-		walls     = Vector3.new(4, 0, -28),
-		batforge  = Vector3.new(4, 0, -18),
-		batforge2 = Vector3.new(4, 0, -8),
-		belt1     = Vector3.new(4, 0, 2),
-		roof      = Vector3.new(4, 0, 12),
-	}
+	-- floor, spaced further apart than a button is wide. Positions live in Config
+	-- so they scale with the plot instead of drifting into the wall when it grows.
+	local MISC_SPOTS = L.MiscButtons
 
 	local COLORS = {
 		frame     = Color3.fromRGB(118, 122, 130),
@@ -3286,7 +3343,7 @@ __MODULES["Tycoon"] = function()
 		return self
 	end
 
-	--- Buy buttons are built on first claim, not at server start: 24 plots x 21
+	--- Buy buttons are built on first claim, not at server start: every plot x 21
 	--- buttons is a lot of instances to create just to immediately hide them.
 	function Tycoon:ensureButtons()
 		if self.buttonsBuilt then
@@ -3313,12 +3370,13 @@ __MODULES["Tycoon"] = function()
 		return self.cf * CFrame.new(x, y, z)
 	end
 
-	--- Where the owner is placed on claim and on every respawn. x = 17 is the
-	--- clear lane between the dropper bodies (|x| <= 14.5) and the buy-button
-	--- pedestals (|x| >= 20.5).
+	--- Where the owner is placed on claim and on every respawn: just inside the
+	--- gateway, on the open aisle, looking down plot-local -Z. A CFrame looks
+	--- along its own -Z by default, so with no rotation you land facing the length
+	--- of the factory with the belt on your left and the buy buttons ahead of you.
 	function Tycoon:ownerSpawnCFrame(): CFrame
-		-- middle of the open floor, facing the machines
-		return self:at(12, 5, 6) * CFrame.Angles(0, math.rad(90), 0)
+		local spot = L.OwnerSpawnAt
+		return self:at(spot.X, spot.Y, spot.Z)
 	end
 
 	-- ── belt ─────────────────────────────────────────────────────────────────────
@@ -3611,7 +3669,7 @@ __MODULES["Tycoon"] = function()
 		folder.Parent = self.model
 		self.claimFolder = folder
 
-		local frontX, frontZ = 12, W.PlotSize.Z / 2 - 12
+		local frontX, frontZ = L.ClaimPadAt.X, L.ClaimPadAt.Z
 
 		-- The pad itself. Safe to centre now that the factory is hidden while
 		-- unclaimed -- there is nothing standing on the frontage to hide behind.
@@ -3670,13 +3728,14 @@ __MODULES["Tycoon"] = function()
 		folder.Parent = self.model
 		self.rebirthFolder = folder
 
+		local spot = L.RebirthPadAt
 		local pad = newPart(folder, "RebirthPad", Vector3.new(12, 1.2, 12),
-			self:at(32, 0.9, 26), Color3.fromRGB(200, 120, 255), Enum.Material.Neon)
+			self:at(spot.X, 0.9, spot.Z), Color3.fromRGB(200, 120, 255), Enum.Material.Neon)
 		pad.CanCollide = false
 		self.rebirthPad = pad
 
 		local ring = newPart(folder, "RebirthRing", Vector3.new(0.4, 16, 16),
-			self:at(32, 0.3, 26) * CFrame.Angles(0, 0, math.pi / 2),
+			self:at(spot.X, 0.3, spot.Z) * CFrame.Angles(0, 0, math.pi / 2),
 			Color3.fromRGB(120, 60, 200), Enum.Material.Neon, false)
 		ring.Shape = Enum.PartType.Cylinder
 
@@ -4139,8 +4198,9 @@ __MODULES["Tycoon"] = function()
 			local h = 13
 			-- The gateway sits over the open floor on the right, NOT at x = 0:
 			-- the belt and vault occupy the left half, so a centred gate would
-			-- open onto machinery.
-			local gateCentre, gateWidth = 14, 18
+			-- open onto machinery. Config owns the numbers so they scale with
+			-- the plot and can be checked against the aisle by the verifier.
+			local gateCentre, gateWidth = L.GateCentre, L.GateWidth
 			local gateLeft = gateCentre - gateWidth / 2
 			local gateRight = gateCentre + gateWidth / 2
 			local leftSpan = gateLeft + halfX

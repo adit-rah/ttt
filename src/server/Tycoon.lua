@@ -31,14 +31,9 @@ local Tycoon = {}
 Tycoon.__index = Tycoon
 
 -- Buttons that aren't attached to a belt machine sit in a row on the open
--- floor, spaced further apart than a button is wide.
-local MISC_SPOTS = {
-	walls     = Vector3.new(4, 0, -28),
-	batforge  = Vector3.new(4, 0, -18),
-	batforge2 = Vector3.new(4, 0, -8),
-	belt1     = Vector3.new(4, 0, 2),
-	roof      = Vector3.new(4, 0, 12),
-}
+-- floor, spaced further apart than a button is wide. Positions live in Config
+-- so they scale with the plot instead of drifting into the wall when it grows.
+local MISC_SPOTS = L.MiscButtons
 
 local COLORS = {
 	frame     = Color3.fromRGB(118, 122, 130),
@@ -115,7 +110,7 @@ function Tycoon.new(index: number, parent: Instance)
 	return self
 end
 
---- Buy buttons are built on first claim, not at server start: 24 plots x 21
+--- Buy buttons are built on first claim, not at server start: every plot x 21
 --- buttons is a lot of instances to create just to immediately hide them.
 function Tycoon:ensureButtons()
 	if self.buttonsBuilt then
@@ -142,12 +137,13 @@ function Tycoon:at(x: number, y: number, z: number): CFrame
 	return self.cf * CFrame.new(x, y, z)
 end
 
---- Where the owner is placed on claim and on every respawn. x = 17 is the
---- clear lane between the dropper bodies (|x| <= 14.5) and the buy-button
---- pedestals (|x| >= 20.5).
+--- Where the owner is placed on claim and on every respawn: just inside the
+--- gateway, on the open aisle, looking down plot-local -Z. A CFrame looks
+--- along its own -Z by default, so with no rotation you land facing the length
+--- of the factory with the belt on your left and the buy buttons ahead of you.
 function Tycoon:ownerSpawnCFrame(): CFrame
-	-- middle of the open floor, facing the machines
-	return self:at(12, 5, 6) * CFrame.Angles(0, math.rad(90), 0)
+	local spot = L.OwnerSpawnAt
+	return self:at(spot.X, spot.Y, spot.Z)
 end
 
 -- ── belt ─────────────────────────────────────────────────────────────────────
@@ -440,7 +436,7 @@ function Tycoon:buildClaimPad()
 	folder.Parent = self.model
 	self.claimFolder = folder
 
-	local frontX, frontZ = 12, W.PlotSize.Z / 2 - 12
+	local frontX, frontZ = L.ClaimPadAt.X, L.ClaimPadAt.Z
 
 	-- The pad itself. Safe to centre now that the factory is hidden while
 	-- unclaimed -- there is nothing standing on the frontage to hide behind.
@@ -499,13 +495,14 @@ function Tycoon:buildRebirthPad()
 	folder.Parent = self.model
 	self.rebirthFolder = folder
 
+	local spot = L.RebirthPadAt
 	local pad = newPart(folder, "RebirthPad", Vector3.new(12, 1.2, 12),
-		self:at(32, 0.9, 26), Color3.fromRGB(200, 120, 255), Enum.Material.Neon)
+		self:at(spot.X, 0.9, spot.Z), Color3.fromRGB(200, 120, 255), Enum.Material.Neon)
 	pad.CanCollide = false
 	self.rebirthPad = pad
 
 	local ring = newPart(folder, "RebirthRing", Vector3.new(0.4, 16, 16),
-		self:at(32, 0.3, 26) * CFrame.Angles(0, 0, math.pi / 2),
+		self:at(spot.X, 0.3, spot.Z) * CFrame.Angles(0, 0, math.pi / 2),
 		Color3.fromRGB(120, 60, 200), Enum.Material.Neon, false)
 	ring.Shape = Enum.PartType.Cylinder
 
@@ -968,8 +965,9 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 		local h = 13
 		-- The gateway sits over the open floor on the right, NOT at x = 0:
 		-- the belt and vault occupy the left half, so a centred gate would
-		-- open onto machinery.
-		local gateCentre, gateWidth = 14, 18
+		-- open onto machinery. Config owns the numbers so they scale with
+		-- the plot and can be checked against the aisle by the verifier.
+		local gateCentre, gateWidth = L.GateCentre, L.GateWidth
 		local gateLeft = gateCentre - gateWidth / 2
 		local gateRight = gateCentre + gateWidth / 2
 		local leftSpan = gateLeft + halfX

@@ -203,7 +203,9 @@ Everything below lives in `Config.lua`.
 | Turn raids off entirely | `Waves.Enabled = false` |
 | Allow PvP everywhere | `Combat.ArenaPvP = false` |
 | Change how hard bats hit | `Config.Bats[n].damage / cooldown / crit` |
-| More or fewer plots | set MaxPlayers in Game Settings — the ring sizes itself |
+| More or fewer plots | set MaxPlayers in Game Settings (clamped to `World.MinPlots`..`MaxPlots`, 4–10) — the ring sizes itself around the count |
+| Bigger plots | `World.PlotSize`; then move `Layout.BeltStart/Corner/End/CollectorAt` and the floor furniture in `Layout` to match — the verifier will tell you what no longer fits |
+| Plots further apart | `World.PlotGap` (the ring radius is solved from it) or `World.MinPlotRadius` (a hard floor on the first ring) |
 | Move the conveyor | `Layout.BeltStart` / `BeltCorner` / `BeltEnd`; machines and buttons follow |
 | Button / belt height | `Layout.ButtonHeight`, `Layout.BeltY` (verifier rejects anything you'd have to jump onto) |
 | Change rebirth pacing | `Rebirth.BaseCost`, `Rebirth.CostGrowth`, `Rebirth.MultiplierPerRebirth` |
