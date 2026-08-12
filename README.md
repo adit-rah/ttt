@@ -72,18 +72,20 @@ source of truth and re-run the packer after any change.
   but only 8 can engage you at once, so a bigger wave is reinforcements arriving
   rather than more raiders swinging. Every 5th wave brings a boss. The state of
   it is a sign over the statue in the middle of the arena.
-- Halfway through the build you buy **the mezzanine**: a second storey with its
-  own belt, its own dropper, and a pair of lift pads. The weapon and armour
-  cabinets arrive with it.
-- Behind the plot is the **generator yard**. Each rung speeds up the droppers and
-  the belt together — the belt half is what stops a faster line simply running
-  out of room.
+- Right after the walls — about six minutes in — you buy **the mezzanine**: a
+  second storey with its own belt, its own dropper, and a ladder up to it,
+  standing directly ahead of your gateway. The weapon and armour cabinets arrive
+  with it, which is most of the reason it is bought that early.
+- Behind the plot's back-right corner is the **generator yard**: one generator
+  and one pad, and the pad upgrades what is standing there rather than adding
+  another one beside it. Each rung speeds up the droppers and the belt together
+  — the belt half is what stops a faster line simply running out of room.
 - The **Bat Forge** buttons upgrade your weapon, six tiers from Sahur Bat to
   Eclipse. Bats are ordinary Roblox `Tool`s, so the built-in hotbar and backpack
   equip them.
 - The rebirth pad wipes your factory for a compounding payout multiplier.
 
-Roughly **67 minutes** to a full factory, first rebirth about 10 minutes past
+Roughly **50 minutes** to a full factory, first rebirth about 10 minutes past
 it. That curve is measured, not guessed — see *Verification* below.
 
 ---
@@ -157,8 +159,8 @@ Supported `kind` values and what each needs:
 | `Structure` | `structure` (`"walls"` / `"roof"`) | plot buildout |
 | `Gear` | `grants` (a `Config.Bats` id) | anvil display + weapon upgrade |
 | `Armor` | `grants` (a `Config.Armor.Tiers` id) | cabinet shelf + max-health upgrade |
-| `Floor` | `floor` (a `Config.Floors` id) | the mezzanine deck, belt, collector and lift pads |
-| `Power` | `slot`, `factor`, `variant` | a generator in the yard; speeds up droppers and belt together |
+| `Floor` | `floor` (a `Config.Floors` id) | the mezzanine deck, belt, collector and ladder |
+| `Power` | `factor`, `variant` | the generator in the yard; speeds up droppers and belt together |
 
 To invent a new kind, add an entry to `Tycoon.INSTALLERS`.
 
@@ -198,7 +200,7 @@ over 15 minutes, or a total build outside 45–150 minutes. It prints the curve:
   dropper2      0.6m  =                                  @   0.6m
   upgrader1     1.2m  ===                                @   1.9m
   ...
-  dropper10     5.2m  ===============================    @  66.7m
+  dropper10     2.9m  ========                           @  49.6m
 ```
 
 If you retune prices, run this before you playtest. It catches in one second
