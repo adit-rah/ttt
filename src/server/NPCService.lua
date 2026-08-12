@@ -81,6 +81,15 @@ local function wavePacket()
 	if not w then
 		return { phase = "idle" }
 	end
+	-- THE SHARED HEALTH BAR RIDES THIS PACKET. No new remote: the boss's health
+	-- is part of where the raid currently is, so it belongs in the one
+	-- description of that, and it reaches late joiners through pushTo for free.
+	--
+	-- Read off the record rather than by scanning `active`, and nil'd when the
+	-- boss dies — otherwise the packet would report a bar sitting at 0% for the
+	-- rest of the wave.
+	local bossEntry = w.bossEntry
+	local bossHumanoid = bossEntry and bossEntry.humanoid
 	return {
 		phase = phase,
 		wave = w.number,
@@ -89,6 +98,11 @@ local function wavePacket()
 		total = w.expected,
 		forced = w.forced,
 		seconds = (phase == "warning" or phase == "clear") and seconds or nil,
+		bossHp = bossHumanoid and math.max(0, bossHumanoid.Health) or nil,
+		bossMaxHp = bossEntry and bossEntry.maxHealth or nil,
+		-- How many players the fight was scaled for, so the sign can say so.
+		-- Sampled once at beginWave; see the note there.
+		bossScale = bossEntry and w.players or nil,
 	}
 end
 
@@ -210,6 +224,111 @@ local function killReward(wave: number, boss: boolean): number
 	return math.floor(reward)
 end
 
+--- THE DAMAGE LEDGER. Registered on CombatService at boot, which is the only
+--- TakeDamage call in the repo, so this sees every hit any player lands on
+--- anything — and cares about exactly one of them.
+---
+--- `applied` is the health that actually came off, not the damage that was
+--- asked for. See the note at the call site.
+local function onDamageDealt(victim: Model, attacker: Player, applied: number)
+	if applied <= 0 then
+		return
+	end
+	local entry = active[victim]
+	-- Ordinary raiders keep their creator tag and nothing else; only a boss
+	-- carries a ledger.
+	if not entry or entry.dead or not entry.contrib then
+		return
+	end
+	entry.contrib[attacker] = (entry.contrib[attacker] or 0) + applied
+	entry.contribTotal += applied
+	-- The health bar rides the existing 2 Hz coalescer rather than a remote per
+	-- swing. Twelve people hitting a boss is a lot of swings.
+	local record = entry.waveRecord
+	if record == liveWave then
+		record.dirty = true
+	end
+end
+
+--- SPLITS THE BOSS POT, and is the whole reason any of this exists.
+---
+--- `fraction` is how much of the pot the fight earned: 1 on a kill, and
+--- contribTotal/maxHealth when the wave timed out with the boss still standing.
+--- Idempotent through `entry.paid`, because the timeout path deliberately kills
+--- its own survivors and would otherwise pay twice.
+---
+--- profile.kills goes to the TOP CONTRIBUTOR ONLY. Crediting everyone would
+--- inflate the KO leaderboard by twelve for one boss.
+local function payBoss(entry, fraction: number, pivot: Vector3?, escaped: boolean?)
+	if entry.paid then
+		return
+	end
+	entry.paid = true
+
+	local record = entry.waveRecord
+	local pot = killReward(entry.wave, true)
+		* (record and record.rewardFactor or 1)
+		* math.clamp(fraction, 0, 1)
+	if pot <= 0 then
+		return
+	end
+
+	-- WHO GETS PAID. A damage floor, so a player who landed one hit on their way
+	-- past does not dilute the even split twelve ways; and still present, because
+	-- Economy.add on a departed player writes to a profile nobody will save.
+	local minDamage = WV.BossMinDamageFrac * entry.maxHealth
+	local eligible, eligibleTotal = {}, 0
+	local top, topDamage = nil, 0
+	for player, damage in pairs(entry.contrib) do
+		if damage >= minDamage and player.Parent then
+			table.insert(eligible, { player = player, damage = damage })
+			eligibleTotal += damage
+			if damage > topDamage then
+				top, topDamage = player, damage
+			end
+		end
+	end
+	if #eligible == 0 then
+		return
+	end
+
+	for _, who in ipairs(eligible) do
+		local share = Config.bossShare(who.damage, eligibleTotal, #eligible, pot)
+		local gained = Economy.add(who.player, share, true)
+		if who.player == top then
+			local profile = DataService.get(who.player)
+			if profile then
+				profile.kills += 1
+			end
+		end
+		Economy.push(who.player)
+		-- The personal number is better as a payout than as a HUD element: it
+		-- arrives once, in the place every other reward arrives.
+		Economy.notify(who.player, {
+			kind = "boss",
+			title = "YOUR CUT",
+			body = ("%s  •  %d%% of the boss"):format(
+				Util.abbreviate(gained),
+				math.floor((who.damage / entry.maxHealth) * 100 + 0.5)),
+		})
+	end
+
+	if pivot then
+		Fx.floatingText(pivot + Vector3.new(0, 8, 0), "+" .. Util.abbreviate(pot),
+			Color3.fromRGB(255, 205, 90), workspace)
+	end
+
+	notifyRemote:FireAllClients({
+		kind = "boss",
+		title = escaped and "BOSS ESCAPED" or "BOSS DOWN",
+		body = ("Wave %d. %s led with %d%%. %d player%s paid out."):format(
+			entry.wave,
+			top and top.DisplayName or "nobody",
+			math.floor((topDamage / entry.maxHealth) * 100 + 0.5),
+			#eligible, #eligible == 1 and "" or "s"),
+	})
+end
+
 local function onRaiderDied(npc: Model, entry)
 	if entry.dead then
 		return
@@ -232,7 +351,15 @@ local function onRaiderDied(npc: Model, entry)
 	local variant = Config.Variants[npc:GetAttribute("Variant") or "classic"] or Config.Variants.classic
 	Fx.burst(pivot, variant.wood, entry.boss and 40 or 18, workspace)
 
-	if killer and killer:IsA("Player") and killer.Parent then
+	if entry.contrib then
+		-- A BOSS IS NOT PAID TO WHOEVER SWUNG LAST. It is the one fight in this
+		-- game that takes more than one person, so the pot is split across
+		-- everyone who did real damage to it — see payBoss.
+		payBoss(entry, 1, pivot, false)
+		if record then
+			record.bossEntry = nil
+		end
+	elseif killer and killer:IsA("Player") and killer.Parent then
 		local reward = killReward(entry.wave, entry.boss)
 		local gained = Economy.add(killer, reward, true)
 		local profile = DataService.get(killer)
@@ -241,13 +368,6 @@ local function onRaiderDied(npc: Model, entry)
 		end
 		Economy.push(killer)
 		Fx.floatingText(pivot + Vector3.new(0, 6, 0), "+" .. Util.abbreviate(gained), Color3.fromRGB(255, 205, 90), workspace)
-		if entry.boss then
-			notifyRemote:FireAllClients({
-				kind = "boss",
-				title = "BOSS DOWN",
-				body = ("%s finished the wave %d boss."):format(killer.DisplayName, entry.wave),
-			})
-		end
 	end
 
 	-- flop over, then clean up
@@ -273,6 +393,12 @@ local function spawnRaider(record, index: number, count: number, boss: boolean, 
 	local wave = record.number
 	local variantName = variantForWave(wave, boss)
 	local health = WV.BaseHealth * (WV.HealthGrowth ^ (wave - 1)) * (boss and WV.BossHealthMultiplier or 1)
+	if boss then
+		-- Scaled to the headcount the wave was MINTED with, never to the live
+		-- one. See beginWave: re-reading it here would move a bar twelve people
+		-- are watching every time somebody logged off.
+		health *= (record.healthFactor or 1)
+	end
 	-- The cap is absolute. It used to be scaled by the boss multiplier along
 	-- with the damage, which meant the ceiling written to stop a raider two-
 	-- shotting a 100 HP player let a late boss hit for 61.
@@ -281,7 +407,7 @@ local function spawnRaider(record, index: number, count: number, boss: boolean, 
 		boss and WV.MaxBossDamage or WV.MaxDamage)
 
 	local npc = TungModels.buildNPC(variantName, {
-		scale = boss and 2.1 or (0.9 + math.random() * 0.35),
+		scale = boss and WV.BossBodyScale or (0.9 + math.random() * 0.35),
 		health = health,
 		walkSpeed = WV.WalkSpeed + (boss and -2 or math.random() * 4),
 		displayName = boss and ("SAHUR BOSS  •  wave " .. wave) or "Tung Tung Tung Sahur",
@@ -293,11 +419,20 @@ local function spawnRaider(record, index: number, count: number, boss: boolean, 
 	-- as a raid. `groupAngle` is chosen per group by the caller and jittered
 	-- per member here.
 	--
-	-- The boss used to be passed index 0, so it appeared at the same rim spot
-	-- every single time; it gets its own bearing now.
-	local angle = (groupAngle or 0) + (math.random() - 0.5) * 2 * WV.GroupArc
-	local radius = Config.World.ArenaRadius - 18
-	local position = Vector3.new(math.sin(angle) * radius, 8, math.cos(angle) * radius)
+	-- THE BOSS DOES NOT GET A BEARING AT ALL. It lands on a fixed spot just off
+	-- the dais, every time. A rim bearing at ArenaRadius - 18 = 52 was the right
+	-- answer while the boss was a bigger raider; a shared objective that appears
+	-- somewhere different every wave is one twelve people spend the first thirty
+	-- seconds looking for. BossSpawnRadius clears the 26-diameter dais and the
+	-- statue standing on it, which the verifier asserts.
+	local position
+	if boss then
+		position = Vector3.new(0, 12, WV.BossSpawnRadius)
+	else
+		local angle = (groupAngle or 0) + (math.random() - 0.5) * 2 * WV.GroupArc
+		local radius = Config.World.ArenaRadius - 18
+		position = Vector3.new(math.sin(angle) * radius, 8, math.cos(angle) * radius)
+	end
 	npc:PivotTo(CFrame.new(position) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
 	npc.Parent = folder
 
@@ -327,7 +462,12 @@ local function spawnRaider(record, index: number, count: number, boss: boolean, 
 		-- rather than sitting at the spawn point: raiders land on the rim and
 		-- then walk inward to mill about, which is what makes them read as
 		-- gathering in the middle rather than as a ring closing in.
-		home = pointInDisc(Vector3.zero, WV.HomeSpread),
+		--
+		-- The boss keeps to the dais it lands on, and is leashed tighter than a
+		-- raider (BossLeashRadius), so the fight everyone is walking towards
+		-- stays where they last saw it.
+		home = pointInDisc(Vector3.zero, boss and WV.BossSpawnRadius or WV.HomeSpread),
+		leash = boss and WV.BossLeashRadius or WV.LeashRadius,
 		wanderUntil = 0,
 		nextAggroCheck = 0,
 		-- Where on the approach ring this raider stands. Fixed per raider so a
@@ -367,6 +507,22 @@ local function spawnRaider(record, index: number, count: number, boss: boolean, 
 	humanoid.Died:Connect(function()
 		onRaiderDied(npc, entry)
 	end)
+
+	if boss then
+		-- THE LEDGER, and the record's handle on it. `contrib` being non-nil is
+		-- what marks an entry as carrying one at all, so nothing else in the
+		-- tick has to ask whether a raider is a boss.
+		--
+		-- `maxHealth` is captured rather than read back off the humanoid because
+		-- both the eligibility floor and the escaped-boss pro-rata are fractions
+		-- of it, and a dead humanoid reports a MaxHealth nobody promised.
+		entry.contrib = {}
+		entry.contribTotal = 0
+		entry.maxHealth = health
+		entry.paid = false
+		entry.humanoid = humanoid
+		record.bossEntry = entry
+	end
 
 	-- boss aura
 	if boss then
@@ -455,7 +611,7 @@ local function tick(dt: number)
 					or not targetHumanoid
 					or targetHumanoid.Health <= 0
 					or flatDistance(targetRootPart.Position, root.Position) > WV.DeAggroRadius
-					or homeDistance > WV.LeashRadius
+					or homeDistance > entry.leash
 
 				if lost then
 					entry.ai = "return"
@@ -475,7 +631,7 @@ local function tick(dt: number)
 			if entry.ai ~= "chase" and now >= entry.nextAggroCheck then
 				entry.nextAggroCheck = now + WV.AggroCheck
 				local mayAggro = entry.ai == "wander"
-					or homeDistance <= WV.LeashRadius * WV.ReAggroFrac
+					or homeDistance <= entry.leash * WV.ReAggroFrac
 				local slot = mayAggro and nearestSnapshotEntry(root.Position, WV.AggroRadius) or nil
 				-- Cap how many may engage one player. The overflow keeps
 				-- milling and steps in as slots free, which reads as
@@ -633,9 +789,23 @@ local function beginWave()
 	local count = math.min(WV.BaseCount + (waveNumber - 1) * WV.CountPerWave, WV.MaxCount)
 	local boss = (waveNumber % WV.BossEvery == 0)
 
+	-- HOW BIG THE SERVER IS, SAMPLED ONCE AND NEVER AGAIN.
+	--
+	-- Both factors are minted here, into the record, and every later reader
+	-- takes them from it. If the boss's health tracked the live player count,
+	-- one person logging off mid-fight would move a bar that a dozen people are
+	-- watching, and the pot would change under the ledger that is already
+	-- half-written. Somebody who joins mid-fight therefore gets a free ride,
+	-- which is the friendly direction to be wrong in.
+	local players = #Players:GetPlayers()
+
 	liveWave = {
 		number = waveNumber,
 		boss = boss,
+		players = players,
+		healthFactor = Config.bossHealthFactor(players),
+		rewardFactor = Config.bossRewardFactor(players),
+		bossEntry = nil,
 		count = count,
 		expected = count + (boss and 1 or 0),
 		spawned = 0,
@@ -687,7 +857,9 @@ local function spawnWave(record)
 			end
 		end
 		if record.boss and record == liveWave then
-			spawnRaider(record, 0, record.count, true, math.random() * math.pi * 2)
+			-- No bearing: the boss lands on the dais, at the same spot every
+			-- time, so a server-wide objective is somewhere everyone can name.
+			spawnRaider(record, 0, record.count, true, nil)
 		end
 		record.spawnFinished = true
 		record.deadline = os.clock() + WV.MaxWaveTime
@@ -697,6 +869,24 @@ end
 --- Kills whatever is left of a wave that has run out of time.
 local function forceEnd(record)
 	record.forced = true
+
+	-- PAY THE BOSS LEDGER FIRST, PRO-RATA.
+	--
+	-- The loop below zeroes every survivor with no creator tag, and the comment
+	-- on it says no reward is paid for a wave nobody finished, "which is
+	-- correct, not an oversight". That reasoning is right for ordinary raiders
+	-- and WRONG for a shared boss: twelve people fighting for five straight
+	-- minutes and running into MaxWaveTime would get nothing at all, which is
+	-- the most player-visible bug this could ship. They are paid for the share
+	-- of it they actually took down, and `paid` stops onRaiderDied — which is
+	-- about to fire for this very boss — paying a second time.
+	local boss = record.bossEntry
+	if boss and not boss.paid then
+		local humanoid = boss.humanoid
+		local pivot = humanoid and humanoid.Parent and (humanoid.Parent :: Model):GetPivot().Position
+		payBoss(boss, boss.contribTotal / math.max(boss.maxHealth, 1), pivot, true)
+	end
+
 	for npc, entry in pairs(active) do
 		if entry.waveRecord == record and not entry.dead then
 			local humanoid = npc:FindFirstChildOfClass("Humanoid")
@@ -807,6 +997,11 @@ function NPCService.start()
 	folder = Instance.new("Folder")
 	folder.Name = "SahurRaiders"
 	folder.Parent = workspace
+
+	-- One hook, registered once. CombatService does not know what a raid is and
+	-- must not learn; this is the same arrangement Economy has with its
+	-- multiplier hooks, and for the same reason.
+	CombatService.setDamageObserver(onDamageDealt)
 
 	game:GetService("RunService").Heartbeat:Connect(function(dt)
 		local ok, err = pcall(tick, dt)

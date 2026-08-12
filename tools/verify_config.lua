@@ -1133,8 +1133,14 @@ end
 local satCount = math.min(WV.BaseCount + (saturationWave - 1) * WV.CountPerWave, WV.MaxCount)
 local satRaiderHealth = WV.BaseHealth * WV.HealthGrowth ^ (saturationWave - 1)
 local satWaveHealth = satCount * satRaiderHealth
+local satBossHealth = satRaiderHealth * WV.BossHealthMultiplier
 if saturationWave % WV.BossEvery == 0 then
-	satWaveHealth += satRaiderHealth * WV.BossHealthMultiplier
+	-- Scaled to a FULL server, because that is the heaviest this wave can ever
+	-- be: the boss's health is fixed from the headcount at the moment the wave
+	-- is minted, and nothing promises those people are still swinging at it.
+	-- Leaving the unscaled boss in here would have quietly let the shared-boss
+	-- work walk the endgame wave into the deadlock breaker.
+	satWaveHealth += satBossHealth * Config.bossHealthFactor(Config.World.MaxPlots)
 end
 
 local topBat = Config.Bats[#Config.Bats]
@@ -1148,6 +1154,127 @@ local clearStart = satWaveHealth / playerDps(startBat)
 check(clearTop * 2 <= WV.MaxWaveTime,
 	("a full wave is %.0f health and the top bat does %.0f/sec, so a solo clear takes %.0fs against a MaxWaveTime of %d — the deadline is meant to break deadlocks, not to end fights")
 		:format(satWaveHealth, playerDps(topBat), clearTop, WV.MaxWaveTime))
+
+-- ── the boss as a shared objective ──────────────────────────────────────────
+--
+-- The boss is the only thing in this game that needs another human being, and
+-- everything below is the arithmetic that keeps it worth showing up for without
+-- making a busy server a wall. Three pure functions in Config carry it, so these
+-- checks and the server run the same formula rather than two copies of it.
+
+local MP = Config.World.MaxPlots
+
+-- THE SOLO GUARANTEE, in two lines. At one player both factors are exactly 1
+-- and the split is algebraically the identity, so a 1-player server gets
+-- byte-for-byte the boss it got before any of this shipped — with no branch
+-- anywhere in the code, which is the only reason it can be trusted to stay true.
+check(Config.bossHealthFactor(1) == 1 and Config.bossRewardFactor(1) == 1,
+	("a solo boss is scaled %.2fx in health and %.2fx in reward; at one player both have to be exactly 1 or the solo game changed underneath a feature that was for groups")
+		:format(Config.bossHealthFactor(1), Config.bossRewardFactor(1)))
+check(math.abs(Config.bossShare(1234, 1234, 1, 5000) - 5000) < 1e-9,
+	("one eligible player takes %.2f of a 5000 pot; the floor share and the damage share have to sum to the whole pot or a solo kill silently pays less than it used to")
+		:format(Config.bossShare(1234, 1234, 1, 5000)))
+
+-- NEITHER LEAKED NOR MINTED. Summed over the eligible, the split is exactly the
+-- pot at every player count — once with equal contributors, and once with a
+-- lopsided fight, because the floor share and the damage share are different
+-- fractions and it is only their sum that is one.
+for n = 1, MP do
+	local pot = 1e6
+	local evenSum, unevenSum = 0, 0
+	local evenTotal, unevenTotal = 0, 0
+	for i = 1, n do
+		evenTotal += 250
+		unevenTotal += i * 37
+	end
+	for i = 1, n do
+		evenSum += Config.bossShare(250, evenTotal, n, pot)
+		unevenSum += Config.bossShare(i * 37, unevenTotal, n, pot)
+	end
+	check(math.abs(evenSum - pot) <= pot * 1e-9,
+		("%d equal contributors split a %.0f pot into %.4f"):format(n, pot, evenSum))
+	check(math.abs(unevenSum - pot) <= pot * 1e-9,
+		("%d uneven contributors split a %.0f pot into %.4f"):format(n, pot, unevenSum))
+end
+
+-- JOINING A BUSY SERVER IS NOT A PUNISHMENT, and it is not a payday either.
+-- The pot has to grow SLOWER than the health — otherwise the boss is a reward
+-- for standing near it — but not so much slower that the ninth person to arrive
+-- is worse off for the other eight being there.
+for n = 1, MP do
+	local health = Config.bossHealthFactor(n)
+	local reward = Config.bossRewardFactor(n)
+	check(reward / health >= 0.6,
+		("at %d players the boss is %.2fx health for %.2fx reward (%.0f%%); past this the arena punishes you for having company")
+			:format(n, health, reward, reward / health * 100))
+	check(reward <= health + 1e-9,
+		("at %d players the pot grows faster than the health (%.2fx against %.2fx); the boss stops being a fight and becomes a payout for turning up")
+			:format(n, reward, health))
+end
+
+-- CAN THE PEOPLE WHO SHOWED UP STILL FINISH IT? The scaling is sampled once,
+-- from the headcount at the moment the wave is minted, so the honest worst case
+-- is a boss built for a full server and fought by whoever stayed. Checked
+-- against a lone player, because that is who pays for this number being wrong.
+for n = 1, MP do
+	local seconds = satBossHealth * Config.bossHealthFactor(n) / playerDps(topBat)
+	check(seconds <= WV.MaxWaveTime,
+		("a boss scaled for %d players is %.0f health, and one player with the best bat in the game needs %.0fs of it against a MaxWaveTime of %d")
+			:format(n, satBossHealth * Config.bossHealthFactor(n), seconds, WV.MaxWaveTime))
+end
+
+-- ...and the same question asked from the FLOOR of the experience, which is the
+-- convention the raider-damage checks above already use: the one player left
+-- holding the starting bat after everyone else went back to their plot. This is
+-- the check that actually binds BossMaxHealthFactor, and it is the reason that
+-- number is 4 rather than whatever looked generous — the boss must still be a
+-- fight somebody can finish, not a health bar that outlives the wave.
+local soloFloor = satBossHealth * Config.bossHealthFactor(MP) / playerDps(startBat)
+check(soloFloor <= WV.MaxWaveTime,
+	("a boss scaled for a full %d-player server takes %.0fs for a player on the starting bat, against a MaxWaveTime of %d — raising BossMaxHealthFactor costs exactly this person")
+		:format(MP, soloFloor, WV.MaxWaveTime))
+
+-- THE SPLIT'S OWN BOUNDS.
+check(WV.BossFloorShare > 0 and WV.BossFloorShare < 1,
+	("BossFloorShare is %.2f; at 0 nobody but the top damage sees a coin and at 1 the fight pays the same whatever you do")
+		:format(WV.BossFloorShare))
+check(WV.BossMinDamageFrac > 0 and WV.BossMinDamageFrac < 0.1,
+	("BossMinDamageFrac is %.3f of the boss's health; at 0 a single stray swing dilutes the even split and past ~10%% a real contributor is refused")
+		:format(WV.BossMinDamageFrac))
+-- With everyone at exactly the floor, the eligible set is at most this big. It
+-- has to be able to hold a full server, or the last people to land a hit on a
+-- boss they helped kill are arithmetically excluded from it.
+check(1 / WV.BossMinDamageFrac >= MP,
+	("at a %.3f damage floor only %.0f players can ever qualify, on a server of %d")
+		:format(WV.BossMinDamageFrac, 1 / WV.BossMinDamageFrac, MP))
+
+-- WHERE IT LANDS. A shared objective goes in one findable place, so the boss
+-- spawns on a fixed bearing by the dais rather than on a random rim bearing —
+-- and it is a 2.1x body, so "by the dais" has to clear the dais.
+local bossHalfWidth = 2 * WV.BossBodyScale
+check(WV.BossSpawnRadius >= Config.World.DaisRadius + bossHalfWidth,
+	("the boss spawns %.0f studs from the centre and is %.1f studs half-wide, against a dais of radius %d — it would spawn inside the plinth the statue stands on")
+		:format(WV.BossSpawnRadius, bossHalfWidth, Config.World.DaisRadius))
+check(WV.BossSpawnRadius + bossHalfWidth < Config.World.ArenaRadius,
+	("the boss spawns %.0f studs out and is %.1f wide, against an arena wall at %d")
+		:format(WV.BossSpawnRadius, bossHalfWidth, Config.World.ArenaRadius))
+
+-- IT ALSO HAS TO STAY THERE. A boss kited to the far side of the arena is a
+-- boss eleven people spend the fight looking for, so its leash is tighter than
+-- an ordinary raider's — and its home patch is the dais, not the whole
+-- HomeSpread disc, so the geometric plot-safety check above is only slacker for
+-- it, never tighter.
+check(WV.BossLeashRadius < WV.LeashRadius,
+	("BossLeashRadius %.0f is not tighter than the raider leash of %.0f; the point of the shared objective is that it stays where everyone is walking")
+		:format(WV.BossLeashRadius, WV.LeashRadius))
+check(WV.BossSpawnRadius + WV.BossLeashRadius + WV.AttackRange < raiderReach,
+	("a leashed boss can swing %.0f studs from the arena centre against a raider's %.0f; the plot-safety proof above is written for the raider figure")
+		:format(WV.BossSpawnRadius + WV.BossLeashRadius + WV.AttackRange, raiderReach))
+-- The leash has to be wider than the patch it is measured from, or the boss is
+-- born outside its own leash and walks home before it will look at anybody.
+check(WV.BossLeashRadius > WV.BossSpawnRadius,
+	("BossLeashRadius %.0f against a boss home patch of %.0f studs")
+		:format(WV.BossLeashRadius, WV.BossSpawnRadius))
 
 -- ── belt layout ─────────────────────────────────────────────────────────────
 -- The belt is an L: leg 1 (BeltStart -> BeltCorner) carries the droppers,
@@ -1982,6 +2109,18 @@ local titleBottom = ST.ArenaTitleY - ST.ArenaTitleHeight / 2
 check(titleBottom >= raidTop,
 	("the arena title's bottom edge is at y=%.0f and the raid sign's top edge is at y=%.0f — they would overlap over the statue")
 		:format(titleBottom, raidTop))
+
+-- THE BOSS BAR IS CARVED OUT OF THE RAID SIGN, not added under it: the check
+-- immediately above is what makes that the only option, because a taller
+-- billboard would push the raid line into the arena title. So the bar is bounded
+-- by the sign it lives in, and the line it shares that sign with still has to be
+-- the bigger of the two.
+check(ST.BossBarHeight > 0 and ST.BossBarHeight <= ST.RaidSignHeight / 2,
+	("Style.BossBarHeight is %.1f studs inside a %.1f-stud sign; past half of it the health bar is the sign and the wave line is the footnote")
+		:format(ST.BossBarHeight, ST.RaidSignHeight))
+check(ST.BossBarInset >= 0 and ST.BossBarInset < 0.25,
+	("Style.BossBarInset is %.2f; it is a fraction of the sign's width per side, so at 0.5 the bar has no width left")
+		:format(ST.BossBarInset))
 
 -- ...and the raid sign has to be readable from every plot, because that is the
 -- reason it stands over the statue rather than on your screen. Measured from

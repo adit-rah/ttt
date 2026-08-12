@@ -29,6 +29,19 @@ local swingFx = Net.event("SwingFx")
 
 local state: { [Player]: { lastSwing: number, combo: number, comboAt: number } } = {}
 
+--- THE DAMAGE LEDGER HOOK, in the same shape as Economy.setMultiplierHook and
+--- for the same reason: NPCService needs to know who is hurting a boss, and
+--- CombatService must not learn what a raid is to tell it. NPCService registers
+--- one function at boot; this module never finds out what it does with it.
+---
+--- CombatService.damage is the ONLY TakeDamage call in the repo, which is what
+--- makes an authoritative ledger five lines rather than an audit.
+local damageObserver: ((Model, Player, number) -> ())? = nil
+
+function CombatService.setDamageObserver(fn: ((Model, Player, number) -> ())?)
+	damageObserver = fn
+end
+
 local function stateFor(player: Player)
 	local s = state[player]
 	if not s then
@@ -230,7 +243,19 @@ function CombatService.damage(victimModel: Model, amount: number, sourcePosition
 		Debris:AddItem(tag, 8)
 	end
 
+	-- THE APPLIED DELTA, NOT `amount`. A 10k overkill hit on a 2k-HP boss would
+	-- otherwise buy 80% of a pot it only did 20% of the work for. What the
+	-- ledger is told is what actually came off the health bar, so overkill is
+	-- worth exactly what it killed.
+	--
+	-- npcAttack passes attacker = nil, so raider-on-player damage never reaches
+	-- the ledger. The `creator` tag above is untouched: ordinary raiders and PvP
+	-- KOs are still credited to the last hit, exactly as before.
+	local before = humanoid.Health
 	humanoid:TakeDamage(amount)
+	if attacker and damageObserver then
+		damageObserver(victimModel, attacker, before - humanoid.Health)
+	end
 
 	if knockback and knockback > 0 and sourcePosition then
 		local direction = (root.Position - sourcePosition)

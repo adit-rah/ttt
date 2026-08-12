@@ -32,7 +32,8 @@ Net.NAMES = {
 	"Purchased",     -- S->C  { id, name, price }
 	-- phase: idle | resting | warning | spawning | active | clear.
 	-- `seconds` is sent ONCE per phase and counted down client-side.
-	"WaveState",     -- S->C  { phase, wave, remaining, total, seconds, boss, forced }
+	"WaveState",     -- S->C  { phase, wave, remaining, total, seconds, boss, forced,
+	                 --         bossHp, bossMaxHp, bossScale }
 	"SwingFx",       -- S->C  { character, combo, duration } — play a swing on that rig
 	"HitFeedback",   -- S->C  { damage, crit, killed, position }
 	"Knockback",     -- S->C  impulse Vector3, applied by the owning client
