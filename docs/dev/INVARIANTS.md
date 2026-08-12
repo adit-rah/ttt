@@ -307,6 +307,48 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   minute 28 and floor is minute 6, so without the rebuild every player gets a half-roof.
   `[nothing]`
 
+### The building shell
+
+- **A wall accounts for its whole extent, and `Config.wallSegments` is what says so.** The
+  walls were five boxes emitted at a local literal `h = 13` under a roof whose underside was
+  20, so every plot had a **seven-stud open band all the way round** and not one of the 2309
+  checks looked at wall height. The builder now emits exactly the spans that function returns.
+  `[assert]` "a wall that does not account for its whole extent is exactly the seven-stud band
+  of daylight that shipped round every plot"; `[spec]` `structure_spec.lua`.
+- **A storey's ceiling is the floor above it, derived, never typed.** The ground storey's clear
+  height is the mezzanine deck's **underside** — `Floors[1].height - deckSize.Y`, a full
+  thickness below the deck's top, not half of one. Short of it is open band; past it is a wall
+  inside the floor above. `[assert]` both directions; `[spec]`.
+- **There is no `Layout.RoofY` and no roof-shrink rule.** The roof sits on the top storey that
+  exists — `Config.roofUnderside(hasFloor)` — so there is no half-roof state to model. The old
+  rule existed because a slab at 20 and a deck underside at 20.4 were each derived separately
+  and had to dodge each other. `[assert]`
+- **Glass stays at or above `Transparency` 0.25.** Roblox's PopperCam only occludes on
+  `Transparency < 0.25 and CanCollide`, so below that every pane becomes a hole the camera
+  shoves itself through — on a plot that is now enclosed. `[assert]`, `[spec]`.
+- **A gate leaf hangs on the face `opening.face` names, and that is not cosmetic.** The yard
+  door is flush to the end of the back wall, so its single leaf can only slide inward along
+  x — and the inside of the back wall IS the dropper row. An inboard leaf swept 0.1 studs
+  **through dropper slot 1** on the shipped numbers. It hangs outboard, over the yard's own
+  slab. `[assert]` "an inboard leaf sweeps %.2f..%.2f studs off the %s wall's centre plane, and
+  the machine row on belt leg %d starts %.2f studs off it".
+- **A lone leaf slides toward the LONGER adjacent run**, and the run it slides into must be at
+  least one leaf long or it travels out past the end of the building. Do not assert "both
+  neighbours" — the yard door has a run on one side only. `[assert]`, `[spec]`.
+- **Gates are driven by a distance test on a fixed tick, never by `Touched`/`TouchEnded`.** One
+  server-wide loop over claimed plots, one test per opening. A character resting on a trigger
+  bounces off its own physics jitter, which is what cost the deleted teleport pads a cooldown,
+  an arrival lock and a `TouchEnded` sweep. `[nothing]` — `GateService` is outside
+  `SERVER_MODULES`.
+- **`Config.shellPartCount` must count what the BUILDER emits, not what the wall spec
+  implies.** Its first version left out the per-side trim cap, the interior light strip and the
+  roof's sign anchor, and so asserted the budget 13% under the truth — 59 against 68 actually
+  built. Trim is a Config key for that reason rather than derived in the builder. `[assert]`
+  against `Structure.PartBudget`, printed in the report; `[spec]` against an independent model.
+- **A closed gate cannot trap a raid.** A leashed raider reaches 124 studs from the arena
+  centre; the nearest plot's front wall is 140 out. `[assert]`, deliberately separate from the
+  leash block's plot-edge check because this one reads `WallThickness`.
+
 ### The yard
 
 - **`Yard.Slots`, `FirstX` and `Spacing` do not exist, and a `Power` button must carry no

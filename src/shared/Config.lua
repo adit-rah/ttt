@@ -342,17 +342,15 @@ Config.Layout.MachineTopY = Config.Layout.BeltY + 5.5
 -- studs it is 135ms, which is four steps even demoted.
 Config.Layout.TriggerThickness = 5
 
--- THE ROOF, which the mezzanine deck has to share a plot with.
+-- THE ROOF AND THE WALLS NOW LIVE IN Config.Structure, near the bottom of this
+-- file, because the ground storey's height is DERIVED from the mezzanine deck's
+-- underside and Config.Floors is not defined until then.
 --
--- These were literals inside the `roof` structure installer. They are here
--- because the deck sits at height 22 and the roof's columns are 20 tall, and
--- nothing was checking that relationship — the roof already shrinks itself when
--- the floor is on, which is exactly the kind of arrangement that breaks quietly
--- when either side moves. An assertion needs to see both sides.
-Config.Layout.RoofY = 20            -- top of the columns, underside of the slab
-Config.Layout.RoofThickness = 1.4
-Config.Layout.RoofColumn = 2.4
-Config.Layout.RoofColumnInset = 3   -- in from the plot's wall ring
+-- Config.Layout.RoofY/RoofThickness/RoofColumn/RoofColumnInset are gone. RoofY
+-- was 20 while the deck's underside was 20.4, and the roof carried a shrink rule
+-- to dodge the deck — two pieces of geometry reaching into each other, each
+-- correct on its own. There is one structural line now and both of them are
+-- derived from it. See Config.Structure.
 
 -- THE VAULT SHELL, which now carries a gauge as well as a sign.
 --
@@ -1855,6 +1853,308 @@ end
 
 for _, floor in ipairs(Config.Floors) do
 	table.insert(Config.BeltPaths, Config.floorBeltPath(floor))
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- THE BUILDING SHELL — walls, windows, gates and the roof
+--
+-- It lives HERE, after Config.Floors, because the ground storey's clear height
+-- is derived from the mezzanine deck's underside, and Config.Floors is the thing
+-- that states where the deck is.
+--
+-- WHAT WAS WRONG. The walls were five boxes emitted by INSTALLERS.Structure at a
+-- local literal `h = 13`, and the roof's underside was Layout.RoofY = 20. So
+-- every plot had a SEVEN-STUD OPEN BAND all the way round, above the wall and
+-- below the roof, and none of the 2309 config checks looked at wall height at
+-- all — not the height, not the thickness, not what the openings were. The two
+-- deliberate openings (the gateway and the yard doorway) had no doors, and there
+-- were no windows anywhere in the game.
+--
+-- ONE STRUCTURAL LINE. A storey's ceiling is the floor above it. The ground
+-- storey stops at the deck's underside whether or not the deck has been bought:
+-- before floor2 the roof sits on that line, after it the deck does. That is why
+-- the roof's old "shrink to dodge the deck" rule is gone rather than extended —
+-- it existed because two pieces of geometry were each derived separately and had
+-- to be kept out of each other's way.
+--
+-- SPANS ARE A LIST, NOT ARITHMETIC IN A LOOP. Config.wallSegments returns the
+-- solid runs and the openings of one wall of one storey, and the builder emits
+-- exactly what it is given. That is what makes "the wall accounts for its whole
+-- span" an assertion rather than a hope, and it is why the same function is read
+-- by tools/verify_config.lua and by a runtime spec.
+--
+-- SCALAR ARITHMETIC ONLY, like every derived position in this file: the
+-- verifier stubs Vector3 as a plain table with no operators.
+Config.Structure = {
+	WallThickness = 2,
+
+	-- The neon cap along a wall's top and the interior strip at the storey line
+	-- are built from the same bar. `section` reproduces the 1-stud cap the old
+	-- five-box wall carried and `proud` its 0.4 of overhang, so the trim that
+	-- ships is the trim that shipped. They are keys rather than literals in the
+	-- builder because Config.shellPartCount has to count them: it did not, and
+	-- the budget was being asserted against a number 13% below what is built.
+	Trim = { section = 1, proud = 0.4 },
+
+	-- Ground clear height is DERIVED (see below). `upper` is chosen: the
+	-- cabinets that move up there are 13 tall and a dropper's arm reaches
+	-- MachineTopY 6.9 above whatever it stands on, so 16 clears both with room
+	-- to walk. Taller costs nothing but makes the building read as a tower.
+	UpperClear = 16,
+
+	-- WINDOW BAYS. A solid run is built as three courses: a sill course from the
+	-- floor to `sill`, a bay course of alternating piers and glass panes, and a
+	-- head course from `sill + height` to the wall top.
+	--
+	-- Wide bays, few piers, deliberately: parts per run is 2n+3 where n is the
+	-- pane count, and this shell is the largest single addition to a plot's part
+	-- count the project has made. See PartBudget.
+	Window = {
+		pane = 16,
+		pier = 8,
+		ground = { sill = 6, height = 9 },
+		upper  = { sill = 4, height = 8 },
+		-- GLASS MUST STAY AT OR ABOVE 0.25. Roblox's PopperCam only treats a
+		-- part as occluding when `Transparency < 0.25 and CanCollide`, so at
+		-- 0.45 a glazed bay passes the camera and the light while staying solid
+		-- to a player. Below 0.25 every window becomes a thing the camera
+		-- shoves itself through, indoors, on a plot that is now enclosed.
+		transparency = 0.45,
+	},
+
+	-- THE OPENINGS, as an inventory. Both keep height 13 — the old wall height —
+	-- with a lintel course above, because a 20-stud gateway is not a door.
+	Openings = {
+		{
+			id = "gateway", side = "front", storey = "ground",
+			centre = Config.Layout.GateCentre, width = Config.Layout.GateWidth,
+			height = 13, leaves = 2,
+			-- Which face the leaves hang on and slide along. INBOARD here: the
+			-- front wall's inside is the open aisle, and a leaf out on the grass
+			-- in front of the gateway would be the first thing you see.
+			face = "inboard",
+		},
+		{
+			id = "yardDoor", side = "back", storey = "ground",
+			-- The cut in the back wall onto the generator yard. Derived from the
+			-- yard's own DoorFrom and the wall ring, so it cannot drift from the
+			-- slab it opens onto: x = DoorFrom .. halfX.
+			centre = (Config.Layout.Yard.DoorFrom + (Config.World.PlotSize.X / 2 - 1)) / 2,
+			width = (Config.World.PlotSize.X / 2 - 1) - Config.Layout.Yard.DoorFrom,
+			height = 13, leaves = 1,
+			-- OUTBOARD, and this one is not a preference. The doorway is flush to
+			-- the end of the back wall, so its single leaf can only slide inward
+			-- along x — and the inside of the back wall IS the dropper row. Slot 1
+			-- stands at x 38.5..43.5, z -66.5..-61.5, and an inboard leaf sliding
+			-- x 33..46 passes 0.1 studs INTO it. Found by the verifier while the
+			-- gate assertions were being falsified, on the shipped numbers.
+			--
+			-- Outboard it slides over the generator yard's own slab (x 32..60,
+			-- z -97..-69), which is empty for its whole travel. The alternative
+			-- was shaving `inset` to 0.1 for 0.2 studs of clearance against a
+			-- machine, which is the kind of margin that becomes a bug the next
+			-- time anything on that row moves.
+			face = "outboard",
+		},
+	},
+
+	-- GATES THAT OPEN ON APPROACH. Leaves slide along the inside face of the
+	-- wall; travel is one leaf width, so the solid run beside an opening has to
+	-- be at least that long (asserted).
+	--
+	-- Driven by a distance test on a fixed tick, NOT by Touched/TouchEnded. The
+	-- teleport pads were deleted for exactly that: a character resting on a
+	-- trigger bounces off its own physics jitter, which cost a cooldown, an
+	-- arrival lock and a TouchEnded sweep to paper over.
+	Gate = {
+		thickness = 1.2,
+		-- Clear air between the wall's FACE and the leaf's near face — not from
+		-- the wall's centre plane. Which face is `opening.face`.
+		inset = 0.4,
+		triggerRadius = 20,      -- open when a humanoid is this close to the opening
+		tickRate = 0.2,          -- seconds between distance tests, per claimed plot
+		travelTime = 0.45,       -- tween seconds, each direction
+	},
+
+	Roof = {
+		thickness = 1.4,
+		column = 2.4,
+		columnInset = 3,         -- in from the wall ring
+		signLift = 6,            -- the company sign, above the roof's top face
+	},
+
+	-- A BUDGET, BECAUSE THIS IS THE FIRST CHANGE BIG ENOUGH THAT GUESSING IS NOT
+	-- GOOD ENOUGH. The shell was ~10 parts; windows and gates take it to ~115,
+	-- times ten plots. HANDOFF_v5 §4 has listed "part budget at full scale is
+	-- still untested" for three rounds. Config.shellPartCount() models it from
+	-- this spec and the verifier asserts the result.
+	PartBudget = 200,
+}
+
+--- The two storeys, ground first. `clear` is floor-top to the underside of the
+--- floor above — which for the ground storey IS the mezzanine deck's underside,
+--- derived rather than typed so the wall cannot stop short of it again.
+Config.Structure.Storeys = {
+	{
+		id = "ground",
+		floorY = 0,
+		-- The deck's TOP is `height`, so its underside is a full thickness below
+		-- that — not half. FloorService builds the slab centred at
+		-- `height - deckSize.Y/2`, which spans 20.4 .. 22.0 for today's numbers.
+		-- Getting this wrong by 0.8 is a wall that ends inside the floor above it.
+		clear = Config.Floors[1].height - Config.Floors[1].deckSize.Y,
+	},
+	{
+		id = "upper",
+		floorY = Config.Floors[1].height,
+		clear = Config.Structure.UpperClear,
+	},
+}
+
+--- Storey by id.
+function Config.storey(id: string)
+	for _, storey in ipairs(Config.Structure.Storeys) do
+		if storey.id == id then
+			return storey
+		end
+	end
+	return nil
+end
+
+--- The underside of the roof. It sits on the top storey that exists: on the
+--- ground storey's line before the mezzanine is bought, on the upper storey's
+--- after. There is no half-roof state, which is the whole reason the old shrink
+--- rule could go.
+function Config.roofUnderside(hasFloor: boolean): number
+	local storey = hasFloor and Config.storey("upper") or Config.storey("ground")
+	return storey.floorY + storey.clear
+end
+
+--- One wall of the ring: the axis it runs along, its fixed coordinate on the
+--- other axis, and its extent.
+---
+--- Note the asymmetry, which is how the shell has always been built: the side
+--- walls run the FULL plot depth and the front and back walls sit between them.
+--- Changing that changes four corners at once.
+function Config.wallExtent(side: string)
+	local halfX = Config.World.PlotSize.X / 2 - 1
+	local halfZ = Config.World.PlotSize.Z / 2 - 1
+	if side == "back" then
+		return { axis = "X", fixed = -halfZ, from = -halfX, to = halfX, outward = -1 }
+	elseif side == "front" then
+		return { axis = "X", fixed = halfZ, from = -halfX, to = halfX, outward = 1 }
+	elseif side == "left" then
+		return { axis = "Z", fixed = -halfX, from = -Config.World.PlotSize.Z / 2,
+			to = Config.World.PlotSize.Z / 2, outward = -1 }
+	elseif side == "right" then
+		return { axis = "Z", fixed = halfX, from = -Config.World.PlotSize.Z / 2,
+			to = Config.World.PlotSize.Z / 2, outward = 1 }
+	end
+	return nil
+end
+
+Config.Structure.Sides = { "back", "front", "left", "right" }
+
+--- Every opening in one wall of one storey, in order along the wall.
+function Config.openingsIn(side: string, storey: string)
+	local found = {}
+	for _, opening in ipairs(Config.Structure.Openings) do
+		if opening.side == side and opening.storey == storey then
+			table.insert(found, opening)
+		end
+	end
+	table.sort(found, function(a, b)
+		return a.centre < b.centre
+	end)
+	return found
+end
+
+--- THE WALL, AS A LIST OF SPANS. Solid runs and openings, in order, covering
+--- the whole extent with no gap and no overlap.
+---
+--- This is the function the builder emits from, the verifier sums, and a runtime
+--- spec exercises. A wall that does not account for its own span is now a failed
+--- check rather than a seven-stud band of daylight nobody measured.
+function Config.wallSegments(side: string, storey: string)
+	local extent = Config.wallExtent(side)
+	local segments = {}
+	local cursor = extent.from
+	for _, opening in ipairs(Config.openingsIn(side, storey)) do
+		local left = opening.centre - opening.width / 2
+		local right = opening.centre + opening.width / 2
+		if left > cursor then
+			table.insert(segments, { kind = "solid", from = cursor, to = left })
+		end
+		table.insert(segments, { kind = "opening", from = left, to = right, opening = opening })
+		cursor = right
+	end
+	if cursor < extent.to then
+		table.insert(segments, { kind = "solid", from = cursor, to = extent.to })
+	end
+	return segments, extent
+end
+
+--- The bay course of one solid run: alternating piers and glass panes, starting
+--- and ending on a pier. A run too short for a single pane is all pier.
+function Config.wallBays(from: number, to: number)
+	local w = Config.Structure.Window
+	local length = to - from
+	local panes = math.floor((length - w.pier) / (w.pane + w.pier))
+	if panes < 1 then
+		return { { kind = "pier", from = from, to = to } }
+	end
+	-- Spread the leftover across the piers so the bays stay centred in the run
+	-- rather than all the slack landing on the last pier.
+	local pier = (length - panes * w.pane) / (panes + 1)
+	local bays = {}
+	local cursor = from
+	for index = 1, panes do
+		table.insert(bays, { kind = "pier", from = cursor, to = cursor + pier })
+		cursor += pier
+		table.insert(bays, { kind = "pane", from = cursor, to = cursor + w.pane })
+		cursor += w.pane
+		if index == panes then
+			table.insert(bays, { kind = "pier", from = cursor, to = to })
+		end
+	end
+	return bays
+end
+
+--- How many parts one plot's shell costs, modelled from the spec above so the
+--- verifier can hold it to Config.Structure.PartBudget.
+---
+--- Per solid run: a sill course, a head course, and the bay course's piers and
+--- panes. Per opening: a lintel course over it, plus its leaves. Per side, per
+--- storey: a trim cap and an interior light strip. Plus the roof slab, its four
+--- columns and its sign anchor. `hasFloor` because the upper storey only exists
+--- once the mezzanine is bought — the budget is asserted against the full build.
+---
+--- IT MUST COUNT WHAT THE BUILDER EMITS, not what the wall spec implies. Its
+--- first version left out the trim, the light strip and the sign anchor, so it
+--- reported 59 against 68 actually built and 107 against 124 — a budget asserted
+--- 13% under the truth, which is a budget that passes right up until it matters.
+--- Both numbers were reconciled against a count taken from the real builder.
+function Config.shellPartCount(hasFloor: boolean): number
+	local total = 0
+	local storeys = hasFloor and { "ground", "upper" } or { "ground" }
+	for _, storey in ipairs(storeys) do
+		for _, side in ipairs(Config.Structure.Sides) do
+			-- the neon cap along this wall's top, and the light strip inside it
+			total += 2
+			for _, segment in ipairs(Config.wallSegments(side, storey)) do
+				if segment.kind == "solid" then
+					total += 2   -- sill course + head course
+					for _, _bay in ipairs(Config.wallBays(segment.from, segment.to)) do
+						total += 1
+					end
+				else
+					total += 1 + segment.opening.leaves   -- lintel + gate leaves
+				end
+			end
+		end
+	end
+	-- the roof slab, its four columns, and the invisible anchor its sign hangs on
+	return total + 6
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
