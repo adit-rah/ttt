@@ -439,6 +439,35 @@ Config.Economy = {
 	OfflineGraceSeconds = 180,  -- keep a plot reserved this long after a disconnect
 }
 
+-- ADMIN CHAT COMMANDS. See src/server/AdminService.lua.
+--
+-- DELIBERATELY NOT IN Config.Prototypes. That table is for unfinished features
+-- and the verifier asserts every flag in it ships `false`, so a prototype flag
+-- is a thing you cannot turn on. This is the opposite: it is finished, it is
+-- meant to be on in Studio, and what gates it is WHO you are rather than
+-- whether the feature is ready.
+--
+-- Three ways to qualify, checked in this order:
+--
+--   RunService:IsStudio()   anyone testing locally. The overwhelming majority
+--                           of the use, and it cannot leak to a live server.
+--   game.CreatorId          the owner of the place, in a real server. Group
+--                           games report the GROUP id here, which is why
+--                           CreatorType is checked before it is trusted.
+--   UserIds                 anyone else you want to hand it to. Empty on
+--                           purpose: an allowlist that ships with a name in it
+--                           is a name nobody re-reads.
+--
+-- Enabled = false kills all three at once, which is the switch to reach for if
+-- these ever need to be off in Studio too.
+Config.Admin = {
+	Enabled = true,
+	UserIds = {},
+	-- What a bare `$` grants. Enough to feel like a cheat and not so much that
+	-- the HUD's number formatting has to be checked against it.
+	DefaultGrant = 1000000,
+}
+
 Config.Rebirth = {
 	-- ~10 minutes of fully-built income. This is DERIVED from endgame income
 	-- rather than being a price on the ladder, so it moves when endgame income
