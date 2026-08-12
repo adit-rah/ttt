@@ -26,6 +26,8 @@ local CombatService = Req("CombatService")
 local MapBuilder = Req("MapBuilder")
 
 local L = Config.Layout
+local BTN = Config.Style.Button
+local BTN_LOCKED = Config.Style.ButtonLocked
 local W = Config.World
 
 local Tycoon = {}
@@ -902,25 +904,29 @@ function Tycoon:buildButtons()
 		light.Shadows = false
 		light.Parent = pad
 
+		-- NOT AlwaysOnTop. Hiding behind a wall you are on the wrong side of is
+		-- correct; hiding behind a machine two feet away is not, and the x-ray
+		-- was covering the second case at the cost of the first — every locked
+		-- pad on the plot showed through everything, which is most of why the
+		-- plot read as a wall of labels. The label clears the machinery on its
+		-- own now, by standing above it (Style.Button.lift, asserted against
+		-- Layout.MachineTopY).
 		local billboard = Style.billboard(pad, {
-			name = "Info", width = 16, height = 9, distance = "prop", offset = 6,
-			-- Readable through your own machinery. Without this the label for
-			-- the button you are walking towards disappears behind the dropper
-			-- next to it exactly when you need it.
-			alwaysOnTop = true,
+			name = "Info", width = BTN.width, height = BTN.height,
+			distance = BTN.distance, offset = BTN.lift,
 		})
 
 		local frame = Instance.new("Frame")
 		frame.Size = UDim2.fromScale(1, 1)
 		frame.BackgroundColor3 = Color3.fromRGB(20, 16, 30)
-		frame.BackgroundTransparency = 0.2
+		frame.BackgroundTransparency = BTN.panelAlpha
 		frame.BorderSizePixel = 0
 		frame.Parent = billboard
 		Util.roundedFrame(frame, 10)
 
 		local stroke = Instance.new("UIStroke")
 		stroke.Color = COLORS.buttonOn
-		stroke.Thickness = 2.5
+		stroke.Thickness = BTN.strokeThickness
 		stroke.Parent = frame
 
 		-- Four lines, in the order you ask the questions: where am I in the
@@ -973,11 +979,15 @@ function Tycoon:buildButtons()
 			holder = holder,
 			pad = pad,
 			pedestal = holder:FindFirstChild("Pedestal"),
+			billboard = billboard,
+			frame = frame,
 			stroke = stroke,
 			priceLabel = price,
 			effectLabel = effect,
 			stepLabel = step,
 			titleLabel = title,
+			-- every label the two voices have to fade together
+			labels = { step, title, effect, price },
 			light = light,
 			machine = nil,
 			ghost = nil,
@@ -1052,6 +1062,27 @@ local TRACK_PREVIEW = { factory = 3, weapons = 2, armor = 2 }
 --- moment the plot was claimed. Rank by (track, price), factory first.
 local TRACK_RANK = { factory = 1, weapons = 2, armor = 3 }
 
+--- Switches a buy button's label between its two voices.
+---
+--- `locked` is a Config.Style.ButtonLocked table, or nil for the full-volume
+--- one. Five properties move together because any one of them alone is a nudge
+--- and the point is a difference you cannot miss: the label shrinks, its panel
+--- fades, its outline thins, its text fades (outline along with it, or a dimmed
+--- label keeps a hard edge and reads as MORE contrasty than the bright one),
+--- and it stops drawing at a shorter range so a plot full of locked pads
+--- clears out as you walk away from it.
+function Tycoon:setButtonVoice(entry, locked)
+	local scale = locked and locked.scale or 1
+	entry.billboard.Size = UDim2.fromScale(BTN.width * scale, BTN.height * scale)
+	Style.setDistance(entry.billboard, locked and locked.distance or BTN.distance)
+	entry.frame.BackgroundTransparency = locked and locked.panelAlpha or BTN.panelAlpha
+	entry.stroke.Thickness = locked and locked.strokeThickness or BTN.strokeThickness
+	local alpha = locked and locked.textAlpha or 0
+	for _, label in ipairs(entry.labels) do
+		Style.fade(label, alpha)
+	end
+end
+
 function Tycoon:refreshButtons()
 	if not self.owner then
 		for _, entry in pairs(self.objects) do
@@ -1105,6 +1136,12 @@ function Tycoon:refreshButtons()
 				entry.pedestal.CanCollide = false
 			end
 			entry.light.Enabled = false
+			-- SMALLER, FAINTER, THINNER, AND IT GIVES UP SOONER. Colour on its
+			-- own was never going to carry this: it is the first signal lost to
+			-- a bright sky or a neon variant standing behind the label, and it
+			-- was the ONLY thing separating a locked pad from the one you can
+			-- press.
+			self:setButtonVoice(entry, BTN_LOCKED)
 			entry.stroke.Color = COLORS.preview
 			entry.stepLabel.TextColor3 = COLORS.preview
 			entry.titleLabel.TextColor3 = COLORS.preview
@@ -1138,6 +1175,7 @@ function Tycoon:refreshButtons()
 			end
 			entry.light.Enabled = true
 			entry.light.Color = color
+			self:setButtonVoice(entry, nil)
 			entry.stroke.Color = color
 			entry.stepLabel.TextColor3 = Color3.fromRGB(150, 142, 172)
 			entry.titleLabel.TextColor3 = Color3.fromRGB(255, 240, 210)
