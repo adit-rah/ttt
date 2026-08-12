@@ -37,6 +37,17 @@ Net.NAMES = {
 	"RequestRebirth",-- C->S
 	"RequestReset",  -- C->S  (leave plot)
 	"Sfx",           -- S->C  { name, position }
+
+	-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
+	-- demand so a client that connects with a flag off still resolves them and
+	-- never sits in WaitForChild for 30 seconds.
+	"UpgradeState",   -- S->C  { levels = {id = level}, costs = {id = price} }
+	"RequestUpgrade", -- C->S  upgrade id
+	"UseUtility",     -- C->S  (fire the equipped utility)
+	"SessionState",   -- S->C  { daily, playtime, boost, offline }
+	"RequestClaim",   -- C->S  { kind = "daily" | "playtime" | "offline", index }
+	"RequestBoost",   -- C->S
+	"FloorState",     -- S->C  { unlocked = boolean }
 }
 
 if RunService:IsServer() then

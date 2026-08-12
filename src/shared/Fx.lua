@@ -6,6 +6,10 @@
 	engine and are always available, so nothing here can be moderated away.
 ]]
 
+local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
+local Config = Req("Config")
+local Sound = Req("Sound")
+
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 
@@ -269,10 +273,19 @@ end
 
 --- Procedural "tung" percussion. Generated from engine default sound ids that
 --- ship with Studio, pitched by index so each variant sounds different.
+---
+--- With Config.Prototypes.Sound on, both of these hand off to Sound.lua, which
+--- plays them out of a fixed pool instead of allocating one Sound per drop.
+--- With it off they keep the shipped behaviour exactly, down to the volumes
+--- and roll-off distances — the prototype has to be switchable, not merged.
 local TUNG_SOUND = "rbxasset://sounds/electronicpingshort.wav"
 local IMPACT_SOUND = "rbxasset://sounds/impact_water.mp3"
 
 function Fx.tung(part: BasePart, pitch: number?, volume: number?)
+	if Config.Prototypes.Sound then
+		Sound.playAt("collect", part, { pitch = pitch, volume = volume or 0.35 })
+		return
+	end
 	local sound = Instance.new("Sound")
 	sound.SoundId = TUNG_SOUND
 	sound.PlaybackSpeed = pitch or 1
@@ -284,6 +297,12 @@ function Fx.tung(part: BasePart, pitch: number?, volume: number?)
 end
 
 function Fx.impact(part: BasePart, pitch: number?)
+	if Config.Prototypes.Sound then
+		-- combo is passed by callers that track one (bat swings); without it
+		-- this is just the pitch they asked for
+		Sound.playAt("impact", part, { pitch = pitch, volume = 0.6, rollOff = 120 })
+		return
+	end
 	local sound = Instance.new("Sound")
 	sound.SoundId = IMPACT_SOUND
 	sound.PlaybackSpeed = pitch or 1
@@ -292,6 +311,19 @@ function Fx.impact(part: BasePart, pitch: number?)
 	sound.Parent = part
 	sound:Play()
 	Debris:AddItem(sound, 3)
+end
+
+--- Named passthroughs for the rest of the library, so callers outside Fx do
+--- not have to know the asset keys. All no-ops with the flag off.
+function Fx.sfx(name: string, position: Vector3?, opts)
+	if not Config.Prototypes.Sound then
+		return
+	end
+	if position then
+		Sound.playAt(name, position, opts)
+	else
+		Sound.play(name, opts)
+	end
 end
 
 --- Trail between two attachments, used on bats mid-swing.
