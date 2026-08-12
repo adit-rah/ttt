@@ -174,7 +174,7 @@ Three rules hold this together, and the first two are not stylistic:
 | --- | --- | --- | --- |
 | `Main.client.lua` | Entry point. Starts the four panels, then fires `ClientHello` once. | *(entry `LocalScript`)* | — |
 | `UiKit.lua` | The panel vocabulary: `PALETTE`, `corner`, `stroke`, `panel`, `text`, `button`, `scaleFor`, `safeInsets`. | `HUD`, `SessionUI`, `UpgradeUI` | move to `src/shared` (it would ship to the server build) |
-| `HUD.lua` | All on-screen furniture **and the only `ScreenGui` in the game**, carrying `Root` (UIScale + safe-area padding) and `Overlay` (UIScale, no padding, for modals). | `CombatClient`, `SessionUI`, `UpgradeUI` (lazily, `UpgradeUI.lua:422`), `Main.client` | — |
+| `HUD.lua` | All on-screen furniture **and the only `ScreenGui` in the game**, carrying `Root` (UIScale + safe-area padding) and `Overlay` (UIScale, no padding, for modals). The persistent furniture is one status card (balance, multiplier, friend bonus, next purchase + progress bar), the toast column, the action stack and the raid billboard. | `CombatClient`, `SessionUI`, `UpgradeUI` (lazily, `UpgradeUI.lua:422`), `Main.client` | — |
 | `CombatClient.lua` | Local feel only: hitmarkers, camera shake, knockback application, swing playback. | `Main.client` | decide damage; parent UI straight to the `ScreenGui` (that is outside the UIScale *and* the safe area) |
 | `UpgradeUI.lua` | **Prototype.** Shop panel + utility chip. Draws the last `UpgradeState`. | `Main.client` | decide what you own, what a level costs, or whether a utility is off cooldown |
 | `SessionUI.lua` | Welcome-back modal, daily/playtime claims, boost button, Vault Timer row. | `Main.client` | send a level or a price — the Vault Timer sends `{ kind = "capUpgrade" }` and the server owns which rung is next |
@@ -390,19 +390,19 @@ instead of sitting in `WaitForChild` for 30 seconds.
 
 | Remote | Dir | Payload | Fired by | Handled by |
 | --- | --- | --- | --- | --- |
-| `Stats` | S→C | `{ cash, rebirths, kills, batTier, armorTier, multiplier, owned, rebirthCost }` | `Economy.push` (`Economy.lua:107`) | `HUD:802`, `UpgradeUI:454` |
-| `Notify` | S→C | `{ kind, title, body, color }` | `Economy.notify` (`:212`), `NPCService:27` | `HUD:794` |
-| `WaveState` | S→C | `{ phase, wave, remaining, total, seconds, boss, forced, bossHp, bossMaxHp, bossScale }` — `phase` ∈ `idle｜resting｜warning｜spawning｜active｜clear`; `seconds` sent **once** per phase and counted down client-side | `NPCService:26` | `HUD:803` |
-| `SocialState` | S→C | `{ friends, cap, bonus, multiplier, names }` | `SocialService:170-181` | `HUD:804` |
+| `Stats` | S→C | `{ cash, rebirths, kills, batTier, armorTier, multiplier, owned, rebirthCost }` | `Economy.push` (`Economy.lua:107`) | `HUD:903`, `UpgradeUI:454` |
+| `Notify` | S→C | `{ kind, title, body, color }` | `Economy.notify` (`:212`), `NPCService:27` | `HUD:895` |
+| `WaveState` | S→C | `{ phase, wave, remaining, total, seconds, boss, forced, bossHp, bossMaxHp, bossScale }` — `phase` ∈ `idle｜resting｜warning｜spawning｜active｜clear`; `seconds` sent **once** per phase and counted down client-side | `NPCService:26` | `HUD:904` |
+| `SocialState` | S→C | `{ friends, cap, bonus, multiplier, names }` | `SocialService:170-181` | `HUD:905` |
 | `SessionState` | S→C | `{ enabled = { rebirth }, daily, playtime, boost, offline, capUpgrade, capHours, rebirth }` | `SessionService.stateFor` (`:548`) | `SessionUI:604` |
 | `UpgradeState` | S→C | `{ levels, costs, locked, equipped, cooldown, cooldownTotal }` — declared payload is `{ levels, costs }`; the rest is additive | `UpgradeService.push` (`:208`) | `UpgradeUI:437` |
 | `HitFeedback` | S→C | `{ damage, crit, killed, position }` | `CombatService:26` | `CombatClient:143` |
 | `SwingFx` | S→C | `{ character, combo, duration }` | `CombatService:28` | `CombatClient:162` |
 | `Knockback` | S→C | `Vector3` impulse, applied by the owning client | `CombatService:27`, `UpgradeService:62` | `CombatClient:179` |
 | `PlotAssigned` | S→C | `plotIndex` | `PlotService:19` | **nothing** |
-| `RequestRebirth` | C→S | *(none)* | `HUD:503` | `PlotService:168` |
-| `RequestReset` | C→S | *(none)* — leave plot | `HUD:305` | `PlotService:172` |
-| `RequestInvite` | C→S | *(none)* — exists for the server-side cooldown; the prompt itself is a client call | `HUD:415` | `SocialService:55` |
+| `RequestRebirth` | C→S | *(none)* | `HUD:555` | `PlotService:168` |
+| `RequestReset` | C→S | *(none)* — leave plot | `HUD:357` | `PlotService:172` |
+| `RequestInvite` | C→S | *(none)* — exists for the server-side cooldown; the prompt itself is a client call | `HUD:467` | `SocialService:55` |
 | `RequestClaim` | C→S | `{ kind = "offline"｜"daily"｜"playtime"｜"capUpgrade", index? }` | `SessionUI:260,378,390,406` | `SessionService:914-923` |
 | `RequestBoost` | C→S | *(none)* | `SessionUI:398` | `SessionService:54` |
 | `RequestUpgrade` | C→S | upgrade id (`""` = refresh) | `UpgradeUI:150,477` | `UpgradeService:60` |
@@ -576,7 +576,7 @@ a Vault Timer upgrade, a grant arriving.
 | retune the curve | `Config.Economy` (`:635`), `Config.Rebirth` (`:674`), the `price` fields | `verify_config.lua`'s progression simulation + the spine-price assertions |
 | move the belt | `Config.Layout` (`:143`) — `BeltStart`/`BeltCorner`/`BeltEnd`/`CollectorAt`/`BeltY`/`BeltWidth`/`BeltSpeed`, or `Config.BeltPaths` (`:1594`) for a non-ground path | `verify_config.lua`: legs stay on the plot, slot distances fit the legs, drops-in-flight against the belt capacity model |
 | move a machine or a button | `Layout.DropperDist` / `UpgraderDist` / `MiscButtons` / `MachineOffset` / `ButtonOffset` (`:143-178`), or `Config.trackButtonPosition` (`:2741`) | `verify_config.lua`: slot collisions, slots overflowing the distance tables |
-| add a UI panel | a new `src/client/*.lua`, built into `HUD.root()` or `HUD.overlay()`, using `UiKit`; sizes named in `Config.UI` (`:530`); started from `Main.client.lua` | `verify.py` passes 3, 6, 7: no font/outline/distance outside `Style.lua`, no ≥300×200 literal card in `src/client`, no second `ScreenGui` |
+| add a UI panel | a new `src/client/*.lua`, built into `HUD.root()` or `HUD.overlay()`, using `UiKit`; sizes named in `Config.UI` (`:651`); started from `Main.client.lua` | `verify.py` passes 3, 6, 7: no font/outline/distance outside `Style.lua`, no ≥300×200 literal card in `src/client`, no second `ScreenGui` |
 | add a save field | `DEFAULT` in `DataService.lua`, and the explicit payload table in `save()` | `reconcile()` iterates the fresh DEFAULT's keys — a field missing from DEFAULT is invisible to it and will never load |
 | add a wave behaviour | `Config.Waves` (`:1331`) for numbers; `NPCService.lua` for the state machine | `verify_config.lua`'s wave/boss assertions; `boss_spec.lua` — but `NPCService` itself does **not** execute headless (§7) |
 | add a remote | `Net.NAMES` (`Net.lua:28`) — declare it, do not create it on demand | a client resolving an undeclared remote sits in `WaitForChild` for 30s |
@@ -638,18 +638,34 @@ world. That is what lets two realms race one DataStore key in the session-lockin
 specs.
 
 Mocks, in load order: `clock`, `vector3`, `instance`, `datastore`, `players`,
-`roblox` (`tools/testing/mock/`), then `runner.lua` and `world.lua`.
-Twelve spec files in `tools/testing/specs/`: `analytics`, `boost`, `boss`,
-`generator`, `lock`, `offline`, `playtime`, `smoke`, `social`, `streak`,
-`vault`, `weekend`.
+`gui`, `roblox` (`tools/testing/mock/`), then `runner.lua` and `world.lua`.
+`gui.lua` is the screen — `Vector2`, `Rect`, `ColorSequence`, `typeof`, a
+`Camera` with a `ViewportSize`, `RenderStepped`, and the `LocalPlayer` with a
+`PlayerGui`. Its header names every claim it makes about Roblox and what each one
+costs; read it before trusting a client spec.
+Fifteen spec files in `tools/testing/specs/`: `analytics`, `boost`, `boss`,
+`floor`, `generator`, `hud`, `lock`, `offline`, `playtime`, `smoke`, `social`,
+`streak`, `structure`, `vault`, `weekend`.
 
 **What executes:** every `src/shared/*.lua` except `Req.lua`, plus exactly the
-modules in `SERVER_MODULES` (`tools/test.py:52-53`):
+modules in `SERVER_MODULES` (`tools/test.py:52-53`) and `CLIENT_MODULES`:
 
 ```python
 SERVER_MODULES = ["DataService", "Analytics", "Economy", "SessionService", "SocialService",
                   "CombatService", "MapBuilder", "Tycoon"]
+CLIENT_MODULES = ["UiKit", "HUD", "CombatClient", "UpgradeUI", "SessionUI", "Main.client"]
 ```
+
+`CLIENT_MODULES` is new in this round and it is **exhaustive**: `client_sources()`
+fails the run if a file in `src/client` is missing from it, because the point of a
+boot smoke is that it covers everything that boots. Note `Main.client` in that
+list — it is an ENTRY script rather than a module, which `pack.py` treats
+differently, but the harness hands it a `Req` like anything else. Requiring it is
+what makes the client's boot ORDER covered rather than transcribed into a spec
+that would not notice a reordering. Before it, no client module
+had ever executed anywhere but Roblox — which is half of why `SessionUI.lua`
+shipped raising at require time with a green CI. A lint catches an undeclared
+identifier; only execution catches a module that raises for any other reason.
 
 Those are **names, not paths** (`server_sources()`, `test.py:112`). `Tycoon`
 resolves inside `src/server/tycoon/`, and when a name resolves inside a folder the
@@ -669,7 +685,12 @@ aggregator alone would fail at load with `module not found in spec bundle: Class
 | `FloorService` | not in the list |
 | `GateService` | not in the list — and it needs `TweenService`, a `Character` and a physics position to mean anything |
 | `AdminService` | not in the list |
-| **all of `src/client`** | the collector only walks `src/shared` and `SERVER_MODULES` |
+| `HUD.toast`, the rebirth modal, the welcome-back modal | no tween advances. Deliberately not faked: a tween mock that jumps to its goal makes those paths look tested while proving the opposite |
+| rotation, resize, the device emulator | the viewport never changes after boot, so `applyViewport` runs once |
+| the client's `WaitForChild`-for-a-remote path | `RunService:IsServer()` is still true in the harness, so `Net` takes its server branch |
+| `CombatClient`'s bat watching and respawn handling | `ChildAdded`/`CharacterAdded` are inert |
+| `UpgradeUI.buildPanel` | both prototype flags are off, so `start()` returns before building anything |
+| any overlap or fit between two rectangles | a `UDim2` is stored and never resolved. That stays `tools/verify_config.lua`'s job, which can see the whole column at once |
 
 Widening that list is real work and should be its own PR, not a quiet addition
 to someone else's.
@@ -699,7 +720,8 @@ listed so the next reader does not trust the wrong sentence.
    "now execute outside Roblox". **It does not** — it is not in
    `SERVER_MODULES`. The same passage says only `NPCService` and `PlotService`
    "are still out"; `UpgradeService`, `VaultService`, `FloorService`,
-   `AdminService` and all of `src/client` are also out.
+   `AdminService` are also out. `src/client` USED to be in that list and is not
+   any more — all five modules and `Main.client.lua` execute as of round 7.
 4. **`Net.lua:56`** documents `RequestClaim` as
    `{ kind = "daily" | "playtime" | "offline", index }`. `SessionService`
    accepts a fourth kind, `"capUpgrade"` (`SessionService.lua:922`), and

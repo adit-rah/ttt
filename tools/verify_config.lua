@@ -2140,7 +2140,7 @@ for _, floor in ipairs(Config.Floors) do
 	local line = floor.zones and floor.zones.line
 	local armoury = floor.zones and floor.zones.armoury
 	check(line ~= nil and armoury ~= nil,
-		("%s must name a `line` zone (the belt is derived from it) and an `armoury` zone (the cabinets stand in it); it has neither or one")
+		("%s does not name both a `line` zone and an `armoury` zone; the belt is derived from the first and the cabinets stand in the second, so a floor without both cannot say where anything on it belongs")
 			:format(where))
 
 	if line and armoury then
@@ -2170,7 +2170,7 @@ for _, floor in ipairs(Config.Floors) do
 				local a, b = floor.zones[zoneNames[i]], floor.zones[zoneNames[j]]
 				local into = boxBoxOverlap(a.at, a.size, b.at, b.size)
 				check(into == 0,
-					("%s zones %q and %q interpenetrate by %.1f studs; a square of floor cannot be both a production line and an armoury")
+					("%s zones %q and %q interpenetrate by %.1f studs; one square of floor cannot belong to two zones, or neither of them bounds anything")
 						:format(where, zoneNames[i], zoneNames[j], into))
 			end
 		end
@@ -2222,11 +2222,11 @@ for _, floor in ipairs(Config.Floors) do
 				:format(where, #path.points, #zoneCorners))
 		for index, want in ipairs(zoneCorners) do
 			local got = path.points[index]
-			check(got ~= nil
-					and math.abs(got.X - want.X) < 1e-9 and math.abs(got.Z - want.Z) < 1e-9,
-				("%s belt corner %d is at (%.1f, %.1f) but the line zone plus its margins puts it at (%.1f, %.1f) — the belt has to be derived from the zone, or a deck that grows drags every machine on the storey with it")
-					:format(where, index, got and got.X or 0 / 1, got and got.Z or 0 / 1,
-						want.X, want.Z))
+			if got then
+				check(math.abs(got.X - want.X) < 1e-9 and math.abs(got.Z - want.Z) < 1e-9,
+					("%s belt corner %d is at (%.1f, %.1f) but the line zone plus its margins puts it at (%.1f, %.1f) — the belt has to be derived from the zone, or a deck that grows drags every machine on the storey with it")
+						:format(where, index, got.X, got.Z, want.X, want.Z))
+			end
 		end
 
 		-- ...and each margin has to clear the machine row it holds. This is the
@@ -2239,8 +2239,8 @@ for _, floor in ipairs(Config.Floors) do
 					:format(where, margin[1], margin[2], reach))
 		end
 
-		-- ...and every strip of every leg — surface, machine row, button row — is
-		-- inside the zone that is supposed to hold them.
+		-- ...and every strip of every leg — the slab, the machine row and the button
+		-- row — is inside the zone that is supposed to hold them.
 		for _, leg in ipairs(legs) do
 			for _, strip in ipairs({
 				{ "belt base", leg.belt },
@@ -2272,8 +2272,9 @@ for _, floor in ipairs(Config.Floors) do
 	-- the premise inverts: the truss must be INSIDE the footprint, in the void
 	-- Floors.hatch cuts out of it, and what used to be the defect is the
 	-- requirement. The rule is not relaxed by the change, it is bounded harder —
-	-- "in front of a 136-stud deck" was one inequality, "inside a 10 x 10 hatch
-	-- that is itself clear of the belt, the cabinets and the hopper" is a family.
+	-- "in front of a 136-stud deck" was one inequality; "inside a hatch that is
+	-- itself clear of the belt, the cabinets, the hopper and the ground floor under
+	-- it" is a family.
 	--
 	-- `Floors.ladder.at` is gone with it. It said z = -6.6 while the builder had
 	-- started deriving the truss from the hatch at z = -8, so every clearance
@@ -2352,18 +2353,19 @@ for _, floor in ipairs(Config.Floors) do
 		check(boxPointGap(deckAt, deck, landing) == 0,
 			("%s's landing is at (%.1f, %.1f), off the deck entirely"):format(where, landing.X, landing.Z))
 
-		-- THE HATCH INSIDE THE DECK, with a stated margin. A hole in a slab needs
-		-- slab round it, and the margin is what that slab is for: the deck's
-		-- perimeter guard stands on the outer edge, the hatch's guard stands on the
-		-- inner one, and between the two there has to be somewhere to put a body —
-		-- 2 studs of it — or the strip between them is a place you can see and
-		-- cannot stand. Derived from the rail rather than typed, because it is the
-		-- rail that eats the difference.
-		local HATCH_EDGE = floor.rail.thickness + 2
+		-- THE HATCH INSIDE THE DECK, by the margin Config states. A hole in a slab
+		-- needs slab round it, and the margin is what that slab is for: FloorService
+		-- builds the deck in PIECES around this rectangle, the deck's perimeter
+		-- guard stands on the outer edge and the hatch's guard on the inner one, and
+		-- between the two there has to be a piece worth building and somewhere to
+		-- stand on it. Six studs, which is the number the hatch's own comment gives
+		-- and which is also what the perimeter guard would stand on if the deck ever
+		-- pulled back from a wall.
+		local HATCH_EDGE = 6
 		local hatchInset = boxInsetBy(deckAt, deck, hatch.at, hatch.size)
 		check(hatchInset >= HATCH_EDGE,
-			("%s's hatch comes within %.1f studs of the edge of its own deck (need %.1f: a %.1f-stud perimeter guard and a body between it and the hatch's own guard)")
-				:format(where, hatchInset, HATCH_EDGE, floor.rail.thickness))
+			("%s's hatch comes within %.1f studs of the edge of its own deck (need %d) — the slab is built in pieces around it, and a piece thinner than that is a strip you can see and cannot stand on")
+				:format(where, hatchInset, HATCH_EDGE))
 
 		-- CLEAR OF THE PRODUCTION LINE. The hatch is a hole in the floor the belt
 		-- stands on: a leg over it is a conveyor over a void, and a machine or a
@@ -2389,7 +2391,7 @@ for _, floor in ipairs(Config.Floors) do
 				local box = strip[2]
 				local into = boxBoxOverlap(hatch.at, guardSize, box.centre, box.size)
 				check(into == 0,
-					("%s's hatch and guard cut %.1f studs into the %s of belt leg %d (that row runs x %.1f..%.1f z %.1f..%.1f) — the hole in the slab is where the %s stands, and nothing is standing there today only because the floor's one machine is on leg 1")
+					("%s's hatch and guard cut %.1f studs into the %s of belt leg %d (that row runs x %.1f..%.1f z %.1f..%.1f) — the hole in the slab is where the %s goes, and a row that is empty today is where the next machine bought on that leg lands")
 						:format(where, into, strip[1], leg.index,
 							box.centre.X - box.size.X / 2, box.centre.X + box.size.X / 2,
 							box.centre.Z - box.size.Z / 2, box.centre.Z + box.size.Z / 2,
@@ -2403,11 +2405,12 @@ for _, floor in ipairs(Config.Floors) do
 		--
 		-- RE-AUTHORED: the landing used to be `(ladder.at.X, deckAt.Z + deckHalfZ)`,
 		-- the point on the deck's front edge, which was where you arrived while the
-		-- deck stopped at z = -8. After the deck grew that expression returns
-		-- z = 68 — 73 studs from the truss and 90 from the hopper — so the check
-		-- passed by construction, for entirely the wrong reason, exactly like the
-		-- `deckAt.Z + halfZ + 2 > deckAt.Z + halfZ` one this block already carried a
-		-- note about. Config.floorLandingAt is the derivation both sides read.
+		-- deck stopped at z = -8. After the deck grew, that expression returns
+		-- (14, 68): 34 studs from where the truss actually stands and 91 from the
+		-- hopper. The check passed by construction rather than by measurement, which is
+		-- the same failure as the `deckAt.Z + halfZ + 2 > deckAt.Z + halfZ` one this
+		-- block already carried a note about — it just took a plausible number with it.
+		-- Config.floorLandingAt is the derivation both sides read.
 		local hopperGap = len(sub(path.collectorAt, landing))
 		check(hopperGap >= floor.belt.ladderClearance,
 			("%s's collector is %.1f studs from the landing at (%.1f, %.1f), where the truss puts you down (need %d)")
@@ -2422,15 +2425,16 @@ for _, floor in ipairs(Config.Floors) do
 		-- cabinet's slot-2 pedestal by 3x1 studs, latent only because the floor was
 		-- behind a flag.
 		--
-		-- Note what is NOT asserted here, so nobody adds it as an unsatisfiable
-		-- bound: the HATCH is not required to clear the ground floor's misc-button
-		-- spine. It cannot be. The spine's pedestals occupy x 5.5..10.5 and the
-		-- weapons cabinet starts at x = 18, which leaves 7.5 studs for a hatch that
-		-- is 10 wide, at the one x (GateCentre, 14) the stairwell is allowed to be.
-		-- A hole in a ceiling 22 studs over a pedestal collides with nothing; the
-		-- thing that occupies both storeys is the truss inside it, and the truss is
-		-- what these three loops measure. It clears belt1's pedestal by 2.5 studs
-		-- and the weapons cabinet by 3. Falsify by moving the hatch's x to 10.
+		-- Note what is NOT asserted here, so nobody adds it later as a bound the
+		-- geometry cannot satisfy: the HATCH is not required to clear the ground
+		-- floor's misc-button spine, and the aisle position that was tried twice
+		-- overlapped it by a stud and a half. A hole in a ceiling twenty-two studs
+		-- above a pedestal collides with nothing. What occupies both storeys is the
+		-- TRUSS inside the void, and the truss is what these loops measure — against
+		-- the ground floor's pedestals, pads and vault, and against the deck's own
+		-- cabinets, in one pass. Where it stands now it clears the vault shell by 18
+		-- studs, the claim pad by 22 and the weapons cabinet by 33, which is what
+		-- moving the stairwell off the aisle bought.
 		inPlot(where .. "'s truss", truss, ladder.width / 2)
 		for _, entry in ipairs(miscList) do
 			furniturePairs += 1
@@ -3478,9 +3482,95 @@ check(UI.Action.Height >= UI.Button.primary + UI.Gap + UI.Button.secondary,
 check(UI.ShopPanel.RowHeight >= UI.MinTouchPx,
 	("an upgrade row is %d design px tall against a touch floor of %d"):format(UI.ShopPanel.RowHeight, UI.MinTouchPx))
 
+-- THE STATUS CARD.
+--
+-- One card carrying the balance, the multiplier, the friend bonus and the next
+-- purchase with a progress bar under it — where there were two panels, and where
+-- "how far are we from it" was text alone. Its rows are named heights in
+-- Config.UI and its Ys are accumulated from them, so everything below is a
+-- relationship between two numbers in this file rather than between a number
+-- here and a literal in a builder. That is the whole reason the geometry lives
+-- in Config: HUD.lua types none of these.
+local CARD = UI.StatusCard
+
+-- THE CARD FITS ITS OWN ROWS. Height is chosen and ContentHeight is the sum of
+-- the rows, so this fires the moment a row grows or one is added — which is the
+-- edit that happened last time (the friend row took the old cash panel from 96
+-- to 126) and will happen again.
+check(CARD.Height >= CARD.ContentHeight,
+	("the status card is %d tall but its rows need %d: pad %d, balance %d, multiplier %d, friend row %d, group gap %d, heading %d, name %d, bar %d, detail %d, pad %d")
+		:format(CARD.Height, CARD.ContentHeight, CARD.Pad, CARD.BalanceHeight,
+			CARD.MultHeight, CARD.FriendRowHeight, CARD.GroupGap, CARD.HeadingHeight,
+			CARD.NameHeight, CARD.BarHeight, CARD.DetailHeight, CARD.Pad))
+
+-- EVERY TEXT SIZE ON THE CARD, AGAINST THE FLOOR, IN PHYSICAL PIXELS. The card
+-- carries six of them and it is the densest surface in the game; the smallest is
+-- the one that decides whether the device-agnostic claim is true, and a design-px
+-- number means nothing until it is multiplied by the worst scale it can be drawn
+-- at.
+local cardText = {
+	{ "balance", CARD.BalanceTextPx },
+	{ "multiplier line", CARD.MultTextPx },
+	{ "friend line", CARD.FriendTextPx },
+	{ "NEXT UPGRADE heading", CARD.HeadingTextPx },
+	{ "purchase name", CARD.NameTextPx },
+	{ "progress detail", CARD.DetailTextPx },
+}
+for _, row in ipairs(cardText) do
+	check(row[2] >= UI.MinTextPx,
+		("the status card's %s is %d design px, which is %.1f physical px at MinScale — under the %d-px floor this file declares")
+			:format(row[1], row[2], row[2] * UI.MinScale, UI.MinTextPx))
+end
+
+-- THE BALANCE IS THE BIGGEST THING ON THE CARD. It is the number the whole game
+-- is about and the first thing the eye is supposed to land on; a card where the
+-- purchase name or the multiplier out-sizes it is a card that reads as being
+-- about something else. Ordering, not a magnitude, so it survives a retype of
+-- every number in the group.
+for _, row in ipairs(cardText) do
+	check(row[1] == "balance" or CARD.BalanceTextPx > row[2],
+		("the status card's balance is %d design px and its %s is %d; the balance has to be the first thing read")
+			:format(CARD.BalanceTextPx, row[1], row[2]))
+end
+
+-- THE PROGRESS BAR IS A GAUGE, NOT A CONTROL, and it is bounded from both sides
+-- for two different reasons. Too thin and it is a hairline nobody can read a
+-- fraction off — at MinScale a 3-px design bar is under 2 physical px. Too thick
+-- and it reads as a button: everything else in this file that is MinTouchPx tall
+-- answers a press, and this one never will.
+check(CARD.BarHeight * UI.MinScale >= 3,
+	("the progress bar is %d design px tall, which is %.1f physical px at MinScale — a gauge nobody can read the fill of is decoration")
+		:format(CARD.BarHeight, CARD.BarHeight * UI.MinScale))
+check(CARD.BarHeight < UI.MinTouchPx,
+	("the progress bar is %d design px tall against a touch floor of %d; at that height it reads as a control, and pressing it does nothing")
+		:format(CARD.BarHeight, UI.MinTouchPx))
+
+-- THE CARD'S ONE TOUCH TARGET IS A PILL, AND ITS ROW IS AS TALL AS THE PILL.
+-- INVITE shipped as a 72x26 button drawn from literals in HUD.lua — 16 physical
+-- pixels tall at MinScale, under half the floor asserted 40 lines above, on the
+-- one control in the game whose whole job is to be pressed by a child. The
+-- height comes from UI.Button.pill now; this is the check that the row holding it
+-- did not stay at 26.
+check(CARD.FriendRowHeight >= UI.Button.pill,
+	("the status card's friend row is %d design px and the INVITE pill inside it is %d; a row shorter than its own button clips it")
+		:format(CARD.FriendRowHeight, UI.Button.pill))
+-- ...and the sentence beside it gets more of the row than the one word does.
+-- "+0%  •  no friends here yet" is the state that matters (see HUD.lua) and it is
+-- the longest string the card draws at any size; the pill says INVITE.
+check(CARD.FriendTextWidth * 2 >= CARD.ContentWidth,
+	("the friend line gets %d of the card's %d content px and the INVITE pill takes %d; the sentence needs more of the row than the one word does")
+		:format(CARD.FriendTextWidth, CARD.ContentWidth, CARD.InviteWidth))
+
+-- Printed because every number on the card is derived from the ten row heights
+-- above it, and a derived layout nobody ever reads back is one nobody notices has
+-- drifted. This is the line to look at when the card looks wrong in Studio.
+print(("status card:       %dx%d (rows need %d), bar %dx%d at y=%d, left column ends at y=%d of %d")
+	:format(CARD.Width, CARD.Height, CARD.ContentHeight, CARD.ContentWidth,
+		CARD.BarHeight, CARD.BarY, UI.ColumnBottom + UI.Margin, UI.ReferenceHeight))
+
 -- THE TOP-LEFT COLUMN AND THE UPGRADE SHOP.
 --
--- This is the check that had no owner. HUD.lua stacks cash, next-up and (via
+-- This is the check that had no owner. HUD.lua stacks the status card and (via
 -- SessionUI) the session panel down the left edge; UpgradeUI.lua hangs the shop
 -- off the BOTTOM edge with a proportional height, so on a short screen the shop
 -- grows upwards into the column. It overlapped the NEXT UPGRADE panel below 638
@@ -3491,10 +3581,10 @@ check(UI.ShopPanel.RowHeight >= UI.MinTouchPx,
 -- the layout would need if the shop stayed in the column; horizontal clearance
 -- is what it does instead, and is the stronger property — it holds at EVERY
 -- viewport height rather than at heights above some threshold.
-local column = { UI.CashPanel, UI.NextPanel, UI.SessionPanel }
+local column = { UI.StatusCard, UI.SessionPanel }
 for index, entry in ipairs(column) do
 	check(entry.Width == UI.ColumnWidth,
-		("panel %d of the left column is %d wide but the column is %d; a column of three widths is three panels")
+		("panel %d of the left column is %d wide but the column is %d; a column of two widths is two panels")
 			:format(index, entry.Width, UI.ColumnWidth))
 end
 -- Two heights now, not three. CompactHeight was the Prototypes.Sessions-off
@@ -4212,6 +4302,11 @@ print(("shell parts:       %d of a %d budget (%d before the mezzanine storey), %
 		shellParts * Config.World.MaxPlots, Config.World.MaxPlots))
 print(("belt:              %.0f studs, %.1fs transit, %.0f drops in flight at peak (%.0f%% full)")
 	:format(beltLength, transit, inFlight, inFlight * DROP_LENGTH / beltLength * 100))
+-- Printed because partitioning the furniture by floor removes comparisons by
+-- construction, and a number nobody looks at is how that becomes a quiet loss of
+-- coverage. It was 204 on a one-floor plot.
+print(("furniture:         %d pieces on %d floors, %d plan pairs compared")
+	:format(#floorSpots, 1 + #Config.Floors, furniturePairs))
 if floorReport then print(floorReport) end
 print(("vault timers:      %dh free, then %s")
 	:format(Config.Offline.CapHours, table.concat(vaultReport, ", ")))
@@ -4224,7 +4319,6 @@ print(("first rebirth:     %.3g at minute %.0f (save from %s), %d spine rung(s) 
 	:format(Config.Rebirth.BaseCost, rebirthAt, tostring(rebirthStop), rebirthLeftover))
 print(("credit cap:        build ends at %.0f min, %.0f min of the %d-minute daily window unused")
 	:format(buildMinutes, CREDIT_CAP_MINUTES - buildMinutes, CREDIT_CAP_MINUTES))
-print(("furniture pairs:  %d"):format(furniturePairs))
 print(("rebirth pacing:    each one takes %.2fx as long as the last"):format(costRatio))
 print("\nprogression curve (minutes of grind per purchase):")
 for _, row in ipairs(curve) do

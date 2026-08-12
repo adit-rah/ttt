@@ -32,8 +32,9 @@ function World.install(T, req)
 	local DataStoreService = req("datastore")
 	local PlayersMock = req("players")
 	local Mock = req("roblox")
+	local Gui = req("gui")
 
-	Mock.install({ Instance = Instance, Vector3 = Vector3Mock })
+	Mock.install({ Instance = Instance, Vector3 = Vector3Mock, Gui = Gui })
 
 	T.worlds = {}
 	T.executed = {}
@@ -55,6 +56,7 @@ function World.install(T, req)
 			Instance = Instance,
 			DataStoreService = DataStoreService,
 			Players = PlayersMock,
+			Gui = Gui,
 			epoch = opts.epoch,
 		})
 		world.task = world.clock:taskLibrary()

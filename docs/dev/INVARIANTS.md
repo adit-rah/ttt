@@ -681,6 +681,28 @@ defects in the same file.
   the panel next to it — which is how the upgrade shop came to sit on top of the NEXT UPGRADE
   panel with one of the two numbers in `HUD.lua` and the other in `UpgradeUI.lua`. `[lint]`
   `verify.py` "ui geometry", plus `[assert]` the shop/column overlap at the reference height.
+- **The status card's rows are named heights and every Y is accumulated from them**, in
+  `Config.lua`'s derivation block — including the session panel's `Y` and `ColumnBottom` below
+  it. `HUD.lua` types no Y and no text size at all. `[assert]` the card's `Height` against the
+  `ContentHeight` its rows add up to (the two are independent numbers on purpose: a `Height`
+  derived from the sum would fit by construction and catch nothing), its `Width` against
+  `ColumnWidth`, and the column against `ReferenceHeight` with margins.
+- **Every text size on the card clears `MinTextPx`, and the balance is strictly the largest of
+  them.** The NEXT UPGRADE heading shipped at 12 design px — 7.4 physical px at `MinScale`,
+  under both floors `Config.UI` declares — because it was a literal in a builder and nothing
+  could read it. The balance being biggest is the card's whole thesis: it is the number the game
+  is about. `[assert]` six sizes against the floor, five against the balance.
+- **The progress bar is a gauge, not a control**, and is bounded from both sides: at least 3
+  physical px at `MinScale` so the fill is readable, and under `MinTouchPx` so it does not read
+  as something that answers a press. `[assert]`
+- **Every touch target on the card comes from the `UI.Button` ladder, and its row is at least as
+  tall as the button in it.** INVITE shipped as a 72×26 literal — 16 physical px at `MinScale`,
+  under half the floor this file declares, on the one control whose job is to be pressed by a
+  child. `[assert]` the friend row against `Button.pill`.
+- **The bar, the balance and the "N to go" all read `displayedCash`**, the lerped value, not
+  `state.cash`. The counter takes ~0.2s to arrive after a payout; anything on the card computed
+  from the packet is at the destination while the number above it is still climbing, so the card
+  contradicts itself at the one moment it is being read closely. `[nothing]`
 - **A `UIScale` transforms its whole subtree**, so a shade at `fromScale(1,1)` inside a 0.62
   layer dims 62% of the screen and leaves a bright border. Both layers are sized
   `fromScale(1/scale)` to cancel exactly that. `[nothing]`
@@ -812,6 +834,25 @@ specced — they need `Touched` and a physics step.
   drives os.time, and os.date reads the fake epoch", `weekend_spec.lua` "Monday does not".
 - **`_G` is readonly under the `luau` CLI**, so harness globals are assigned directly.
   `[nothing]`
+- **All of `src/client` executes under the harness, and `CLIENT_MODULES` is exhaustive by
+  lint.** `client_sources()` fails the run if a file in `src/client` is missing from the list,
+  and `client_manifest()` generates the list into the bundle so the boot smoke covers a new
+  panel the moment it is listed rather than when somebody remembers to edit a spec. Before
+  this, no client module had ever executed anywhere but Roblox — which is half of why
+  `SessionUI.lua` shipped raising at require time with a green CI. `[lint]` + `[spec]`
+  `hud_spec.lua`.
+- **`Main.client.lua` is in `CLIENT_MODULES` even though it is an entry script.** `pack.py`
+  treats a `.client` stem as an entry point, but the harness can hand it a `Req` like any
+  other module — and requiring it is what makes the client's boot ORDER covered rather than
+  transcribed into a spec that would not notice a reordering. `[spec]`
+- **Two branches of the next-purchase ranking cannot change the answer with today's Config,
+  and are specced somewhere they can.** The track gate only hides the two cabinets while
+  `mezzanine` is unowned — and `mezzanine` is a factory rung, which outranks anything the gate
+  could hide; the price tie-break only applies within one track, and a track is a chain, so
+  exactly one rung is ever available. Two hand-maintained copies of a branch that cannot
+  change the answer can drift forever with the game looking fine. `hud_spec.lua` gates the
+  POWER track and ties two `TrackRank` values to put each branch somewhere it decides.
+  `[spec]`
 - **The pass list in `verify.py`'s docstring must stay in step with `main()`.** It has said
   five, seven and eight while `main()` ran nine, and a pass count nobody can trust is a pass
   somebody can quietly delete. `[nothing]`
@@ -874,6 +915,12 @@ times in `verify.py`):
 - The roof rebuild when the floor lands.
 - The multiplier hook being an O(1) read on `Economy.add`.
 - `Util.abbreviate`'s trailing-zero rule — three lines, and it shipped wrong once.
+- **The status card's progress bar following `displayedCash` rather than `state.cash`.** The
+  fill, the balance and the "N to go" are three reads of one lerped number in `renderNext`, and
+  nothing stops the next edit reaching for `state.cash` in any of them — at which point the card
+  disagrees with itself for a fifth of a second after every payout, which is a bug you can only
+  see in motion. Needs `src/client` inside the harness: `HUD.lua` is outside `SERVER_MODULES`
+  and wants a `ScreenGui`, a `UIScale` and a `RenderStepped` before it will load at all.
 
 **Blocked until `NPCService` can be specced** (needs `Touched` and a physics step; widening
 `SERVER_MODULES` is its own PR):

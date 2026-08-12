@@ -16,6 +16,12 @@
 
 local Mock = {}
 
+-- Gui arrives through `deps`, like Instance and Clock, and NOT through Req.
+-- A mock that requires a sibling by name reads as a module; every other mock
+-- here is handed what it needs by world.lua, and pass 2 of the verifier fails
+-- the build on the free `Req` a require would leave in this file.
+local Gui
+
 --- The live world. world.lua swaps this pointer per spec, which is what lets
 --- one Lua state host a fresh clock, store and player list for every spec
 --- without reloading the bundle.
@@ -23,6 +29,7 @@ Mock.current = nil
 Mock.errors = {}
 
 function Mock.build(deps)
+	Gui = Gui or deps.Gui
 	local Clock = deps.Clock
 	local Instance = deps.Instance
 	local DataStoreService = deps.DataStoreService
@@ -160,6 +167,12 @@ function Mock.build(deps)
 		end,
 	})
 
+	-- The screen, on top of the world: a Camera, the client-only halves of
+	-- RunService, GuiService and UserInputService, and the LocalPlayer helper.
+	-- Every world gets them, because a world that only sometimes has a viewport
+	-- is a world every spec has to ask about.
+	Gui.build(world, services, deps)
+
 	world.services = services
 	return world
 end
@@ -167,6 +180,7 @@ end
 --- Install the globals once, delegating through Mock.current so a later
 --- world swap is picked up by already-loaded modules.
 function Mock.install(deps)
+	Gui = Gui or deps.Gui
 	local realDate = os.date
 	local realTime = os.time
 
@@ -248,9 +262,12 @@ function Mock.install(deps)
 		fromRGB = function(r, g, b) return { r = r, g = g, b = b } end,
 		new = function(r, g, b) return { r = r, g = g, b = b } end,
 	}
-	Vector2 = {
-		new = function(x, y) return { X = x or 0, Y = y or 0 } end,
-	}
+	-- Vector2, Rect, ColorSequence and typeof: see tools/testing/mock/gui.lua.
+	-- Vector2 used to be three lines here; it moved because the client needs it
+	-- to answer `typeof(x) == "Vector2"`, and that needs a metatable this file
+	-- has no other use for.
+	Gui.globals(deps)
+
 	UDim = { new = function(s, o) return { Scale = s or 0, Offset = o or 0 } end }
 	UDim2 = {
 		new = function(sx, ox, sy, oy)
@@ -287,7 +304,14 @@ function Mock.install(deps)
 				__index = function(_g, name)
 					local item = items[name]
 					if not item then
-						item = setmetatable({ Name = name, EnumType = group }, {
+						-- `Value` is 0 for EVERY item, and that is a claim rather
+						-- than a value: this file does not know the engine's
+						-- numbering. It exists because CombatClient does
+						-- arithmetic on one — `Enum.RenderPriority.Camera.Value
+						-- + 1` — and nil + 1 raises before the camera shake is
+						-- ever bound. Nothing may ORDER by it; a spec that
+						-- compares two Values is comparing 0 to 0.
+						item = setmetatable({ Name = name, EnumType = group, Value = 0 }, {
 							__tostring = function() return group .. "." .. name end,
 						})
 						items[name] = item
