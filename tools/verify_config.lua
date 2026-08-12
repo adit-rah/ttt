@@ -930,6 +930,135 @@ for _, track in ipairs(Config.TrackOrder) do
 	end
 end
 
+-- ── the mezzanine, on the ground floor's terms ──────────────────────────────
+--
+-- None of this was checkable until now. FloorService built the deck's belt in
+-- code, so the belt-path assertions never saw it; its teleport pads were never
+-- in miscList, so nothing cross-checked them against the plot furniture; and
+-- the roof already shrinks itself when the floor is on, which is the kind of
+-- arrangement that breaks quietly when either side moves.
+
+--- Gap between two axis-aligned boxes in plan, 0 if they overlap. The pads are
+--- 9x9 against 5x5 pedestals, so the centre-distance rule miscList uses is the
+--- wrong instrument for them: two boxes can be 14 studs apart centre to centre
+--- and still interpenetrate.
+local function boxBoxGap(aCentre, aSize, bCentre, bSize)
+	local dx = math.max(math.abs(aCentre.X - bCentre.X) - (aSize.X + bSize.X) / 2, 0)
+	local dz = math.max(math.abs(aCentre.Z - bCentre.Z) - (aSize.Z + bSize.Z) / 2, 0)
+	return math.sqrt(dx * dx + dz * dz)
+end
+
+local PEDESTAL = Vector3.new(5, 1, 5)
+
+for _, floor in ipairs(Config.Floors) do
+	local where = "Floors." .. floor.id
+	local deck, deckAt = floor.deckSize, floor.deckAt
+	local deckHalfX, deckHalfZ = deck.X / 2, deck.Z / 2
+
+	-- THE GROUND-END TELEPORT PAD IS FLOOR FURNITURE. It stands on the plot
+	-- floor exactly like a buy-button pedestal, and it was the one piece of it
+	-- nothing checked: at (40, -14) it interpenetrated the armour cabinet's
+	-- slot-2 pedestal by three studs by one. Latent only because the flag was
+	-- off, and invisible because the pads were never in this list.
+	for _, entry in ipairs(miscList) do
+		local gap = boxBoxGap(floor.pads.down, floor.pads.size, entry.spot, PEDESTAL)
+		check(gap >= 3,
+			("%s's ground teleport pad comes within %.1f studs of %s (need 3)")
+				:format(where, gap, entry.id))
+	end
+	for _, pad in ipairs({
+		{ "RebirthPadAt", L.RebirthPadAt, Vector3.new(12, 1, 12) },
+		{ "ClaimPadAt", L.ClaimPadAt, Vector3.new(14, 1, 14) },
+	}) do
+		local gap = boxBoxGap(floor.pads.down, floor.pads.size, pad[2], pad[3])
+		check(gap >= 3,
+			("%s's ground teleport pad comes within %.1f studs of %s (need 3)")
+				:format(where, gap, pad[1]))
+	end
+
+	-- The deck-end pad has to be ON the deck, and off its own belt.
+	check(math.abs(floor.pads.up.X - deckAt.X) + floor.pads.size.X / 2 <= deckHalfX
+		and math.abs(floor.pads.up.Z - deckAt.Z) + floor.pads.size.Z / 2 <= deckHalfZ,
+		("%s's upper teleport pad at (%.0f, %.0f) hangs off the deck")
+			:format(where, floor.pads.up.X, floor.pads.up.Z))
+
+	-- THE DECK'S BELT STAYS ON THE DECK — legs, the machine row outboard of
+	-- each leg, and the buy-button row inboard of it. This is the check that
+	-- catches a belt margin too small for the machines that stand on it, which
+	-- is what `side = 10` was: it needed 11.5 and overshot by a stud and a half.
+	local path = Config.floorBeltPath(floor)
+	local reach = L.MachineOffset + L.MachineFootprint / 2 + floor.rail.thickness
+	for index, point in ipairs(path.points) do
+		check(math.abs(point.X - deckAt.X) + reach <= deckHalfX,
+			("%s belt corner %d is at x=%.1f; its machine row reaches %.1f studs past the deck rail")
+				:format(where, index, point.X,
+					math.abs(point.X - deckAt.X) + reach - deckHalfX))
+		check(math.abs(point.Z - deckAt.Z) + reach <= deckHalfZ,
+			("%s belt corner %d is at z=%.1f; its machine row reaches %.1f studs past the deck rail")
+				:format(where, index, point.Z,
+					math.abs(point.Z - deckAt.Z) + reach - deckHalfZ))
+	end
+
+	-- The hopper has to clear the pad it stands next to, or the two occupy the
+	-- same square and one of them wins at random.
+	local hopperGap = len(sub(path.collectorAt, floor.pads.up))
+	check(hopperGap >= floor.belt.padClearance,
+		("%s's collector is %.1f studs from its teleport pad (need %d)")
+			:format(where, hopperGap, floor.belt.padClearance))
+
+	-- THE DECK AGAINST THE PLOT IT SITS IN. Its back edge is flush to the wall
+	-- and it clears the roof columns by less than a stud; both sides are now
+	-- named numbers, so moving either one is a build failure rather than a
+	-- thing somebody notices in Studio.
+	local wallInner = halfZ - 1
+	check(deckAt.Z - deckHalfZ >= -wallInner,
+		("%s's back edge is at z=%.1f and the wall's inner face is at z=%.1f — the deck would grow through the wall")
+			:format(where, deckAt.Z - deckHalfZ, -wallInner))
+	local deckUnderside = floor.height - deck.Y
+	check(deckUnderside >= L.RoofY,
+		("%s's underside is at y=%.1f and the roof columns top out at y=%.1f — they interpenetrate")
+			:format(where, deckUnderside, L.RoofY))
+	-- ...and the shortened roof has to stop short of the deck, not meet it.
+	local roofBack = deckAt.Z + deckHalfZ + 2
+	check(roofBack > deckAt.Z + deckHalfZ,
+		("%s: the shortened roof starts at z=%.1f, inside the deck"):format(where, roofBack))
+
+	-- THE DECK'S PILLARS STAND ON THE GROUND FLOOR, among the machines. They
+	-- miss the upgrader row today only because no UpgraderDist slot happens to
+	-- land at z = -16, which is not a reason, it is a coincidence.
+	local pillarX = deckHalfX - floor.pillar.insetSide
+	local pillarZ = {
+		deckAt.Z - deckHalfZ + floor.pillar.insetBack,
+		deckAt.Z + deckHalfZ - floor.pillar.insetFront,
+	}
+	local pillarSize = Vector3.new(floor.pillar.size, 1, floor.pillar.size)
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, pz in ipairs(pillarZ) do
+			local at = Vector3.new(deckAt.X + sx * pillarX, 0, pz)
+
+			-- leg 2 runs BeltCorner -> BeltEnd, i.e. along +Z from z = BeltCorner.Z,
+			-- with the machines outboard at -X
+			for slot, distance in ipairs(L.UpgraderDist) do
+				local machine = Vector3.new(L.BeltCorner.X - L.MachineOffset, 0, L.BeltCorner.Z + distance)
+				local gap = boxBoxGap(at, pillarSize, machine,
+					Vector3.new(L.MachineFootprint, 1, L.MachineFootprint))
+				check(gap >= 2,
+					("%s's pillar at (%.0f, %.0f) is %.1f studs from upgrader slot %d's machine (need 2)")
+						:format(where, at.X, at.Z, gap, slot))
+			end
+
+			for slot, distance in ipairs(L.DropperDist) do
+				local machine = Vector3.new(L.BeltStart.X - distance, 0, L.BeltStart.Z - L.MachineOffset)
+				local gap = boxBoxGap(at, pillarSize, machine,
+					Vector3.new(L.MachineFootprint, 1, L.MachineFootprint))
+				check(gap >= 2,
+					("%s's pillar at (%.0f, %.0f) is %.1f studs from dropper slot %d's machine (need 2)")
+						:format(where, at.X, at.Z, gap, slot))
+			end
+		end
+	end
+end
+
 -- The gateway in the front wall has to open onto the aisle the player actually
 -- walks, not onto the vault.
 local gateLeft, gateRight = L.GateCentre - L.GateWidth / 2, L.GateCentre + L.GateWidth / 2

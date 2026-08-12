@@ -206,6 +206,18 @@ Config.Layout = {
 -- see. If you raise the arm, raise this.
 Config.Layout.MachineTopY = Config.Layout.BeltY + 5.5
 
+-- THE ROOF, which the mezzanine deck has to share a plot with.
+--
+-- These were literals inside the `roof` structure installer. They are here
+-- because the deck sits at height 22 and the roof's columns are 20 tall, and
+-- nothing was checking that relationship — the roof already shrinks itself when
+-- the floor is on, which is exactly the kind of arrangement that breaks quietly
+-- when either side moves. An assertion needs to see both sides.
+Config.Layout.RoofY = 20            -- top of the columns, underside of the slab
+Config.Layout.RoofThickness = 1.4
+Config.Layout.RoofColumn = 2.4
+Config.Layout.RoofColumnInset = 3   -- in from the plot's wall ring
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- WORLD TEXT
 --
@@ -899,34 +911,15 @@ Config.Waves = {
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- PROTOTYPES
+-- BELT PATHS AND FLOORS
 --
--- Everything below this line is unshipped. Each block is gated by a flag in
--- Config.Prototypes and every one of them defaults to OFF, so a build with all
--- the flags false is byte-for-byte the game that ships today. That is the whole
--- contract: a prototype you cannot turn off is not a prototype, it is a
--- half-finished feature you have to finish before you can ship anything else.
+-- These lived under the PROTOTYPES banner, which was already a lie:
+-- Tycoon.new consumes BeltPaths[1] unconditionally to build the ground floor's
+-- conveyor. They are shipped data and they sit with the shipped data.
 --
--- The rationale for each of these — what shipped where, and what players said
--- about it — is in IDEAS.md. Numbers here are first drafts, not balance.
+-- A path is just a list of corners, and every piece of belt geometry derives
+-- from leg(i), so the runtime does not care how many legs there are.
 -- ─────────────────────────────────────────────────────────────────────────────
-
-Config.Prototypes = {
-	Floors = false,        -- a second storey with its own dropper -> belt -> vault loop
-	PlayerUpgrades = false,-- walkspeed / magnet / cash multiplier shop
-	Utilities = false,     -- a second weapon slot holding a verb, not a stat
-	RebirthPerks = false,  -- rebirth grants four things instead of one number
-	Offline = false,       -- offline earnings and the welcome-back panel
-	Sessions = false,      -- daily streak, playtime ladder, boost cooldown
-	Sound = false,         -- the engine-asset sound layer
-}
-
--- ── multi-leg belt and floors ────────────────────────────────────────────────
---
--- The shipped belt is hardcoded as an L: two legs, one turn sensor, a 1->2
--- transition written into onTurn. A path is just a list of corners, and every
--- piece of belt geometry already derives from leg(i) — so generalising is
--- mostly deleting the assumption that i is 1 or 2.
 --
 -- Ground floor path is derived from the shipped Layout keys rather than
 -- duplicated, so the two cannot drift.
@@ -962,12 +955,127 @@ Config.Floors = {
 		-- deck covers the back half only, so it does not roof the walkway
 		deckSize = Vector3.new(112, 1.6, 60),
 		deckAt = Vector3.new(0, 0, -38),
-		-- teleport pads. Shipped elevators in this genre are pad pairs, not
-		-- moving platforms: TweenService lifts jitter and slide players off.
-		padDown = Vector3.new(40, 0, -14),
-		padUp = Vector3.new(40, 0, -14),
+		-- belt and machines float this far over the deck: a belt base whose
+		-- underside is coplanar with the deck's top face is two surfaces at one
+		-- Y, which z-fights
+		deckLift = 0.1,
 		railHeight = 5,          -- falling off is the obvious new failure mode
+
+		-- BELT MARGINS, in from each deck edge.
+		--
+		-- Each has to clear MachineOffset + MachineFootprint/2 + rail thickness
+		-- or a machine standing on that leg hangs over the railing. `side` was
+		-- 10 and needed 11.5, so leg 2's machine strip overshot the deck by a
+		-- stud and a half; `back` was 12 against 11.5, half a stud of margin.
+		-- Nothing stood there only because the floor carried one dropper on leg
+		-- 1 — which is the whole reason this geometry had to become data before
+		-- anything could be bought on it.
+		belt = {
+			back = 13,
+			side = 12,
+			front = 14,
+			collectorRun = 16,   -- run-off between the belt's end and the hopper
+			padClearance = 12,   -- keep the hopper this clear of the teleport pad
+			outboard = { 1, 1, 1 },
+		},
+
+		rail = { thickness = 1, bar = 1.4 },
+
+		-- Support posts down to the plot floor. Their footprints miss what is
+		-- already down there: 4 in from the deck's sides puts them at x = +-52,
+		-- outboard of leg 2 (which reaches x = -48.6) and clear of the upgrader
+		-- beams; 8 in from the front edge drops them at z = -16, between
+		-- upgrader slots 2 and 3 at z = -26 and z = -10.
+		pillar = { size = 2.4, insetSide = 4, insetBack = 4, insetFront = 8 },
+
+		-- TELEPORT PADS. Shipped elevators in this genre are pad pairs, not
+		-- moving platforms: TweenService lifts jitter and slide players off.
+		--
+		-- `down` and `up` used to share coordinates, which reads as a lift
+		-- shaft and is the nicer arrangement — but the ground end at (40, -14)
+		-- interpenetrated the armour cabinet's slot-2 pedestal by three studs
+		-- by one, and there is no clean 9x9 anywhere on that side: the weapons
+		-- and armour columns at x = 30 and 44 on a 14-stud pitch cap the best
+		-- achievable clearance at exactly zero. So the ground end moves to the
+		-- aisle side, where it has 3.5 studs of room. They do not have to line
+		-- up, and FloorService never assumed they did.
+		pads = {
+			size = Vector3.new(9, 1, 9),
+			groundTop = 1.1,     -- its own Y: claim pad tops out at 1.2, rebirth at 1.5
+			stand = 3.5,         -- pivot height above the pad you land on
+			cooldown = 1.5,
+			down = Vector3.new(10, 0, -20),
+			up   = Vector3.new(40, 0, -14),
+		},
 	},
+}
+
+--- The mezzanine's belt, as a Config.BeltPaths entry.
+---
+--- Three legs around the back and left of the deck, then a return leg back
+--- across it to the hopper. Derived from the deck rectangle and the pad
+--- position rather than written out as a second set of magic coordinates, so it
+--- follows the deck if that is ever resized.
+---
+--- The return leg is what the old inferred-outboard heuristic could not do: its
+--- midpoint sits near the middle of the plot, so "point away from the origin"
+--- picks the wrong side and hangs the machines over the walkway. Every leg's
+--- side is stated.
+---
+--- COMPONENT ARITHMETIC ONLY. tools/verify_config.lua stubs Vector3 as a plain
+--- table with no operators, so `deckSize * 0.5` here would take the entire
+--- 1200-check suite down at require time. This function is the reason the
+--- mezzanine's belt is visible to the belt assertions at all, so it would be a
+--- particularly silly place to break them.
+function Config.floorBeltPath(floor)
+	local b = floor.belt
+	local halfX, halfZ = floor.deckSize.X / 2, floor.deckSize.Z / 2
+
+	local backZ = floor.deckAt.Z - halfZ + b.back
+	local frontZ = floor.deckAt.Z + halfZ - b.front
+	local rightX = floor.deckAt.X + halfX - b.side
+	local leftX = floor.deckAt.X - halfX + b.side
+	local collectorX = floor.pads.up.X - b.padClearance
+
+	return {
+		id = floor.id,
+		y = floor.height + floor.deckLift,
+		points = {
+			Vector3.new(rightX, 0, backZ),
+			Vector3.new(leftX, 0, backZ),
+			Vector3.new(leftX, 0, frontZ),
+			Vector3.new(collectorX - b.collectorRun, 0, frontZ),
+		},
+		outboard = b.outboard,
+		collectorAt = Vector3.new(collectorX, 0, frontZ),
+	}
+end
+
+for _, floor in ipairs(Config.Floors) do
+	table.insert(Config.BeltPaths, Config.floorBeltPath(floor))
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- PROTOTYPES
+--
+-- Everything below this line is unshipped. Each block is gated by a flag in
+-- Config.Prototypes and every one of them defaults to OFF, so a build with all
+-- the flags false is byte-for-byte the game that ships today. That is the whole
+-- contract: a prototype you cannot turn off is not a prototype, it is a
+-- half-finished feature you have to finish before you can ship anything else.
+--
+-- The rationale for each of these — what shipped where, and what players said
+-- about it — is in IDEAS.md. Numbers here are first drafts, not balance.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+Config.Prototypes = {
+	Floors = false,        -- a second storey with its own dropper -> belt -> vault loop
+	PlayerUpgrades = false,-- walkspeed / magnet / cash multiplier shop
+	Utilities = false,     -- a second weapon slot holding a verb, not a stat
+	RebirthPerks = false,  -- rebirth grants four things instead of one number
+	Offline = false,       -- offline earnings and the welcome-back panel
+	Sessions = false,      -- daily streak, playtime ladder, boost cooldown
+	Sound = false,         -- the engine-asset sound layer
 }
 
 -- ── player upgrades ──────────────────────────────────────────────────────────

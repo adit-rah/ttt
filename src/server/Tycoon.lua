@@ -1616,13 +1616,18 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 			back = floorDef.deckAt.Z + floorDef.deckSize.Z / 2 + 2
 		end
 
-		local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, 1.4, front - back),
-			self:at(0, 20, (front + back) / 2), Color3.fromRGB(138, 88, 58), Enum.Material.WoodPlanks)
+		-- Heights come from Layout now rather than being literals here, because
+		-- the mezzanine deck sits at 22 and these columns are 20 tall — a
+		-- relationship nothing was checking, on two pieces of geometry that
+		-- already reach into each other.
+		local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, L.RoofThickness, front - back),
+			self:at(0, L.RoofY, (front + back) / 2), Color3.fromRGB(138, 88, 58), Enum.Material.WoodPlanks)
 		roof.CanCollide = true
 		for _, sign in ipairs({ -1, 1 }) do
 			for _, signZ in ipairs({ -1, 1 }) do
-				newPart(model, "Column", Vector3.new(2.4, 20, 2.4),
-					self:at(sign * (halfX - 3), 10, signZ * (halfZ - 3)), Color3.fromRGB(150, 111, 74), Enum.Material.Wood)
+				newPart(model, "Column", Vector3.new(L.RoofColumn, L.RoofY, L.RoofColumn),
+					self:at(sign * (halfX - L.RoofColumnInset), L.RoofY / 2, signZ * (halfZ - L.RoofColumnInset)),
+					Color3.fromRGB(150, 111, 74), Enum.Material.Wood)
 			end
 		end
 

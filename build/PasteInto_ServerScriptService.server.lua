@@ -238,6 +238,18 @@ __MODULES["Config"] = function()
 	-- see. If you raise the arm, raise this.
 	Config.Layout.MachineTopY = Config.Layout.BeltY + 5.5
 
+	-- THE ROOF, which the mezzanine deck has to share a plot with.
+	--
+	-- These were literals inside the `roof` structure installer. They are here
+	-- because the deck sits at height 22 and the roof's columns are 20 tall, and
+	-- nothing was checking that relationship — the roof already shrinks itself when
+	-- the floor is on, which is exactly the kind of arrangement that breaks quietly
+	-- when either side moves. An assertion needs to see both sides.
+	Config.Layout.RoofY = 20            -- top of the columns, underside of the slab
+	Config.Layout.RoofThickness = 1.4
+	Config.Layout.RoofColumn = 2.4
+	Config.Layout.RoofColumnInset = 3   -- in from the plot's wall ring
+
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- WORLD TEXT
 	--
@@ -931,34 +943,15 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- PROTOTYPES
+	-- BELT PATHS AND FLOORS
 	--
-	-- Everything below this line is unshipped. Each block is gated by a flag in
-	-- Config.Prototypes and every one of them defaults to OFF, so a build with all
-	-- the flags false is byte-for-byte the game that ships today. That is the whole
-	-- contract: a prototype you cannot turn off is not a prototype, it is a
-	-- half-finished feature you have to finish before you can ship anything else.
+	-- These lived under the PROTOTYPES banner, which was already a lie:
+	-- Tycoon.new consumes BeltPaths[1] unconditionally to build the ground floor's
+	-- conveyor. They are shipped data and they sit with the shipped data.
 	--
-	-- The rationale for each of these — what shipped where, and what players said
-	-- about it — is in IDEAS.md. Numbers here are first drafts, not balance.
+	-- A path is just a list of corners, and every piece of belt geometry derives
+	-- from leg(i), so the runtime does not care how many legs there are.
 	-- ─────────────────────────────────────────────────────────────────────────────
-
-	Config.Prototypes = {
-		Floors = false,        -- a second storey with its own dropper -> belt -> vault loop
-		PlayerUpgrades = false,-- walkspeed / magnet / cash multiplier shop
-		Utilities = false,     -- a second weapon slot holding a verb, not a stat
-		RebirthPerks = false,  -- rebirth grants four things instead of one number
-		Offline = false,       -- offline earnings and the welcome-back panel
-		Sessions = false,      -- daily streak, playtime ladder, boost cooldown
-		Sound = false,         -- the engine-asset sound layer
-	}
-
-	-- ── multi-leg belt and floors ────────────────────────────────────────────────
-	--
-	-- The shipped belt is hardcoded as an L: two legs, one turn sensor, a 1->2
-	-- transition written into onTurn. A path is just a list of corners, and every
-	-- piece of belt geometry already derives from leg(i) — so generalising is
-	-- mostly deleting the assumption that i is 1 or 2.
 	--
 	-- Ground floor path is derived from the shipped Layout keys rather than
 	-- duplicated, so the two cannot drift.
@@ -994,12 +987,127 @@ __MODULES["Config"] = function()
 			-- deck covers the back half only, so it does not roof the walkway
 			deckSize = Vector3.new(112, 1.6, 60),
 			deckAt = Vector3.new(0, 0, -38),
-			-- teleport pads. Shipped elevators in this genre are pad pairs, not
-			-- moving platforms: TweenService lifts jitter and slide players off.
-			padDown = Vector3.new(40, 0, -14),
-			padUp = Vector3.new(40, 0, -14),
+			-- belt and machines float this far over the deck: a belt base whose
+			-- underside is coplanar with the deck's top face is two surfaces at one
+			-- Y, which z-fights
+			deckLift = 0.1,
 			railHeight = 5,          -- falling off is the obvious new failure mode
+
+			-- BELT MARGINS, in from each deck edge.
+			--
+			-- Each has to clear MachineOffset + MachineFootprint/2 + rail thickness
+			-- or a machine standing on that leg hangs over the railing. `side` was
+			-- 10 and needed 11.5, so leg 2's machine strip overshot the deck by a
+			-- stud and a half; `back` was 12 against 11.5, half a stud of margin.
+			-- Nothing stood there only because the floor carried one dropper on leg
+			-- 1 — which is the whole reason this geometry had to become data before
+			-- anything could be bought on it.
+			belt = {
+				back = 13,
+				side = 12,
+				front = 14,
+				collectorRun = 16,   -- run-off between the belt's end and the hopper
+				padClearance = 12,   -- keep the hopper this clear of the teleport pad
+				outboard = { 1, 1, 1 },
+			},
+
+			rail = { thickness = 1, bar = 1.4 },
+
+			-- Support posts down to the plot floor. Their footprints miss what is
+			-- already down there: 4 in from the deck's sides puts them at x = +-52,
+			-- outboard of leg 2 (which reaches x = -48.6) and clear of the upgrader
+			-- beams; 8 in from the front edge drops them at z = -16, between
+			-- upgrader slots 2 and 3 at z = -26 and z = -10.
+			pillar = { size = 2.4, insetSide = 4, insetBack = 4, insetFront = 8 },
+
+			-- TELEPORT PADS. Shipped elevators in this genre are pad pairs, not
+			-- moving platforms: TweenService lifts jitter and slide players off.
+			--
+			-- `down` and `up` used to share coordinates, which reads as a lift
+			-- shaft and is the nicer arrangement — but the ground end at (40, -14)
+			-- interpenetrated the armour cabinet's slot-2 pedestal by three studs
+			-- by one, and there is no clean 9x9 anywhere on that side: the weapons
+			-- and armour columns at x = 30 and 44 on a 14-stud pitch cap the best
+			-- achievable clearance at exactly zero. So the ground end moves to the
+			-- aisle side, where it has 3.5 studs of room. They do not have to line
+			-- up, and FloorService never assumed they did.
+			pads = {
+				size = Vector3.new(9, 1, 9),
+				groundTop = 1.1,     -- its own Y: claim pad tops out at 1.2, rebirth at 1.5
+				stand = 3.5,         -- pivot height above the pad you land on
+				cooldown = 1.5,
+				down = Vector3.new(10, 0, -20),
+				up   = Vector3.new(40, 0, -14),
+			},
 		},
+	}
+
+	--- The mezzanine's belt, as a Config.BeltPaths entry.
+	---
+	--- Three legs around the back and left of the deck, then a return leg back
+	--- across it to the hopper. Derived from the deck rectangle and the pad
+	--- position rather than written out as a second set of magic coordinates, so it
+	--- follows the deck if that is ever resized.
+	---
+	--- The return leg is what the old inferred-outboard heuristic could not do: its
+	--- midpoint sits near the middle of the plot, so "point away from the origin"
+	--- picks the wrong side and hangs the machines over the walkway. Every leg's
+	--- side is stated.
+	---
+	--- COMPONENT ARITHMETIC ONLY. tools/verify_config.lua stubs Vector3 as a plain
+	--- table with no operators, so `deckSize * 0.5` here would take the entire
+	--- 1200-check suite down at require time. This function is the reason the
+	--- mezzanine's belt is visible to the belt assertions at all, so it would be a
+	--- particularly silly place to break them.
+	function Config.floorBeltPath(floor)
+		local b = floor.belt
+		local halfX, halfZ = floor.deckSize.X / 2, floor.deckSize.Z / 2
+
+		local backZ = floor.deckAt.Z - halfZ + b.back
+		local frontZ = floor.deckAt.Z + halfZ - b.front
+		local rightX = floor.deckAt.X + halfX - b.side
+		local leftX = floor.deckAt.X - halfX + b.side
+		local collectorX = floor.pads.up.X - b.padClearance
+
+		return {
+			id = floor.id,
+			y = floor.height + floor.deckLift,
+			points = {
+				Vector3.new(rightX, 0, backZ),
+				Vector3.new(leftX, 0, backZ),
+				Vector3.new(leftX, 0, frontZ),
+				Vector3.new(collectorX - b.collectorRun, 0, frontZ),
+			},
+			outboard = b.outboard,
+			collectorAt = Vector3.new(collectorX, 0, frontZ),
+		}
+	end
+
+	for _, floor in ipairs(Config.Floors) do
+		table.insert(Config.BeltPaths, Config.floorBeltPath(floor))
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- PROTOTYPES
+	--
+	-- Everything below this line is unshipped. Each block is gated by a flag in
+	-- Config.Prototypes and every one of them defaults to OFF, so a build with all
+	-- the flags false is byte-for-byte the game that ships today. That is the whole
+	-- contract: a prototype you cannot turn off is not a prototype, it is a
+	-- half-finished feature you have to finish before you can ship anything else.
+	--
+	-- The rationale for each of these — what shipped where, and what players said
+	-- about it — is in IDEAS.md. Numbers here are first drafts, not balance.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.Prototypes = {
+		Floors = false,        -- a second storey with its own dropper -> belt -> vault loop
+		PlayerUpgrades = false,-- walkspeed / magnet / cash multiplier shop
+		Utilities = false,     -- a second weapon slot holding a verb, not a stat
+		RebirthPerks = false,  -- rebirth grants four things instead of one number
+		Offline = false,       -- offline earnings and the welcome-back panel
+		Sessions = false,      -- daily streak, playtime ladder, boost cooldown
+		Sound = false,         -- the engine-asset sound layer
 	}
 
 	-- ── player upgrades ──────────────────────────────────────────────────────────
@@ -4446,31 +4554,12 @@ __MODULES["FloorService"] = function()
 
 	local FLOOR = Config.Floors and Config.Floors[1]
 
-	-- Geometry Config.Floors has no key for yet, so it lives here rather than in
-	-- someone else's file this week. SHOULD MOVE TO CONFIG: all of it belongs in
-	-- the Config.Floors entry beside deckSize / padUp / railHeight.
-	local DECK_LIFT = 0.1        -- belt and machines float this far over the deck
-	local BACK_MARGIN = 12       -- belt leg 1, in from the deck's back edge
-	local FRONT_MARGIN = 14      -- the return leg, in from the front edge
-	local SIDE_MARGIN = 10       -- the side legs, in from the left/right edges
-	local COLLECTOR_RUN = 16     -- run-off between the belt's end and the hopper
-	local PAD_CLEARANCE = 12     -- keep the hopper this clear of the teleport pad
+	-- All of this used to be file-local constants under two SHOULD MOVE TO CONFIG
+	-- comments. It is in Config now, and the reason is not tidiness: deckPath()
+	-- built the mezzanine's belt in CODE, so none of the belt-path assertions ever
+	-- saw it — not that its legs stay on the deck, not that its collector clears
+	-- the teleport pad, not its outboard count. Two of those were wrong.
 	local DROPPER_AT = 14        -- distance along leg 1 for the floor's dropper
-	local RAIL_THICKNESS = 1
-	local RAIL_BAR = 1.4         -- the visible top bar, on top of the guard
-	local PILLAR = 2.4           -- support posts down to the plot floor
-	-- The posts stand on the GROUND floor, so their footprints are chosen to miss
-	-- everything already down there: 4 in from the deck's sides puts them at x=+-52,
-	-- outboard of the belt's leg 2 (which reaches x=-48.6) and clear of the upgrader
-	-- beams; 8 in from the deck's front edge drops them at z=-16, between upgrader
-	-- slots 2 and 3 at z=-26 and z=-10.
-	local PILLAR_INSET_SIDE = 4
-	local PILLAR_INSET_BACK = 4
-	local PILLAR_INSET_FRONT = 8
-	local PAD_SIZE = Vector3.new(9, 1, 9)
-	local PAD_GROUND_TOP = 1.1   -- its own Y: the claim pad tops out at 1.2, rebirth at 1.5
-	local PAD_STAND = 3.5        -- pivot height above the pad you land on
-	local PAD_COOLDOWN = 1.5
 
 	local COLORS = {
 		deck   = Color3.fromRGB(138, 88, 58),
@@ -4496,38 +4585,12 @@ __MODULES["FloorService"] = function()
 		return FLOOR.height
 	end
 
-	--- The mezzanine's belt: three legs around the back and left of the deck, then
-	--- a return leg back across it to the hopper. Derived from the deck rectangle
-	--- and the pad position rather than written out as a second set of magic
-	--- coordinates, so it follows Config.Floors[1] if the deck is ever resized.
-	---
-	--- The return leg is what the shipped outboard heuristic could not do. Its
-	--- midpoint sits near the middle of the plot, so `normal:Dot(midpoint) < 0`
-	--- picks the wrong side and hangs the machines over the walkway. Signs are
-	--- explicit: every leg's outboard side faces out of the U.
-	local function deckPath(): (any, { number })
-		local half = FLOOR.deckSize * 0.5
-		local centre = FLOOR.deckAt
-
-		local backZ = centre.Z - half.Z + BACK_MARGIN
-		local frontZ = centre.Z + half.Z - FRONT_MARGIN
-		local rightX = centre.X + half.X - SIDE_MARGIN
-		local leftX = centre.X - half.X + SIDE_MARGIN
-		local collectorX = FLOOR.padUp.X - PAD_CLEARANCE
-
-		return {
-			id = FLOOR.id,
-			-- lifted off the deck: a belt base whose underside is coplanar with the
-			-- deck's top face is two surfaces at one Y, which z-fights
-			y = deckTopY() + DECK_LIFT,
-			points = {
-				Vector3.new(rightX, 0, backZ),
-				Vector3.new(leftX, 0, backZ),
-				Vector3.new(leftX, 0, frontZ),
-				Vector3.new(collectorX - COLLECTOR_RUN, 0, frontZ),
-			},
-			collectorAt = Vector3.new(collectorX, 0, frontZ),
-		}, { 1, 1, 1 }
+	--- The mezzanine's belt. Config.floorBeltPath derives it from the deck
+	--- rectangle and the pad position, and Config.BeltPaths carries the result — so
+	--- the belt assertions cover it exactly as they cover the ground floor's, with
+	--- no new code on their side.
+	local function deckPath()
+		return Config.floorBeltPath(FLOOR), FLOOR.belt.outboard
 	end
 
 	--- The mezzanine's dropper. It mirrors the button that unlocked the floor, so
@@ -4570,11 +4633,11 @@ __MODULES["FloorService"] = function()
 		-- meeting its underside, because a post whose top face is coplanar with the
 		-- deck's bottom face z-fights from below.
 		local postTop = top - size.Y / 2 + 0.6
-		local postX = size.X / 2 - PILLAR_INSET_SIDE
-		local postZ = { centre.Z - size.Z / 2 + PILLAR_INSET_BACK, centre.Z + size.Z / 2 - PILLAR_INSET_FRONT }
+		local postX = size.X / 2 - FLOOR.pillar.insetSide
+		local postZ = { centre.Z - size.Z / 2 + FLOOR.pillar.insetBack, centre.Z + size.Z / 2 - FLOOR.pillar.insetFront }
 		for _, x in ipairs({ -1, 1 }) do
 			for _, z in ipairs(postZ) do
-				Tycoon.part(folder, "Post", Vector3.new(PILLAR, postTop, PILLAR),
+				Tycoon.part(folder, "Post", Vector3.new(FLOOR.pillar.size, postTop, FLOOR.pillar.size),
 					tycoon:at(centre.X + x * postX, postTop / 2, z),
 					COLORS.frame, Enum.Material.Metal)
 			end
@@ -4586,10 +4649,10 @@ __MODULES["FloorService"] = function()
 		-- nothing. Falling off is the obvious new failure mode of a floor.
 		local height = FLOOR.railHeight
 		local sides = {
-			{ Vector3.new(size.X, height, RAIL_THICKNESS), Vector3.new(0, 0, -size.Z / 2 + RAIL_THICKNESS / 2) },
-			{ Vector3.new(size.X, height, RAIL_THICKNESS), Vector3.new(0, 0, size.Z / 2 - RAIL_THICKNESS / 2) },
-			{ Vector3.new(RAIL_THICKNESS, height, size.Z), Vector3.new(-size.X / 2 + RAIL_THICKNESS / 2, 0, 0) },
-			{ Vector3.new(RAIL_THICKNESS, height, size.Z), Vector3.new(size.X / 2 - RAIL_THICKNESS / 2, 0, 0) },
+			{ Vector3.new(size.X, height, FLOOR.rail.thickness), Vector3.new(0, 0, -size.Z / 2 + FLOOR.rail.thickness / 2) },
+			{ Vector3.new(size.X, height, FLOOR.rail.thickness), Vector3.new(0, 0, size.Z / 2 - FLOOR.rail.thickness / 2) },
+			{ Vector3.new(FLOOR.rail.thickness, height, size.Z), Vector3.new(-size.X / 2 + FLOOR.rail.thickness / 2, 0, 0) },
+			{ Vector3.new(FLOOR.rail.thickness, height, size.Z), Vector3.new(size.X / 2 - FLOOR.rail.thickness / 2, 0, 0) },
 		}
 		for index, side in ipairs(sides) do
 			local extent, offset = side[1], side[2]
@@ -4605,9 +4668,9 @@ __MODULES["FloorService"] = function()
 			-- the corners instead of overlapping: two coplanar top faces sharing a
 			-- corner square is a z-fight you only notice from the deck itself.
 			local barSize = Vector3.new(
-				(index <= 2) and extent.X or RAIL_BAR,
+				(index <= 2) and extent.X or FLOOR.rail.bar,
 				0.4,
-				(index <= 2) and RAIL_BAR or (extent.Z - 2 * RAIL_BAR))
+				(index <= 2) and FLOOR.rail.bar or (extent.Z - 2 * FLOOR.rail.bar))
 			-- and it sits just INSIDE the top of the guard, not flush with it
 			local bar = Tycoon.part(folder, "Rail" .. index, barSize,
 				tycoon:at(centre.X + offset.X, top + height - 0.7, centre.Z + offset.Z),
@@ -4647,7 +4710,7 @@ __MODULES["FloorService"] = function()
 			-- not enough: a character resting on a part re-fires Touched off its own
 			-- physics jitter, so the lock is only released when a sweep of the pad
 			-- no longer finds them (see the TouchEnded handler).
-			if arrivals[model] ~= pad and now - (lastRide[model] or 0) > PAD_COOLDOWN then
+			if arrivals[model] ~= pad and now - (lastRide[model] or 0) > FLOOR.pads.cooldown then
 				lastRide[model] = now
 				arrivals[model] = destination
 
@@ -4655,7 +4718,7 @@ __MODULES["FloorService"] = function()
 				local offset = pivot.Position - pad.Position
 				local landing = destination.Position
 					+ Vector3.new(offset.X, 0, offset.Z)
-					+ Vector3.new(0, destination.Size.Y / 2 + PAD_STAND, 0)
+					+ Vector3.new(0, destination.Size.Y / 2 + FLOOR.pads.stand, 0)
 
 				-- PivotTo overwrites the model's rotation outright, so the facing
 				-- has to be baked into the target or everyone lands staring at
@@ -4688,8 +4751,8 @@ __MODULES["FloorService"] = function()
 	end
 
 	local function buildPad(tycoon, folder: Instance, name: string, at: Vector3, topY: number, color: Color3, text: string): BasePart
-		local pad = Tycoon.part(folder, name, PAD_SIZE,
-			tycoon:at(at.X, topY - PAD_SIZE.Y / 2, at.Z), color, Enum.Material.Neon)
+		local pad = Tycoon.part(folder, name, FLOOR.pads.size,
+			tycoon:at(at.X, topY - FLOOR.pads.size.Y / 2, at.Z), color, Enum.Material.Neon)
 		-- walk-over, not step-onto, exactly like the claim and rebirth pads
 		pad.CanCollide = false
 
@@ -4713,10 +4776,10 @@ __MODULES["FloorService"] = function()
 		-- which cannot bite: the ground pad takes you up, the deck pad takes you
 		-- down. They do not have to line up at all — the shipped elevators in this
 		-- genre explicitly don't — but a pair that does reads as a lift shaft.
-		local toDeck = buildPad(tycoon, folder, "PadToMezzanine", FLOOR.padDown, PAD_GROUND_TOP,
+		local toDeck = buildPad(tycoon, folder, "PadToMezzanine", FLOOR.pads.down, FLOOR.pads.groundTop,
 			COLORS.padUp, "▲ MEZZANINE")
-		local toGround = buildPad(tycoon, folder, "PadToGround", FLOOR.padUp,
-			deckTopY() + DECK_LIFT + PAD_SIZE.Y, COLORS.padDown, "▼ GROUND FLOOR")
+		local toGround = buildPad(tycoon, folder, "PadToGround", FLOOR.pads.up,
+			deckTopY() + FLOOR.deckLift + FLOOR.pads.size.Y, COLORS.padDown, "▼ GROUND FLOOR")
 		linkPads(toDeck, toGround)
 	end
 
@@ -8570,13 +8633,18 @@ __MODULES["Tycoon"] = function()
 				back = floorDef.deckAt.Z + floorDef.deckSize.Z / 2 + 2
 			end
 
-			local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, 1.4, front - back),
-				self:at(0, 20, (front + back) / 2), Color3.fromRGB(138, 88, 58), Enum.Material.WoodPlanks)
+			-- Heights come from Layout now rather than being literals here, because
+			-- the mezzanine deck sits at 22 and these columns are 20 tall — a
+			-- relationship nothing was checking, on two pieces of geometry that
+			-- already reach into each other.
+			local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, L.RoofThickness, front - back),
+				self:at(0, L.RoofY, (front + back) / 2), Color3.fromRGB(138, 88, 58), Enum.Material.WoodPlanks)
 			roof.CanCollide = true
 			for _, sign in ipairs({ -1, 1 }) do
 				for _, signZ in ipairs({ -1, 1 }) do
-					newPart(model, "Column", Vector3.new(2.4, 20, 2.4),
-						self:at(sign * (halfX - 3), 10, signZ * (halfZ - 3)), Color3.fromRGB(150, 111, 74), Enum.Material.Wood)
+					newPart(model, "Column", Vector3.new(L.RoofColumn, L.RoofY, L.RoofColumn),
+						self:at(sign * (halfX - L.RoofColumnInset), L.RoofY / 2, signZ * (halfZ - L.RoofColumnInset)),
+						Color3.fromRGB(150, 111, 74), Enum.Material.Wood)
 				end
 			end
 
