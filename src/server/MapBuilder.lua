@@ -219,11 +219,14 @@ function MapBuilder.buildPlotPad(parent: Instance, index: number): (Model, CFram
 	local pad = newPart(model, "Pad", W.PlotSize, cf * CFrame.new(0, -W.PlotSize.Y / 2, 0), PALETTE.pad, Enum.Material.Concrete)
 	pad:SetAttribute("PlotIndex", index)
 
-	-- glowing border
+	-- glowing border. The pad is no longer square, so the front/back strips key
+	-- off half the DEPTH and the side strips off half the width; using one
+	-- `half` for both left the front and back edges floating inside the pad.
 	local half = W.PlotSize.X / 2
+	local halfZ = W.PlotSize.Z / 2
 	local edges = {
-		{ Vector3.new(W.PlotSize.X, 1, 2), CFrame.new(0, 0.2, half) },
-		{ Vector3.new(W.PlotSize.X, 1, 2), CFrame.new(0, 0.2, -half) },
+		{ Vector3.new(W.PlotSize.X, 1, 2), CFrame.new(0, 0.2, halfZ) },
+		{ Vector3.new(W.PlotSize.X, 1, 2), CFrame.new(0, 0.2, -halfZ) },
 		{ Vector3.new(2, 1, W.PlotSize.Z), CFrame.new(half, 0.2, 0) },
 		{ Vector3.new(2, 1, W.PlotSize.Z), CFrame.new(-half, 0.2, 0) },
 	}
@@ -232,9 +235,11 @@ function MapBuilder.buildPlotPad(parent: Instance, index: number): (Model, CFram
 		e.CanCollide = false
 	end
 
-	-- Claim totem, parked in the front-left corner. It used to stand at x = 0,
-	-- which is directly on top of the pad you are meant to step on.
-	local totemCF = cf * CFrame.new(-half + 12, 6, half - 8)
+	-- Claim totem, parked in the front-RIGHT corner. It used to stand at x = 0,
+	-- directly on top of the pad you are meant to step on, and then in the
+	-- front-left corner, which is where Tycoon builds the vault — the two
+	-- models were interpenetrating on every plot.
+	local totemCF = cf * CFrame.new(half - 12, 6, halfZ - 8)
 	local totem = newPart(model, "Totem", Vector3.new(4, 12, 4), totemCF, Color3.fromRGB(70, 52, 40), Enum.Material.Wood)
 	totem:SetAttribute("PlotIndex", index)
 

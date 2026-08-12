@@ -202,6 +202,71 @@ inPlot("furthest upgrader machine",
 -- the vault must clear the end of the belt or it walls the conveyor off
 local runOff = len(sub(L.CollectorAt, L.BeltEnd))
 check(runOff > 8, ("collector is only %.1f studs past the belt end; the vault would block it"):format(runOff))
+-- ...and still fit inside the plot behind it. The vault shell is 10 deep and
+-- the wall ring stands 1 stud in from the pad edge.
+check(L.BeltEnd.Z + runOff + 5 <= halfZ - 2,
+	("the vault's far face lands at z=%.1f, into the front wall at z=%.1f")
+		:format(L.BeltEnd.Z + runOff + 5, halfZ - 1))
+
+-- FLOOR FURNITURE. Everything that isn't on the belt is placed by absolute
+-- plot-local coordinate, so growing the plot silently leaves these behind (or
+-- growing the belt runs them over). Each one is 12 studs wide at most.
+local floorSpots = {
+	{ "RebirthPadAt", L.RebirthPadAt, 6 },
+	{ "ClaimPadAt", L.ClaimPadAt, 17 },
+	{ "OwnerSpawnAt", L.OwnerSpawnAt, 3 },
+}
+for id, spot in pairs(L.MiscButtons) do
+	table.insert(floorSpots, { "MiscButtons." .. id, spot, 3 })
+end
+for _, entry in ipairs(floorSpots) do
+	inPlot(entry[1], entry[2], entry[3])
+end
+
+-- The misc button column has to stay a column: two pedestals at the same spot
+-- read as one button and the second purchase looks like it did nothing.
+local miscList = {}
+for id, spot in pairs(L.MiscButtons) do
+	table.insert(miscList, { id = id, spot = spot })
+end
+table.sort(miscList, function(a, b) return a.id < b.id end)
+for i, a in ipairs(miscList) do
+	for j = i + 1, #miscList do
+		local b = miscList[j]
+		local d = len(sub(a.spot, b.spot))
+		check(d >= L.MiscButtonSpacing,
+			("MiscButtons.%s and MiscButtons.%s are only %.1f studs apart (need %d)")
+				:format(a.id, b.id, d, L.MiscButtonSpacing))
+	end
+end
+
+-- ...and stay clear of the buy buttons attached to belt machines, which sit
+-- ButtonOffset studs INBOARD of each leg. Overlapping pedestals were already
+-- shipped once and only stayed invisible because the unlock chain happened to
+-- hide one before the other appeared.
+local BUTTON_PAD = 5
+local dropperButtonZ = L.BeltStart.Z + L.ButtonOffset      -- leg 1 runs along -Z
+local upgraderButtonX = L.BeltCorner.X + L.ButtonOffset    -- leg 2 runs along -X
+for _, entry in ipairs(miscList) do
+	check(math.abs(entry.spot.Z - dropperButtonZ) >= BUTTON_PAD,
+		("MiscButtons.%s sits on the dropper buy-button row at z=%.1f")
+			:format(entry.id, dropperButtonZ))
+	check(math.abs(entry.spot.X - upgraderButtonX) >= BUTTON_PAD,
+		("MiscButtons.%s sits on the upgrader buy-button row at x=%.1f")
+			:format(entry.id, upgraderButtonX))
+end
+
+-- The gateway in the front wall has to open onto the aisle the player actually
+-- walks, not onto the vault.
+local gateLeft, gateRight = L.GateCentre - L.GateWidth / 2, L.GateCentre + L.GateWidth / 2
+check(L.GateWidth >= 12, ("the front gateway is only %d studs wide"):format(L.GateWidth))
+check(gateLeft > -halfX and gateRight < halfX,
+	("the gateway spans x %.0f..%.0f, off the %d-stud front wall"):format(gateLeft, gateRight, halfX * 2))
+check(L.OwnerSpawnAt.X > gateLeft and L.OwnerSpawnAt.X < gateRight,
+	("the owner spawns at x=%.0f but the gateway is x %.0f..%.0f — they'd land behind a wall")
+		:format(L.OwnerSpawnAt.X, gateLeft, gateRight))
+check(gateLeft > L.BeltEnd.X + L.BeltWidth / 2,
+	("the gateway starts at x=%.0f, over the belt/vault side of the plot"):format(gateLeft))
 
 -- every upgrader is downstream of every dropper by construction (leg 2 comes
 -- after leg 1), which is what makes the upgrade stack apply to all droppers
@@ -247,7 +312,29 @@ end
 
 check(Config.plotCountFor(50) == Config.World.MaxPlots, "plot count should clamp up to MaxPlots")
 check(Config.plotCountFor(2) == Config.World.MinPlots, "plot count should clamp down to MinPlots")
-check(Config.plotCountFor(12) == 12, "plot count should track MaxPlayers in range")
+local midCount = math.floor((Config.World.MinPlots + Config.World.MaxPlots) / 2)
+check(Config.plotCountFor(midCount) == midCount, "plot count should track MaxPlayers in range")
+
+-- Plots are meant to read as separate buildings on open ground, not as one
+-- continuous estate. Assert the actual clearance rather than trusting PlotGap:
+-- neighbouring centres are a CHORD apart, not an arc, so the arc-based spacing
+-- you would naively compute overstates the gap on a small ring.
+for count = Config.World.MinPlots, Config.World.MaxPlots do
+	local placements = Config.plotPlacements(count)
+	local onInnerRing = 0
+	for _, p in ipairs(placements) do
+		if p.ring == 1 then
+			onInnerRing += 1
+		end
+	end
+	if onInnerRing > 1 then
+		local chord = 2 * placements[1].radius * math.sin(math.pi / onInnerRing)
+		local gap = chord - Config.World.PlotSize.X
+		check(gap >= Config.World.PlotGap * 0.9,
+			("%d plots leave only %.0f studs between neighbours (PlotGap asks for %d)")
+				:format(count, gap, Config.World.PlotGap))
+	end
+end
 
 -- Every horizontal surface needs its own Y. Two coplanar faces at the same
 -- height is what produces the shimmering/tearing artefact, and it is very easy
