@@ -24,6 +24,11 @@ local UpgradeService = Req("UpgradeService")
 local SessionService = Req("SessionService")
 local FloorService = Req("FloorService")
 
+-- Shipped, and flagless: the friend bonus turns off by setting
+-- Config.Social.BonusPerFriend to 0, on which start() declines to register its
+-- multiplier hook. It connects its own PlayerAdded/PlayerRemoving.
+local SocialService = Req("SocialService")
+
 local Players = game:GetService("Players")
 
 local START = os.clock()
@@ -55,6 +60,7 @@ AdminService.start()
 UpgradeService.start()
 SessionService.start()
 FloorService.start()
+SocialService.start()
 
 -- 6. players
 local function onCharacterAdded(player: Player, character: Model)

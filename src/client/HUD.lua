@@ -23,6 +23,9 @@ local UiKit = Req("UiKit")
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
+-- The invite prompt is a CLIENT call. There is no server-side equivalent, which
+-- is why the server half of this feature is only a cooldown.
+local SocialService = game:GetService("SocialService")
 
 local player = Players.LocalPlayer
 
@@ -51,10 +54,18 @@ local state = {
 	multiplier = 1,
 	owned = {},
 	rebirthCost = Config.Rebirth.BaseCost,
+	friends = 0,
+	friendCap = Config.Social.MaxFriends,
+	friendBonus = Config.Social.BonusPerFriend,
+	-- Until CanSendGameInviteAsync has answered, the button does not exist. It
+	-- is never shown optimistically: account policy can refuse invites outright
+	-- and a button that errors when a child presses it is worse than no button.
+	canInvite = false,
 }
 
 local gui, root, overlay, rootScale, overlayScale, rootPadding
-local cashLabel, multLabel, waveFrame, waveLabel, toastList, nextLabel, nextDetail, rebirthButton
+local cashLabel, multLabel, friendLabel, inviteButton
+local waveFrame, waveLabel, toastList, nextLabel, nextDetail, rebirthButton
 
 -- The panel vocabulary, aliased so every call site below reads exactly as it
 -- did when these were five local functions in this file. They are UiKit's now;
@@ -64,6 +75,23 @@ local corner, stroke, panel, text, button =
 
 -- ─────────────────────────────────────────────────────────────────────────────
 
+--- THE FRIEND BONUS GOES IN THE CASH PANEL, ON THE LINE UNDER THE MULTIPLIER.
+---
+--- It is a TERM in that multiplier, not a separate feature, and a fourth panel
+--- would say the opposite. `multLabel` already prints the product; this prints
+--- the part of it another human being is responsible for, right underneath, so
+--- the two are read together.
+---
+--- The ZERO state is the important one — "+0%  •  no friends here yet" with an
+--- INVITE button beside it. That is the moment the number is legible and the
+--- ask is obvious, which is exactly what GROWTH-TODO item 4 asks for: an invite
+--- button at the moment they see that number, because at that point bringing
+--- someone has a price tag attached.
+---
+--- The panel's height lives in Config.UI.CashPanel.Height, which every panel
+--- below it derives its Y from — so growing it for this row moved NEXT UPGRADE
+--- and the session panel down on its own, and the column-fits assertion re-ran
+--- against the new number without anyone editing a second literal.
 local function buildCashPanel(parent: Instance)
 	local frame = panel(parent,
 		UDim2.fromOffset(UI.CashPanel.Width, UI.CashPanel.Height),
@@ -99,6 +127,23 @@ local function buildCashPanel(parent: Instance)
 		TextSize = 15,
 		TextColor3 = PALETTE.muted,
 	})
+
+	friendLabel = text(frame, {
+		Size = UDim2.fromOffset(180, 22),
+		Position = UDim2.fromOffset(14, 92),
+		Font = Style.Font.body,
+		Text = "+0%  •  no friends here yet",
+		TextSize = 14,
+		TextColor3 = PALETTE.muted,
+	})
+
+	inviteButton = button(frame, "INVITE", PALETTE.good, {
+		Size = UDim2.fromOffset(72, 26),
+		Position = UDim2.fromOffset(194, 90),
+		TextSize = 14,
+		Visible = false,
+	})
+	inviteButton.Activated:Connect(HUD.promptInvite)
 
 	return frame
 end
@@ -291,6 +336,65 @@ function HUD.toast(payload)
 			card:Destroy()
 		end)
 	end)
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- the friend bonus
+-- ─────────────────────────────────────────────────────────────────────────────
+
+--- Visible only when there is room under the cap and the account is allowed to
+--- send invites at all. Nobody is asked to invite a fourth friend who would be
+--- worth nothing.
+local function refreshInvite()
+	if not inviteButton then
+		return
+	end
+	inviteButton.Visible = state.canInvite and state.friends < state.friendCap
+end
+
+--- BOTH SocialService calls YIELD, so neither may run on the signal thread —
+--- an Activated handler that yields blocks the button until it returns.
+---
+--- `CanSendGameInviteAsync` can ERROR as well as return false: under some
+--- account policy restrictions it throws rather than answering. Both paths do
+--- the same thing, which is to HIDE the button. This game's audience is largely
+--- children and the failure they must never see is an error message where a
+--- button used to be.
+function HUD.promptInvite()
+	task.spawn(function()
+		local ok, can = pcall(function()
+			return SocialService:CanSendGameInviteAsync(player)
+		end)
+		if not ok or not can then
+			state.canInvite = false
+			refreshInvite()
+			return
+		end
+		pcall(function()
+			SocialService:PromptGameInvite(player)
+		end)
+		-- Fire-and-forget. The server does not act on this; it rate-limits it,
+		-- and it is where an invite analytics event will hang.
+		Net.event("RequestInvite"):FireServer()
+	end)
+end
+
+function HUD.applySocial(payload)
+	state.friends = payload.friends or 0
+	state.friendCap = payload.cap or state.friendCap
+	state.friendBonus = payload.bonus or state.friendBonus
+
+	local capped = math.min(state.friends, state.friendCap)
+	local percent = math.floor(capped * state.friendBonus * 100)
+	if state.friends > 0 then
+		friendLabel.Text = ("+%d%%  •  %d friend%s here"):format(
+			percent, state.friends, state.friends == 1 and "" or "s")
+		friendLabel.TextColor3 = PALETTE.good
+	else
+		friendLabel.Text = "+0%  •  no friends here yet"
+		friendLabel.TextColor3 = PALETTE.muted
+	end
+	refreshInvite()
 end
 
 function HUD.showRebirthModal(cost: number)
@@ -631,6 +735,19 @@ function HUD.start()
 
 	Net.event("Stats").OnClientEvent:Connect(HUD.applyStats)
 	Net.event("WaveState").OnClientEvent:Connect(HUD.applyWave)
+	Net.event("SocialState").OnClientEvent:Connect(HUD.applySocial)
+
+	-- Ask ONCE, off the main thread, whether this account may send invites at
+	-- all. The answer decides whether the button ever appears; it is not asked
+	-- again on every press, because the press path re-checks it anyway and a
+	-- yielding call per click is a double-fire waiting to happen.
+	task.spawn(function()
+		local ok, can = pcall(function()
+			return SocialService:CanSendGameInviteAsync(player)
+		end)
+		state.canInvite = ok and can == true
+		refreshInvite()
+	end)
 
 	-- smooth counting cash so big numbers feel good, and tick the raid
 	-- countdown off the same connection

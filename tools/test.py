@@ -45,7 +45,8 @@ TESTING = ROOT / "tools" / "testing"
 # Region3, Touched and a physics step -- an order of magnitude more mock, for
 # services this round is not graduating. Widening this list is a real piece of
 # work and should be its own PR, not a quiet addition to someone else's.
-SERVER_MODULES = ["DataService", "Analytics", "Economy", "SessionService", "CombatService", "MapBuilder", "Tycoon"]
+SERVER_MODULES = ["DataService", "Analytics", "Economy", "SessionService", "SocialService",
+                  "CombatService", "MapBuilder", "Tycoon"]
 
 # Mocks load in dependency order: the clock underpins everything, and the
 # roblox facade hands out services the others define.

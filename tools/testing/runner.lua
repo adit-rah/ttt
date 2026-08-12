@@ -190,7 +190,11 @@ function Case:calls(store, method: string, expected: number, message: string?)
 	end
 end
 
---- The world these two read. `self.world` is honoured if a spec set one — a
+--- The world these two read. Found independently by the session-locking and
+--- the social work within an hour of each other, which is the cheapest way
+--- dead-on-arrival API ever gets found.
+---
+--- `self.world` is honoured if a spec set one — a
 --- spec that builds several worlds has to say which — and otherwise it is the
 --- most recently built one, which is the world every single-world spec means.
 --- Without the fallback both assertions indexed nil and the first spec to use
