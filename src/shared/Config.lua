@@ -641,9 +641,42 @@ Config.Combat = {
 
 Config.Waves = {
 	Enabled = true,
-	FirstWaveDelay = 90,
-	Interval = 210,             -- seconds between waves
+
+	-- PACING. There used to be one number here, `Interval = 210`, and the loop
+	-- was `while true do startWave(); task.wait(Interval) end` — no check that
+	-- the last wave had been cleared, against a 420s straggler despawn, so two
+	-- or three waves legally coexisted and the banner attributed leftovers from
+	-- one to another. Waves now run one at a time, and the gap is measured from
+	-- YOUR clear rather than from a wall clock.
+	FirstWaveDelay = 60,
+	-- Quiet time between a wave clearing and the next warning going up. The
+	-- real wave-to-wave gap is RestTime + WarningTime + the spawn drip, so
+	-- roughly 32 seconds plus however long the fight takes — against the old
+	-- fixed ~225.
+	RestTime = 20,
+	-- A boss wave is the one you actually need to bank and heal after.
+	RestTimeAfterBoss = 35,
+	-- DO NOT SHORTEN WarningTime TO CLOSE THE GAP. It is load-bearing:
+	-- 12 x Combat.WalkSpeed = 264 studs against a MinPlotRadius of 210, which
+	-- is what lets a player standing on their own plot get back to the arena
+	-- before the raiders land. Shorten RestTime instead; the verifier asserts
+	-- this relationship.
 	WarningTime = 12,
+	-- Deadlock breaker, not a pacing tool. Raider pathfinding is still naive
+	-- MoveTo, so one snagged on geometry must not stop the schedule forever.
+	-- Note this WILL occasionally cut a legitimately hard solo wave short —
+	-- 26 wave-20 raiders is about 340s of solo attention — and that is the
+	-- intended trade. The banner says "TIMED OUT" rather than "CLEARED".
+	MaxWaveTime = 300,
+	-- Per-raider backstop, strictly after the wave deadline so it can only
+	-- catch an entry whose wave record was somehow lost.
+	StragglerGrace = 45,
+	ClearBannerTime = 4,        -- how long CLEARED stays up; must be < RestTime
+	SpawnGap = 0.12,            -- between raiders in the drip
+	JoinGrace = 20,             -- grace before the first wave on a waking server
+	BroadcastInterval = 0.5,    -- coalesce the per-death counter updates
+	EmptyResetAfter = 180,      -- empty this long and the wave counter resets
+
 	BaseCount = 4,
 	CountPerWave = 2,
 	MaxCount = 26,

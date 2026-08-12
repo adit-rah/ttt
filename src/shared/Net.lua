@@ -30,7 +30,9 @@ Net.NAMES = {
 	"Stats",         -- S->C  { cash, rebirths, kills, batTier, armorTier, multiplier, owned, rebirthCost }
 	"PlotAssigned",  -- S->C  plotIndex
 	"Purchased",     -- S->C  { id, name, price }
-	"WaveState",     -- S->C  { phase, wave, remaining, seconds }
+	-- phase: idle | resting | warning | spawning | active | clear.
+	-- `seconds` is sent ONCE per phase and counted down client-side.
+	"WaveState",     -- S->C  { phase, wave, remaining, total, seconds, boss, forced }
 	"SwingFx",       -- S->C  { character, combo, duration } — play a swing on that rig
 	"HitFeedback",   -- S->C  { damage, crit, killed, position }
 	"Knockback",     -- S->C  impulse Vector3, applied by the owning client
