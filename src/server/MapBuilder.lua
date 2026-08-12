@@ -107,7 +107,7 @@ local function buildArena(parent: Instance)
 
 	local daisHeight = 4
 	local daisTopY = W.ArenaFloorTopY + daisHeight
-	local dais = newPart(arena, "Dais", Vector3.new(daisHeight, 26, 26),
+	local dais = newPart(arena, "Dais", Vector3.new(daisHeight, W.DaisRadius * 2, W.DaisRadius * 2),
 		CFrame.new(0, daisTopY - daisHeight / 2, 0) * CFrame.Angles(0, 0, math.pi / 2),
 		PALETTE.pad, Enum.Material.Slate)
 	dais.Shape = Enum.PartType.Cylinder

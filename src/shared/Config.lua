@@ -36,6 +36,11 @@ Config.World = {
 	BaseplateSize = 1800,
 	ArenaRadius = 70,
 	ArenaWallHeight = 22,
+	-- The plinth the statue stands on, in the middle of the arena. It was a 26
+	-- written into MapBuilder; it is here because the boss now spawns at a fixed
+	-- radius from the same centre and the verifier has to be able to check that
+	-- the two do not intersect. MapBuilder builds the dais from this.
+	DaisRadius = 13,
 
 	-- Stacked surface heights. Every horizontal surface in the world gets its
 	-- OWN height: two coplanar faces at the same Y is exactly what produces
@@ -469,6 +474,19 @@ Config.Style = {
 	RaidSignHeight = 8,
 	ArenaTitleY = 52,
 	ArenaTitleHeight = 14,
+
+	-- THE BOSS HEALTH BAR, carved OUT of the raid sign rather than added under
+	-- it. The sign's total height is asserted against the arena title above it,
+	-- so a bar that made the billboard taller would push the two signs into each
+	-- other — the raid line gives up its bottom 2.6 studs instead, and gets them
+	-- back the moment the boss is down.
+	--
+	-- It lives on the sign, not on your screen, for the reason written twenty
+	-- lines up: the raid is where the raid IS.
+	BossBarHeight = 2.6,
+	-- Left and right margin, as a fraction of the sign's width, so the bar reads
+	-- as sitting under the line rather than as the edge of the billboard.
+	BossBarInset = 0.06,
 
 	ButtonLocked = {
 		scale = 0.7,             -- smaller
@@ -1379,6 +1397,11 @@ Config.Waves = {
 	MaxBossDamage = 45,
 	BossHealthMultiplier = 6,
 	BossDamageMultiplier = 1.8,
+	-- The rig's arm span in scale units: arms sit at +/-1.5 and are 1 wide, so
+	-- the body is 2 * scale half-wide (see TungModels.buildNPC). It lives here
+	-- because the verifier cannot see TungModels and the boss now spawns at a
+	-- fixed point rather than out on the rim where nothing could be near it.
+	BossBodyScale = 2.1,
 	WalkSpeed = 13,
 	RewardBase = 150,
 	RewardGrowth = 2.3,         -- reward scales with wave number
@@ -1453,7 +1476,94 @@ Config.Waves = {
 	-- the cap keep milling and step in as slots free — which reads as
 	-- reinforcements rather than as a queue.
 	MaxChasers = 8,
+
+	-- ── THE BOSS AS A SHARED OBJECTIVE ──────────────────────────────────────
+	--
+	-- Everything above this line describes a raid that six people can play in
+	-- six separate boxes. The boss is the one thing in the game that could need
+	-- another human being, and it was a bigger raider: last hit took the whole
+	-- reward, nobody could see its health, and the fight did not know how many
+	-- people were in it.
+	--
+	-- SUB-LINEAR ON PURPOSE. Ten players do not deal ten players' damage to one
+	-- target: MaxChasers is 8, the boss has one hitbox and one telegraph, and on
+	-- a ten-plot server most of the ten are standing on their own plot watching
+	-- their own number. Scaling health linearly with headcount would make a busy
+	-- server a wall instead of an event.
+	--
+	-- AND DAMAGE DOES NOT SCALE AT ALL. MaxBossDamage owns the "a boss may never
+	-- two-shot you" ceiling and the verifier asserts it with margin against an
+	-- unarmoured player; making damage a function of headcount would put that
+	-- assertion at the mercy of who happens to be online.
+	BossSpawnRadius = 20,       -- on the dais, fixed bearing, NOT the rim
+	BossHealthPerPlayer = 0.55,
+	BossMaxHealthFactor = 4.0,
+	-- The pot grows SLOWER than the health, so the boss stays a fight rather
+	-- than a payday. The verifier holds the ratio above 0.6 from the other end,
+	-- because a boss whose pot fell far behind its health would make joining a
+	-- busy server a punishment.
+	BossRewardPerPlayer = 0.45,
+	BossMaxRewardFactor = 3.2,
+	-- Tighter than LeashRadius. A shared objective that can be kited to the far
+	-- side of the arena is one that eleven people spend the fight looking for.
+	BossLeashRadius = 40,
+	BossMinDamageFrac = 0.02,   -- of max health, to be paid at all
+	-- Of the pot, split evenly among everyone eligible; the rest is split by
+	-- damage. Everyone who showed up gets something, the person who did the work
+	-- gets more, and at ONE eligible player the two terms sum to exactly the pot.
+	BossFloorShare = 0.35,
 }
+
+--- BOSS SCALING, SAMPLED ONCE PER WAVE.
+---
+--- Pure arithmetic and no Roblox types, like Config.powerFactor: the server
+--- mints these into the wave record at beginWave and the verifier and the specs
+--- call the same ones, rather than three copies of the formula agreeing by
+--- inspection.
+---
+--- THE SOLO GUARANTEE. Both return exactly 1 at one player, and Config.bossShare
+--- is algebraically the identity at one eligible contributor — so a 1-player
+--- server gets byte-for-byte the boss it got before this existed, with no branch
+--- anywhere in the code. The verifier asserts that rather than trusting this
+--- paragraph.
+local function scaleFor(players: number, perPlayer: number, ceiling: number): number
+	local n = math.max(1, math.floor(players or 1))
+	return math.min(1 + perPlayer * (n - 1), ceiling)
+end
+
+function Config.bossHealthFactor(players: number): number
+	return scaleFor(players, Config.Waves.BossHealthPerPlayer, Config.Waves.BossMaxHealthFactor)
+end
+
+function Config.bossRewardFactor(players: number): number
+	return scaleFor(players, Config.Waves.BossRewardPerPlayer, Config.Waves.BossMaxRewardFactor)
+end
+
+--- One player's cut of a boss pot.
+---
+---   myDamage       applied damage this player dealt to the boss
+---   eligibleTotal  the same, summed over everyone eligible
+---   eligibleCount  how many players cleared BossMinDamageFrac
+---   pot            the whole reward, already scaled by bossRewardFactor
+---
+--- CONSERVES THE POT. Summed over the eligible it is exactly `pot`, at every
+--- count and every distribution — a floor share split evenly plus the remainder
+--- split by damage, and the two fractions add to one. Neither leaked nor minted,
+--- which is the property a verifier can hold and a comment cannot.
+function Config.bossShare(myDamage: number, eligibleTotal: number, eligibleCount: number, pot: number): number
+	if eligibleCount <= 0 or pot <= 0 then
+		return 0
+	end
+	local floorShare = Config.Waves.BossFloorShare
+	local even = (pot * floorShare) / eligibleCount
+	-- Falls back to an even split of the contribution half rather than dividing
+	-- by zero. Unreachable while eligibility requires a positive damage floor,
+	-- and it still sums to the pot if it ever is reached.
+	if eligibleTotal <= 0 then
+		return even + (pot * (1 - floorShare)) / eligibleCount
+	end
+	return even + pot * (1 - floorShare) * (myDamage / eligibleTotal)
+end
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- BELT PATHS AND FLOORS

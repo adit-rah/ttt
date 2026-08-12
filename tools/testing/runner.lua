@@ -174,6 +174,18 @@ function Case:lt(actual, bound, message: string?)
 	end
 end
 
+--- The mirror of :gte, and the reason it exists: a bound written as
+--- `t:lt(x, limit + epsilon)` reads as a strict comparison the author did not
+--- mean, and the epsilon ends up in the failure message as if it were part of
+--- the limit.
+function Case:lte(actual, bound, message: string?)
+	self:count()
+	if not (type(actual) == "number" and actual <= bound) then
+		fail(self, message or "expected at most",
+			("got %s, want <= %s"):format(describe(actual), describe(bound)))
+	end
+end
+
 function Case:contains(container, key, message: string?)
 	self:count()
 	if type(container) ~= "table" or container[key] == nil then

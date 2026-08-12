@@ -68,6 +68,11 @@ __MODULES["Config"] = function()
 		BaseplateSize = 1800,
 		ArenaRadius = 70,
 		ArenaWallHeight = 22,
+		-- The plinth the statue stands on, in the middle of the arena. It was a 26
+		-- written into MapBuilder; it is here because the boss now spawns at a fixed
+		-- radius from the same centre and the verifier has to be able to check that
+		-- the two do not intersect. MapBuilder builds the dais from this.
+		DaisRadius = 13,
 
 		-- Stacked surface heights. Every horizontal surface in the world gets its
 		-- OWN height: two coplanar faces at the same Y is exactly what produces
@@ -501,6 +506,19 @@ __MODULES["Config"] = function()
 		RaidSignHeight = 8,
 		ArenaTitleY = 52,
 		ArenaTitleHeight = 14,
+
+		-- THE BOSS HEALTH BAR, carved OUT of the raid sign rather than added under
+		-- it. The sign's total height is asserted against the arena title above it,
+		-- so a bar that made the billboard taller would push the two signs into each
+		-- other — the raid line gives up its bottom 2.6 studs instead, and gets them
+		-- back the moment the boss is down.
+		--
+		-- It lives on the sign, not on your screen, for the reason written twenty
+		-- lines up: the raid is where the raid IS.
+		BossBarHeight = 2.6,
+		-- Left and right margin, as a fraction of the sign's width, so the bar reads
+		-- as sitting under the line rather than as the edge of the billboard.
+		BossBarInset = 0.06,
 
 		ButtonLocked = {
 			scale = 0.7,             -- smaller
@@ -1411,6 +1429,11 @@ __MODULES["Config"] = function()
 		MaxBossDamage = 45,
 		BossHealthMultiplier = 6,
 		BossDamageMultiplier = 1.8,
+		-- The rig's arm span in scale units: arms sit at +/-1.5 and are 1 wide, so
+		-- the body is 2 * scale half-wide (see TungModels.buildNPC). It lives here
+		-- because the verifier cannot see TungModels and the boss now spawns at a
+		-- fixed point rather than out on the rim where nothing could be near it.
+		BossBodyScale = 2.1,
 		WalkSpeed = 13,
 		RewardBase = 150,
 		RewardGrowth = 2.3,         -- reward scales with wave number
@@ -1485,7 +1508,94 @@ __MODULES["Config"] = function()
 		-- the cap keep milling and step in as slots free — which reads as
 		-- reinforcements rather than as a queue.
 		MaxChasers = 8,
+
+		-- ── THE BOSS AS A SHARED OBJECTIVE ──────────────────────────────────────
+		--
+		-- Everything above this line describes a raid that six people can play in
+		-- six separate boxes. The boss is the one thing in the game that could need
+		-- another human being, and it was a bigger raider: last hit took the whole
+		-- reward, nobody could see its health, and the fight did not know how many
+		-- people were in it.
+		--
+		-- SUB-LINEAR ON PURPOSE. Ten players do not deal ten players' damage to one
+		-- target: MaxChasers is 8, the boss has one hitbox and one telegraph, and on
+		-- a ten-plot server most of the ten are standing on their own plot watching
+		-- their own number. Scaling health linearly with headcount would make a busy
+		-- server a wall instead of an event.
+		--
+		-- AND DAMAGE DOES NOT SCALE AT ALL. MaxBossDamage owns the "a boss may never
+		-- two-shot you" ceiling and the verifier asserts it with margin against an
+		-- unarmoured player; making damage a function of headcount would put that
+		-- assertion at the mercy of who happens to be online.
+		BossSpawnRadius = 20,       -- on the dais, fixed bearing, NOT the rim
+		BossHealthPerPlayer = 0.55,
+		BossMaxHealthFactor = 4.0,
+		-- The pot grows SLOWER than the health, so the boss stays a fight rather
+		-- than a payday. The verifier holds the ratio above 0.6 from the other end,
+		-- because a boss whose pot fell far behind its health would make joining a
+		-- busy server a punishment.
+		BossRewardPerPlayer = 0.45,
+		BossMaxRewardFactor = 3.2,
+		-- Tighter than LeashRadius. A shared objective that can be kited to the far
+		-- side of the arena is one that eleven people spend the fight looking for.
+		BossLeashRadius = 40,
+		BossMinDamageFrac = 0.02,   -- of max health, to be paid at all
+		-- Of the pot, split evenly among everyone eligible; the rest is split by
+		-- damage. Everyone who showed up gets something, the person who did the work
+		-- gets more, and at ONE eligible player the two terms sum to exactly the pot.
+		BossFloorShare = 0.35,
 	}
+
+	--- BOSS SCALING, SAMPLED ONCE PER WAVE.
+	---
+	--- Pure arithmetic and no Roblox types, like Config.powerFactor: the server
+	--- mints these into the wave record at beginWave and the verifier and the specs
+	--- call the same ones, rather than three copies of the formula agreeing by
+	--- inspection.
+	---
+	--- THE SOLO GUARANTEE. Both return exactly 1 at one player, and Config.bossShare
+	--- is algebraically the identity at one eligible contributor — so a 1-player
+	--- server gets byte-for-byte the boss it got before this existed, with no branch
+	--- anywhere in the code. The verifier asserts that rather than trusting this
+	--- paragraph.
+	local function scaleFor(players: number, perPlayer: number, ceiling: number): number
+		local n = math.max(1, math.floor(players or 1))
+		return math.min(1 + perPlayer * (n - 1), ceiling)
+	end
+
+	function Config.bossHealthFactor(players: number): number
+		return scaleFor(players, Config.Waves.BossHealthPerPlayer, Config.Waves.BossMaxHealthFactor)
+	end
+
+	function Config.bossRewardFactor(players: number): number
+		return scaleFor(players, Config.Waves.BossRewardPerPlayer, Config.Waves.BossMaxRewardFactor)
+	end
+
+	--- One player's cut of a boss pot.
+	---
+	---   myDamage       applied damage this player dealt to the boss
+	---   eligibleTotal  the same, summed over everyone eligible
+	---   eligibleCount  how many players cleared BossMinDamageFrac
+	---   pot            the whole reward, already scaled by bossRewardFactor
+	---
+	--- CONSERVES THE POT. Summed over the eligible it is exactly `pot`, at every
+	--- count and every distribution — a floor share split evenly plus the remainder
+	--- split by damage, and the two fractions add to one. Neither leaked nor minted,
+	--- which is the property a verifier can hold and a comment cannot.
+	function Config.bossShare(myDamage: number, eligibleTotal: number, eligibleCount: number, pot: number): number
+		if eligibleCount <= 0 or pot <= 0 then
+			return 0
+		end
+		local floorShare = Config.Waves.BossFloorShare
+		local even = (pot * floorShare) / eligibleCount
+		-- Falls back to an even split of the contribution half rather than dividing
+		-- by zero. Unreachable while eligibility requires a positive damage floor,
+		-- and it still sums to the pot if it ever is reached.
+		if eligibleTotal <= 0 then
+			return even + (pot * (1 - floorShare)) / eligibleCount
+		end
+		return even + pot * (1 - floorShare) * (myDamage / eligibleTotal)
+	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- BELT PATHS AND FLOORS
@@ -2702,7 +2812,8 @@ __MODULES["Net"] = function()
 		"Purchased",     -- S->C  { id, name, price }
 		-- phase: idle | resting | warning | spawning | active | clear.
 		-- `seconds` is sent ONCE per phase and counted down client-side.
-		"WaveState",     -- S->C  { phase, wave, remaining, total, seconds, boss, forced }
+		"WaveState",     -- S->C  { phase, wave, remaining, total, seconds, boss, forced,
+		                 --         bossHp, bossMaxHp, bossScale }
 		"SwingFx",       -- S->C  { character, combo, duration } — play a swing on that rig
 		"HitFeedback",   -- S->C  { damage, crit, killed, position }
 		"Knockback",     -- S->C  impulse Vector3, applied by the owning client
@@ -4795,6 +4906,7 @@ __MODULES["HUD"] = function()
 	local gui, root, overlay, rootScale, overlayScale, rootPadding
 	local cashLabel, multLabel, friendLabel, inviteButton
 	local waveFrame, waveLabel, toastList, nextLabel, nextDetail, rebirthButton
+	local bossTrack, bossFill
 
 	-- The panel vocabulary, aliased so every call site below reads exactly as it
 	-- did when these were five local functions in this file. They are UiKit's now;
@@ -4947,7 +5059,43 @@ __MODULES["HUD"] = function()
 		})
 		waveFrame.Enabled = false
 
-		waveLabel = Style.text(waveFrame, { name = "Line", text = "", color = PALETTE.wave })
+		-- THE SIGN IS SPLIT THE WAY THE ARENA TITLE ALREADY IS: a line, and a strip
+		-- under it. The strip is the boss's health, and it is here rather than in a
+		-- bar across the top of your screen for the reason written on
+		-- Config.Style.RaidSignY — the raid is a place, and this is where it is.
+		--
+		-- The fractions are DERIVED from the two heights rather than typed, so the
+		-- bar cannot drift out of the sign the arena title is asserted against.
+		local signHeight = Config.Style.RaidSignHeight
+		local barFraction = Config.Style.BossBarHeight / signHeight
+		local inset = Config.Style.BossBarInset
+
+		waveLabel = Style.text(waveFrame, {
+			name = "Line",
+			size = UDim2.fromScale(1, 1 - barFraction),
+			text = "", color = PALETTE.wave,
+		})
+
+		bossTrack = Instance.new("Frame")
+		bossTrack.Name = "BossBar"
+		bossTrack.Size = UDim2.fromScale(1 - inset * 2, barFraction * 0.7)
+		bossTrack.Position = UDim2.fromScale(inset, 1 - barFraction)
+		bossTrack.BackgroundColor3 = PALETTE.panel
+		bossTrack.BackgroundTransparency = 0.35
+		bossTrack.BorderSizePixel = 0
+		-- Only ever up during a boss fight. Every other wave, the sign is the one
+		-- line it has always been.
+		bossTrack.Visible = false
+		bossTrack.Parent = waveFrame
+		corner(bossTrack, 3)
+
+		bossFill = Instance.new("Frame")
+		bossFill.Name = "Fill"
+		bossFill.Size = UDim2.fromScale(1, 1)
+		bossFill.BackgroundColor3 = PALETTE.boss
+		bossFill.BorderSizePixel = 0
+		bossFill.Parent = bossTrack
+		corner(bossFill, 3)
 	end
 
 	local function buildToasts(parent: Instance)
@@ -5232,6 +5380,8 @@ __MODULES["HUD"] = function()
 	end
 
 	local displayedCash = 0
+	-- Lerped towards wave.bossHp by the same connection, for the same reason.
+	local displayedBossHp = 0
 
 	function HUD.applyStats(payload)
 		state.cash = payload.cash or 0
@@ -5281,11 +5431,21 @@ __MODULES["HUD"] = function()
 	--- The last wave packet, plus the wall-clock deadline derived from its
 	--- `seconds`. The server sends `seconds` ONCE per phase and the client counts
 	--- it down locally, so a ticking banner costs no extra remote traffic.
-	local wave = { phase = "idle", deadline = 0 }
+	--- Typed `any` because it IS the packet: NPCService sends a different shape per
+	--- phase (a boss fight carries three fields an idle one does not), and inferring
+	--- a struct from the idle placeholder makes every optional field a type error.
+	local wave: any = { phase = "idle", deadline = 0 }
 
 	function HUD.applyWave(payload)
 		if not waveFrame then
 			return
+		end
+		-- The bar is lerped towards the packet (see the RenderStepped loop), which
+		-- is what turns 2 Hz updates into something worth watching. The FIRST packet
+		-- of a fight has to snap, though, or every boss opens with its bar sweeping
+		-- up from empty and reading 0% while it does.
+		if payload.bossMaxHp and not wave.bossMaxHp then
+			displayedBossHp = payload.bossHp or payload.bossMaxHp
 		end
 		wave = payload
 		wave.deadline = os.clock() + (payload.seconds or 0)
@@ -5306,6 +5466,9 @@ __MODULES["HUD"] = function()
 		local phase = wave.phase
 		local left = math.max(0, math.ceil(wave.deadline - os.clock()))
 		local boss = wave.boss == true
+		-- Off by default and turned on in exactly one branch, so a bar left up by a
+		-- phase nobody thought about is unreachable rather than guarded against.
+		bossTrack.Visible = false
 
 		-- `Enabled` rather than `Visible`, and no background writes: the banner is a
 		-- billboard hanging over the statue now, and the box is gone. Colour is the
@@ -5330,9 +5493,23 @@ __MODULES["HUD"] = function()
 			waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
 		elseif phase == "spawning" or phase == "active" then
 			waveFrame.Enabled = true
-			waveLabel.Text = ("WAVE %d  •  %d / %d RAIDERS"):format(
-				wave.wave, wave.remaining or 0, wave.total or 0)
-			waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
+			local maxHp = wave.bossMaxHp
+			if maxHp and maxHp > 0 then
+				-- THE SHARED OBJECTIVE TAKES THE SIGN. While the boss is up, the
+				-- raider counter is the less interesting of the two numbers: what
+				-- everyone in the arena is coordinating around is one health bar,
+				-- and how many people it was built for.
+				local fraction = math.clamp(displayedBossHp / maxHp, 0, 1)
+				bossTrack.Visible = true
+				bossFill.Size = UDim2.fromScale(fraction, 1)
+				waveLabel.Text = ("WAVE %d BOSS  •  %d%%  •  scaled for %d"):format(
+					wave.wave, math.floor(fraction * 100 + 0.5), wave.bossScale or 1)
+				waveLabel.TextColor3 = PALETTE.boss
+			else
+				waveLabel.Text = ("WAVE %d  •  %d / %d RAIDERS"):format(
+					wave.wave, wave.remaining or 0, wave.total or 0)
+				waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
+			end
 		elseif phase == "clear" then
 			waveFrame.Enabled = left > 0
 			waveLabel.Text = wave.forced
@@ -5487,6 +5664,18 @@ __MODULES["HUD"] = function()
 				displayedCash += (state.cash - displayedCash) * math.min(dt * 9, 1)
 			end
 			cashLabel.Text = Util.abbreviate(displayedCash)
+
+			-- The boss bar rides the SAME connection and the same easing. The server
+			-- coalesces raid packets at 2 Hz, so a bar driven straight off them
+			-- would step four times a second under twelve people's swings; lerped,
+			-- the same four packets read as a bar going down.
+			local targetHp = wave.bossHp or 0
+			if math.abs(displayedBossHp - targetHp) < 0.5 then
+				displayedBossHp = targetHp
+			else
+				displayedBossHp += (targetHp - displayedBossHp) * math.min(dt * 9, 1)
+			end
+
 			HUD.renderWave()
 		end)
 

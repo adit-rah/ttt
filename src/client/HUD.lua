@@ -66,6 +66,7 @@ local state = {
 local gui, root, overlay, rootScale, overlayScale, rootPadding
 local cashLabel, multLabel, friendLabel, inviteButton
 local waveFrame, waveLabel, toastList, nextLabel, nextDetail, rebirthButton
+local bossTrack, bossFill
 
 -- The panel vocabulary, aliased so every call site below reads exactly as it
 -- did when these were five local functions in this file. They are UiKit's now;
@@ -218,7 +219,43 @@ local function buildWaveBanner()
 	})
 	waveFrame.Enabled = false
 
-	waveLabel = Style.text(waveFrame, { name = "Line", text = "", color = PALETTE.wave })
+	-- THE SIGN IS SPLIT THE WAY THE ARENA TITLE ALREADY IS: a line, and a strip
+	-- under it. The strip is the boss's health, and it is here rather than in a
+	-- bar across the top of your screen for the reason written on
+	-- Config.Style.RaidSignY — the raid is a place, and this is where it is.
+	--
+	-- The fractions are DERIVED from the two heights rather than typed, so the
+	-- bar cannot drift out of the sign the arena title is asserted against.
+	local signHeight = Config.Style.RaidSignHeight
+	local barFraction = Config.Style.BossBarHeight / signHeight
+	local inset = Config.Style.BossBarInset
+
+	waveLabel = Style.text(waveFrame, {
+		name = "Line",
+		size = UDim2.fromScale(1, 1 - barFraction),
+		text = "", color = PALETTE.wave,
+	})
+
+	bossTrack = Instance.new("Frame")
+	bossTrack.Name = "BossBar"
+	bossTrack.Size = UDim2.fromScale(1 - inset * 2, barFraction * 0.7)
+	bossTrack.Position = UDim2.fromScale(inset, 1 - barFraction)
+	bossTrack.BackgroundColor3 = PALETTE.panel
+	bossTrack.BackgroundTransparency = 0.35
+	bossTrack.BorderSizePixel = 0
+	-- Only ever up during a boss fight. Every other wave, the sign is the one
+	-- line it has always been.
+	bossTrack.Visible = false
+	bossTrack.Parent = waveFrame
+	corner(bossTrack, 3)
+
+	bossFill = Instance.new("Frame")
+	bossFill.Name = "Fill"
+	bossFill.Size = UDim2.fromScale(1, 1)
+	bossFill.BackgroundColor3 = PALETTE.boss
+	bossFill.BorderSizePixel = 0
+	bossFill.Parent = bossTrack
+	corner(bossFill, 3)
 end
 
 local function buildToasts(parent: Instance)
@@ -503,6 +540,8 @@ local function cheapestAvailable()
 end
 
 local displayedCash = 0
+-- Lerped towards wave.bossHp by the same connection, for the same reason.
+local displayedBossHp = 0
 
 function HUD.applyStats(payload)
 	state.cash = payload.cash or 0
@@ -552,11 +591,21 @@ end
 --- The last wave packet, plus the wall-clock deadline derived from its
 --- `seconds`. The server sends `seconds` ONCE per phase and the client counts
 --- it down locally, so a ticking banner costs no extra remote traffic.
-local wave = { phase = "idle", deadline = 0 }
+--- Typed `any` because it IS the packet: NPCService sends a different shape per
+--- phase (a boss fight carries three fields an idle one does not), and inferring
+--- a struct from the idle placeholder makes every optional field a type error.
+local wave: any = { phase = "idle", deadline = 0 }
 
 function HUD.applyWave(payload)
 	if not waveFrame then
 		return
+	end
+	-- The bar is lerped towards the packet (see the RenderStepped loop), which
+	-- is what turns 2 Hz updates into something worth watching. The FIRST packet
+	-- of a fight has to snap, though, or every boss opens with its bar sweeping
+	-- up from empty and reading 0% while it does.
+	if payload.bossMaxHp and not wave.bossMaxHp then
+		displayedBossHp = payload.bossHp or payload.bossMaxHp
 	end
 	wave = payload
 	wave.deadline = os.clock() + (payload.seconds or 0)
@@ -577,6 +626,9 @@ function HUD.renderWave()
 	local phase = wave.phase
 	local left = math.max(0, math.ceil(wave.deadline - os.clock()))
 	local boss = wave.boss == true
+	-- Off by default and turned on in exactly one branch, so a bar left up by a
+	-- phase nobody thought about is unreachable rather than guarded against.
+	bossTrack.Visible = false
 
 	-- `Enabled` rather than `Visible`, and no background writes: the banner is a
 	-- billboard hanging over the statue now, and the box is gone. Colour is the
@@ -601,9 +653,23 @@ function HUD.renderWave()
 		waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
 	elseif phase == "spawning" or phase == "active" then
 		waveFrame.Enabled = true
-		waveLabel.Text = ("WAVE %d  •  %d / %d RAIDERS"):format(
-			wave.wave, wave.remaining or 0, wave.total or 0)
-		waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
+		local maxHp = wave.bossMaxHp
+		if maxHp and maxHp > 0 then
+			-- THE SHARED OBJECTIVE TAKES THE SIGN. While the boss is up, the
+			-- raider counter is the less interesting of the two numbers: what
+			-- everyone in the arena is coordinating around is one health bar,
+			-- and how many people it was built for.
+			local fraction = math.clamp(displayedBossHp / maxHp, 0, 1)
+			bossTrack.Visible = true
+			bossFill.Size = UDim2.fromScale(fraction, 1)
+			waveLabel.Text = ("WAVE %d BOSS  •  %d%%  •  scaled for %d"):format(
+				wave.wave, math.floor(fraction * 100 + 0.5), wave.bossScale or 1)
+			waveLabel.TextColor3 = PALETTE.boss
+		else
+			waveLabel.Text = ("WAVE %d  •  %d / %d RAIDERS"):format(
+				wave.wave, wave.remaining or 0, wave.total or 0)
+			waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
+		end
 	elseif phase == "clear" then
 		waveFrame.Enabled = left > 0
 		waveLabel.Text = wave.forced
@@ -758,6 +824,18 @@ function HUD.start()
 			displayedCash += (state.cash - displayedCash) * math.min(dt * 9, 1)
 		end
 		cashLabel.Text = Util.abbreviate(displayedCash)
+
+		-- The boss bar rides the SAME connection and the same easing. The server
+		-- coalesces raid packets at 2 Hz, so a bar driven straight off them
+		-- would step four times a second under twelve people's swings; lerped,
+		-- the same four packets read as a bar going down.
+		local targetHp = wave.bossHp or 0
+		if math.abs(displayedBossHp - targetHp) < 0.5 then
+			displayedBossHp = targetHp
+		else
+			displayedBossHp += (targetHp - displayedBossHp) * math.min(dt * 9, 1)
+		end
+
 		HUD.renderWave()
 	end)
 
