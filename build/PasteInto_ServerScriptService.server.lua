@@ -500,11 +500,20 @@ __MODULES["Config"] = function()
 	-- COMBAT
 	-- ─────────────────────────────────────────────────────────────────────────────
 
+	-- ORDER MATTERS: index = tier, and profile.batTier stores that INDEX. Inserting
+	-- a tier therefore renumbers everything above it, which is why DataService
+	-- carries a profile-version remap — see LEGACY_BAT_TIERS there. Appending is
+	-- free; inserting is not.
+	--
+	-- ash and crimson slot between oak and void, so every stat on the three
+	-- original tiers is untouched: this is a longer ladder, not a rebalance.
 	Config.Bats = {
-		-- order matters: index = tier, higher tier replaces lower
-		{ id = "starter", name = "Sahur Bat",      variant = "classic", damage = 18, cooldown = 0.55, knockback = 55,  reach = 9,  crit = 0.08 },
-		{ id = "oak",     name = "Oak Sahur Bat",  variant = "golden",  damage = 34, cooldown = 0.5,  knockback = 75,  reach = 10, crit = 0.14 },
-		{ id = "void",    name = "Void Sahur Bat", variant = "void",    damage = 62, cooldown = 0.44, knockback = 105, reach = 11.5, crit = 0.22 },
+		{ id = "starter", name = "Sahur Bat",         variant = "classic", damage = 18, cooldown = 0.55, knockback = 55,  reach = 9,    crit = 0.08 },
+		{ id = "oak",     name = "Oak Sahur Bat",     variant = "golden",  damage = 34, cooldown = 0.5,  knockback = 75,  reach = 10,   crit = 0.14 },
+		{ id = "ash",     name = "Ash Sahur Bat",     variant = "ash",     damage = 42, cooldown = 0.48, knockback = 85,  reach = 10.5, crit = 0.16 },
+		{ id = "crimson", name = "Crimson Sahur Bat", variant = "crimson", damage = 52, cooldown = 0.46, knockback = 95,  reach = 11,   crit = 0.19 },
+		{ id = "void",    name = "Void Sahur Bat",    variant = "void",    damage = 62, cooldown = 0.44, knockback = 105, reach = 11.5, crit = 0.22 },
+		{ id = "eclipse", name = "Eclipse Sahur Bat", variant = "eclipse", damage = 86, cooldown = 0.42, knockback = 130, reach = 12,   crit = 0.26 },
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -522,6 +531,14 @@ __MODULES["Config"] = function()
 	-- is what is stopping you, not because the belt is waiting on it.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
+	-- Prices are set against the DETOUR the verifier measures: how many minutes of
+	-- the income you have when a rung first comes within reach it costs you. The
+	-- ceiling is four minutes, because past that buying a bat means visibly
+	-- stalling the factory — which is the coupling this whole split removes.
+	--
+	-- `batforge` and `batforge2` KEEP THEIR IDS. DataService prunes owned ids it
+	-- cannot find in Config, so renaming them would silently un-buy every weapon
+	-- every existing player owns.
 	Config.WeaponButtons = {
 		{
 			id = "batforge", name = "Bat Forge", price = 2500,
@@ -529,9 +546,24 @@ __MODULES["Config"] = function()
 			blurb = "Unlocks the Oak Sahur Bat.",
 		},
 		{
+			id = "batforge_ash", name = "Ash Bat Forge", price = 60000,
+			kind = "Gear", grants = "ash",
+			blurb = "Unlocks the Ash Sahur Bat.",
+		},
+		{
+			id = "batforge_crimson", name = "Crimson Bat Forge", price = 600000,
+			kind = "Gear", grants = "crimson",
+			blurb = "Unlocks the Crimson Sahur Bat.",
+		},
+		{
 			id = "batforge2", name = "Void Bat Forge", price = 6000000,
 			kind = "Gear", grants = "void",
 			blurb = "Unlocks the Void Sahur Bat.",
+		},
+		{
+			id = "batforge_eclipse", name = "Eclipse Bat Forge", price = 120000000,
+			kind = "Gear", grants = "eclipse",
+			blurb = "Unlocks the Eclipse Sahur Bat.",
 		},
 	}
 
@@ -3347,6 +3379,19 @@ __MODULES["DataService"] = function()
 	local STORE_NAME = "TungTungTycoon_v1"
 	local AUTOSAVE_SECONDS = 90
 
+	--- Bumped whenever a saved value's MEANING changes rather than its shape.
+	--- reconcile() runs the migrations between the saved version and this one.
+	---
+	--- 1 -> 2: Config.Bats grew from three tiers to six, with ash and crimson
+	---         inserted between oak and void. profile.batTier stores an INDEX, so
+	---         a v1 save reading "3" meant void and now means ash — a silent
+	---         downgrade of a purchase, and one nothing else in the game could
+	---         detect.
+	local PROFILE_VERSION = 2
+
+	--- v1 bat tier -> v2 bat tier. { starter, oak, void } -> their new indices.
+	local LEGACY_BAT_TIERS = { 1, 2, 5 }
+
 	local store: DataStore? = nil
 	local dataStoresUsable = true
 
@@ -3386,7 +3431,7 @@ __MODULES["DataService"] = function()
 			upgrades = {},     -- { [upgradeId] = level }, shaped by UpgradeService
 			utilityEquipped = "",  -- a Config.Utilities id; "" rather than nil so the
 			                       -- type-matched reconcile can merge a saved value
-			version = 1,
+			version = PROFILE_VERSION,
 		}
 	end
 
@@ -3433,7 +3478,36 @@ __MODULES["DataService"] = function()
 		profile.owned = cleanOwned
 		profile.cash = math.max(0, tonumber(profile.cash) or 0)
 		profile.rebirths = math.clamp(math.floor(tonumber(profile.rebirths) or 0), 0, Config.Rebirth.MaxRebirths)
-		profile.batTier = math.clamp(math.floor(tonumber(profile.batTier) or 1), 1, #Config.Bats)
+		profile.batTier = math.floor(tonumber(profile.batTier) or 1)
+
+		-- MIGRATIONS. Run before the clamps, because a stale index is not out of
+		-- range — it is in range and means the wrong thing, which is worse.
+		local version = math.floor(tonumber(profile.version) or 1)
+		if version < 2 then
+			profile.batTier = LEGACY_BAT_TIERS[profile.batTier] or profile.batTier
+		end
+		profile.version = PROFILE_VERSION
+
+		profile.batTier = math.clamp(profile.batTier, 1, #Config.Bats)
+
+		-- A weapon or armour button is the RECORD of a granted tier, so it must
+		-- never disagree with the tier itself. A save from before the weapons
+		-- track existed owns batforge and batforge2 but none of the rungs now
+		-- sitting between them — and because grantBat is monotonic, those rungs
+		-- would light up as available and then take the player's money and do
+		-- nothing. Backfill anything the tier already covers.
+		--
+		-- Idempotent, and it fixes the CLASS: the same divergence would reappear
+		-- from any future reordering of Config.Bats.
+		for _, def in ipairs(Config.Buttons) do
+			if def.kind == "Gear" then
+				local bat = Config.BatById[def.grants]
+				if bat and bat.tier <= profile.batTier then
+					profile.owned[def.id] = true
+				end
+			end
+		end
+
 		return profile
 	end
 

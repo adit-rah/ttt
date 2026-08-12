@@ -16,6 +16,19 @@ local DataService = {}
 local STORE_NAME = "TungTungTycoon_v1"
 local AUTOSAVE_SECONDS = 90
 
+--- Bumped whenever a saved value's MEANING changes rather than its shape.
+--- reconcile() runs the migrations between the saved version and this one.
+---
+--- 1 -> 2: Config.Bats grew from three tiers to six, with ash and crimson
+---         inserted between oak and void. profile.batTier stores an INDEX, so
+---         a v1 save reading "3" meant void and now means ash — a silent
+---         downgrade of a purchase, and one nothing else in the game could
+---         detect.
+local PROFILE_VERSION = 2
+
+--- v1 bat tier -> v2 bat tier. { starter, oak, void } -> their new indices.
+local LEGACY_BAT_TIERS = { 1, 2, 5 }
+
 local store: DataStore? = nil
 local dataStoresUsable = true
 
@@ -55,7 +68,7 @@ local function defaultProfile()
 		upgrades = {},     -- { [upgradeId] = level }, shaped by UpgradeService
 		utilityEquipped = "",  -- a Config.Utilities id; "" rather than nil so the
 		                       -- type-matched reconcile can merge a saved value
-		version = 1,
+		version = PROFILE_VERSION,
 	}
 end
 
@@ -102,7 +115,36 @@ local function reconcile(saved)
 	profile.owned = cleanOwned
 	profile.cash = math.max(0, tonumber(profile.cash) or 0)
 	profile.rebirths = math.clamp(math.floor(tonumber(profile.rebirths) or 0), 0, Config.Rebirth.MaxRebirths)
-	profile.batTier = math.clamp(math.floor(tonumber(profile.batTier) or 1), 1, #Config.Bats)
+	profile.batTier = math.floor(tonumber(profile.batTier) or 1)
+
+	-- MIGRATIONS. Run before the clamps, because a stale index is not out of
+	-- range — it is in range and means the wrong thing, which is worse.
+	local version = math.floor(tonumber(profile.version) or 1)
+	if version < 2 then
+		profile.batTier = LEGACY_BAT_TIERS[profile.batTier] or profile.batTier
+	end
+	profile.version = PROFILE_VERSION
+
+	profile.batTier = math.clamp(profile.batTier, 1, #Config.Bats)
+
+	-- A weapon or armour button is the RECORD of a granted tier, so it must
+	-- never disagree with the tier itself. A save from before the weapons
+	-- track existed owns batforge and batforge2 but none of the rungs now
+	-- sitting between them — and because grantBat is monotonic, those rungs
+	-- would light up as available and then take the player's money and do
+	-- nothing. Backfill anything the tier already covers.
+	--
+	-- Idempotent, and it fixes the CLASS: the same divergence would reappear
+	-- from any future reordering of Config.Bats.
+	for _, def in ipairs(Config.Buttons) do
+		if def.kind == "Gear" then
+			local bat = Config.BatById[def.grants]
+			if bat and bat.tier <= profile.batTier then
+				profile.owned[def.id] = true
+			end
+		end
+	end
+
 	return profile
 end
 

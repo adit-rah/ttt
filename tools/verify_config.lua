@@ -168,10 +168,40 @@ for tier, bat in ipairs(Config.Bats) do
 	seenBats[bat.id] = true
 	check(Config.Variants[bat.variant] ~= nil, ("Bats[%d]: unknown variant %s"):format(tier, tostring(bat.variant)))
 	check(bat.damage > 0 and bat.cooldown > 0.1 and bat.reach > 0, ("Bats[%d]: bad stats"):format(tier))
+	-- A FLOOR as well as the latency ceiling further down. That ceiling only
+	-- bounds cooldown from above, and a ladder of ever-faster bats walks
+	-- straight through the bottom: below ~0.3s there is no room for a wind-up,
+	-- a strike and a recovery inside one cooldown, so the swing stops reading
+	-- as a swing and the combo animation never finishes a pose.
+	check(bat.cooldown >= 0.3,
+		("Bats[%d] (%s) has a %.2fs cooldown; under 0.3s the wind-up, strike and recovery cannot fit inside it")
+			:format(tier, tostring(bat.name), bat.cooldown))
 	if tier > 1 then
 		check(bat.damage > Config.Bats[tier - 1].damage, ("Bats[%d]: not stronger than the previous tier"):format(tier))
 	end
 end
+
+-- Every Gear button grants a DISTINCT bat, and between them they cover every
+-- tier above the one you spawn holding. A tier nothing sells is dead data, and
+-- two buttons granting the same bat means one of them takes your money and
+-- does nothing (grantBat is monotonic).
+local grantedBats = {}
+for _, def in ipairs(Config.Buttons) do
+	if def.kind == "Gear" then
+		check(not grantedBats[def.grants],
+			("two Gear buttons both grant %s; the second would charge and do nothing")
+				:format(tostring(def.grants)))
+		grantedBats[def.grants] = true
+	end
+end
+for tier = 2, #Config.Bats do
+	check(grantedBats[Config.Bats[tier].id],
+		("Bats[%d] (%s) is not granted by any button — nothing in the game can unlock it")
+			:format(tier, tostring(Config.Bats[tier].name)))
+end
+check(not grantedBats[Config.Bats[1].id],
+	("Bats[1] (%s) is the bat you spawn holding; selling it would charge for nothing")
+		:format(tostring(Config.Bats[1].name)))
 
 -- ── prototypes ──────────────────────────────────────────────────────────────
 -- Unshipped, but the data still has to be coherent — a prototype that only
