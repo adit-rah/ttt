@@ -85,15 +85,22 @@ local function removeBats(container: Instance?)
 	end
 end
 
-function CombatService.equipCurrentBat(player: Player)
-	-- a character can spawn before the DataStore read finishes on first join
+--- Blocks until the player's profile has loaded, or gives up. A character can
+--- spawn before the DataStore read finishes on first join, and everything that
+--- dresses that character needs the profile.
+local function waitForProfile(player: Player)
 	local profile = DataService.get(player)
 	local deadline = os.clock() + 12
 	while not profile and player.Parent and os.clock() < deadline do
 		task.wait(0.25)
 		profile = DataService.get(player)
 	end
-	if not profile or not player.Parent then
+	return player.Parent and profile or nil
+end
+
+function CombatService.equipCurrentBat(player: Player)
+	local profile = waitForProfile(player)
+	if not profile then
 		return
 	end
 	local tier = math.clamp(profile.batTier or 1, 1, #Config.Bats)
@@ -108,6 +115,61 @@ function CombatService.equipCurrentBat(player: Player)
 	tool.Parent = player:FindFirstChildOfClass("Backpack")
 
 	CombatService.bind(player, tool)
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- armour
+--
+-- Lives here rather than in a service of its own because CombatService already
+-- owns the two places armour has to touch: onCharacter, which is the only
+-- writer of a player's humanoid stats, and CombatService.damage, which is the
+-- only TakeDamage call in the repo. A separate service would have to race the
+-- first and reach across the second.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+function CombatService.armorTierOf(player: Player)
+	local profile = DataService.get(player)
+	local tier = math.clamp(profile and profile.armorTier or 1, 1, #Config.Armor.Tiers)
+	return Config.Armor.Tiers[tier]
+end
+
+function CombatService.applyArmor(player: Player, character: Model?)
+	character = character or player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return
+	end
+	local health = CombatService.armorTierOf(player).health
+	local delta = health - humanoid.MaxHealth
+	humanoid.MaxHealth = health
+	-- Setting MaxHealth alone leaves Health where it was, so a fully-armoured
+	-- player spawns showing 100/320 and looking like they are bleeding out. The
+	-- bar IS the reward for this track, so it has to read right.
+	--
+	-- Raised by the DELTA rather than to full, so buying armour in the middle
+	-- of a raid is not also a free heal.
+	humanoid.Health = math.clamp(humanoid.Health + math.max(0, delta), 1, health)
+end
+
+function CombatService.grantArmor(player: Player, armorId: string)
+	local def = Config.ArmorById[armorId]
+	local profile = DataService.get(player)
+	if not def or not profile then
+		return
+	end
+	-- monotonic, like grantBat: re-installing a tier you already have on a
+	-- claim or a replay must not be a downgrade
+	if def.tier <= (profile.armorTier or 1) then
+		return
+	end
+	profile.armorTier = def.tier
+	CombatService.applyArmor(player)
+	Economy.push(player)
+	Economy.notify(player, {
+		kind = "gear",
+		title = "NEW ARMOR: " .. def.name,
+		body = ("%d max health"):format(def.health),
+	})
 end
 
 function CombatService.grantBat(player: Player, batId: string)
@@ -385,7 +447,21 @@ function CombatService.onCharacter(player: Player, character: Model)
 	humanoid.UseJumpPower = true
 
 	task.wait(0.35)
+	if not waitForProfile(player) then
+		return
+	end
+	CombatService.applyArmor(player, character)
 	CombatService.equipCurrentBat(player)
+
+	-- Re-apply once a beat later. Roblox's own Health script and the respawn
+	-- pipeline both write Humanoid.Health after CharacterAdded returns, and
+	-- nothing orders those against this write. Guarded on the character still
+	-- being current so a fast death-respawn cannot apply to the wrong body.
+	task.delay(0.75, function()
+		if player.Character == character and humanoid.Health > 0 then
+			CombatService.applyArmor(player, character)
+		end
+	end)
 
 	humanoid.Died:Connect(function()
 		local killerTag = humanoid:FindFirstChild("creator") :: ObjectValue?

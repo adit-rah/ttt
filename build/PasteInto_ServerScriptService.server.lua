@@ -567,9 +567,69 @@ __MODULES["Config"] = function()
 		},
 	}
 
-	-- The armour cabinet. Empty for now: the track exists so the shape is real and
-	-- verified before anything is hung off it.
-	Config.ArmorButtons = {}
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- THE ARMOUR CABINET — the third track.
+	--
+	-- A tier grants MaxHealth and nothing else. Flat damage reduction was the
+	-- obvious alternative and is a worse first cut for three reasons: Roblox's
+	-- default health bar renders a MaxHealth gain for free where reduction is
+	-- invisible, the default Health script regenerates a PERCENTAGE of MaxHealth so
+	-- regen scales along for nothing, and — the deciding one — effective HP under
+	-- both stats is health/(1-dr), two variables multiplying into the single
+	-- assertion that guarantees a boss cannot burst you down. That assertion
+	-- currently passes with 0.13s of margin. One monotone stat keeps it one line
+	-- of arithmetic.
+	--
+	-- Reduction stays cheap to add later: CombatService.damage holds the only
+	-- TakeDamage call in the repo, so there is exactly one place to put it.
+	--
+	-- Per-tier FEEL comes from the cabinet — each tier lights its own shelf and
+	-- stands its own variant — rather than from per-tier stats.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.Armor = {
+		-- Roblox's default humanoid. Named rather than written as a literal
+		-- because verify_config's "a boss cannot two-shot you" assertion used to
+		-- hardcode 100, and the moment armour exists that literal stops being a
+		-- constant and starts being an assumption.
+		BaseHealth = 100,
+		-- Ceiling on how tanky the top tier may make you. Armour that makes a boss
+		-- cosmetic removes the reason the arena exists.
+		MaxHealthMultiple = 3.5,
+
+		-- index = tier, exactly like Config.Bats. Tier 1 is what you spawn with
+		-- and is never sold.
+		Tiers = {
+			{ id = "none",    name = "No Armor",      health = 100, variant = "classic" },
+			{ id = "padded",  name = "Padded Sahur",  health = 140, variant = "oak" },
+			{ id = "plated",  name = "Plated Sahur",  health = 190, variant = "golden" },
+			{ id = "void",    name = "Void Carapace", health = 250, variant = "void" },
+			{ id = "eclipse", name = "Eclipse Aegis", health = 320, variant = "eclipse" },
+		},
+	}
+
+	Config.ArmorButtons = {
+		{
+			id = "armor_padded", name = "Padded Sahur", price = 12000,
+			kind = "Armor", grants = "padded",
+			blurb = "Take a hit and keep walking.",
+		},
+		{
+			id = "armor_plated", name = "Plated Sahur", price = 150000,
+			kind = "Armor", grants = "plated",
+			blurb = "Bat-resistant.",
+		},
+		{
+			id = "armor_void", name = "Void Carapace", price = 2500000,
+			kind = "Armor", grants = "void",
+			blurb = "It absorbs the tung.",
+		},
+		{
+			id = "armor_eclipse", name = "Eclipse Aegis", price = 40000000,
+			kind = "Armor", grants = "eclipse",
+			blurb = "Sahur cannot reach you here.",
+		},
+	}
 
 	Config.Combat = {
 		ComboWindow = 1.6,          -- seconds to chain a swing
@@ -913,6 +973,12 @@ __MODULES["Config"] = function()
 	for tier, def in ipairs(Config.Bats) do
 		def.tier = tier
 		Config.BatById[def.id] = def
+	end
+
+	Config.ArmorById = {}
+	for tier, def in ipairs(Config.Armor.Tiers) do
+		def.tier = tier
+		Config.ArmorById[def.id] = def
 	end
 
 	--- Where a side track's buy button `slot` stands, in plot-local coordinates.
@@ -1338,7 +1404,7 @@ __MODULES["Net"] = function()
 	-- Every remote the game uses. Declared up front so the client never races.
 	Net.NAMES = {
 		"Notify",        -- S->C  { kind, title, body, color }
-		"Stats",         -- S->C  { cash, rebirths, kills, batTier, wave }
+		"Stats",         -- S->C  { cash, rebirths, kills, batTier, armorTier, multiplier, owned, rebirthCost }
 		"PlotAssigned",  -- S->C  plotIndex
 		"Purchased",     -- S->C  { id, name, price }
 		"WaveState",     -- S->C  { phase, wave, remaining, seconds }
@@ -3021,15 +3087,22 @@ __MODULES["CombatService"] = function()
 		end
 	end
 
-	function CombatService.equipCurrentBat(player: Player)
-		-- a character can spawn before the DataStore read finishes on first join
+	--- Blocks until the player's profile has loaded, or gives up. A character can
+	--- spawn before the DataStore read finishes on first join, and everything that
+	--- dresses that character needs the profile.
+	local function waitForProfile(player: Player)
 		local profile = DataService.get(player)
 		local deadline = os.clock() + 12
 		while not profile and player.Parent and os.clock() < deadline do
 			task.wait(0.25)
 			profile = DataService.get(player)
 		end
-		if not profile or not player.Parent then
+		return player.Parent and profile or nil
+	end
+
+	function CombatService.equipCurrentBat(player: Player)
+		local profile = waitForProfile(player)
+		if not profile then
 			return
 		end
 		local tier = math.clamp(profile.batTier or 1, 1, #Config.Bats)
@@ -3044,6 +3117,61 @@ __MODULES["CombatService"] = function()
 		tool.Parent = player:FindFirstChildOfClass("Backpack")
 
 		CombatService.bind(player, tool)
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- armour
+	--
+	-- Lives here rather than in a service of its own because CombatService already
+	-- owns the two places armour has to touch: onCharacter, which is the only
+	-- writer of a player's humanoid stats, and CombatService.damage, which is the
+	-- only TakeDamage call in the repo. A separate service would have to race the
+	-- first and reach across the second.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	function CombatService.armorTierOf(player: Player)
+		local profile = DataService.get(player)
+		local tier = math.clamp(profile and profile.armorTier or 1, 1, #Config.Armor.Tiers)
+		return Config.Armor.Tiers[tier]
+	end
+
+	function CombatService.applyArmor(player: Player, character: Model?)
+		character = character or player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if not humanoid then
+			return
+		end
+		local health = CombatService.armorTierOf(player).health
+		local delta = health - humanoid.MaxHealth
+		humanoid.MaxHealth = health
+		-- Setting MaxHealth alone leaves Health where it was, so a fully-armoured
+		-- player spawns showing 100/320 and looking like they are bleeding out. The
+		-- bar IS the reward for this track, so it has to read right.
+		--
+		-- Raised by the DELTA rather than to full, so buying armour in the middle
+		-- of a raid is not also a free heal.
+		humanoid.Health = math.clamp(humanoid.Health + math.max(0, delta), 1, health)
+	end
+
+	function CombatService.grantArmor(player: Player, armorId: string)
+		local def = Config.ArmorById[armorId]
+		local profile = DataService.get(player)
+		if not def or not profile then
+			return
+		end
+		-- monotonic, like grantBat: re-installing a tier you already have on a
+		-- claim or a replay must not be a downgrade
+		if def.tier <= (profile.armorTier or 1) then
+			return
+		end
+		profile.armorTier = def.tier
+		CombatService.applyArmor(player)
+		Economy.push(player)
+		Economy.notify(player, {
+			kind = "gear",
+			title = "NEW ARMOR: " .. def.name,
+			body = ("%d max health"):format(def.health),
+		})
 	end
 
 	function CombatService.grantBat(player: Player, batId: string)
@@ -3321,7 +3449,21 @@ __MODULES["CombatService"] = function()
 		humanoid.UseJumpPower = true
 
 		task.wait(0.35)
+		if not waitForProfile(player) then
+			return
+		end
+		CombatService.applyArmor(player, character)
 		CombatService.equipCurrentBat(player)
+
+		-- Re-apply once a beat later. Roblox's own Health script and the respawn
+		-- pipeline both write Humanoid.Health after CharacterAdded returns, and
+		-- nothing orders those against this write. Guarded on the character still
+		-- being current so a fast death-respawn cannot apply to the wrong body.
+		task.delay(0.75, function()
+			if player.Character == character and humanoid.Health > 0 then
+				CombatService.applyArmor(player, character)
+			end
+		end)
 
 		humanoid.Died:Connect(function()
 			local killerTag = humanoid:FindFirstChild("creator") :: ObjectValue?
@@ -3413,6 +3555,7 @@ __MODULES["DataService"] = function()
 			owned = {},        -- { [buttonId] = true }
 			rebirths = 0,
 			batTier = 1,
+			armorTier = 1,
 			kills = 0,
 			playtime = 0,
 			-- PROTOTYPE fields (Offline / Sessions / RebirthPerks). reconcile()
@@ -3489,6 +3632,7 @@ __MODULES["DataService"] = function()
 		profile.version = PROFILE_VERSION
 
 		profile.batTier = math.clamp(profile.batTier, 1, #Config.Bats)
+		profile.armorTier = math.clamp(math.floor(tonumber(profile.armorTier) or 1), 1, #Config.Armor.Tiers)
 
 		-- A weapon or armour button is the RECORD of a granted tier, so it must
 		-- never disagree with the tier itself. A save from before the weapons
@@ -3503,6 +3647,11 @@ __MODULES["DataService"] = function()
 			if def.kind == "Gear" then
 				local bat = Config.BatById[def.grants]
 				if bat and bat.tier <= profile.batTier then
+					profile.owned[def.id] = true
+				end
+			elseif def.kind == "Armor" then
+				local tier = Config.ArmorById[def.grants]
+				if tier and tier.tier <= profile.armorTier then
 					profile.owned[def.id] = true
 				end
 			end
@@ -3563,6 +3712,7 @@ __MODULES["DataService"] = function()
 			owned = profile.owned,
 			rebirths = profile.rebirths,
 			batTier = profile.batTier,
+			armorTier = profile.armorTier,
 			kills = profile.kills,
 			playtime = profile.playtime,
 			lastSeen = profile.lastSeen,
@@ -3751,6 +3901,7 @@ __MODULES["Economy"] = function()
 			rebirths = profile.rebirths,
 			kills = profile.kills,
 			batTier = profile.batTier,
+			armorTier = profile.armorTier,
 			multiplier = Economy.multiplier(player),
 			owned = profile.owned,
 			rebirthCost = Economy.rebirthCost(player),
@@ -7550,6 +7701,22 @@ __MODULES["Tycoon"] = function()
 		end
 	end
 
+	Tycoon.INSTALLERS.Armor = function(self, def, silent)
+		local owner = self.owner
+		if owner then
+			CombatService.grantArmor(owner, def.grants)
+		end
+
+		local tierDef = Config.ArmorById[def.grants]
+		local model = self:buildShelfDisplay(def, tierDef and tierDef.variant or "classic",
+			tierDef and tierDef.name or def.name)
+
+		local entry = self.objects[def.id]
+		if entry then
+			entry.machine = model
+		end
+	end
+
 	Tycoon.INSTALLERS.Structure = function(self, def, silent)
 		local model = Instance.new("Model")
 		model.Name = "Structure_" .. def.id
@@ -7756,6 +7923,12 @@ __MODULES["Tycoon"] = function()
 			local bat = Config.BatById[def.grants]
 			if bat then
 				return ("%d dmg  •  %.0f%% crit"):format(bat.damage, bat.crit * 100)
+			end
+		elseif def.kind == "Armor" then
+			local tier = Config.ArmorById[def.grants]
+			if tier then
+				local previous = Config.Armor.Tiers[tier.tier - 1]
+				return ("%d max health  (+%d)"):format(tier.health, tier.health - (previous and previous.health or 0))
 			end
 		end
 		return def.blurb or ""

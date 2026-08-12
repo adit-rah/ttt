@@ -115,6 +115,7 @@ function Economy.push(player: Player)
 		rebirths = profile.rebirths,
 		kills = profile.kills,
 		batTier = profile.batTier,
+		armorTier = profile.armorTier,
 		multiplier = Economy.multiplier(player),
 		owned = profile.owned,
 		rebirthCost = Economy.rebirthCost(player),

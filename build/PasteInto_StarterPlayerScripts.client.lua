@@ -567,9 +567,69 @@ __MODULES["Config"] = function()
 		},
 	}
 
-	-- The armour cabinet. Empty for now: the track exists so the shape is real and
-	-- verified before anything is hung off it.
-	Config.ArmorButtons = {}
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- THE ARMOUR CABINET — the third track.
+	--
+	-- A tier grants MaxHealth and nothing else. Flat damage reduction was the
+	-- obvious alternative and is a worse first cut for three reasons: Roblox's
+	-- default health bar renders a MaxHealth gain for free where reduction is
+	-- invisible, the default Health script regenerates a PERCENTAGE of MaxHealth so
+	-- regen scales along for nothing, and — the deciding one — effective HP under
+	-- both stats is health/(1-dr), two variables multiplying into the single
+	-- assertion that guarantees a boss cannot burst you down. That assertion
+	-- currently passes with 0.13s of margin. One monotone stat keeps it one line
+	-- of arithmetic.
+	--
+	-- Reduction stays cheap to add later: CombatService.damage holds the only
+	-- TakeDamage call in the repo, so there is exactly one place to put it.
+	--
+	-- Per-tier FEEL comes from the cabinet — each tier lights its own shelf and
+	-- stands its own variant — rather than from per-tier stats.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.Armor = {
+		-- Roblox's default humanoid. Named rather than written as a literal
+		-- because verify_config's "a boss cannot two-shot you" assertion used to
+		-- hardcode 100, and the moment armour exists that literal stops being a
+		-- constant and starts being an assumption.
+		BaseHealth = 100,
+		-- Ceiling on how tanky the top tier may make you. Armour that makes a boss
+		-- cosmetic removes the reason the arena exists.
+		MaxHealthMultiple = 3.5,
+
+		-- index = tier, exactly like Config.Bats. Tier 1 is what you spawn with
+		-- and is never sold.
+		Tiers = {
+			{ id = "none",    name = "No Armor",      health = 100, variant = "classic" },
+			{ id = "padded",  name = "Padded Sahur",  health = 140, variant = "oak" },
+			{ id = "plated",  name = "Plated Sahur",  health = 190, variant = "golden" },
+			{ id = "void",    name = "Void Carapace", health = 250, variant = "void" },
+			{ id = "eclipse", name = "Eclipse Aegis", health = 320, variant = "eclipse" },
+		},
+	}
+
+	Config.ArmorButtons = {
+		{
+			id = "armor_padded", name = "Padded Sahur", price = 12000,
+			kind = "Armor", grants = "padded",
+			blurb = "Take a hit and keep walking.",
+		},
+		{
+			id = "armor_plated", name = "Plated Sahur", price = 150000,
+			kind = "Armor", grants = "plated",
+			blurb = "Bat-resistant.",
+		},
+		{
+			id = "armor_void", name = "Void Carapace", price = 2500000,
+			kind = "Armor", grants = "void",
+			blurb = "It absorbs the tung.",
+		},
+		{
+			id = "armor_eclipse", name = "Eclipse Aegis", price = 40000000,
+			kind = "Armor", grants = "eclipse",
+			blurb = "Sahur cannot reach you here.",
+		},
+	}
 
 	Config.Combat = {
 		ComboWindow = 1.6,          -- seconds to chain a swing
@@ -913,6 +973,12 @@ __MODULES["Config"] = function()
 	for tier, def in ipairs(Config.Bats) do
 		def.tier = tier
 		Config.BatById[def.id] = def
+	end
+
+	Config.ArmorById = {}
+	for tier, def in ipairs(Config.Armor.Tiers) do
+		def.tier = tier
+		Config.ArmorById[def.id] = def
 	end
 
 	--- Where a side track's buy button `slot` stands, in plot-local coordinates.
@@ -1338,7 +1404,7 @@ __MODULES["Net"] = function()
 	-- Every remote the game uses. Declared up front so the client never races.
 	Net.NAMES = {
 		"Notify",        -- S->C  { kind, title, body, color }
-		"Stats",         -- S->C  { cash, rebirths, kills, batTier, wave }
+		"Stats",         -- S->C  { cash, rebirths, kills, batTier, armorTier, multiplier, owned, rebirthCost }
 		"PlotAssigned",  -- S->C  plotIndex
 		"Purchased",     -- S->C  { id, name, price }
 		"WaveState",     -- S->C  { phase, wave, remaining, seconds }
