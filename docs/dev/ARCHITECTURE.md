@@ -174,7 +174,7 @@ Three rules hold this together, and the first two are not stylistic:
 | --- | --- | --- | --- |
 | `Main.client.lua` | Entry point. Starts the four panels, then fires `ClientHello` once. | *(entry `LocalScript`)* | — |
 | `UiKit.lua` | The panel vocabulary: `PALETTE`, `corner`, `stroke`, `panel`, `text`, `button`, `scaleFor`, `safeInsets`. | `HUD`, `SessionUI`, `UpgradeUI` | move to `src/shared` (it would ship to the server build) |
-| `HUD.lua` | All on-screen furniture **and the only `ScreenGui` in the game**, carrying `Root` (UIScale + safe-area padding) and `Overlay` (UIScale, no padding, for modals). | `CombatClient`, `SessionUI`, `UpgradeUI` (lazily, `UpgradeUI.lua:422`), `Main.client` | — |
+| `HUD.lua` | All on-screen furniture **and the only `ScreenGui` in the game**, carrying `Root` (UIScale + safe-area padding) and `Overlay` (UIScale, no padding, for modals). The persistent furniture is one status card (balance, multiplier, friend bonus, next purchase + progress bar), the toast column, the action stack and the raid billboard. | `CombatClient`, `SessionUI`, `UpgradeUI` (lazily, `UpgradeUI.lua:422`), `Main.client` | — |
 | `CombatClient.lua` | Local feel only: hitmarkers, camera shake, knockback application, swing playback. | `Main.client` | decide damage; parent UI straight to the `ScreenGui` (that is outside the UIScale *and* the safe area) |
 | `UpgradeUI.lua` | **Prototype.** Shop panel + utility chip. Draws the last `UpgradeState`. | `Main.client` | decide what you own, what a level costs, or whether a utility is off cooldown |
 | `SessionUI.lua` | Welcome-back modal, daily/playtime claims, boost button, Vault Timer row. | `Main.client` | send a level or a price — the Vault Timer sends `{ kind = "capUpgrade" }` and the server owns which rung is next |
@@ -390,19 +390,19 @@ instead of sitting in `WaitForChild` for 30 seconds.
 
 | Remote | Dir | Payload | Fired by | Handled by |
 | --- | --- | --- | --- | --- |
-| `Stats` | S→C | `{ cash, rebirths, kills, batTier, armorTier, multiplier, owned, rebirthCost }` | `Economy.push` (`Economy.lua:107`) | `HUD:802`, `UpgradeUI:454` |
-| `Notify` | S→C | `{ kind, title, body, color }` | `Economy.notify` (`:212`), `NPCService:27` | `HUD:794` |
-| `WaveState` | S→C | `{ phase, wave, remaining, total, seconds, boss, forced, bossHp, bossMaxHp, bossScale }` — `phase` ∈ `idle｜resting｜warning｜spawning｜active｜clear`; `seconds` sent **once** per phase and counted down client-side | `NPCService:26` | `HUD:803` |
-| `SocialState` | S→C | `{ friends, cap, bonus, multiplier, names }` | `SocialService:170-181` | `HUD:804` |
+| `Stats` | S→C | `{ cash, rebirths, kills, batTier, armorTier, multiplier, owned, rebirthCost }` | `Economy.push` (`Economy.lua:107`) | `HUD:903`, `UpgradeUI:454` |
+| `Notify` | S→C | `{ kind, title, body, color }` | `Economy.notify` (`:212`), `NPCService:27` | `HUD:895` |
+| `WaveState` | S→C | `{ phase, wave, remaining, total, seconds, boss, forced, bossHp, bossMaxHp, bossScale }` — `phase` ∈ `idle｜resting｜warning｜spawning｜active｜clear`; `seconds` sent **once** per phase and counted down client-side | `NPCService:26` | `HUD:904` |
+| `SocialState` | S→C | `{ friends, cap, bonus, multiplier, names }` | `SocialService:170-181` | `HUD:905` |
 | `SessionState` | S→C | `{ enabled = { rebirth }, daily, playtime, boost, offline, capUpgrade, capHours, rebirth }` | `SessionService.stateFor` (`:548`) | `SessionUI:604` |
 | `UpgradeState` | S→C | `{ levels, costs, locked, equipped, cooldown, cooldownTotal }` — declared payload is `{ levels, costs }`; the rest is additive | `UpgradeService.push` (`:208`) | `UpgradeUI:437` |
 | `HitFeedback` | S→C | `{ damage, crit, killed, position }` | `CombatService:26` | `CombatClient:143` |
 | `SwingFx` | S→C | `{ character, combo, duration }` | `CombatService:28` | `CombatClient:162` |
 | `Knockback` | S→C | `Vector3` impulse, applied by the owning client | `CombatService:27`, `UpgradeService:62` | `CombatClient:179` |
 | `PlotAssigned` | S→C | `plotIndex` | `PlotService:19` | **nothing** |
-| `RequestRebirth` | C→S | *(none)* | `HUD:503` | `PlotService:168` |
-| `RequestReset` | C→S | *(none)* — leave plot | `HUD:305` | `PlotService:172` |
-| `RequestInvite` | C→S | *(none)* — exists for the server-side cooldown; the prompt itself is a client call | `HUD:415` | `SocialService:55` |
+| `RequestRebirth` | C→S | *(none)* | `HUD:555` | `PlotService:168` |
+| `RequestReset` | C→S | *(none)* — leave plot | `HUD:357` | `PlotService:172` |
+| `RequestInvite` | C→S | *(none)* — exists for the server-side cooldown; the prompt itself is a client call | `HUD:467` | `SocialService:55` |
 | `RequestClaim` | C→S | `{ kind = "offline"｜"daily"｜"playtime"｜"capUpgrade", index? }` | `SessionUI:260,378,390,406` | `SessionService:914-923` |
 | `RequestBoost` | C→S | *(none)* | `SessionUI:398` | `SessionService:54` |
 | `RequestUpgrade` | C→S | upgrade id (`""` = refresh) | `UpgradeUI:150,477` | `UpgradeService:60` |
@@ -576,7 +576,7 @@ a Vault Timer upgrade, a grant arriving.
 | retune the curve | `Config.Economy` (`:635`), `Config.Rebirth` (`:674`), the `price` fields | `verify_config.lua`'s progression simulation + the spine-price assertions |
 | move the belt | `Config.Layout` (`:143`) — `BeltStart`/`BeltCorner`/`BeltEnd`/`CollectorAt`/`BeltY`/`BeltWidth`/`BeltSpeed`, or `Config.BeltPaths` (`:1594`) for a non-ground path | `verify_config.lua`: legs stay on the plot, slot distances fit the legs, drops-in-flight against the belt capacity model |
 | move a machine or a button | `Layout.DropperDist` / `UpgraderDist` / `MiscButtons` / `MachineOffset` / `ButtonOffset` (`:143-178`), or `Config.trackButtonPosition` (`:2741`) | `verify_config.lua`: slot collisions, slots overflowing the distance tables |
-| add a UI panel | a new `src/client/*.lua`, built into `HUD.root()` or `HUD.overlay()`, using `UiKit`; sizes named in `Config.UI` (`:530`); started from `Main.client.lua` | `verify.py` passes 3, 6, 7: no font/outline/distance outside `Style.lua`, no ≥300×200 literal card in `src/client`, no second `ScreenGui` |
+| add a UI panel | a new `src/client/*.lua`, built into `HUD.root()` or `HUD.overlay()`, using `UiKit`; sizes named in `Config.UI` (`:651`); started from `Main.client.lua` | `verify.py` passes 3, 6, 7: no font/outline/distance outside `Style.lua`, no ≥300×200 literal card in `src/client`, no second `ScreenGui` |
 | add a save field | `DEFAULT` in `DataService.lua`, and the explicit payload table in `save()` | `reconcile()` iterates the fresh DEFAULT's keys — a field missing from DEFAULT is invisible to it and will never load |
 | add a wave behaviour | `Config.Waves` (`:1331`) for numbers; `NPCService.lua` for the state machine | `verify_config.lua`'s wave/boss assertions; `boss_spec.lua` — but `NPCService` itself does **not** execute headless (§7) |
 | add a remote | `Net.NAMES` (`Net.lua:28`) — declare it, do not create it on demand | a client resolving an undeclared remote sits in `WaitForChild` for 30s |

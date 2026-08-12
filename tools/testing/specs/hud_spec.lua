@@ -1,0 +1,408 @@
+--[[
+	hud_spec.lua — the client boots, and the card names the purchase the plot's
+	beacon points at.
+
+	WHY THIS FAMILY EXISTS. Until this round no client module had ever executed
+	outside Roblox: SERVER_MODULES listed eight server modules and all of
+	src/shared, and src/client was simply absent. That is half of why the headline
+	defect of the round shipped — SessionUI.lua read `Config.UI` at module scope
+	with its `local Config = Req("Config")` deleted, Req re-raises a failed
+	require, and Main.client.lua requires SessionUI BEFORE it calls HUD.start(),
+	so the entire HUD was dead at boot for two rounds with a green CI. The
+	analysis pass now names the Roblox globals instead of waving through the
+	"Unknown global" class, which closes that one. A LINT CATCHES AN UNDECLARED
+	IDENTIFIER; IT DOES NOT CATCH A MODULE THAT RAISES FOR ANY OTHER REASON. The
+	first spec below is that half, and it is deliberately the dullest thing in
+	this file.
+
+	MAIN.CLIENT.LUA ITSELF IS NOT IN THE BUNDLE. It is an entry script rather than
+	a module (see CLIENT_MODULES in tools/test.py), so the boot ORDER it owns is
+	imitated here rather than executed: the fourth spec drives HUD.start,
+	CombatClient.start, UpgradeUI.start and SessionUI.start in exactly the order
+	that file does, because three of the four read HUD.root() and give up if it is
+	nil. If someone reorders that file, this spec does not notice — that gap is
+	real and it belongs to review.
+
+	WHAT IS ASSERTED IS BEHAVIOUR, NOT LAYOUT. Every size and position in the HUD
+	comes from Config.UI and is asserted against its neighbours by
+	tools/verify_config.lua, which can see the whole column at once; this file
+	cannot see a rectangle at all (the mock stores a UDim2 and never resolves it —
+	see tools/testing/mock/gui.lua, claim 1). So nothing here names a panel's
+	size, a Y or a colour. The balance is found by the NUMBER it prints and then
+	tracked through a second packet; the next purchase is found by the NAME it
+	prints. Both survive the card being redrawn, which is what happened to both of
+	those panels in this very round.
+
+	THE LAST SPEC IS THE POINT OF THE FILE. HUD.lua says of its cheapestAvailable
+	that keeping two hand-maintained copies of Tycoon:pointAt's tie-break
+	identical "is not a plan, it is a hope", and nothing has ever checked that they
+	agree. Tycoon is already in the harness, so both are reachable in one realm:
+	the spec walks the entire build, buying whatever the card names, and asserts at
+	every one of the 43 steps that refreshButtons hands pointAt the same button.
+
+	WHAT THIS FAMILY DOES NOT COVER, because the mock deliberately stops short:
+	no tween advances, so HUD.toast, the rebirth modal and the welcome-back modal
+	are unreached; the viewport never changes after boot, so rotation and resize
+	are unreached; ChildAdded never fires, so CombatClient's bat watching is
+	unreached. All of it is named, with what it costs, in mock/gui.lua's header.
+
+	EVERY SPEC HERE HAS BEEN MADE TO FAIL — two specs in this project were once
+	found that could not, and a green spec is read as evidence. In a scratch copy:
+	the smoke was watched failing with `local Config` deleted from UiKit.lua (the
+	shipped defect's shape, on a different file) and with a require of a module the
+	bundle has no factory for; the layer specs with buildLayer returning the same
+	frame twice, with the UIScale never parented, and with the 1/scale sizing
+	dropped; the balance spec with cashLabel written from `state.cash` instead of
+	the lerped `displayedCash` (which passes the first packet and fails the
+	second) and with the RenderStepped connection removed; the ranking spec with
+	Config.TrackRank inverted in the HUD's realm, with cheapestAvailable's
+	tie-break flipped to `>`, and with its trackUnlocked gate dropped — the last
+	of which fails at step 13, which is where the mezzanine opens the cabinets.
+]]
+
+return function(T)
+
+T.family("hud", "the client boots headless, and the card names what the beacon points at")
+
+-- ── reading the screen ──────────────────────────────────────────────────────
+
+local function descend(instance, out)
+	for _, child in ipairs(instance:GetChildren()) do
+		table.insert(out, child)
+		descend(child, out)
+	end
+	return out
+end
+
+--- Every ScreenGui under the LocalPlayer's PlayerGui.
+---
+--- The one-ScreenGui rule is linted statically (tools/verify.py pass 8) by
+--- looking for `Instance.new("ScreenGui")` outside HUD.lua. This is the runtime
+--- half: a count of what actually got built and parented, which also covers a
+--- second one made through a helper the lint cannot see.
+local function screenGuis(world): number
+	local n = 0
+	for _, instance in ipairs(descend(world.playerGui(), {})) do
+		if instance.ClassName == "ScreenGui" then
+			n += 1
+		end
+	end
+	return n
+end
+
+--- The one TextLabel printing `text`, or nil with the count in the message.
+---
+--- TextLabels only: the rebirth button prints an abbreviated number too, and a
+--- balance found on a TextButton would be the wrong widget passing this spec.
+local function labelSaying(root, text: string)
+	local found = {}
+	for _, instance in ipairs(descend(root, {})) do
+		if instance.ClassName == "TextLabel" and instance.Text == text then
+			table.insert(found, instance)
+		end
+	end
+	if #found == 1 then
+		return found[1]
+	end
+	return nil, #found
+end
+
+--- Which button def the card is naming, read out of whatever label holds it.
+---
+--- cheapestAvailable is a local in HUD.lua and there is deliberately no accessor
+--- for it, so the readout IS the observable — which means this also proves the
+--- card is wired to the ranking rather than to something else.
+---
+--- LONGEST MATCH WINS, and that is not a nicety: "Tung Dropper" is a substring of
+--- "Tung Tung Dropper", so a plain search finds two candidates for one label and
+--- the shorter one is always the wrong answer. The true name always matches, and
+--- anything else that matches is a substring of it, hence shorter.
+local function cardNames(root, Config)
+	local texts = {}
+	for _, instance in ipairs(descend(root, {})) do
+		if instance.ClassName == "TextLabel" and type(instance.Text) == "string" then
+			table.insert(texts, instance.Text)
+		end
+	end
+	local best
+	for _, def in ipairs(Config.Buttons) do
+		for _, text in ipairs(texts) do
+			if string.find(text, def.name, 1, true) then
+				if not best or #def.name > #best.name then
+					best = def
+				end
+				break
+			end
+		end
+	end
+	return best
+end
+
+-- ── driving the wire ────────────────────────────────────────────────────────
+
+local function remoteNamed(world, name: string)
+	local folder = world.replicatedStorage:FindFirstChild("TungNet")
+	return folder and folder:FindFirstChild(name)
+end
+
+--- Push a payload down a remote the way the server would.
+---
+--- Through OnClientEvent rather than by calling HUD.applyStats directly, for the
+--- same reason the server specs fire OnServerEvent: the connection itself is part
+--- of what is under test, and a handler that was never connected is exactly the
+--- failure this family exists for.
+local function toClient(world, name: string, payload)
+	remoteNamed(world, name).OnClientEvent:Fire(payload)
+end
+
+--- Fails with the error text rather than with a count.
+---
+--- Roblox swallows an error raised inside a connected handler, and so does the
+--- Signal mock. Without this, a Stats handler that raised would read as a label
+--- that simply did not change.
+local function quiet(t, world, what: string)
+	local errors = world.handlerErrors()
+	t:eq(#errors, 0, errors[1] and ("%s: %s"):format(what, tostring(errors[1])) or what)
+end
+
+--- A world with a LocalPlayer, which has to exist BEFORE the first client module
+--- loads: HUD and CombatClient both read Players.LocalPlayer at module scope.
+local function clientWorld(opts)
+	local world = T.world(opts)
+	world.client()
+	return world
+end
+
+-- ── boot ────────────────────────────────────────────────────────────────────
+
+T.spec("every module in src/client loads", function(t)
+	local world = clientWorld()
+	local seen = 0
+	for _, name in ipairs(T.clients.modules) do
+		seen += 1
+		local module = world.req(name)
+		t:eq(type(module), "table",
+			("Req(%q) returned no module table — it raised, or it returns nothing"):format(name))
+	end
+	-- The list is generated from CLIENT_MODULES by tools/test.py, so an empty or
+	-- truncated one would make every assertion above vacuous.
+	t:gte(seen, 5, "the generated client module list is empty or truncated")
+end)
+
+-- ── the two layers ──────────────────────────────────────────────────────────
+
+T.spec("HUD.start builds ONE ScreenGui, with a Root and an Overlay that both scale", function(t)
+	local world = clientWorld()
+	local HUD = world.req("HUD")
+	local gui = HUD.start()
+
+	t:eq(gui.ClassName, "ScreenGui", "HUD.start did not return the ScreenGui")
+	t:eq(screenGuis(world), 1, "HUD.start built more than one ScreenGui")
+	t:eq(HUD.root(), gui:FindFirstChild("Root"), "root() is not the Root layer of that gui")
+	t:eq(HUD.overlay(), gui:FindFirstChild("Overlay"), "overlay() is not the Overlay layer of that gui")
+	t:ne(HUD.root(), HUD.overlay(), "root() and overlay() are the same frame")
+
+	-- A layer with no UIScale is a layer outside mobile scaling, which is the
+	-- entire reason there is only one ScreenGui to begin with.
+	t:notNil(HUD.root():FindFirstChildOfClass("UIScale"), "the Root layer carries no UIScale")
+	t:notNil(HUD.overlay():FindFirstChildOfClass("UIScale"), "the Overlay layer carries no UIScale")
+	-- Padded clear of the notch, and the shade layer deliberately is not.
+	t:notNil(HUD.root():FindFirstChildOfClass("UIPadding"), "the Root layer carries no safe-area padding")
+end)
+
+T.spec("on a landscape phone both layers take the same scale, and 1/scale for their size", function(t)
+	local world = clientWorld()
+	-- Set before start(): the harness cannot fire a ViewportSize change (mock/
+	-- gui.lua, claim 3), so this is the one applyViewport() call boot makes.
+	world.camera.ViewportSize = Vector2.new(896, 414)
+
+	local UiKit = world.req("UiKit")
+	local HUD = world.req("HUD")
+	HUD.start()
+
+	local scale = UiKit.scaleFor(world.camera.ViewportSize)
+	t:gt(scale, 0, "scaleFor returned no scale for a phone viewport")
+	t:lte(scale, 1, "a phone was scaled UP")
+
+	for _, layer in ipairs({ HUD.root(), HUD.overlay() }) do
+		local uiScale = layer:FindFirstChildOfClass("UIScale")
+		t:near(uiScale.Scale, scale, 1e-9, "a layer's UIScale is not the viewport's scale")
+		-- 1/scale is what cancels the UIScale for scale-based children, so a
+		-- fromScale(1, 1) shade still covers the whole screen.
+		t:near(layer.Size.X.Scale, 1 / scale, 1e-9, "a layer is not 1/scale wide")
+		t:near(layer.Size.Y.Scale, 1 / scale, 1e-9, "a layer is not 1/scale tall")
+	end
+end)
+
+T.spec("with no arena in the workspace the raid sign is skipped, not fatal", function(t)
+	local world = clientWorld()
+	local HUD = world.req("HUD")
+	HUD.start()
+	t:warned("RaidAnchor", "the raid sign was built with nothing to hang it on, or failed silently")
+	-- Every read of the banner is nil-guarded, so a wave packet arriving without
+	-- one is a no-op rather than an error a player would see.
+	HUD.applyWave({ phase = "warning", wave = 3, seconds = 5, boss = false })
+	HUD.renderWave()
+	quiet(t, world, "a wave packet with no banner raised")
+end)
+
+-- ── the panels that build into those layers ─────────────────────────────────
+
+T.spec("CombatClient, UpgradeUI and SessionUI all start after HUD, in boot order", function(t)
+	local world = clientWorld()
+	-- The prototype flags ship false, and UpgradeUI.start() returns immediately
+	-- with them off — so with the shipped values this spec would prove only that
+	-- an early return does not raise. world.lua's FLAGS note is why flipping them
+	-- here works: the module reads them at load, so they go on first.
+	world.config.Prototypes.PlayerUpgrades = true
+	world.config.Prototypes.Utilities = true
+
+	local HUD = world.req("HUD")
+	local CombatClient = world.req("CombatClient")
+	local UpgradeUI = world.req("UpgradeUI")
+	local SessionUI = world.req("SessionUI")
+
+	-- Main.client.lua's order, which is the contract these three depend on: each
+	-- of them reads HUD.root() and gives up if it is nil.
+	HUD.start()
+	CombatClient.start()
+	UpgradeUI.start()
+	SessionUI.start()
+
+	local root = HUD.root()
+	t:notNil(root:FindFirstChild("Hitmarker"), "CombatClient built no hitmarker into the HUD's root layer")
+	t:notNil(root:FindFirstChild("UpgradeShop"), "UpgradeUI built no shop into the HUD's root layer")
+	t:notNil(root:FindFirstChild("Session"), "SessionUI built no session panel into the HUD's root layer")
+	t:notNil(world.renderBindings["TungCameraShake"], "CombatClient bound no camera shake")
+
+	-- The whole reason the three of them are here rather than in ScreenGuis of
+	-- their own.
+	t:eq(screenGuis(world), 1, "a panel built its own ScreenGui")
+	quiet(t, world, "a panel raised while starting")
+end)
+
+-- ── the balance ─────────────────────────────────────────────────────────────
+
+T.spec("an injected Stats payload reaches the balance, and the balance follows it", function(t)
+	local world = clientWorld()
+	local Util = world.req("Util")
+	local HUD = world.req("HUD")
+	HUD.start()
+
+	local function stats(cash: number)
+		toClient(world, "Stats", {
+			cash = cash, rebirths = 0, kills = 0, multiplier = 1,
+			owned = {}, rebirthCost = 5000,
+		})
+		quiet(t, world, "the Stats handler raised")
+		-- One long frame: the counter lerps by min(dt * 9, 1), so a whole second
+		-- lands it exactly on the packet rather than 90% of the way there.
+		world.render(1)
+	end
+
+	stats(12345)
+	local shown, count = labelSaying(HUD.root(), Util.abbreviate(12345))
+	t:notNil(shown, ("no single label prints the balance the packet carried (%d matched)"):format(count or 0))
+
+	-- FOLLOWS, not just prints once: the same label object, a second packet. A
+	-- balance written from state.cash instead of the lerped value passes the first
+	-- assertion and fails this one.
+	stats(720)
+	t:eq(shown and shown.Text, Util.abbreviate(720), "the balance label did not follow payload.cash")
+end)
+
+-- ── the ranking, against the plot's own ──────────────────────────────────────
+
+--- A plot with the state refreshButtons touches and nothing else.
+---
+--- Everything that would need a BasePart, a Highlight or a CFrame is stubbed on
+--- the INSTANCE, which shadows the class method without changing it — the same
+--- shape generator_spec.lua uses, and for the same reason. `pointAt` is the one
+--- stub that records rather than doing nothing: it is where the ranking LANDS, so
+--- the entry it is handed is the plot's answer.
+---
+--- THE STUB LIST IS A DEPENDENCY. If refreshButtons grows a call to something
+--- else that touches a part, this spec fails with `attempt to index nil` and the
+--- fix is a line here, not in the game.
+local function fakePlot(world)
+	local Tycoon = world.req("Tycoon")
+	local Config = world.config
+	local plot = setmetatable({}, { __index = Tycoon })
+	local pointed = {}
+
+	plot.owner = world.join("Ranker")     -- no profile, so Economy.get is 0; cash is not part of the ranking
+	plot.owned = {}
+	plot.objects = {}
+	plot.buttonsFolder = { Name = "Buttons" }
+	for _, def in ipairs(Config.Buttons) do
+		plot.objects[def.id] = {
+			def = def, holder = {}, pad = {}, light = {}, stroke = {},
+			stepLabel = {}, titleLabel = {}, effectLabel = {}, priceLabel = {},
+		}
+	end
+
+	plot.setButtonVoice = function() end
+	plot.buildGhost = function() return nil end
+	plot.effectLine = function() return "" end
+	plot.ensureCabinets = function() end
+	plot.updateCabinetSigns = function() end
+	plot.ensureYard = function() end
+	plot.refreshGenerator = function() end
+	plot.pointAt = function(_self, entry)
+		pointed.entry = entry
+	end
+
+	return plot, pointed
+end
+
+T.spec("the card names the button the plot's beacon points at, at every step of the build", function(t)
+	local world = clientWorld()
+	local Config = world.config
+	local HUD = world.req("HUD")
+	HUD.start()
+	local plot, pointed = fakePlot(world)
+
+	-- The precondition of reading the card by name: two defs sharing a name would
+	-- make the readout ambiguous and this whole spec meaningless.
+	local names = {}
+	for _, def in ipairs(Config.Buttons) do
+		t:isNil(names[def.name], ("two buttons are both called %q"):format(def.name))
+		names[def.name] = def.id
+	end
+
+	local owned = {}
+	local steps = 0
+	while steps <= #Config.Buttons do
+		-- Cash is deliberately enormous: affordability changes the card's COLOURS
+		-- and never its ranking, and neither implementation ranks on price except
+		-- as a tie-break within one track.
+		toClient(world, "Stats", {
+			cash = 1e12, rebirths = 0, kills = 0, multiplier = 1,
+			owned = owned, rebirthCost = 5000,
+		})
+		quiet(t, world, "the Stats handler raised")
+		local card = cardNames(HUD.root(), Config)
+
+		plot.owned = owned
+		pointed.entry = nil
+		plot:refreshButtons()
+		local beacon = pointed.entry and pointed.entry.def or nil
+
+		if card == nil and beacon == nil then
+			break      -- everything built, and both agree there is nothing left
+		end
+		t:eq(card and card.id, beacon and beacon.id,
+			("at step %d the card and the beacon name different buttons"):format(steps + 1))
+		if card == nil or beacon == nil then
+			break      -- they already disagree; walking further only repeats it
+		end
+		owned[card.id] = true
+		steps += 1
+	end
+
+	-- A loop that asserts inside itself passes for free when it never runs. This
+	-- is what it actually visited, and it has to be the whole build.
+	t:eq(steps, #Config.Buttons, "the walk did not buy every button in Config.Buttons")
+end)
+
+end

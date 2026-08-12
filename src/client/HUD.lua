@@ -32,6 +32,11 @@ local player = Players.LocalPlayer
 local HUD = {}
 
 local UI = Config.UI
+-- Spelled from `Config` rather than from `UI` so verify.py's config-path pass
+-- resolves it: it treats `local X = Config.a.b` as an alias and checks every
+-- `X.key` against Config, and a `local CARD = UI.StatusCard` would be a name it
+-- has no way to follow. Every number on the status card is read through here.
+local CARD = Config.UI.StatusCard
 local PALETTE = UiKit.PALETTE
 
 local KIND_COLOR = {
@@ -65,7 +70,11 @@ local state = {
 
 local gui, root, overlay, rootScale, overlayScale, rootPadding
 local cashLabel, multLabel, friendLabel, inviteButton
-local waveFrame, waveLabel, toastList, nextLabel, nextDetail, rebirthButton
+local waveFrame, waveLabel, toastList, rebirthButton
+-- the next-purchase half of the status card: name, bar fill, "N to go". The bar's
+-- TRACK is not kept — it is drawn once and never written to again, and a module
+-- local nothing reads is a local that outlives the reason it was added.
+local nextLabel, nextFill, nextDetail
 local bossTrack, bossFill
 
 -- The panel vocabulary, aliased so every call site below reads exactly as it
@@ -76,32 +85,47 @@ local corner, stroke, panel, text, button =
 
 -- ─────────────────────────────────────────────────────────────────────────────
 
---- THE FRIEND BONUS GOES IN THE CASH PANEL, ON THE LINE UNDER THE MULTIPLIER.
+--- ONE CARD, TWO THINGS TO READ: what you have, and what you are saving for.
 ---
---- It is a TERM in that multiplier, not a separate feature, and a fourth panel
---- would say the opposite. `multLabel` already prints the product; this prints
---- the part of it another human being is responsible for, right underneath, so
---- the two are read together.
+--- It replaces two outlined panels with a gap between them. They were never read
+--- apart — the only question anyone asks this HUD is "can I afford the next
+--- thing yet", and answering it out of two cards made the player do the
+--- subtraction across a gutter. Merging them is the whole of "simple is better":
+--- one surface, five lines, a rule and a bar, in the order you read them.
 ---
---- The ZERO state is the important one — "+0%  •  no friends here yet" with an
---- INVITE button beside it. That is the moment the number is legible and the
---- ask is obvious, which is exactly what GROWTH-TODO item 4 asks for: an invite
---- button at the moment they see that number, because at that point bringing
---- someone has a price tag attached.
+--- THE BALANCE IS THE LARGEST THING ON IT and the top-left of it, because it is
+--- the number the game is about. Under it, in one line, everything that
+--- multiplies it: the multiplier itself, rebirths, KOs.
 ---
---- The panel's height lives in Config.UI.CashPanel.Height, which every panel
---- below it derives its Y from — so growing it for this row moved NEXT UPGRADE
---- and the session panel down on its own, and the column-fits assertion re-ran
---- against the new number without anyone editing a second literal.
-local function buildCashPanel(parent: Instance)
+--- THE FRIEND BONUS IS A TERM IN THAT MULTIPLIER, not a separate feature, which
+--- is why it is the line directly under it rather than a panel of its own.
+--- `multLabel` prints the product; this prints the part of it another human being
+--- is responsible for. The ZERO state is the important one — "+0% • no friends
+--- here yet" with an INVITE pill beside it: the moment the number is legible is
+--- the moment the ask has a price tag on it.
+---
+--- THE BAR IS THE NEW PART, and it is a bar AND a line of text on purpose. A bar
+--- alone cannot say what you are saving for or how much is left; the text alone
+--- (which is what shipped) makes you compare two abbreviated numbers to find out
+--- whether you are close. Both, driven off the same lerped balance, answer it at
+--- a glance and to the Tung.
+---
+--- EVERY NUMBER BELOW COMES FROM Config.UI.StatusCard. Not one Y is typed here:
+--- they are accumulated from the row heights in Config's derivation block, so a
+--- row that grows moves the rows under it, the card's ContentHeight, the session
+--- panel's Y and the column's bottom — and the verifier re-runs the fit against
+--- all four. When a row was last added here, the two panels below it moved on
+--- their own because those Ys were derived; the rows INSIDE the panel were eight
+--- literals that had to be found by eye. This is the same fix one level down.
+local function buildStatusCard(parent: Instance)
 	local frame = panel(parent,
-		UDim2.fromOffset(UI.CashPanel.Width, UI.CashPanel.Height),
-		UDim2.fromOffset(UI.Margin, UI.CashPanel.Y))
-	frame.Name = "Cash"
+		UDim2.fromOffset(CARD.Width, CARD.Height),
+		UDim2.fromOffset(UI.Margin, CARD.Y))
+	frame.Name = "Status"
 
 	local icon = Instance.new("TextLabel")
-	icon.Size = UDim2.fromOffset(56, 56)
-	icon.Position = UDim2.fromOffset(14, 20)
+	icon.Size = UDim2.fromOffset(CARD.IconSize, CARD.IconSize)
+	icon.Position = UDim2.fromOffset(CARD.Pad, CARD.IconY)
 	icon.BackgroundColor3 = PALETTE.gold
 	icon.BackgroundTransparency = 0.15
 	icon.Font = Style.Font.title
@@ -109,79 +133,108 @@ local function buildCashPanel(parent: Instance)
 	icon.TextColor3 = Color3.fromRGB(40, 28, 10)
 	icon.TextScaled = true
 	icon.Parent = frame
-	corner(icon, 28)
+	corner(icon, math.floor(CARD.IconSize / 2))
 
 	cashLabel = text(frame, {
-		Size = UDim2.fromOffset(190, 42),
-		Position = UDim2.fromOffset(80, 16),
+		Size = UDim2.fromOffset(CARD.TextWidth, CARD.BalanceHeight),
+		Position = UDim2.fromOffset(CARD.TextX, CARD.BalanceY),
 		Font = Style.Font.title,
 		Text = "0",
-		TextSize = 34,
+		TextSize = CARD.BalanceTextPx,
 		TextColor3 = PALETTE.gold,
 	})
 
 	multLabel = text(frame, {
-		Size = UDim2.fromOffset(190, 26),
-		Position = UDim2.fromOffset(80, 56),
+		Size = UDim2.fromOffset(CARD.TextWidth, CARD.MultHeight),
+		Position = UDim2.fromOffset(CARD.TextX, CARD.MultY),
 		Font = Style.Font.body,
 		Text = "x1.00  •  0 rebirths",
-		TextSize = 15,
+		TextSize = CARD.MultTextPx,
 		TextColor3 = PALETTE.muted,
 	})
 
 	friendLabel = text(frame, {
-		Size = UDim2.fromOffset(180, 22),
-		Position = UDim2.fromOffset(14, 92),
+		Size = UDim2.fromOffset(CARD.FriendTextWidth, CARD.FriendTextHeight),
+		Position = UDim2.fromOffset(CARD.Pad, CARD.FriendTextY),
 		Font = Style.Font.body,
 		Text = "+0%  •  no friends here yet",
-		TextSize = 14,
+		TextSize = CARD.FriendTextPx,
 		TextColor3 = PALETTE.muted,
 	})
 
+	-- A PILL, from the button ladder, like every other thing in this game a thumb
+	-- has to hit. It was a 72x26 button built from literals — 16 physical pixels
+	-- tall at MinScale, on the one control whose entire job is to be pressed by a
+	-- child. UI.Button.pill is the floor the verifier already asserts.
 	inviteButton = button(frame, "INVITE", PALETTE.good, {
-		Size = UDim2.fromOffset(72, 26),
-		Position = UDim2.fromOffset(194, 90),
-		TextSize = 14,
+		Size = UDim2.fromOffset(CARD.InviteWidth, UI.Button.pill),
+		Position = UDim2.fromOffset(CARD.InviteX, CARD.InviteY),
 		Visible = false,
 	})
 	inviteButton.Activated:Connect(HUD.promptInvite)
 
-	return frame
-end
-
-local function buildNextPanel(parent: Instance)
-	local frame = panel(parent,
-		UDim2.fromOffset(UI.NextPanel.Width, UI.NextPanel.Height),
-		UDim2.fromOffset(UI.Margin, UI.NextPanel.Y))
-	frame.Name = "NextUp"
+	-- A rule, not a second card. It says "two things to read" without spending a
+	-- gutter, an outline and a shadow to say it.
+	local divider = Instance.new("Frame")
+	divider.Name = "Rule"
+	divider.Size = UDim2.fromOffset(CARD.ContentWidth, CARD.DividerHeight)
+	divider.Position = UDim2.fromOffset(CARD.Pad, CARD.DividerY)
+	divider.BackgroundColor3 = PALETTE.accent
+	divider.BackgroundTransparency = 0.75
+	divider.BorderSizePixel = 0
+	divider.Parent = frame
 
 	text(frame, {
-		Size = UDim2.fromOffset(250, 18),
-		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.fromOffset(CARD.ContentWidth, CARD.HeadingHeight),
+		Position = UDim2.fromOffset(CARD.Pad, CARD.HeadingY),
 		Font = Style.Font.body,
 		Text = "NEXT UPGRADE",
-		TextSize = 12,
+		TextSize = CARD.HeadingTextPx,
 		TextColor3 = PALETTE.muted,
 	})
 
 	nextLabel = text(frame, {
-		Size = UDim2.fromOffset(252, 26),
-		Position = UDim2.fromOffset(14, 24),
+		Size = UDim2.fromOffset(CARD.ContentWidth, CARD.NameHeight),
+		Position = UDim2.fromOffset(CARD.Pad, CARD.NameY),
 		Font = Style.Font.title,
 		Text = "Tung Dropper — 50",
-		TextSize = 18,
+		TextSize = CARD.NameTextPx,
 		TextColor3 = PALETTE.text,
+		TextTruncate = Enum.TextTruncate.AtEnd,
 	})
 
-	-- The gap to the next purchase, and how far through the build you are. A
-	-- price on its own doesn't tell you whether to keep grinding or go and
-	-- fight a wave for the bounty.
+	-- THE FILL RIDES THE LERPED BALANCE, not the packet — see renderNext. The
+	-- track is drawn once and never written to again; only the fill's width and
+	-- colour change, so there is nothing here for a frame to get half-way
+	-- through.
+	local barTrack = Instance.new("Frame")
+	barTrack.Name = "Progress"
+	barTrack.Size = UDim2.fromOffset(CARD.ContentWidth, CARD.BarHeight)
+	barTrack.Position = UDim2.fromOffset(CARD.Pad, CARD.BarY)
+	barTrack.BackgroundColor3 = PALETTE.panel2
+	barTrack.BackgroundTransparency = 0.25
+	barTrack.BorderSizePixel = 0
+	barTrack.Parent = frame
+	corner(barTrack, math.floor(CARD.BarHeight / 2))
+
+	nextFill = Instance.new("Frame")
+	nextFill.Name = "Fill"
+	nextFill.Size = UDim2.fromScale(0, 1)
+	nextFill.BackgroundColor3 = PALETTE.gold
+	nextFill.BorderSizePixel = 0
+	nextFill.Parent = barTrack
+	corner(nextFill, math.floor(CARD.BarHeight / 2))
+
+	-- The gap to the next purchase, and how far through the build you are. The
+	-- bar says how close; this says what "close" is worth and which rung of which
+	-- track you are on. A price on its own does not tell you whether to keep
+	-- grinding or go and fight a wave for the bounty.
 	nextDetail = text(frame, {
-		Size = UDim2.fromOffset(252, 18),
-		Position = UDim2.fromOffset(14, 48),
+		Size = UDim2.fromOffset(CARD.ContentWidth, CARD.DetailHeight),
+		Position = UDim2.fromOffset(CARD.Pad, CARD.DetailY),
 		Font = Style.Font.body,
 		Text = "",
-		TextSize = 13,
+		TextSize = CARD.DetailTextPx,
 		TextColor3 = PALETTE.muted,
 	})
 
@@ -509,9 +562,11 @@ function HUD.showRebirthModal(cost: number)
 	end)
 end
 
--- The ranking Tycoon:pointAt uses. It HAS to be the same, or the panel names
--- one purchase while the beacon out on the plot glows on a different one — and
--- keeping two hand-maintained copies identical is not a plan, it is a hope. So
+-- The ranking Tycoon:pointAt uses. It HAS to be the same, or the card names one
+-- purchase — and now fills a bar towards its price — while the beacon out on the
+-- plot glows on a different one. A bar makes that disagreement worse, not better:
+-- it is a promise about which price you are counting towards. And keeping two
+-- hand-maintained copies of a ranking identical is not a plan, it is a hope. So
 -- there is one: Config.TrackRank, derived from TrackOrder. Factory first, then
 -- cheapest within the track, because a cabinet's first rung is cheap and
 -- cheapest-overall would point at a bat for most of the early game.
@@ -543,6 +598,58 @@ local displayedCash = 0
 -- Lerped towards wave.bossHp by the same connection, for the same reason.
 local displayedBossHp = 0
 
+--- What the last Stats packet said the next purchase is: the def cheapestAvailable
+--- picked, plus the step count within its own track. `nil` once everything is
+--- built, and `nil` before the first packet arrives — which is why `hasStats`
+--- exists rather than being inferred from this being nil, because "nothing left to
+--- buy" and "nobody has told us anything yet" draw completely different cards.
+local nextUp: { name: string, price: number, label: string, step: number, of: number }? = nil
+local hasStats = false
+
+--- Redrawn every frame from the SAME RenderStepped connection as the balance, and
+--- off the SAME `displayedCash`.
+---
+--- That is the point of it being here rather than in applyStats. The balance
+--- counts up over about a fifth of a second after every drop; a bar and a "N to
+--- go" computed from `state.cash` would already be at the destination while the
+--- number above them was still climbing, so the card would contradict itself on
+--- every purchase — and the one moment it is being read most closely is the moment
+--- the money lands. One value drives the number, the fill and the remainder, so
+--- there is nothing for them to disagree about.
+local function renderNext()
+	if not nextLabel or not hasStats then
+		return
+	end
+	if not nextUp then
+		nextLabel.Text = "Everything built. Rebirth?"
+		nextLabel.TextColor3 = PALETTE.accent
+		-- A full bar, in the rebirth colour: there is no next rung, and an empty
+		-- track under "everything built" reads as no progress at all.
+		nextFill.Size = UDim2.fromScale(1, 1)
+		nextFill.BackgroundColor3 = PALETTE.accent
+		nextDetail.Text = ("all %d steps built"):format(#Config.Buttons)
+		nextDetail.TextColor3 = PALETTE.muted
+		return
+	end
+
+	-- Guarded rather than trusted: a price of zero would make this inf, and
+	-- UDim2.fromScale of a nan is a bar of undefined width rather than an error.
+	local fraction = nextUp.price > 0
+		and math.clamp(displayedCash / nextUp.price, 0, 1)
+		or 1
+	local affordable = fraction >= 1
+
+	nextFill.Size = UDim2.fromScale(fraction, 1)
+	nextFill.BackgroundColor3 = affordable and PALETTE.good or PALETTE.gold
+	nextLabel.Text = ("%s — %s"):format(nextUp.name, Util.abbreviate(nextUp.price))
+	nextLabel.TextColor3 = affordable and PALETTE.good or PALETTE.text
+	nextDetail.Text = affordable
+		and ("%s %d/%d  •  affordable now"):format(nextUp.label, nextUp.step, nextUp.of)
+		or ("%s %d/%d  •  %s to go"):format(nextUp.label, nextUp.step, nextUp.of,
+			Util.abbreviate(nextUp.price - displayedCash))
+	nextDetail.TextColor3 = affordable and PALETTE.good or PALETTE.muted
+end
+
 function HUD.applyStats(payload)
 	state.cash = payload.cash or 0
 	state.rebirths = payload.rebirths or 0
@@ -550,6 +657,7 @@ function HUD.applyStats(payload)
 	state.multiplier = payload.multiplier or 1
 	state.owned = payload.owned or {}
 	state.rebirthCost = payload.rebirthCost or state.rebirthCost
+	hasStats = true
 
 	multLabel.Text = ("x%.2f  •  %d rebirth%s  •  %d KO%s"):format(
 		state.multiplier, state.rebirths, state.rebirths == 1 and "" or "s",
@@ -567,22 +675,19 @@ function HUD.applyStats(payload)
 				owned += 1
 			end
 		end
-		local label = Config.TrackLabel[next_.track] or "STEP"
-
-		local affordable = state.cash >= next_.price
-		nextLabel.Text = ("%s — %s"):format(next_.name, Util.abbreviate(next_.price))
-		nextLabel.TextColor3 = affordable and PALETTE.good or PALETTE.text
-		nextDetail.Text = affordable
-			and ("%s %d/%d  •  affordable now"):format(label, owned + 1, #track)
-			or ("%s %d/%d  •  %s to go"):format(label, owned + 1, #track,
-				Util.abbreviate(next_.price - state.cash))
-		nextDetail.TextColor3 = affordable and PALETTE.good or PALETTE.muted
+		nextUp = {
+			name = next_.name,
+			price = next_.price,
+			label = Config.TrackLabel[next_.track] or "STEP",
+			step = owned + 1,
+			of = #track,
+		}
 	else
-		nextLabel.Text = "Everything built. Rebirth?"
-		nextLabel.TextColor3 = PALETTE.accent
-		nextDetail.Text = ("all %d steps built"):format(#Config.Buttons)
-		nextDetail.TextColor3 = PALETTE.muted
+		nextUp = nil
 	end
+	-- Drawn once here as well as every frame, so a card that arrives on a paused
+	-- or throttled RenderStepped is not blank while it waits for one.
+	renderNext()
 
 	rebirthButton.Text = ("REBIRTH  %s"):format(Util.abbreviate(state.rebirthCost))
 	rebirthButton.BackgroundColor3 = state.cash >= state.rebirthCost and PALETTE.accent or PALETTE.dead
@@ -784,8 +889,7 @@ function HUD.start()
 	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(watchCamera)
 	watchCamera()
 
-	buildCashPanel(root)
-	buildNextPanel(root)
+	buildStatusCard(root)
 	-- no layer: this one hangs in the world, not on the screen
 	buildWaveBanner()
 	buildToasts(root)
@@ -824,6 +928,9 @@ function HUD.start()
 			displayedCash += (state.cash - displayedCash) * math.min(dt * 9, 1)
 		end
 		cashLabel.Text = Util.abbreviate(displayedCash)
+		-- ...and so does the progress bar, off the same value the label just
+		-- printed. See renderNext for why they cannot be allowed to diverge.
+		renderNext()
 
 		-- The boss bar rides the SAME connection and the same easing. The server
 		-- coalesces raid packets at 2 Hz, so a bar driven straight off them

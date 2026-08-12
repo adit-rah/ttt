@@ -681,6 +681,28 @@ defects in the same file.
   the panel next to it — which is how the upgrade shop came to sit on top of the NEXT UPGRADE
   panel with one of the two numbers in `HUD.lua` and the other in `UpgradeUI.lua`. `[lint]`
   `verify.py` "ui geometry", plus `[assert]` the shop/column overlap at the reference height.
+- **The status card's rows are named heights and every Y is accumulated from them**, in
+  `Config.lua`'s derivation block — including the session panel's `Y` and `ColumnBottom` below
+  it. `HUD.lua` types no Y and no text size at all. `[assert]` the card's `Height` against the
+  `ContentHeight` its rows add up to (the two are independent numbers on purpose: a `Height`
+  derived from the sum would fit by construction and catch nothing), its `Width` against
+  `ColumnWidth`, and the column against `ReferenceHeight` with margins.
+- **Every text size on the card clears `MinTextPx`, and the balance is strictly the largest of
+  them.** The NEXT UPGRADE heading shipped at 12 design px — 7.4 physical px at `MinScale`,
+  under both floors `Config.UI` declares — because it was a literal in a builder and nothing
+  could read it. The balance being biggest is the card's whole thesis: it is the number the game
+  is about. `[assert]` six sizes against the floor, five against the balance.
+- **The progress bar is a gauge, not a control**, and is bounded from both sides: at least 3
+  physical px at `MinScale` so the fill is readable, and under `MinTouchPx` so it does not read
+  as something that answers a press. `[assert]`
+- **Every touch target on the card comes from the `UI.Button` ladder, and its row is at least as
+  tall as the button in it.** INVITE shipped as a 72×26 literal — 16 physical px at `MinScale`,
+  under half the floor this file declares, on the one control whose job is to be pressed by a
+  child. `[assert]` the friend row against `Button.pill`.
+- **The bar, the balance and the "N to go" all read `displayedCash`**, the lerped value, not
+  `state.cash`. The counter takes ~0.2s to arrive after a payout; anything on the card computed
+  from the packet is at the destination while the number above it is still climbing, so the card
+  contradicts itself at the one moment it is being read closely. `[nothing]`
 - **A `UIScale` transforms its whole subtree**, so a shade at `fromScale(1,1)` inside a 0.62
   layer dims 62% of the screen and leaves a bright border. Both layers are sized
   `fromScale(1/scale)` to cancel exactly that. `[nothing]`
@@ -874,6 +896,12 @@ times in `verify.py`):
 - The roof rebuild when the floor lands.
 - The multiplier hook being an O(1) read on `Economy.add`.
 - `Util.abbreviate`'s trailing-zero rule — three lines, and it shipped wrong once.
+- **The status card's progress bar following `displayedCash` rather than `state.cash`.** The
+  fill, the balance and the "N to go" are three reads of one lerped number in `renderNext`, and
+  nothing stops the next edit reaching for `state.cash` in any of them — at which point the card
+  disagrees with itself for a fifth of a second after every payout, which is a bug you can only
+  see in motion. Needs `src/client` inside the harness: `HUD.lua` is outside `SERVER_MODULES`
+  and wants a `ScreenGui`, a `UIScale` and a `RenderStepped` before it will load at all.
 
 **Blocked until `NPCService` can be specced** (needs `Touched` and a physics step; widening
 `SERVER_MODULES` is its own PR):

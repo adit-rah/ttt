@@ -5,13 +5,22 @@
 	Economy.setupLeaderstats (a Folder holding an IntValue), and the character
 	rig SessionService's activity sampler reads. Deliberately NOT enough for
 	BaseParts, CFrames or physics — see SERVER_MODULES in tools/test.py for why
-	that line is drawn where it is.
+	that line is drawn where it is. The screen is not here either: Vector2, Rect,
+	a Camera and a LocalPlayer live in mock/gui.lua, which says why.
 
 	The RemoteEvent matters more than it looks. Because it records what was
 	fired and can be fired AT, a spec can push a RequestClaim through the real
 	OnServerEvent handler rather than calling the private claimDaily directly —
 	so the flood guard, the payload validation and the state re-push are all
 	part of what is under test, which is the whole point.
+
+	BOTH HALVES OF THAT REMOTE ARE HERE NOW. `OnClientEvent` and `FireServer`
+	are the client's ends of the same object, and the client specs need them for
+	the same reason: a Stats payload pushed down OnClientEvent goes through the
+	real HUD.applyStats, and a button press is only observable as something
+	arriving in `__sent`. The two directions keep SEPARATE logs — `__fired` for
+	server -> client, `__sent` for client -> server — because one shared list
+	would make Case:fired count a client's own presses as server broadcasts.
 ]]
 
 local Signal = {}
@@ -167,14 +176,24 @@ function Instance.new(className: string, parent)
 
 	if className == "RemoteEvent" then
 		local fired = {}
+		local sent = {}
 		inst._props.__fired = fired
+		inst._props.__sent = sent
 		inst._props.OnServerEvent = Signal.new()
+		inst._props.OnClientEvent = Signal.new()
 		inst._props.FireClient = function(_self, player, ...)
 			table.insert(fired, { player = player, args = table.pack(...) })
 		end
 		inst._props.FireAllClients = function(_self, ...)
 			table.insert(fired, { player = "all", args = table.pack(...) })
 		end
+		inst._props.FireServer = function(_self, ...)
+			table.insert(sent, { args = table.pack(...) })
+		end
+	elseif className == "TextButton" or className == "ImageButton" then
+		-- Activated, not MouseButton1Click: every button in src/client connects
+		-- Activated, which is the one that also fires for a tap and a gamepad A.
+		inst._props.Activated = Signal.new()
 	elseif className == "IntValue" or className == "NumberValue" then
 		inst._props.Value = 0
 	elseif className == "StringValue" or className == "ObjectValue" then

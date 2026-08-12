@@ -712,16 +712,68 @@ __MODULES["Config"] = function()
 			pill = 44,
 		},
 
-		-- THE TOP-LEFT COLUMN. Cash, then the next-purchase hint, then the session
-		-- panel, all one width, stacked from the top margin down. The Y of each is
-		-- derived below rather than written, because the bug this table exists to
-		-- catch was two files disagreeing about where this column ends.
+		-- THE TOP-LEFT COLUMN. The status card, then the session panel, both one
+		-- width, stacked from the top margin down. The Y of each is derived below
+		-- rather than written, because the bug this table exists to catch was two
+		-- files disagreeing about where this column ends.
 		ColumnWidth = 280,
-		-- 126 rather than 96: the friend-bonus row and its INVITE button sit under
-		-- the multiplier they are a term in. Every panel below derives its Y from
-		-- this, so this is the only number that changes.
-		CashPanel    = { Width = 280, Height = 126 },
-		NextPanel    = { Width = 280, Height = 74 },
+
+		-- ONE STATUS CARD, WHERE THERE WERE TWO PANELS. It replaces CashPanel
+		-- (280x126) and NextPanel (280x74), which were always read together and
+		-- always in that order: what you have, then what you are saving for. Two
+		-- outlined cards with a gap between them said they were two subjects.
+		--
+		-- THE ROW HEIGHTS ARE THE INPUT AND THE Y OF EACH ROW IS DERIVED from them,
+		-- in the block below, along with the ContentHeight they add up to. Height is
+		-- the one number here that is chosen rather than derived, so that the
+		-- verifier has two independent numbers to assert against each other — a
+		-- Height computed from the sum would fit by construction and catch nothing,
+		-- which is how an assertion that cannot fail gets written. Growing a row is
+		-- still a one-number edit everywhere else: the session panel's Y and the
+		-- column's bottom follow Height, and Height is refused if it stops fitting.
+		--
+		-- The *TextPx numbers are here rather than in HUD.lua for the same reason
+		-- every other number in this table is: the verifier asserts each of them
+		-- against MinTextPx, and it can only assert what it can read.
+		StatusCard = {
+			Width  = 280,
+			Height = 238,
+
+			Pad     = 14,   -- the gutter inside the card, all four sides
+			RowGap  = 6,    -- between two lines of the same group
+			GroupGap = 14,  -- between the balance group and the next-purchase group
+
+			-- the balance group: the coin, the number, and what multiplies it
+			IconSize = 56,
+			IconGap  = 10,
+			BalanceHeight = 46, BalanceTextPx = 38,
+			MultHeight    = 24, MultTextPx    = 15,
+			-- The friend row is as tall as the INVITE pill inside it, because the
+			-- pill is the tallest thing in it. It shipped at 26, which is 16 physical
+			-- pixels at MinScale — a thumb target under half the floor this file
+			-- already declares. The pill's own height still comes from UI.Button.
+			FriendRowHeight  = 44,
+			FriendTextHeight = 22, FriendTextPx = 14,
+			InviteWidth = 72,
+
+			-- a rule between the two groups: one card, two things to read
+			DividerHeight = 2,
+
+			-- the next-purchase group: what it is, how close you are, and by how much
+			--
+			-- 13 rather than the 12 the NEXT UPGRADE heading shipped at. That 12 was
+			-- 7.4 physical pixels at MinScale, under both floors this file declares —
+			-- MinTextPx, and the 8-px absolute the verifier holds MinTextPx to. It
+			-- was a literal in HUD.lua, so nothing could read it to say so.
+			HeadingHeight = 16, HeadingTextPx = 13,
+			NameHeight    = 26, NameTextPx    = 18,
+			-- THE BAR IS A GAUGE, NOT A CONTROL. It has to be visible at MinScale and
+			-- it must not read as something to press, so it is asserted from both
+			-- sides: at least 3 physical pixels tall, and under MinTouchPx.
+			BarHeight = 10,
+			DetailHeight = 18, DetailTextPx = 13,
+		},
+
 		-- Height is the ordinary panel; TallHeight adds the pending-offline row.
 		--
 		-- There used to be a third, CompactHeight = 88: the panel a build with
@@ -766,12 +818,52 @@ __MODULES["Config"] = function()
 		local ui = Config.UI
 
 		-- the left column, top to bottom
-		ui.CashPanel.Y = ui.Margin
-		ui.NextPanel.Y = ui.CashPanel.Y + ui.CashPanel.Height + ui.Gap
-		ui.SessionPanel.Y = ui.NextPanel.Y + ui.NextPanel.Height + ui.Gap
+		ui.StatusCard.Y = ui.Margin
+		ui.SessionPanel.Y = ui.StatusCard.Y + ui.StatusCard.Height + ui.Gap
 		-- measured at the session panel's TALLEST, because "it fits unless you have
 		-- offline earnings waiting" is not a layout that fits
 		ui.ColumnBottom = ui.SessionPanel.Y + ui.SessionPanel.TallHeight
+
+		-- THE STATUS CARD, ROW BY ROW. Every Y below is an accumulation of the row
+		-- heights above it, so a row that grows pushes everything under it down and
+		-- the card's ContentHeight grows with it. HUD.lua reads these; it types none
+		-- of them, which is the property that stopped being true the moment anyone
+		-- wrote `Position = UDim2.fromOffset(14, 48)` in a builder.
+		--
+		-- WRITTEN THE LONG WAY ON PURPOSE. `sc` is a read shorthand; every assignment
+		-- is spelled `ui.StatusCard.X`, because verify.py's config-path pass declares
+		-- a key by matching `<alias>.a.b =` where the alias is `local x = Config.…`.
+		-- It cannot follow a second hop, so `sc.BarY = …` would declare nothing and
+		-- HUD.lua's read of it would be reported as a key Config does not have.
+		local sc = ui.StatusCard
+		ui.StatusCard.ContentWidth = sc.Width - sc.Pad * 2
+		-- the balance group
+		ui.StatusCard.TextX = sc.Pad + sc.IconSize + sc.IconGap
+		ui.StatusCard.TextWidth = sc.Width - sc.TextX - sc.Pad
+		ui.StatusCard.BalanceY = sc.Pad
+		ui.StatusCard.MultY = sc.BalanceY + sc.BalanceHeight
+		-- the coin is centred on the two lines it belongs to, not on either one
+		ui.StatusCard.IconY = sc.BalanceY
+			+ math.floor((sc.BalanceHeight + sc.MultHeight - sc.IconSize) / 2)
+		ui.StatusCard.FriendRowY = sc.MultY + sc.MultHeight + sc.RowGap
+		ui.StatusCard.FriendTextY = sc.FriendRowY
+			+ math.floor((sc.FriendRowHeight - sc.FriendTextHeight) / 2)
+		ui.StatusCard.InviteX = sc.Width - sc.Pad - sc.InviteWidth
+		ui.StatusCard.InviteY = sc.FriendRowY
+			+ math.floor((sc.FriendRowHeight - ui.Button.pill) / 2)
+		ui.StatusCard.FriendTextWidth = sc.InviteX - sc.Pad - ui.Gap
+		-- the rule, centred in the gap between the two groups
+		ui.StatusCard.DividerY = sc.FriendRowY + sc.FriendRowHeight
+			+ math.floor((sc.GroupGap - sc.DividerHeight) / 2)
+		-- the next-purchase group
+		ui.StatusCard.HeadingY = sc.FriendRowY + sc.FriendRowHeight + sc.GroupGap
+		ui.StatusCard.NameY = sc.HeadingY + sc.HeadingHeight
+		ui.StatusCard.BarY = sc.NameY + sc.NameHeight
+		ui.StatusCard.DetailY = sc.BarY + sc.BarHeight + sc.RowGap
+		-- What the rows actually need. Height is chosen, not derived, so that
+		-- verify_config can assert the two against each other; a Height derived from
+		-- this sum would fit by construction and catch nothing.
+		ui.StatusCard.ContentHeight = sc.DetailY + sc.DetailHeight + sc.Pad
 
 		-- the shop's own column, starting one gap clear of the left one
 		ui.ShopPanel.X = ui.Margin + ui.ColumnWidth + ui.Gap
