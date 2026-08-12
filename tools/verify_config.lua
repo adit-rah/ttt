@@ -1180,32 +1180,66 @@ for _, floor in ipairs(Config.Floors) do
 	local deck, deckAt = floor.deckSize, floor.deckAt
 	local deckHalfX, deckHalfZ = deck.X / 2, deck.Z / 2
 
-	-- THE GROUND-END TELEPORT PAD IS FLOOR FURNITURE. It stands on the plot
-	-- floor exactly like a buy-button pedestal, and it was the one piece of it
-	-- nothing checked: at (40, -14) it interpenetrated the armour cabinet's
-	-- slot-2 pedestal by three studs by one. Latent only because the flag was
-	-- off, and invisible because the pads were never in this list.
+	-- THE LADDER IS FLOOR FURNITURE. It stands on the plot floor exactly like a
+	-- buy-button pedestal, and its predecessor was the one piece of floor
+	-- furniture nothing checked: the ground teleport pad at (40, -14)
+	-- interpenetrated the armour cabinet's slot-2 pedestal by three studs by
+	-- one, latent only because the floor was behind a flag and invisible
+	-- because the pads were never in this list.
+	--
+	-- The ladder's footprint is far smaller than the 9x9 pad's, which is most
+	-- of why x = 14 works at all: it clears belt1's pedestal by 2.5 studs and
+	-- the weapons cabinet by 3, and there was no clean 9x9 anywhere on that
+	-- edge. Falsify by moving Floors.ladder.at.X to 10 and watching belt1 fire.
+	local ladder = floor.ladder
+	local ladderBox = Vector3.new(ladder.width, 1, ladder.width)
 	for _, entry in ipairs(miscList) do
-		local gap = boxBoxGap(floor.pads.down, floor.pads.size, entry.spot, PEDESTAL)
-		check(gap >= 3,
-			("%s's ground teleport pad comes within %.1f studs of %s (need 3)")
+		local gap = boxBoxGap(ladder.at, ladderBox, entry.spot, PEDESTAL)
+		check(gap >= 2,
+			("%s's ladder comes within %.1f studs of %s (need 2)")
 				:format(where, gap, entry.id))
 	end
 	for _, pad in ipairs({
 		{ "RebirthPadAt", L.RebirthPadAt, Vector3.new(12, 1, 12) },
 		{ "ClaimPadAt", L.ClaimPadAt, Vector3.new(14, 1, 14) },
 	}) do
-		local gap = boxBoxGap(floor.pads.down, floor.pads.size, pad[2], pad[3])
-		check(gap >= 3,
-			("%s's ground teleport pad comes within %.1f studs of %s (need 3)")
+		local gap = boxBoxGap(ladder.at, ladderBox, pad[2], pad[3])
+		check(gap >= 2,
+			("%s's ladder comes within %.1f studs of %s (need 2)")
 				:format(where, gap, pad[1]))
 	end
+	for _, track in pairs(L.Tracks) do
+		local cabinetGap = boxBoxGap(ladder.at, ladderBox,
+			Vector3.new(track.cabinetX, 0, track.firstZ + (track.slots - 1) * track.spacing / 2),
+			Vector3.new(track.depth, 1, (track.slots - 1) * track.spacing + 8))
+		check(cabinetGap >= 2,
+			("%s's ladder comes within %.1f studs of a side-track cabinet (need 2)")
+				:format(where, cabinetGap))
+	end
 
-	-- The deck-end pad has to be ON the deck, and off its own belt.
-	check(math.abs(floor.pads.up.X - deckAt.X) + floor.pads.size.X / 2 <= deckHalfX
-		and math.abs(floor.pads.up.Z - deckAt.Z) + floor.pads.size.Z / 2 <= deckHalfZ,
-		("%s's upper teleport pad at (%.0f, %.0f) hangs off the deck")
-			:format(where, floor.pads.up.X, floor.pads.up.Z))
+	-- IN FRONT OF THE DECK, NOT UNDER IT. Coming up through the slab needs a
+	-- hatch in the deck and a hole in the guard; standing clear of the front
+	-- edge needs neither. A ladder that ends up inside the deck's footprint is
+	-- a climb into the underside of a floor.
+	check(ladder.at.Z > deckAt.Z + deckHalfZ,
+		("%s's ladder is at z=%.1f, inside the deck's footprint (front edge is z=%.1f) — it would climb into the underside of the floor")
+			:format(where, ladder.at.Z, deckAt.Z + deckHalfZ))
+	check(ladder.at.Z - ladder.width / 2 <= deckAt.Z + deckHalfZ + 2,
+		("%s's ladder is %.1f studs clear of the deck edge; you cannot step off it onto the floor it serves")
+			:format(where, ladder.at.Z - ladder.width / 2 - (deckAt.Z + deckHalfZ)))
+
+	-- ...AND THE GUARD HAS TO BE OPEN WHERE IT ARRIVES. buildDeck cuts the
+	-- front run in two around ladder.at.X; if the gap were not over the ladder
+	-- you would climb twenty-two studs into an invisible wall, which is the
+	-- worst kind of geometry bug because there is nothing to see.
+	check(math.abs(ladder.at.X - deckAt.X) + ladder.gate / 2 <= deckHalfX,
+		("%s's railing gap runs past the end of the deck's front edge"):format(where))
+	check(ladder.gate >= ladder.width + 2,
+		("%s's railing gap is %.1f studs for a %.1f-stud ladder; you would arrive against the jamb")
+			:format(where, ladder.gate, ladder.width))
+	check(ladder.rise > 0,
+		("%s's ladder stops level with the deck; it has to overshoot to step off")
+			:format(where))
 
 	-- THE DECK'S BELT STAYS ON THE DECK — legs, the machine row outboard of
 	-- each leg, and the buy-button row inboard of it. This is the check that
@@ -1224,12 +1258,15 @@ for _, floor in ipairs(Config.Floors) do
 					math.abs(point.Z - deckAt.Z) + reach - deckHalfZ))
 	end
 
-	-- The hopper has to clear the pad it stands next to, or the two occupy the
-	-- same square and one of them wins at random.
-	local hopperGap = len(sub(path.collectorAt, floor.pads.up))
-	check(hopperGap >= floor.belt.padClearance,
-		("%s's collector is %.1f studs from its teleport pad (need %d)")
-			:format(where, hopperGap, floor.belt.padClearance))
+	-- The hopper has to clear where you arrive, or you land on top of the
+	-- collector. Measured against the LANDING — the point on the deck the
+	-- ladder delivers you to — rather than against the ladder itself, which is
+	-- outboard of the deck and would always be far away by construction.
+	local landing = Vector3.new(ladder.at.X, 0, deckAt.Z + deckHalfZ)
+	local hopperGap = len(sub(path.collectorAt, landing))
+	check(hopperGap >= floor.belt.ladderClearance,
+		("%s's collector is %.1f studs from where the ladder lands you (need %d)")
+			:format(where, hopperGap, floor.belt.ladderClearance))
 
 	-- THE DECK AGAINST THE PLOT IT SITS IN. Its back edge is flush to the wall
 	-- and it clears the roof columns by less than a stud; both sides are now
