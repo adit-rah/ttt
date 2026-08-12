@@ -772,12 +772,14 @@ __MODULES["Config"] = function()
 		-- or three waves legally coexisted and the banner attributed leftovers from
 		-- one to another. Waves now run one at a time, and the gap is measured from
 		-- YOUR clear rather than from a wall clock.
-		FirstWaveDelay = 60,
-		-- Quiet time between a wave clearing and the next warning going up. The
-		-- real wave-to-wave gap is RestTime + WarningTime + the spawn drip, so
-		-- roughly 32 seconds plus however long the fight takes — against the old
-		-- fixed ~225.
-		RestTime = 20,
+		FirstWaveDelay = 30,
+		-- Quiet time between a wave clearing and the next warning going up.
+		--
+		-- 18 + WarningTime 12 = THIRTY SECONDS from your clear to the next raid
+		-- landing, which is the number this is set against. The verifier already
+		-- defines dead air as RestTime + WarningTime, so the two agree on what is
+		-- being measured. It was 20, for 32.
+		RestTime = 18,
 		-- A boss wave is the one you actually need to bank and heal after.
 		RestTimeAfterBoss = 35,
 		-- DO NOT SHORTEN WarningTime TO CLOSE THE GAP. It is load-bearing:
@@ -801,9 +803,30 @@ __MODULES["Config"] = function()
 		BroadcastInterval = 0.5,    -- coalesce the per-death counter updates
 		EmptyResetAfter = 180,      -- empty this long and the wave counter resets
 
-		BaseCount = 4,
-		CountPerWave = 2,
-		MaxCount = 26,
+		-- WAVE SIZE. Bigger, and it climbs faster: the first raid is six rather
+		-- than four, and it grows by four a wave to a ceiling of forty.
+		--
+		-- THIS DOES NOT UNDO THE ANTI-SWARM WORK, and it is worth knowing that
+		-- before the two changes look like they are fighting each other. MaxChasers
+		-- is still 8, so no matter how many are alive only eight can engage any one
+		-- player. A bigger wave is therefore more REINFORCEMENTS — bodies milling
+		-- at their home patches and stepping in as slots free — not more people
+		-- hitting you at once. The verifier asserts the two stay far enough apart
+		-- for that to remain the shape of it.
+		BaseCount = 6,
+		CountPerWave = 4,
+		MaxCount = 40,
+		-- Parts in one raider, counted rather than guessed: 26 in the visible Tung
+		-- (invisible core, 2 legs + 2 feet, 8-part bat body, face plate, 2 arms +
+		-- 2 hands, and another 8-part bat in its hand) plus the 7-part invisible R6
+		-- rig underneath it. Recount in TungModels.build/buildBatBody/buildNPC if
+		-- you change the silhouette.
+		--
+		-- The verifier cannot see TungModels, so this is the only way the part
+		-- budget is checkable at all — and a wave cap is exactly the number someone
+		-- raises without thinking about what it costs on a full server.
+		PartsPerRaider = 33,
+		MaxRaiderParts = 1600,
 		BaseHealth = 90,
 		HealthGrowth = 1.20,        -- wave 20 raider ~2.9k HP: ~13s for one player
 		BaseDamage = 9,
