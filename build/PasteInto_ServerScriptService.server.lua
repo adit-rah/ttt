@@ -497,77 +497,6 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- THE BAT SILHOUETTE
-	--
-	-- Every Sahur in this game IS a bat — the character's body, the little one in
-	-- its hand, the weapon, the statues. So this one profile decides how the whole
-	-- game looks, which is why it lives here where it can be asserted rather than
-	-- being five literals inside a model function.
-	--
-	-- The old shape was a constant 0.44 handle for 31% of the length, then a single
-	-- 0.55-tall step to 0.80, then a constant 1.34 barrel for 43%. Measured against
-	-- a real bat that is one defect and it is not the diameters: 1.34 over 0.44 is
-	-- a ratio of 3.05 against a real bat's 2.8, which is close. It is the SWEEP.
-	-- A real bat holds the handle nearly constant for the first third, tapers
-	-- CONTINUOUSLY through the middle third, and only then runs out to a
-	-- near-constant barrel. The old model spent 11% of its length on that middle
-	-- third and crossed it in one step, which is exactly what reads as a stick with
-	-- a lump on the end.
-	--
-	-- Stations are (position along the bat from the knob base, 0..1; diameter in
-	-- studs at scale 1) and are linearly interpolated between. Segments are the
-	-- stacked cylinders that sample it — more is smoother and costs parts, and
-	-- every raider carries two of these.
-	-- ─────────────────────────────────────────────────────────────────────────────
-
-	Config.BatShape = {
-		Length = 4.80,
-		Segments = 10,
-		-- Fewer segments for bats that are small on screen: the mini-bat in an
-		-- NPC's hand is 0.34 scale and a late wave has 26 of them, each with a
-		-- body bat as well.
-		MiniSegments = 5,
-		MiniScaleBelow = 0.5,   -- ...applied to any bat built below this scale
-		Stations = {
-			{ at = 0.00, dia = 0.66 },  -- knob flare
-			{ at = 0.05, dia = 0.42 },  -- knob shoulder, into the grip
-			{ at = 0.32, dia = 0.46 },  -- end of the handle: 32% of the length
-			{ at = 0.46, dia = 0.62 },  -- \
-			{ at = 0.60, dia = 0.94 },  --  ) the sweep: 32% -> 86%, continuous
-			{ at = 0.72, dia = 1.24 },  -- /
-			{ at = 0.86, dia = 1.34 },  -- barrel at full width
-			{ at = 1.00, dia = 1.16 },  -- rounding into the cap
-		},
-		GrainRings = 2,
-
-		-- Where the knob base sits in MODEL space when the bat IS the character's
-		-- body, in studs at scale 1. buildBatBody centres a bat on its origin, but
-		-- the Sahur's legs hang from -2.15 and its face sits at 1.62 — so the body
-		-- has to be positioned by its base, not its middle, or a change to Length
-		-- silently slides the torso down through the hips.
-		BodyBaseY = -1.66,
-	}
-
-	--- Barrel diameter at `u` along the bat, 0 at the knob base and 1 at the crown,
-	--- in studs at scale 1. Exported because the character's face plate has to sit
-	--- flush against the body and the body is this profile — a hardcoded Z offset
-	--- floats the face off a barrel that is no longer a constant width.
-	function Config.batDiameterAt(u: number): number
-		local stations = Config.BatShape.Stations
-		u = math.clamp(u, 0, 1)
-		for i = 2, #stations do
-			local b = stations[i]
-			if u <= b.at then
-				local a = stations[i - 1]
-				local span = b.at - a.at
-				local t = span > 0 and (u - a.at) / span or 0
-				return a.dia + (b.dia - a.dia) * t
-			end
-		end
-		return stations[#stations].dia
-	end
-
-	-- ─────────────────────────────────────────────────────────────────────────────
 	-- COMBAT
 	-- ─────────────────────────────────────────────────────────────────────────────
 
@@ -2481,74 +2410,48 @@ __MODULES["TungModels"] = function()
 	-- Bat body (no face) — reused by the character, the weapon, and props.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	local SHAPE = Config.BatShape
-
-	--- Where along the bat, as a fraction from the knob base, the local +Y offset
-	--- `y` sits. The bat is centred on its origin, so the base is at -Length/2.
-	local function batFraction(y: number): number
-		return math.clamp(y / SHAPE.Length + 0.5, 0, 1)
-	end
-
-	--- Builds a bat aligned along +Y, centred at `origin`. Returns (barrel, handle).
+	--- Builds a bat aligned along +Y, centred at `origin`. Returns the barrel part.
 	---
-	--- The shape comes from Config.BatShape rather than from literals here, for two
-	--- reasons. It is one silhouette used by the character body, the held mini-bat,
-	--- the weapon Tool and every statue, so it belongs somewhere it can be tuned
-	--- once. And tools/verify_config can only see Config — putting the profile
-	--- there is the only way a geometric fix in this file gets an assertion, which
-	--- is the standing convention.
-	---
-	--- `segments` overrides the sampling density. The default is
-	--- Config.BatShape.Segments; anything built below MiniScaleBelow drops to
-	--- MiniSegments on its own, because a raider carries two of these and a late
-	--- wave has 26 raiders.
-	function TungModels.buildBatBody(parent: Instance, variantName: string, s: number, origin: CFrame, segments: number?): (Part, Part)
+	--- The shape is deliberately five explicit parts rather than a sampled profile.
+	--- A continuously tapered version was built and reverted: it satisfied every
+	--- assertion written for it and still did not look right, which is the whole
+	--- reason the shape lives in code you can see rather than in data you can only
+	--- check.
+	function TungModels.buildBatBody(parent: Instance, variantName: string, s: number, origin: CFrame): (Part, Part)
 		local v = variantOf(variantName)
 		s = s * (v.scale or 1)
 
-		local count = segments
-			or ((s < SHAPE.MiniScaleBelow) and SHAPE.MiniSegments or SHAPE.Segments)
-		local length = SHAPE.Length * s
-		local base = -length / 2
-		local step = length / count
+		cylinder(parent, "Knob", 0.22 * s, 0.62 * s, origin * CFrame.new(0, -1.55 * s, 0), v.accent, v.material)
+		local handle = cylinder(parent, "Handle", 1.50 * s, 0.44 * s, origin * CFrame.new(0, -0.75 * s, 0), v.accent, v.material)
+		cylinder(parent, "Taper", 0.55 * s, 0.80 * s, origin * CFrame.new(0, 0.20 * s, 0), v.wood, v.material)
+		local barrel = cylinder(parent, "Barrel", 2.05 * s, 1.34 * s, origin * CFrame.new(0, 1.45 * s, 0), v.wood, v.material)
+		ball(parent, "Cap", 1.34 * s, origin * CFrame.new(0, 2.45 * s, 0), v.wood, v.material)
 
-		-- One stacked cylinder per segment, each sized from the profile sampled at
-		-- its own midpoint. This is what replaced a constant handle, a single
-		-- 0.55-tall step and a constant barrel: the step WAS the defect.
-		local barrel, handle
-		local widest = 0
-		for i = 1, count do
-			local midY = base + (i - 0.5) * step
-			local u = batFraction(midY / s)
-			local dia = Config.batDiameterAt(u) * s
-			-- The grip is the accent colour, the barrel is the wood, and the
-			-- boundary is the end of the handle station rather than a magic number.
-			local isGrip = u <= SHAPE.Stations[3].at
-			local part = cylinder(parent, ("Seg%d"):format(i), step * 1.02, dia,
-				origin * CFrame.new(0, midY, 0),
-				isGrip and v.accent or v.wood, v.material)
-			if isGrip and not handle then
-				handle = part
-			end
-			if dia > widest then
-				widest, barrel = dia, part
-			end
-		end
-
-		-- Rounded crown. Sized to the profile's last station so it meets the barrel
-		-- flush instead of stepping back out to full width like the old ball did.
-		local crown = Config.batDiameterAt(1) * s
-		ball(parent, "Cap", crown, origin * CFrame.new(0, base + length - crown * 0.35, 0), v.wood, v.material)
-
-		-- wood grain rings, on the barrel where they read
-		for i = 1, SHAPE.GrainRings do
-			local u = 0.74 + (i - 1) * 0.08
-			local ring = cylinder(parent, "Grain" .. i, 0.06 * s, Config.batDiameterAt(u) * s + 0.03 * s,
-				origin * CFrame.new(0, (u - 0.5) * length, 0), v.accent, v.material)
+		-- wood grain rings
+		for i = 1, 3 do
+			local ring = cylinder(parent, "Grain" .. i, 0.06 * s, 1.37 * s,
+				origin * CFrame.new(0, (0.85 + i * 0.42) * s, 0), v.accent, v.material)
 			ring.Transparency = 0.35
 		end
 
-		return barrel or parent :: any, handle or barrel :: any
+		return barrel, handle
+	end
+
+	--- A bat's extents at scale 1, measured off the parts buildBatBody actually
+	--- emits: the knob's underside at -1.55 - 0.22/2, the cap's crown at
+	--- 2.45 + 1.34/2. Anything that has to span or sit against a bat derives from
+	--- these rather than restating a number that will not be updated with them.
+	TungModels.BAT_BASE = -1.66
+	TungModels.BAT_TOP = 3.12
+	TungModels.BAT_LENGTH = TungModels.BAT_TOP - TungModels.BAT_BASE
+
+	--- The barrel's radius at the local +Y offset `y`, in studs at the same scale.
+	--- The barrel is a constant 1.34 across the whole face-plate region, so `y` is
+	--- unused today — it is in the signature because the caller's question is "how
+	--- wide is the body HERE", and the day the barrel stops being constant that is
+	--- the question that still needs answering.
+	function TungModels.batRadiusAt(y: number, s: number): number
+		return 1.34 * s / 2
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -2602,23 +2505,18 @@ __MODULES["TungModels"] = function()
 			c.Parent = foot
 		end
 
-		-- Body. Placed by its BASE rather than its middle: buildBatBody centres a
-		-- bat on the origin it is given, and the legs, arms and face below are all
-		-- positioned against where the body's bottom is.
-		local bodyLift = (SHAPE.BodyBaseY + SHAPE.Length / 2) * s
-		local barrel = TungModels.buildBatBody(model, variantName, o.scale or 1,
-			origin * CFrame.new(0, bodyLift, 0))
+		-- body
+		local barrel = TungModels.buildBatBody(model, variantName, o.scale or 1, origin)
 
-		-- Face plate, sitting just proud of the body. Its Z offset is DERIVED from
-		-- the profile rather than written down: the body used to be a constant 1.34
-		-- barrel so a hardcoded -0.66 happened to be flush, and under a continuous
-		-- taper the same literal floats the face off the front.
+		-- Face plate, set 0.01 studs into the barrel so its 0.08 of depth leaves the
+		-- front surface standing proud. Derived from the barrel's radius rather
+		-- than written as the literal -0.66 it evaluates to: the two agree today
+		-- only because the barrel is 1.34, and the literal would not notice if it
+		-- stopped being.
 		local faceY = 1.62 * s
-		-- How far up the BODY the face sits, measured from the body's own base.
-		local faceU = (faceY / s - SHAPE.BodyBaseY) / SHAPE.Length
-		local faceRadius = Config.batDiameterAt(faceU) * s / 2
+		local faceRadius = TungModels.batRadiusAt(faceY, s)
 		local face = part(model, "FacePlate", Vector3.new(1.16 * s, 1.16 * s, 0.08 * s),
-			origin * CFrame.new(0, faceY, -(faceRadius + 0.02 * s)), v.wood, v.material)
+			origin * CFrame.new(0, faceY, -(faceRadius - 0.01 * s)), v.wood, v.material)
 		face.Transparency = 1
 		TungModels.paintFace(face, v, o.mood)
 
@@ -2878,9 +2776,8 @@ __MODULES["TungModels"] = function()
 	-- Weapon
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	--- How the Tool's visible bat sits relative to its (invisible-ish) Handle box.
-	--- Named because the trail attachments have to span exactly this and used to be
-	--- two unrelated literals.
+	--- How the Tool's visible bat sits relative to its Handle box. Named because
+	--- the trail attachments have to span exactly this.
 	local DECO_SCALE = 0.72
 	local DECO_ORIGIN_Y = 1.9
 
@@ -2927,17 +2824,21 @@ __MODULES["TungModels"] = function()
 			end
 		end
 
-		-- Swing trail, spanning the deco the Tool actually built. These used to be
-		-- hardcoded at 0.8 and 3.4 and did NOT scale with the variant, so on `void`
-		-- (scale 1.3) the bat was 30% longer than the streak it drew.
-		local decoLength = Config.BatShape.Length * DECO_SCALE * (v.scale or 1)
+		-- Swing trail, spanning the deco the Tool actually built.
+		--
+		-- These were hardcoded at 0.8 and 3.4, which was wrong twice: the span did
+		-- not scale with the variant, and a bat is not centred on its origin
+		-- anyway — it runs from -1.66 to +3.12, so the fixed pair clipped the last
+		-- three quarters of a stud off a `classic` and covered barely half of a
+		-- `void`, which carries its own 1.3x on top.
+		local decoScale = DECO_SCALE * (v.scale or 1)
 		local a0 = Instance.new("Attachment")
 		a0.Name = "TrailTop"
-		a0.Position = Vector3.new(0, DECO_ORIGIN_Y - decoLength / 2, 0)
+		a0.Position = Vector3.new(0, DECO_ORIGIN_Y + TungModels.BAT_BASE * decoScale, 0)
 		a0.Parent = handle
 		local a1 = Instance.new("Attachment")
 		a1.Name = "TrailBottom"
-		a1.Position = Vector3.new(0, DECO_ORIGIN_Y + decoLength / 2, 0)
+		a1.Position = Vector3.new(0, DECO_ORIGIN_Y + TungModels.BAT_TOP * decoScale, 0)
 		a1.Parent = handle
 		local trail = Fx.trail(a0, a1, v.light and v.light.color or v.wood)
 		trail.Name = "SwingTrail"
