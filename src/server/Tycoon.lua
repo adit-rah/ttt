@@ -556,6 +556,25 @@ end
 --- the conveyor is built around still holds.
 function Tycoon:refreshBeltSpeed()
 	self.beltSpeed = (L.BeltSpeed + self.beltBonus) * self.powerFactor
+
+	-- THE CHECK THAT WOULD HAVE CAUGHT THE GENERATOR, and it has to live here
+	-- rather than in verify_config.lua: the defect was a field in this file
+	-- that nothing assigned, and the verifier reads Config.lua and nothing
+	-- else. Every config-level assertion about the power ladder passed while
+	-- the belt ran at stock speed for two rounds.
+	--
+	-- Recomputed from `owned` and compared against the two cached inputs, so it
+	-- fires on a powerFactor that was never set (the shipped bug, 37 instead of
+	-- 62.2), on one accumulated across an install replay (78.1), and on a
+	-- beltBonus applied after the multiply instead of before it (56).
+	if RunService:IsStudio() then
+		local want = (L.BeltSpeed + self.beltBonus) * Config.powerFactor(function(id: string): boolean
+			return self.owned[id] == true
+		end)
+		assert(math.abs(self.beltSpeed - want) < 1e-6, ("belt speed is %.2f but this plot's owned set says %.2f")
+			:format(self.beltSpeed, want))
+	end
+
 	for _, drop in ipairs(self.drops:GetChildren()) do
 		local mover = drop:FindFirstChildWhichIsA("LinearVelocity", true)
 		if mover then
@@ -1760,6 +1779,33 @@ Tycoon.INSTALLERS.Belt = function(self, def, silent)
 end
 
 Tycoon.INSTALLERS.Power = function(self, def, silent)
+	-- THE FACTOR HAS TO BE ASSIGNED, and it never was.
+	--
+	-- self.powerFactor was initialised to 1 and reset to 1 by release() and
+	-- rebirth(), and those were the only three writes in the file. This
+	-- installer called refreshBeltSpeed() without setting it, so the two things
+	-- that read the field — refreshBeltSpeed's (BeltSpeed + beltBonus) * factor
+	-- and dropInterval's dropRate / factor — both multiplied by one. The belt
+	-- and every dropper have been running at stock speed since the generator
+	-- shipped in #32.
+	--
+	-- incomePerSecond reads Config.powerFactor(has) directly instead, so it was
+	-- correct the whole time. That asymmetry is why nothing looked wrong: the
+	-- plot quoted the full multiplier on the HUD, on the buy button and through
+	-- SessionService's offline mirror while producing none of it, and the only
+	-- thing 300M Tung actually bought was a bigger number in the corner.
+	--
+	-- DERIVED, NEVER ACCUMULATED. assign() replays a save by installing every
+	-- owned button in `order`, so a *= here would land on
+	-- 1.19 x 1.42 x 1.68 x 2.00 = 5.67 rather than on 2.00. Config.powerFactor
+	-- takes the last owned rung because `factor` is cumulative, which makes
+	-- this idempotent under replay, under a double install, and under a save
+	-- that somehow holds power3 without power2. install() has already set
+	-- self.owned[def.id] before dispatching here, so the rung being bought
+	-- counts itself.
+	self.powerFactor = Config.powerFactor(function(id: string): boolean
+		return self.owned[id] == true
+	end)
 	self:refreshBeltSpeed()
 	-- The machine itself lives in self.machines rather than self.props, which
 	-- is what makes a rebirth take the generators down along with the droppers
