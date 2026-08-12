@@ -193,6 +193,15 @@ function Tycoon.new(index: number, parent: Instance)
 	self.owned = {}
 	self.objects = {}
 	self.generation = 0
+	-- BELT SPEED IS DERIVED, NOT ACCUMULATED. It has two inputs now — the
+	-- additive Belt bonus and the multiplicative generator factor — and `+=` on
+	-- the product is only safe while install() guards on `owned`. It does, but
+	-- assign() replays a save by installing every owned button in `order`
+	-- sequence, so a multiplicative installer written the same way as the Belt
+	-- one would land on 1.19 x 1.42 x 1.68 x 2.00 rather than on 2.00. Keep the
+	-- two inputs and recompute; the hot path still reads the cached product.
+	self.beltBonus = 0
+	self.powerFactor = 1
 	self.beltSpeed = L.BeltSpeed
 	self.dropCount = 0
 
@@ -246,6 +255,9 @@ function Tycoon.new(index: number, parent: Instance)
 	self:buildRebirthPad()
 	self:buildClaimPad()
 	self:ensureCabinets()
+	-- Built once and kept, like a cabinet body. The generators standing on it
+	-- are machines and come and go with a rebirth; the slab does not.
+	self:buildYard()
 
 	-- An unclaimed plot shows a bare pad and a claim marker, nothing else.
 	-- Leaving the vault and belt standing on an empty plot is what makes it
@@ -532,6 +544,39 @@ function Tycoon:addBeltPath(def, outboard: { number }?): number
 	end
 	table.insert(self.paths, resolvePath(def, outboard or def.outboard))
 	return #self.paths
+end
+
+--- Recomputes the plot's belt speed from its two inputs and retargets whatever
+--- is already rolling.
+---
+--- ONE SPEED FOR THE WHOLE PLOT, every floor included: eachBeltSurface walks
+--- every registered path, and the drops read the cached product at spawn and at
+--- each corner. This adds no per-frame work — the retarget below is a one-shot
+--- sweep on purchase, and the "no Heartbeat loop over hundreds of drops" rule
+--- the conveyor is built around still holds.
+function Tycoon:refreshBeltSpeed()
+	self.beltSpeed = (L.BeltSpeed + self.beltBonus) * self.powerFactor
+	for _, drop in ipairs(self.drops:GetChildren()) do
+		local mover = drop:FindFirstChildWhichIsA("LinearVelocity", true)
+		if mover then
+			mover.PlaneVelocity = Vector2.new(self.beltSpeed, 0)
+		end
+	end
+end
+
+--- Seconds between drops for `def` on THIS plot right now.
+---
+--- Read fresh each cycle rather than baked into the loop, so a generator bought
+--- mid-run is picked up on the next drop of every dropper with no loop restart
+--- and no generation bump. NEVER writes def.dropRate: Config.ButtonById tables
+--- are shared by every plot on the server, so mutating one would speed up the
+--- neighbours' factories too.
+function Tycoon:dropInterval(def): number
+	local factor = self.powerFactor
+	if not factor or factor < 1 then
+		factor = 1   -- a zero here would stop every dropper on the plot forever
+	end
+	return math.max(0.2, def.dropRate / factor)
 end
 
 function Tycoon:beltPath(pathIndex: number?)
@@ -881,6 +926,76 @@ function Tycoon:ensureCabinets()
 	end
 end
 
+--- The generator yard: a slab behind the plot, a fence around three sides of
+--- it, and a sign.
+---
+--- Permanent plot furniture in self.props, exactly like a cabinet body. The
+--- GENERATORS that stand on it go into self.machines instead, so a rebirth
+--- takes them down with the droppers they were speeding up and leaves the yard
+--- standing — the same split the cabinets and their shelf displays already use.
+function Tycoon:buildYard()
+	local Y = L.Yard
+	local model = Instance.new("Model")
+	model.Name = "Yard"
+	model.Parent = self.props
+
+	newPart(model, "Slab", Y.Size,
+		self:at(Y.Centre.X, Y.LocalY - Y.Size.Y / 2, Y.Centre.Z),
+		Color3.fromRGB(96, 96, 104), Enum.Material.Concrete)
+
+	-- Fence on three sides. The plot side is left open: it is where you walk in
+	-- from, through the doorway the wall leaves for it.
+	local halfX, halfZ = Y.Size.X / 2, Y.Size.Z / 2
+	local sides = {
+		{ Vector3.new(Y.Size.X, Y.FenceHeight, Y.FenceThickness), Vector3.new(0, 0, -halfZ) },
+		{ Vector3.new(Y.FenceThickness, Y.FenceHeight, Y.Size.Z), Vector3.new(-halfX, 0, 0) },
+		{ Vector3.new(Y.FenceThickness, Y.FenceHeight, Y.Size.Z), Vector3.new(halfX, 0, 0) },
+	}
+	for index, side in ipairs(sides) do
+		newPart(model, "Fence" .. index, side[1],
+			self:at(Y.Centre.X + side[2].X, Y.LocalY + Y.FenceHeight / 2, Y.Centre.Z + side[2].Z),
+			COLORS.frame, Enum.Material.DiamondPlate)
+	end
+
+	local anchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1),
+		self:at(Y.Centre.X, Y.LocalY + Y.FenceHeight + 6, Y.Centre.Z - halfZ),
+		COLORS.frame, nil, false)
+	anchor.Transparency = 1
+	local billboard = Style.billboard(anchor, {
+		name = "Sign", width = 18, height = 4, distance = "prop",
+	})
+	self.cabinetSigns = self.cabinetSigns or {}
+	self.cabinetSigns.power = Style.text(billboard, {
+		name = "Label", color = COLORS.gold, text = "POWER YARD",
+	})
+end
+
+--- One generator, standing in its slot on the yard.
+function Tycoon:buildYardMachine(def)
+	local Y = L.Yard
+	local variant = Config.Variants[def.variant] or Config.Variants.classic
+	local spot = Config.yardMachinePosition(def.slot)
+
+	local model = Instance.new("Model")
+	model.Name = "Generator_" .. def.id
+	model.Parent = self.machines
+
+	local body = newPart(model, "Body", Y.MachineSize,
+		self:at(spot.X, spot.Y + Y.MachineSize.Y / 2, spot.Z), COLORS.metal, Enum.Material.Metal)
+	local core = newPart(model, "Core",
+		Vector3.new(Y.MachineSize.X - 4, Y.MachineSize.Y - 5, Y.MachineSize.Z - 4),
+		self:at(spot.X, spot.Y + Y.MachineSize.Y / 2, spot.Z),
+		variant.light and variant.light.color or variant.wood, Enum.Material.Neon, false)
+	core.Transparency = 0.35
+	Fx.applyVariant(core, variant)
+
+	local entry = self.objects[def.id]
+	if entry then
+		entry.machine = model
+	end
+	return model, body
+end
+
 --- Keeps each cabinet sign honest about how far up its track you are.
 function Tycoon:updateCabinetSigns()
 	if not self.cabinetSigns then
@@ -960,11 +1075,17 @@ function Tycoon:buttonPosition(def): Vector3
 		local legIndex, distance, pathIndex = self:legOf(def)
 		return self:pointOnLeg(legIndex, distance, -L.ButtonOffset, pathIndex)
 	end
-	-- Side tracks stand in their own derived column at their cabinet, so a new
-	-- tier needs no coordinate anywhere. Only the factory's non-belt buttons
-	-- are still hand-placed in Layout.MiscButtons.
-	if def.track and def.track ~= "factory" then
+	-- Dispatched on what KIND of furniture the track has, not on "is it the
+	-- factory". The old test sent everything non-factory to a cabinet column,
+	-- which is the right answer for a display case standing on the plot floor
+	-- and the wrong one for a row of generators on a slab behind it — and
+	-- Layout.Tracks has no `power` entry, so it would have indexed nil and
+	-- taken the whole plot's construction down with it.
+	local furniture = def.track and Config.TrackInfo[def.track].furniture
+	if furniture == "cabinet" then
 		return Config.trackButtonPosition(def.track, def.trackOrder)
+	elseif furniture == "yard" then
+		return Config.yardButtonPosition(def.slot)
 	end
 	return MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
 end
@@ -1201,20 +1322,11 @@ end
 ---   preview     the next few steps: dimmed, inert, with a ghost of the
 ---               machine standing where it will go
 ---   hidden      everything further out, and everything already owned
---- How far past its own frontier each track previews.
----
---- 3 on the factory keeps the shipped plot exactly as it reads today. 2 on the
---- side tracks because they are short: at 3 a five-rung cabinet would preview
---- its entire ladder from the moment the plot is claimed, the "hidden" state
---- would stop existing there, and the case would stop reading as something you
---- are climbing.
-local TRACK_PREVIEW = { factory = 3, weapons = 2, armor = 2 }
-
---- Which track the "buy this next" beacon prefers. The beacon picks the
---- cheapest AVAILABLE button, and a cabinet's first rung is cheap — so without
---- a track preference the marker would hop off the factory and onto a bat the
---- moment the plot was claimed. Rank by (track, price), factory first.
-local TRACK_RANK = { factory = 1, weapons = 2, armor = 3 }
+-- Preview depth and beacon rank both used to be tables here. They are
+-- Config.TrackInfo[track].preview and Config.TrackRank[track] now — the second
+-- of those existed TWICE, once here and once in the HUD, with a comment on the
+-- HUD copy warning that they had to stay identical. Rank is just the TrackOrder
+-- index, so deriving it deletes both copies rather than adding a third.
 
 --- Switches a buy button's label between its two voices.
 ---
@@ -1281,7 +1393,7 @@ function Tycoon:refreshButtons()
 		local standing = self:floorBuiltFor(def) and Config.trackUnlocked(def.track, self.owned)
 		local available = (not owned) and standing and self:requirementsMet(id)
 		local preview = (not owned) and (not available) and standing
-			and (def.trackOrder <= frontier[def.track] + (TRACK_PREVIEW[def.track] or 3))
+			and (def.trackOrder <= frontier[def.track] + Config.TrackInfo[def.track].preview)
 
 		entry.holder.Parent = (available or preview) and self.buttonsFolder or nil
 
@@ -1349,7 +1461,7 @@ function Tycoon:refreshButtons()
 			-- (track, price) lexicographically. Cheapest-overall would park the
 			-- beacon on the first cabinet rung for the whole early game, since
 			-- a bat costs less than the next dropper for most of it.
-			local rank = TRACK_RANK[def.track] or 99
+			local rank = Config.TrackRank[def.track] or 99
 			if rank < targetRank or (rank == targetRank and def.price < targetPrice) then
 				target, targetRank, targetPrice = entry, rank, def.price
 			end
@@ -1549,10 +1661,10 @@ function Tycoon:startDropLoop(def, model: Model, nozzle: BasePart, legIndex: num
 	local generation = self.generation
 	task.spawn(function()
 		-- stagger so ten droppers don't fire on the same frame
-		task.wait(math.random() * def.dropRate)
+		task.wait(math.random() * self:dropInterval(def))
 		while self.generation == generation and model.Parent and (alive == nil or alive()) do
 			self:spawnDrop(def, nozzle, legIndex, pathIndex)
-			task.wait(def.dropRate)
+			task.wait(self:dropInterval(def))
 		end
 	end)
 end
@@ -1639,18 +1751,20 @@ Tycoon.INSTALLERS.Upgrader = function(self, def, silent)
 end
 
 Tycoon.INSTALLERS.Belt = function(self, def, silent)
-	self.beltSpeed += def.speedBonus
+	self.beltBonus += def.speedBonus
+	self:refreshBeltSpeed()
 	-- one speed for the whole plot, every floor included
 	self:eachBeltSurface(function(surface)
 		surface.Color = Color3.fromRGB(92, 70, 40)
 	end)
-	-- retro-apply to drops already rolling
-	for _, drop in ipairs(self.drops:GetChildren()) do
-		local mover = drop:FindFirstChildWhichIsA("LinearVelocity", true)
-		if mover then
-			mover.PlaneVelocity = Vector2.new(self.beltSpeed, 0)
-		end
-	end
+end
+
+Tycoon.INSTALLERS.Power = function(self, def, silent)
+	self:refreshBeltSpeed()
+	-- The machine itself lives in self.machines rather than self.props, which
+	-- is what makes a rebirth take the generators down along with the droppers
+	-- they were speeding up. The yard around them is furniture and stays.
+	self:buildYardMachine(def)
 end
 
 --- A bought tier's display, standing on its own shelf of the track's cabinet.
@@ -1742,8 +1856,19 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 		local gateRight = gateCentre + gateWidth / 2
 		local leftSpan = gateLeft + halfX
 		local rightSpan = halfX - gateRight
+		-- The BACK wall is one piece short of the full width, leaving a doorway
+		-- in the back-right corner onto the generator yard. Cut here rather
+		-- than when the generator is bought, because walls land around minute
+		-- five and the first rung later — a solid back wall would seal the yard
+		-- off permanently for anyone who bought walls first, which is everyone.
+		--
+		-- The corner is not a preference. The back edge of the plot IS the
+		-- dropper row (slots 1..10 run x = -42.5 to 43.5) and the left side is
+		-- the upgrader alley, so it is the only span with nothing behind it.
+		local door = L.Yard.DoorFrom
+		local backSpan = door + halfX
 		local specs = {
-			{ Vector3.new(W.PlotSize.X, h, 2), CFrame.new(0, h / 2, -halfZ) },
+			{ Vector3.new(backSpan, h, 2), CFrame.new((door - halfX) / 2, h / 2, -halfZ) },
 			{ Vector3.new(2, h, W.PlotSize.Z), CFrame.new(halfX, h / 2, 0) },
 			{ Vector3.new(2, h, W.PlotSize.Z), CFrame.new(-halfX, h / 2, 0) },
 			-- front wall in two pieces, leaving the gateway over the aisle
@@ -1930,7 +2055,12 @@ function Tycoon:incomePerSecond(extraId: string?): number
 		end
 	end
 	local rebirthMult = self.owner and Economy.multiplier(self.owner) or 1
-	return total * upgradeMult * rebirthMult
+	-- The generator multiplies production, so it multiplies income. Through
+	-- Config.powerFactor rather than a loop of its own, because the offline
+	-- mirror in SessionService and the verifier's economy sim both need the
+	-- same answer and three hand-maintained copies of an arithmetic rule is
+	-- exactly the bug this round has already fixed once.
+	return total * upgradeMult * Config.powerFactor(has) * rebirthMult
 end
 
 --- What a drop arriving from `pathId` is multiplied by at the vault.
@@ -2059,7 +2189,8 @@ function Tycoon:release()
 	self.owner = nil
 	self.generation += 1
 	self.owned = {}
-	self.beltSpeed = L.BeltSpeed
+	self.beltBonus, self.powerFactor = 0, 1
+	self:refreshBeltSpeed()
 
 	for _, entry in pairs(self.objects) do
 		if entry.machine then
@@ -2126,7 +2257,11 @@ function Tycoon:rebirth(player: Player): boolean
 	local kept = {}
 	for id in pairs(profile.owned) do
 		local def = Config.ButtonById[id]
-		if def and def.track ~= "factory" then
+		-- One table, not two name tests with opposite polarity. The twin of
+		-- this test is a few lines down, and a fourth track missing from one of
+		-- them fails OPEN: the generator would survive the reset it is supposed
+		-- to be part of.
+		if def and Config.TrackInfo[def.track].keepOnRebirth then
 			kept[id] = true
 		end
 	end
@@ -2134,12 +2269,13 @@ function Tycoon:rebirth(player: Player): boolean
 
 	self.generation += 1
 	self.owned = Util.shallowCopy(kept)
-	self.beltSpeed = L.BeltSpeed
+	self.beltBonus, self.powerFactor = 0, 1
+	self:refreshBeltSpeed()
 	for _, entry in pairs(self.objects) do
 		-- Side-track props live in self.props and are not cleared below, so
 		-- their entries must keep their handle or the model outlives its
 		-- reference and can never be cleaned up.
-		if entry.def.track == "factory" then
+		if not Config.TrackInfo[entry.def.track].keepOnRebirth then
 			entry.machine = nil
 		end
 	end

@@ -75,6 +75,9 @@ __MODULES["Config"] = function()
 		GroundTopY     = 0,
 		ArenaFloorTopY = 0.30,
 		PlotSurfaceY   = 0.60,   -- plot-local y = 0 lives here, not on the ground
+		-- The generator yard behind each plot gets its own too. Stepping off the
+		-- pad onto it is a 0.15-stud drop, which is a step rather than a ledge.
+		YardTopY       = 0.45,
 	}
 
 	-- Most plots a single ring may hold before we start a second one. At MaxPlots
@@ -272,6 +275,63 @@ __MODULES["Config"] = function()
 	Config.Layout.RoofColumn = 2.4
 	Config.Layout.RoofColumnInset = 3   -- in from the plot's wall ring
 
+	-- THE GENERATOR YARD — its own slab, BEHIND the plot rather than part of it.
+	--
+	-- Everything on a plot is placed at a fixed plot-local coordinate, so growing
+	-- the plot slides the pad out from under the walls, the belt, the totem, the
+	-- cabinets and the mezzanine's deck all at once. Growing SIDEWAYS is worse
+	-- still: the ring radius is solved from PlotSize.X + PlotGap, so a wider plot
+	-- re-solves where every plot in the game sits. Growing backwards costs nothing
+	-- — behind the back wall there is only the 1800-stud ground slab.
+	--
+	-- Deliberately NOT an entry in Layout.Tracks. That table is the list of things
+	-- standing on the plot FLOOR: the verifier runs its inPlot check over every
+	-- slot of every entry, and ensureCabinets builds a display case for each. A
+	-- yard at z = -89 is outside the plot on purpose, and it is not a cabinet.
+	Config.Layout.Yard = {
+		-- The front face overlaps the pad by a stud so the two slabs interpenetrate
+		-- rather than share a vertical plane, which is the same trick the deck's
+		-- posts use where they meet the deck.
+		Size   = Vector3.new(108, 2, 40),   -- x -50..58, z -109..-69
+		Centre = Vector3.new(4, 0, -89),
+
+		-- THE DOOR, and there is only one place it can go. The back edge of the
+		-- plot IS the dropper row — slots 1..10 occupy x = -42.5 to 43.5 — and the
+		-- left side is the upgrader alley. The back-right corner is the only span
+		-- of wall with nothing behind it, clear of dropper slot 1 by 2.5 studs.
+		--
+		-- Cut at wall-build time rather than when the generator is bought: `walls`
+		-- lands around minute five and the first rung later, and a wall with no
+		-- door in it seals the yard off for good.
+		DoorFrom = 46,
+
+		Slots = 4,
+		FirstX = -32,
+		Spacing = 22,          -- machines at x = -32, -10, 12, 34
+		MachineZ = -101,
+		ButtonZ = -88,         -- their buy buttons, downstream toward the plot
+		MachineSize = Vector3.new(12, 14, 10),
+
+		FenceHeight = 8,
+		FenceThickness = 1,    -- back, left and right; open on the plot side
+	}
+
+	-- plot-local y of the yard's top face. A scalar, worked out after both tables
+	-- exist, because the verifier's Vector3 has no arithmetic.
+	Config.Layout.Yard.LocalY = Config.World.YardTopY - Config.World.PlotSurfaceY
+
+	--- Where generator `slot` stands, and where its buy button does. Component
+	--- arithmetic, like every other derived position in this file.
+	function Config.yardMachinePosition(slot: number): Vector3
+		local y = Config.Layout.Yard
+		return Vector3.new(y.FirstX + (slot - 1) * y.Spacing, y.LocalY, y.MachineZ)
+	end
+
+	function Config.yardButtonPosition(slot: number): Vector3
+		local y = Config.Layout.Yard
+		return Vector3.new(y.FirstX + (slot - 1) * y.Spacing, y.LocalY, y.ButtonZ)
+	end
+
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- WORLD TEXT
 	--
@@ -386,9 +446,12 @@ __MODULES["Config"] = function()
 	}
 
 	Config.Rebirth = {
-		-- ~10 minutes of fully-built income. Full build is ~87 min (see
-		-- tools/verify_config.lua, which prints the modelled curve).
-		BaseCost = 25e9,
+		-- ~10 minutes of fully-built income. This is DERIVED from endgame income
+		-- rather than being a price on the ladder, so it moves when endgame income
+		-- does: the generator doubles it, which halved the first rebirth to 5
+		-- minutes and made the sentence above this line untrue. 50e9 puts it back
+		-- at ~10. The verifier holds it between 4 and 40 either way.
+		BaseCost = 50e9,
 		CostGrowth = 3.0,           -- cost multiplier per rebirth
 		MultiplierPerRebirth = 2.25, -- payout multiplier is this ^ rebirths
 		MaxRebirths = 25,
@@ -801,6 +864,76 @@ __MODULES["Config"] = function()
 			blurb = "Sahur cannot reach you here.",
 		},
 	}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- THE GENERATOR YARD — the fourth track.
+	--
+	-- A slab behind the plot with a row of generators on it. Buying a rung speeds
+	-- up production, and it does so by speeding up the DROPPERS AND THE BELT
+	-- TOGETHER, at the same rate.
+	--
+	-- That pairing is not flavour, it is the only way the feature works at all.
+	-- Income is dropValue/dropRate and does not depend on belt speed; what belt
+	-- speed decides is how CROWDED the belt is. Drops in flight are
+	-- peakRate x length / speed, so scaling rate alone is a straight multiplier on
+	-- how many are on the belt at once — and the plot is already at 88% of
+	-- MaxDropsPerPlot. A x1.4 generator on the droppers alone puts it over the cap,
+	-- at which point spawnDrop starts silently eating the income you just paid for.
+	-- Scaling both leaves the number in flight exactly where it was.
+	--
+	-- It is also the more honest version of the idea. A generator powers the line;
+	-- the line runs faster, belt included.
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.Power = {
+		MaxFactor = 2.00,   -- what the top rung must grant; asserted, not assumed
+		StepMin = 1.10,     -- and each rung's step over the one below sits in this
+		StepMax = 1.30,     -- band, so it is four even rungs rather than one big one
+	}
+
+	-- `factor` is CUMULATIVE — the multiplier owning this rung puts the plot at,
+	-- not the step it adds. A track is a chain, so "the factor you are on" is the
+	-- factor of the highest rung you own, which means the verifier asserts the
+	-- headline x2 against a literal instead of against a product of four floats,
+	-- and a save that somehow holds rung 3 without rung 2 lands on a defined value.
+	Config.PowerButtons = {
+		{
+			id = "power1", name = "Diesel Generator", price = 20000,
+			kind = "Power", slot = 1, factor = 1.19, variant = "golden",
+			blurb = "The whole line runs 19% faster.",
+		},
+		{
+			id = "power2", name = "Twin Turbine", price = 500000,
+			kind = "Power", slot = 2, factor = 1.42, variant = "crimson",
+			blurb = "The whole line runs 42% faster.",
+		},
+		{
+			id = "power3", name = "Sahur Reactor", price = 6000000,
+			kind = "Power", slot = 3, factor = 1.68, variant = "void",
+			blurb = "The whole line runs 68% faster.",
+		},
+		{
+			id = "power4", name = "Tung Fusion Core", price = 300000000,
+			kind = "Power", slot = 4, factor = 2.00, variant = "infinity",
+			blurb = "Double production. Droppers and belt alike.",
+		},
+	}
+
+	--- The production multiplier a plot's `owned` set is running at.
+	---
+	--- Iterated in track order taking the LAST hit rather than multiplied, because
+	--- `factor` is cumulative. Pure arithmetic and no Roblox types, so the server,
+	--- the offline-earnings mirror and the verifier can all call the same one
+	--- rather than keeping three copies of it in agreement.
+	function Config.powerFactor(owns: (string) -> boolean): number
+		local factor = 1
+		for _, def in ipairs(Config.PowerButtons) do
+			if owns(def.id) then
+				factor = def.factor
+			end
+		end
+		return factor
+	end
 
 	Config.Combat = {
 		ComboWindow = 1.6,          -- seconds to chain a swing
@@ -1324,13 +1457,56 @@ __MODULES["Config"] = function()
 	--               display key: it is what the buy-button billboard counts, what
 	--               the three-state reveal measures its frontier against, and
 	--               what the HUD calls a step.
-	Config.TrackOrder = { "factory", "weapons", "armor" }
+	-- POWER GOES LAST. Appending leaves every existing button's `order` exactly
+	-- where it was, so no save's install replay changes sequence and "requires
+	-- points at an earlier index" stays trivially true.
+	Config.TrackOrder = { "factory", "weapons", "armor", "power" }
 	Config.Tracks = {
 		factory = Config.FactoryButtons,
 		weapons = Config.WeaponButtons,
 		armor   = Config.ArmorButtons,
+		power   = Config.PowerButtons,
 	}
-	Config.TrackLabel = { factory = "FACTORY", weapons = "WEAPONS", armor = "ARMORY" }
+
+	-- EVERYTHING THAT IS TRUE OF A TRACK RATHER THAN OF A BUTTON, in one table.
+	--
+	-- Adding a fourth track is mostly an exercise in finding the per-track facts,
+	-- because they were scattered across five tables in three files and one of them
+	-- existed TWICE. A missing row in each fails differently and none of them fail
+	-- loudly:
+	--
+	--   where its buttons stand    Layout.Tracks[track] is nil -> indexing nil ->
+	--                              buildButtons throws -> the plot fails to build
+	--   survives a rebirth         asserted from two places with opposite polarity;
+	--                              a missing row FAILS OPEN and the generator
+	--                              survives the reset it is supposed to be part of
+	--   beacon rank                one copy in Tycoon and one in HUD: the panel
+	--                              names one purchase, the beacon glows on another
+	--   preview depth              falls back to 3, so a 4-rung ladder previews
+	--                              itself entirely from the moment you claim
+	--   spine or detour            the verifier prices it as a side track, which is
+	--                              wrong for anything that multiplies income
+	--
+	-- `rank` is not here because it is exactly the TrackOrder index; it is derived
+	-- below, which deletes both copies rather than adding a third.
+	Config.TrackInfo = {
+		factory = { label = "FACTORY", preview = 3, keepOnRebirth = false, paced = "spine", furniture = "misc" },
+		weapons = { label = "WEAPONS", preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
+		armor   = { label = "ARMORY",  preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
+		-- The generator multiplies exactly what a rebirth resets. Keeping it would
+		-- stack x2 on top of MultiplierPerRebirth 2.25 for an effective 4.5x first
+		-- prestige, which makes the asserted CostGrowth/MultiplierPerRebirth ratio
+		-- a lie about the real pacing. It is plot machinery, same class as a
+		-- dropper — not a monotone character grant like a bat or a suit of armour.
+		power   = { label = "POWER",   preview = 2, keepOnRebirth = false, paced = "spine", furniture = "yard" },
+	}
+
+	Config.TrackLabel = {}
+	Config.TrackRank = {}
+	for rank, track in ipairs(Config.TrackOrder) do
+		Config.TrackRank[track] = rank
+		Config.TrackLabel[track] = Config.TrackInfo[track] and Config.TrackInfo[track].label or track:upper()
+	end
 
 	-- WHAT A WHOLE LADDER WAITS ON.
 	--
@@ -4226,12 +4402,12 @@ __MODULES["HUD"] = function()
 		end)
 	end
 
-	-- Same ranking Tycoon:pointAt uses. It has to be the same, or the panel names
-	-- one purchase while the beacon out on the plot glows on a different one.
-	-- Factory first, then cheapest within the track: a cabinet's first rung is
-	-- cheap, so cheapest-overall would point at a bat for most of the early game.
-	local TRACK_RANK = { factory = 1, weapons = 2, armor = 3 }
-
+	-- The ranking Tycoon:pointAt uses. It HAS to be the same, or the panel names
+	-- one purchase while the beacon out on the plot glows on a different one — and
+	-- keeping two hand-maintained copies identical is not a plan, it is a hope. So
+	-- there is one: Config.TrackRank, derived from TrackOrder. Factory first, then
+	-- cheapest within the track, because a cabinet's first rung is cheap and
+	-- cheapest-overall would point at a bat for most of the early game.
 	local function cheapestAvailable()
 		local best, bestRank
 		for _, def in ipairs(Config.Buttons) do
@@ -4247,7 +4423,7 @@ __MODULES["HUD"] = function()
 						break
 					end
 				end
-				local rank = TRACK_RANK[def.track] or 99
+				local rank = Config.TrackRank[def.track] or 99
 				if ok and (not best or rank < bestRank or (rank == bestRank and def.price < best.price)) then
 					best, bestRank = def, rank
 				end

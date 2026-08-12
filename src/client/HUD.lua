@@ -426,12 +426,12 @@ function HUD.showRebirthModal(cost: number)
 	end)
 end
 
--- Same ranking Tycoon:pointAt uses. It has to be the same, or the panel names
--- one purchase while the beacon out on the plot glows on a different one.
--- Factory first, then cheapest within the track: a cabinet's first rung is
--- cheap, so cheapest-overall would point at a bat for most of the early game.
-local TRACK_RANK = { factory = 1, weapons = 2, armor = 3 }
-
+-- The ranking Tycoon:pointAt uses. It HAS to be the same, or the panel names
+-- one purchase while the beacon out on the plot glows on a different one — and
+-- keeping two hand-maintained copies identical is not a plan, it is a hope. So
+-- there is one: Config.TrackRank, derived from TrackOrder. Factory first, then
+-- cheapest within the track, because a cabinet's first rung is cheap and
+-- cheapest-overall would point at a bat for most of the early game.
 local function cheapestAvailable()
 	local best, bestRank
 	for _, def in ipairs(Config.Buttons) do
@@ -447,7 +447,7 @@ local function cheapestAvailable()
 					break
 				end
 			end
-			local rank = TRACK_RANK[def.track] or 99
+			local rank = Config.TrackRank[def.track] or 99
 			if ok and (not best or rank < bestRank or (rank == bestRank and def.price < best.price)) then
 				best, bestRank = def, rank
 			end
