@@ -199,6 +199,58 @@ Config.Layout = {
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- WORLD TEXT
+--
+-- Every label the game draws into the world used to pick its own font, its own
+-- outline and its own view distance, one at a time, as it was written: three
+-- fonts, six outline settings, and eleven distinct MaxDistance values ranging
+-- from 90 studs to 1200 — plus statue faces at 0, which means "always render"
+-- and was nobody's decision.
+--
+-- The numbers live here rather than in Style.lua so the verifier can see them.
+-- Style.lua turns them into instances; nothing else in src/ is allowed to name
+-- a font, an outline or a view distance (tools/verify.py enforces that).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+Config.Style = {
+	-- TWO faces, not one: a display face for names and a UI face for the small
+	-- print. "One font everywhere" in the literal sense would set prices and
+	-- plot names in the same weight, which is how you get a label with no
+	-- reading order. What matters is that there is one of EACH and no third.
+	TitleFont = "FredokaOne",
+	BodyFont  = "GothamBold",
+
+	-- One outline recipe. The old values ran 0.1 to 0.4 with no pattern; 0.25
+	-- is legible against both the grass and the neon without ringing the text.
+	StrokeTransparency = 0.25,
+	StrokeColor = Color3.fromRGB(16, 12, 24),
+
+	-- World text never dims with the scene. Only two of the fourteen labels set
+	-- this before, so the same sign was readable on one plot and muddy on the
+	-- next depending on what was casting a shadow over it.
+	LightInfluence = 0,
+
+	-- FOUR NAMED VIEW DISTANCES. Every label picks one of these by name, so the
+	-- question at each site is "how far away does this stop mattering" rather
+	-- than "what number did the last one use".
+	--
+	--   machine  a plate on the machine you are standing at
+	--   prop     something you walk up to and use: buttons, pads, cabinets
+	--   plot     your factory, read from anywhere on it or from the arena
+	--   world    the arena, and finding a free plot from across the ring
+	--
+	-- `world` is not decoration: the two plots furthest apart on the ring are
+	-- 2 * PlotRadius apart, and the claim beacon has to be findable across that
+	-- gap. The verifier asserts it against the ring rather than trusting 1200.
+	Distance = {
+		machine = 140,
+		prop    = 220,
+		plot    = 500,
+		world   = 900,
+	},
+}
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- ECONOMY
 -- ─────────────────────────────────────────────────────────────────────────────
 

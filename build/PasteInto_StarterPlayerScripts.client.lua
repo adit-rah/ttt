@@ -231,6 +231,58 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
+	-- WORLD TEXT
+	--
+	-- Every label the game draws into the world used to pick its own font, its own
+	-- outline and its own view distance, one at a time, as it was written: three
+	-- fonts, six outline settings, and eleven distinct MaxDistance values ranging
+	-- from 90 studs to 1200 — plus statue faces at 0, which means "always render"
+	-- and was nobody's decision.
+	--
+	-- The numbers live here rather than in Style.lua so the verifier can see them.
+	-- Style.lua turns them into instances; nothing else in src/ is allowed to name
+	-- a font, an outline or a view distance (tools/verify.py enforces that).
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	Config.Style = {
+		-- TWO faces, not one: a display face for names and a UI face for the small
+		-- print. "One font everywhere" in the literal sense would set prices and
+		-- plot names in the same weight, which is how you get a label with no
+		-- reading order. What matters is that there is one of EACH and no third.
+		TitleFont = "FredokaOne",
+		BodyFont  = "GothamBold",
+
+		-- One outline recipe. The old values ran 0.1 to 0.4 with no pattern; 0.25
+		-- is legible against both the grass and the neon without ringing the text.
+		StrokeTransparency = 0.25,
+		StrokeColor = Color3.fromRGB(16, 12, 24),
+
+		-- World text never dims with the scene. Only two of the fourteen labels set
+		-- this before, so the same sign was readable on one plot and muddy on the
+		-- next depending on what was casting a shadow over it.
+		LightInfluence = 0,
+
+		-- FOUR NAMED VIEW DISTANCES. Every label picks one of these by name, so the
+		-- question at each site is "how far away does this stop mattering" rather
+		-- than "what number did the last one use".
+		--
+		--   machine  a plate on the machine you are standing at
+		--   prop     something you walk up to and use: buttons, pads, cabinets
+		--   plot     your factory, read from anywhere on it or from the arena
+		--   world    the arena, and finding a free plot from across the ring
+		--
+		-- `world` is not decoration: the two plots furthest apart on the ring are
+		-- 2 * PlotRadius apart, and the claim beacon has to be findable across that
+		-- gap. The verifier asserts it against the ring rather than trusting 1200.
+		Distance = {
+			machine = 140,
+			prop    = 220,
+			plot    = 500,
+			world   = 900,
+		},
+	}
+
+	-- ─────────────────────────────────────────────────────────────────────────────
 	-- ECONOMY
 	-- ─────────────────────────────────────────────────────────────────────────────
 
@@ -1124,6 +1176,7 @@ __MODULES["Fx"] = function()
 
 	local Req = __Req
 	local Config = Req("Config")
+	local Style = Req("Style")
 	local Sound = Req("Sound")
 
 	local TweenService = game:GetService("TweenService")
@@ -1363,22 +1416,17 @@ __MODULES["Fx"] = function()
 		anchor.CFrame = CFrame.new(position)
 		anchor.Parent = parent or workspace
 
-		local billboard = Instance.new("BillboardGui")
-		billboard.Size = UDim2.fromScale(6, 2)
-		billboard.AlwaysOnTop = true
-		billboard.MaxDistance = 220
-		billboard.Parent = anchor
+		-- ONE OF THE TWO THINGS IN THIS GAME THAT DRAWS THROUGH WALLS. A damage
+		-- number you can't see is a hit you didn't feel land, and the thing most
+		-- likely to be standing between you and it is the enemy you just hit. (The
+		-- other is enemy nameplates, and those are Roblox's own — it draws them on
+		-- top whatever we ask for.)
+		local billboard = Style.billboard(anchor, {
+			name = "FloatText", width = 6, height = 2,
+			distance = "prop", alwaysOnTop = true,
+		})
 
-		local label = Instance.new("TextLabel")
-		label.BackgroundTransparency = 1
-		label.Size = UDim2.fromScale(1, 1)
-		label.Font = Enum.Font.FredokaOne
-		label.Text = text
-		label.TextColor3 = color
-		label.TextStrokeTransparency = 0.2
-		label.TextStrokeColor3 = Color3.new(0, 0, 0)
-		label.TextScaled = true
-		label.Parent = billboard
+		local label = Style.text(billboard, { text = text, color = color })
 
 		TweenService:Create(anchor, TweenInfo.new(1.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 			CFrame = CFrame.new(position + Vector3.new(0, 6, 0)),
@@ -1862,6 +1910,105 @@ __MODULES["Sound"] = function()
 end
 
 
+__MODULES["Style"] = function()
+	--[[
+		Style.lua — the one place that turns Config.Style into instances.
+
+		Every label this game draws, in the world and on the screen, comes through
+		here. Before it existed each site picked its own font, its own outline and
+		its own view distance as it was written, which is how the plot ended up
+		using three fonts, six outline settings and eleven view distances from 90
+		studs to 1200 — none of them chosen against each other.
+
+		WHY A MODULE AND NOT JUST CONSTANTS. Constants would have fixed the values
+		and left the *shape* free: one site setting LightInfluence and the next
+		forgetting, one billboard with StudsOffsetWorldSpace and the next without.
+		The point of a builder is that the site cannot leave a field out. What a
+		caller still gets to choose is what a label IS — its size, its colour, and
+		how far away it stops mattering — and nothing else.
+
+		tools/verify.py fails the build if `Enum.Font`, `TextStrokeTransparency` or
+		`MaxDistance` appears anywhere in src/ outside this file. That lint is the
+		only reason this stays true; the state it replaced is what happens without
+		one.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+
+	local S = Config.Style
+
+	local Style = {}
+
+	--- The two faces. `title` is the display face — names, headlines, anything you
+	--- read at a glance from across the plot. `body` is everything else: prices,
+	--- step counters, blurbs, the small print on a panel.
+	Style.Font = {
+		title = (Enum.Font :: any)[S.TitleFont],
+		body  = (Enum.Font :: any)[S.BodyFont],
+	}
+
+	--- Named view distances, resolved. Anything that wants a number reads
+	--- `Style.distance("prop")` rather than writing 220.
+	function Style.distance(tier: string): number
+		local value = S.Distance[tier]
+		if not value then
+			-- Loud rather than silent: a typo'd tier that fell back to a default
+			-- would be a label that quietly renders at the wrong range forever,
+			-- which is exactly the class of bug this module exists to end.
+			error(("[Tung] unknown view-distance tier %q; expected one of machine/prop/plot/world"):format(tostring(tier)), 2)
+		end
+		return value
+	end
+
+	--- A world-space label anchor.
+	---
+	---   width, height   studs (BillboardGui scale maps 1:1 to studs)
+	---   distance        a Config.Style.Distance key
+	---   offset          studs straight up from the adornee, world-space
+	---   alwaysOnTop     draws through geometry. Two things in this game are
+	---                   allowed it — damage numbers and enemy nameplates — and
+	---                   the nameplates are Roblox's own. Everything else obeys
+	---                   walls, which is the whole point of hiding behind one.
+	function Style.billboard(parent: Instance, opts): BillboardGui
+		local gui = Instance.new("BillboardGui")
+		gui.Name = opts.name or "Label"
+		gui.Size = UDim2.fromScale(opts.width, opts.height)
+		gui.MaxDistance = Style.distance(opts.distance)
+		gui.AlwaysOnTop = opts.alwaysOnTop == true
+		gui.LightInfluence = S.LightInfluence
+		if opts.offset then
+			gui.StudsOffsetWorldSpace = Vector3.new(0, opts.offset, 0)
+		end
+		gui.Parent = parent
+		return gui
+	end
+
+	--- A line of world text. Defaults to filling its billboard, because most of
+	--- them hold exactly one line; the buy button is the only label with enough to
+	--- say that it needs its own layout.
+	function Style.text(parent: Instance, opts): TextLabel
+		local label = Instance.new("TextLabel")
+		label.Name = opts.name or "Text"
+		label.BackgroundTransparency = 1
+		label.Size = opts.size or UDim2.fromScale(1, 1)
+		if opts.position then
+			label.Position = opts.position
+		end
+		label.Font = (opts.weight == "body") and Style.Font.body or Style.Font.title
+		label.Text = opts.text or ""
+		label.TextColor3 = opts.color or Color3.new(1, 1, 1)
+		label.TextStrokeTransparency = S.StrokeTransparency
+		label.TextStrokeColor3 = S.StrokeColor
+		label.TextScaled = opts.scaled ~= false
+		label.Parent = parent
+		return label
+	end
+
+	return Style
+end
+
+
 __MODULES["SwingAnim"] = function()
 	--[[
 		SwingAnim.lua — procedural melee swings that move the CHARACTER, not just
@@ -2273,6 +2420,7 @@ __MODULES["TungModels"] = function()
 
 	local Req = __Req
 	local Config = Req("Config")
+	local Style = Req("Style")
 	local Util = Req("Util")
 	local Fx = Req("Fx")
 
@@ -2343,9 +2491,15 @@ __MODULES["TungModels"] = function()
 		gui.Face = Enum.NormalId.Front
 		gui.CanvasSize = Vector2.new(200, 200)
 		gui.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
-		gui.LightInfluence = 0
+		gui.LightInfluence = Config.Style.LightInfluence
 		gui.AlwaysOnTop = false
-		gui.MaxDistance = maxDistance or 0    -- 0 = always render; drops pass ~140
+		-- A face is the most expensive label on screen — sixteen frames apiece, one
+		-- per Tung on the belt — and the default used to be 0, which in
+		-- SurfaceGui.MaxDistance means "never stop drawing". The arena statue and
+		-- every raider inherited that. Callers that know better still pass their
+		-- own (drops use `machine`); everything else gets the range at which a face
+		-- has stopped being a face.
+		gui.MaxDistance = maxDistance or Style.distance("plot")
 		gui.Parent = facePlate
 
 		local root = Instance.new("Frame")
@@ -2631,7 +2785,7 @@ __MODULES["TungModels"] = function()
 		face.Massless = true
 		face.CFrame = body.CFrame * CFrame.Angles(0, 0, -HALF_PI) * CFrame.new(0, 0.55 * s, -0.58 * s)
 		face.Parent = model
-		TungModels.paintFace(face, v, "angry", 140)
+		TungModels.paintFace(face, v, "angry", Style.distance("machine"))
 		Util.weld(body, face)
 
 		if v.fx and v.fx ~= "none" then
@@ -3358,6 +3512,7 @@ __MODULES["HUD"] = function()
 
 	local Req = __Req
 	local Config = Req("Config")
+	local Style = Req("Style")
 	local Util = Req("Util")
 	local Net = Req("Net")
 
@@ -3451,7 +3606,7 @@ __MODULES["HUD"] = function()
 	local function text(parent, props)
 		local l = Instance.new("TextLabel")
 		l.BackgroundTransparency = 1
-		l.Font = Enum.Font.GothamBold
+		l.Font = Style.Font.body
 		l.TextColor3 = PALETTE.text
 		l.TextXAlignment = Enum.TextXAlignment.Left
 		l.TextScaled = false
@@ -3469,7 +3624,7 @@ __MODULES["HUD"] = function()
 		b.BackgroundTransparency = 0.1
 		b.BorderSizePixel = 0
 		b.AutoButtonColor = true
-		b.Font = Enum.Font.FredokaOne
+		b.Font = Style.Font.title
 		b.Text = label
 		b.TextColor3 = Color3.fromRGB(20, 16, 28)
 		b.TextScaled = true
@@ -3492,7 +3647,7 @@ __MODULES["HUD"] = function()
 		icon.Position = UDim2.fromOffset(14, 20)
 		icon.BackgroundColor3 = PALETTE.gold
 		icon.BackgroundTransparency = 0.15
-		icon.Font = Enum.Font.FredokaOne
+		icon.Font = Style.Font.title
 		icon.Text = "T"
 		icon.TextColor3 = Color3.fromRGB(40, 28, 10)
 		icon.TextScaled = true
@@ -3502,7 +3657,7 @@ __MODULES["HUD"] = function()
 		cashLabel = text(frame, {
 			Size = UDim2.fromOffset(190, 42),
 			Position = UDim2.fromOffset(80, 16),
-			Font = Enum.Font.FredokaOne,
+			Font = Style.Font.title,
 			Text = "0",
 			TextSize = 34,
 			TextColor3 = PALETTE.gold,
@@ -3511,7 +3666,7 @@ __MODULES["HUD"] = function()
 		multLabel = text(frame, {
 			Size = UDim2.fromOffset(190, 26),
 			Position = UDim2.fromOffset(80, 56),
-			Font = Enum.Font.GothamMedium,
+			Font = Style.Font.body,
 			Text = "x1.00  •  0 rebirths",
 			TextSize = 15,
 			TextColor3 = PALETTE.muted,
@@ -3527,7 +3682,7 @@ __MODULES["HUD"] = function()
 		text(frame, {
 			Size = UDim2.fromOffset(250, 18),
 			Position = UDim2.fromOffset(14, 8),
-			Font = Enum.Font.GothamBold,
+			Font = Style.Font.body,
 			Text = "NEXT UPGRADE",
 			TextSize = 12,
 			TextColor3 = PALETTE.muted,
@@ -3536,7 +3691,7 @@ __MODULES["HUD"] = function()
 		nextLabel = text(frame, {
 			Size = UDim2.fromOffset(252, 26),
 			Position = UDim2.fromOffset(14, 24),
-			Font = Enum.Font.FredokaOne,
+			Font = Style.Font.title,
 			Text = "Tung Dropper — 50",
 			TextSize = 18,
 			TextColor3 = PALETTE.text,
@@ -3548,7 +3703,7 @@ __MODULES["HUD"] = function()
 		nextDetail = text(frame, {
 			Size = UDim2.fromOffset(252, 18),
 			Position = UDim2.fromOffset(14, 48),
-			Font = Enum.Font.GothamMedium,
+			Font = Style.Font.body,
 			Text = "",
 			TextSize = 13,
 			TextColor3 = PALETTE.muted,
@@ -3565,7 +3720,7 @@ __MODULES["HUD"] = function()
 
 		waveLabel = text(waveFrame, {
 			Size = UDim2.fromScale(1, 1),
-			Font = Enum.Font.FredokaOne,
+			Font = Style.Font.title,
 			Text = "SAHUR RAID",
 			TextSize = 26,
 			TextXAlignment = Enum.TextXAlignment.Center,
@@ -3656,7 +3811,7 @@ __MODULES["HUD"] = function()
 		text(card, {
 			Size = UDim2.fromOffset(280, 22),
 			Position = UDim2.fromOffset(24, 8),
-			Font = Enum.Font.FredokaOne,
+			Font = Style.Font.title,
 			Text = payload.title or "",
 			TextSize = 17,
 			TextColor3 = color,
@@ -3665,7 +3820,7 @@ __MODULES["HUD"] = function()
 		text(card, {
 			Size = UDim2.fromOffset(280, 30),
 			Position = UDim2.fromOffset(24, 30),
-			Font = Enum.Font.Gotham,
+			Font = Style.Font.body,
 			Text = payload.body or "",
 			TextSize = 13,
 			TextColor3 = PALETTE.muted,
@@ -3714,7 +3869,7 @@ __MODULES["HUD"] = function()
 		text(card, {
 			Size = UDim2.fromOffset(390, 34),
 			Position = UDim2.fromOffset(20, 18),
-			Font = Enum.Font.FredokaOne,
+			Font = Style.Font.title,
 			Text = "SAHUR REBIRTH",
 			TextSize = 28,
 			TextColor3 = PALETTE.accent,
@@ -3725,7 +3880,7 @@ __MODULES["HUD"] = function()
 		text(card, {
 			Size = UDim2.fromOffset(390, 96),
 			Position = UDim2.fromOffset(20, 58),
-			Font = Enum.Font.Gotham,
+			Font = Style.Font.body,
 			Text = ("Cost: <b>%s Tung</b>\n\nYour factory and cash are wiped, but every payout after this is permanently multiplied.\n\nNext multiplier: <b>x%.2f</b>")
 				:format(Util.abbreviate(cost), Config.Rebirth.MultiplierPerRebirth ^ (state.rebirths + 1)),
 			TextSize = 15,
@@ -3962,6 +4117,7 @@ __MODULES["SessionUI"] = function()
 
 	local Req = __Req
 	local Config = Req("Config")
+	local Style = Req("Style")
 	local Util = Req("Util")
 	local Net = Req("Net")
 	local HUD = Req("HUD")
@@ -4039,7 +4195,7 @@ __MODULES["SessionUI"] = function()
 	local function text(parent: Instance, props)
 		local l = Instance.new("TextLabel")
 		l.BackgroundTransparency = 1
-		l.Font = Enum.Font.GothamBold
+		l.Font = Style.Font.body
 		l.TextColor3 = PALETTE.text
 		l.TextXAlignment = Enum.TextXAlignment.Left
 		l.RichText = true
@@ -4056,7 +4212,7 @@ __MODULES["SessionUI"] = function()
 		b.BackgroundTransparency = 0.1
 		b.BorderSizePixel = 0
 		b.AutoButtonColor = true
-		b.Font = Enum.Font.FredokaOne
+		b.Font = Style.Font.title
 		b.Text = label
 		b.TextColor3 = Color3.fromRGB(20, 16, 28)
 		b.TextScaled = false
@@ -4145,7 +4301,7 @@ __MODULES["SessionUI"] = function()
 		text(card, {
 			Size = UDim2.fromOffset(430, 34),
 			Position = UDim2.fromOffset(22, 18),
-			Font = Enum.Font.FredokaOne,
+			Font = Style.Font.title,
 			Text = "WELCOME BACK",
 			TextSize = 28,
 			TextColor3 = PALETTE.accent,
@@ -4155,7 +4311,7 @@ __MODULES["SessionUI"] = function()
 		text(card, {
 			Size = UDim2.fromOffset(430, 20),
 			Position = UDim2.fromOffset(22, 54),
-			Font = Enum.Font.GothamMedium,
+			Font = Style.Font.body,
 			Text = ("Away for <b>%s</b> — your factory kept running."):format(describe(offline.seconds)),
 			TextSize = 14,
 			TextColor3 = PALETTE.muted,
@@ -4165,7 +4321,7 @@ __MODULES["SessionUI"] = function()
 		local amount = text(card, {
 			Size = UDim2.fromOffset(430, 60),
 			Position = UDim2.fromOffset(22, 82),
-			Font = Enum.Font.FredokaOne,
+			Font = Style.Font.title,
 			Text = "0",
 			TextSize = 46,
 			TextColor3 = PALETTE.gold,
@@ -4175,7 +4331,7 @@ __MODULES["SessionUI"] = function()
 		text(card, {
 			Size = UDim2.fromOffset(430, 20),
 			Position = UDim2.fromOffset(22, 142),
-			Font = Enum.Font.Gotham,
+			Font = Style.Font.body,
 			Text = ("%d%% of %s/sec for %s"):format(
 				math.floor((offline.rate or 0) * 100 + 0.5),
 				Util.abbreviate(offline.perSecond or 0),
@@ -4208,7 +4364,7 @@ __MODULES["SessionUI"] = function()
 		text(card, {
 			Size = UDim2.fromOffset(430, 50),
 			Position = UDim2.fromOffset(22, 166),
-			Font = Enum.Font.GothamMedium,
+			Font = Style.Font.body,
 			Text = capText,
 			TextSize = 13,
 			TextColor3 = capColor,
@@ -4271,7 +4427,7 @@ __MODULES["SessionUI"] = function()
 		local titleLabel = text(row, {
 			Size = UDim2.fromOffset(150, 18),
 			Position = UDim2.fromOffset(12, 8),
-			Font = Enum.Font.FredokaOne,
+			Font = Style.Font.title,
 			Text = title,
 			TextSize = 15,
 			TextColor3 = PALETTE.text,
@@ -4279,7 +4435,7 @@ __MODULES["SessionUI"] = function()
 		local subLabel = text(row, {
 			Size = UDim2.fromOffset(170, 16),
 			Position = UDim2.fromOffset(12, 27),
-			Font = Enum.Font.GothamMedium,
+			Font = Style.Font.body,
 			Text = "",
 			TextSize = 12,
 			TextColor3 = PALETTE.muted,
@@ -4302,7 +4458,7 @@ __MODULES["SessionUI"] = function()
 		text(panel, {
 			Size = UDim2.fromOffset(150, 16),
 			Position = UDim2.fromOffset(14, 8),
-			Font = Enum.Font.GothamBold,
+			Font = Style.Font.body,
 			Text = "SESSION",
 			TextSize = 12,
 			TextColor3 = PALETTE.muted,
@@ -4312,7 +4468,7 @@ __MODULES["SessionUI"] = function()
 		weekendBadge = text(panel, {
 			Size = UDim2.fromOffset(110, 16),
 			Position = UDim2.fromOffset(PANEL_W - 124, 8),
-			Font = Enum.Font.GothamBold,
+			Font = Style.Font.body,
 			Text = "",
 			TextSize = 12,
 			TextXAlignment = Enum.TextXAlignment.Right,
@@ -4602,6 +4758,7 @@ __MODULES["UpgradeUI"] = function()
 
 	local Req = __Req
 	local Config = Req("Config")
+	local Style = Req("Style")
 	local Util = Req("Util")
 	local Net = Req("Net")
 	local Utilities = Req("Utilities")
@@ -4695,7 +4852,7 @@ __MODULES["UpgradeUI"] = function()
 	local function text(parent: Instance, props): TextLabel
 		local l = Instance.new("TextLabel")
 		l.BackgroundTransparency = 1
-		l.Font = Enum.Font.GothamBold
+		l.Font = Style.Font.body
 		l.TextColor3 = PALETTE.text
 		l.TextXAlignment = Enum.TextXAlignment.Left
 		l.RichText = true
@@ -4712,7 +4869,7 @@ __MODULES["UpgradeUI"] = function()
 		b.BackgroundTransparency = 0.1
 		b.BorderSizePixel = 0
 		b.AutoButtonColor = true
-		b.Font = Enum.Font.FredokaOne
+		b.Font = Style.Font.title
 		b.Text = label
 		b.TextColor3 = Color3.fromRGB(20, 16, 28)
 		b.TextScaled = true
@@ -4737,7 +4894,7 @@ __MODULES["UpgradeUI"] = function()
 
 		text(holder, {
 			Size = UDim2.fromScale(1, 1),
-			Font = Enum.Font.GothamBold,
+			Font = Style.Font.body,
 			Text = label,
 			TextSize = 12,
 			TextColor3 = PALETTE.muted,
@@ -4764,7 +4921,7 @@ __MODULES["UpgradeUI"] = function()
 		local title = text(row, {
 			Size = UDim2.new(1, -118, 0, 20),
 			Position = UDim2.fromOffset(12, 8),
-			Font = Enum.Font.FredokaOne,
+			Font = Style.Font.title,
 			Text = name,
 			TextSize = 16,
 			TextTruncate = Enum.TextTruncate.AtEnd,
@@ -4773,7 +4930,7 @@ __MODULES["UpgradeUI"] = function()
 		local blurb = text(row, {
 			Size = UDim2.new(1, -118, 0, 28),
 			Position = UDim2.fromOffset(12, 28),
-			Font = Enum.Font.GothamMedium,
+			Font = Style.Font.body,
 			Text = "",
 			TextSize = 12,
 			TextColor3 = PALETTE.muted,
@@ -4793,7 +4950,7 @@ __MODULES["UpgradeUI"] = function()
 
 		local pillLabel = text(pill, {
 			Size = UDim2.fromScale(1, 1),
-			Font = Enum.Font.FredokaOne,
+			Font = Style.Font.title,
 			Text = "",
 			TextSize = 15,
 			TextScaled = false,
@@ -4975,7 +5132,7 @@ __MODULES["UpgradeUI"] = function()
 		text(panelFrame, {
 			Size = UDim2.new(1, -28, 0, 26),
 			Position = UDim2.fromOffset(14, 10),
-			Font = Enum.Font.FredokaOne,
+			Font = Style.Font.title,
 			Text = "TUNG UPGRADES",
 			TextSize = 20,
 			TextColor3 = PALETTE.accent,
@@ -5046,7 +5203,7 @@ __MODULES["UpgradeUI"] = function()
 		})
 		chipLabel = text(chipButton, {
 			Size = UDim2.fromScale(1, 1),
-			Font = Enum.Font.FredokaOne,
+			Font = Style.Font.title,
 			Text = "",
 			TextSize = 16,
 			TextXAlignment = Enum.TextXAlignment.Center,

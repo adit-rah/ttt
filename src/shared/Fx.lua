@@ -8,6 +8,7 @@
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
+local Style = Req("Style")
 local Sound = Req("Sound")
 
 local TweenService = game:GetService("TweenService")
@@ -247,22 +248,17 @@ function Fx.floatingText(position: Vector3, text: string, color: Color3, parent:
 	anchor.CFrame = CFrame.new(position)
 	anchor.Parent = parent or workspace
 
-	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromScale(6, 2)
-	billboard.AlwaysOnTop = true
-	billboard.MaxDistance = 220
-	billboard.Parent = anchor
+	-- ONE OF THE TWO THINGS IN THIS GAME THAT DRAWS THROUGH WALLS. A damage
+	-- number you can't see is a hit you didn't feel land, and the thing most
+	-- likely to be standing between you and it is the enemy you just hit. (The
+	-- other is enemy nameplates, and those are Roblox's own — it draws them on
+	-- top whatever we ask for.)
+	local billboard = Style.billboard(anchor, {
+		name = "FloatText", width = 6, height = 2,
+		distance = "prop", alwaysOnTop = true,
+	})
 
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.fromScale(1, 1)
-	label.Font = Enum.Font.FredokaOne
-	label.Text = text
-	label.TextColor3 = color
-	label.TextStrokeTransparency = 0.2
-	label.TextStrokeColor3 = Color3.new(0, 0, 0)
-	label.TextScaled = true
-	label.Parent = billboard
+	local label = Style.text(billboard, { text = text, color = color })
 
 	TweenService:Create(anchor, TweenInfo.new(1.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		CFrame = CFrame.new(position + Vector3.new(0, 6, 0)),

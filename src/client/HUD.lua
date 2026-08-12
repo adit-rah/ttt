@@ -6,6 +6,7 @@
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
+local Style = Req("Style")
 local Util = Req("Util")
 local Net = Req("Net")
 
@@ -99,7 +100,7 @@ end
 local function text(parent, props)
 	local l = Instance.new("TextLabel")
 	l.BackgroundTransparency = 1
-	l.Font = Enum.Font.GothamBold
+	l.Font = Style.Font.body
 	l.TextColor3 = PALETTE.text
 	l.TextXAlignment = Enum.TextXAlignment.Left
 	l.TextScaled = false
@@ -117,7 +118,7 @@ local function button(parent, label, color, props)
 	b.BackgroundTransparency = 0.1
 	b.BorderSizePixel = 0
 	b.AutoButtonColor = true
-	b.Font = Enum.Font.FredokaOne
+	b.Font = Style.Font.title
 	b.Text = label
 	b.TextColor3 = Color3.fromRGB(20, 16, 28)
 	b.TextScaled = true
@@ -140,7 +141,7 @@ local function buildCashPanel(root)
 	icon.Position = UDim2.fromOffset(14, 20)
 	icon.BackgroundColor3 = PALETTE.gold
 	icon.BackgroundTransparency = 0.15
-	icon.Font = Enum.Font.FredokaOne
+	icon.Font = Style.Font.title
 	icon.Text = "T"
 	icon.TextColor3 = Color3.fromRGB(40, 28, 10)
 	icon.TextScaled = true
@@ -150,7 +151,7 @@ local function buildCashPanel(root)
 	cashLabel = text(frame, {
 		Size = UDim2.fromOffset(190, 42),
 		Position = UDim2.fromOffset(80, 16),
-		Font = Enum.Font.FredokaOne,
+		Font = Style.Font.title,
 		Text = "0",
 		TextSize = 34,
 		TextColor3 = PALETTE.gold,
@@ -159,7 +160,7 @@ local function buildCashPanel(root)
 	multLabel = text(frame, {
 		Size = UDim2.fromOffset(190, 26),
 		Position = UDim2.fromOffset(80, 56),
-		Font = Enum.Font.GothamMedium,
+		Font = Style.Font.body,
 		Text = "x1.00  •  0 rebirths",
 		TextSize = 15,
 		TextColor3 = PALETTE.muted,
@@ -175,7 +176,7 @@ local function buildNextPanel(root)
 	text(frame, {
 		Size = UDim2.fromOffset(250, 18),
 		Position = UDim2.fromOffset(14, 8),
-		Font = Enum.Font.GothamBold,
+		Font = Style.Font.body,
 		Text = "NEXT UPGRADE",
 		TextSize = 12,
 		TextColor3 = PALETTE.muted,
@@ -184,7 +185,7 @@ local function buildNextPanel(root)
 	nextLabel = text(frame, {
 		Size = UDim2.fromOffset(252, 26),
 		Position = UDim2.fromOffset(14, 24),
-		Font = Enum.Font.FredokaOne,
+		Font = Style.Font.title,
 		Text = "Tung Dropper — 50",
 		TextSize = 18,
 		TextColor3 = PALETTE.text,
@@ -196,7 +197,7 @@ local function buildNextPanel(root)
 	nextDetail = text(frame, {
 		Size = UDim2.fromOffset(252, 18),
 		Position = UDim2.fromOffset(14, 48),
-		Font = Enum.Font.GothamMedium,
+		Font = Style.Font.body,
 		Text = "",
 		TextSize = 13,
 		TextColor3 = PALETTE.muted,
@@ -213,7 +214,7 @@ local function buildWaveBanner(root)
 
 	waveLabel = text(waveFrame, {
 		Size = UDim2.fromScale(1, 1),
-		Font = Enum.Font.FredokaOne,
+		Font = Style.Font.title,
 		Text = "SAHUR RAID",
 		TextSize = 26,
 		TextXAlignment = Enum.TextXAlignment.Center,
@@ -304,7 +305,7 @@ function HUD.toast(payload)
 	text(card, {
 		Size = UDim2.fromOffset(280, 22),
 		Position = UDim2.fromOffset(24, 8),
-		Font = Enum.Font.FredokaOne,
+		Font = Style.Font.title,
 		Text = payload.title or "",
 		TextSize = 17,
 		TextColor3 = color,
@@ -313,7 +314,7 @@ function HUD.toast(payload)
 	text(card, {
 		Size = UDim2.fromOffset(280, 30),
 		Position = UDim2.fromOffset(24, 30),
-		Font = Enum.Font.Gotham,
+		Font = Style.Font.body,
 		Text = payload.body or "",
 		TextSize = 13,
 		TextColor3 = PALETTE.muted,
@@ -362,7 +363,7 @@ function HUD.showRebirthModal(cost: number)
 	text(card, {
 		Size = UDim2.fromOffset(390, 34),
 		Position = UDim2.fromOffset(20, 18),
-		Font = Enum.Font.FredokaOne,
+		Font = Style.Font.title,
 		Text = "SAHUR REBIRTH",
 		TextSize = 28,
 		TextColor3 = PALETTE.accent,
@@ -373,7 +374,7 @@ function HUD.showRebirthModal(cost: number)
 	text(card, {
 		Size = UDim2.fromOffset(390, 96),
 		Position = UDim2.fromOffset(20, 58),
-		Font = Enum.Font.Gotham,
+		Font = Style.Font.body,
 		Text = ("Cost: <b>%s Tung</b>\n\nYour factory and cash are wiped, but every payout after this is permanently multiplied.\n\nNext multiplier: <b>x%.2f</b>")
 			:format(Util.abbreviate(cost), Config.Rebirth.MultiplierPerRebirth ^ (state.rebirths + 1)),
 		TextSize = 15,

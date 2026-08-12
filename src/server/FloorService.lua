@@ -27,6 +27,7 @@
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
+local Style = Req("Style")
 local Tycoon = Req("Tycoon")
 
 local FloorService = {}
@@ -287,21 +288,10 @@ local function buildPad(tycoon, folder: Instance, name: string, at: Vector3, top
 	light.Shadows = false
 	light.Parent = pad
 
-	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromScale(12, 4)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, 6, 0)
-	billboard.MaxDistance = 180
-	billboard.Parent = pad
-
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.fromScale(1, 1)
-	label.Font = Enum.Font.FredokaOne
-	label.Text = text
-	label.TextColor3 = color
-	label.TextStrokeTransparency = 0.2
-	label.TextScaled = true
-	label.Parent = billboard
+	local billboard = Style.billboard(pad, {
+		name = "Sign", width = 12, height = 4, distance = "prop", offset = 6,
+	})
+	Style.text(billboard, { text = text, color = color })
 
 	return pad
 end

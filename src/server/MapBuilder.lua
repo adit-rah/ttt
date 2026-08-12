@@ -7,6 +7,7 @@
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
+local Style = Req("Style")
 local Util = Req("Util")
 local TungModels = Req("TungModels")
 
@@ -125,33 +126,18 @@ local function buildArena(parent: Instance)
 	sign.Transparency = 1
 	sign.CanCollide = false
 
-	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.fromScale(56, 14)
-	billboard.MaxDistance = 900
-	billboard.Parent = sign
-
-	local title = Instance.new("TextLabel")
-	title.BackgroundTransparency = 1
-	title.Size = UDim2.fromScale(1, 0.62)
-	title.Font = Enum.Font.FredokaOne
-	title.Text = "TUNG TUNG TYCOON"
-	title.TextColor3 = Color3.fromRGB(255, 214, 90)
-	title.TextStrokeColor3 = Color3.fromRGB(46, 32, 16)
-	title.TextStrokeTransparency = 0.1
-	title.TextScaled = true
-	title.Parent = billboard
-
-	local subtitle = Instance.new("TextLabel")
-	subtitle.BackgroundTransparency = 1
-	subtitle.Position = UDim2.fromScale(0, 0.62)
-	subtitle.Size = UDim2.fromScale(1, 0.34)
-	subtitle.Font = Enum.Font.GothamMedium
-	subtitle.Text = "pvp enabled inside the ring"
-	subtitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-	subtitle.TextStrokeColor3 = Color3.fromRGB(46, 32, 16)
-	subtitle.TextStrokeTransparency = 0.4
-	subtitle.TextScaled = true
-	subtitle.Parent = billboard
+	local billboard = Style.billboard(sign, {
+		name = "Title", width = 56, height = 14, distance = "world",
+	})
+	Style.text(billboard, {
+		name = "Title", size = UDim2.fromScale(1, 0.62),
+		text = "TUNG TUNG TYCOON", color = Color3.fromRGB(255, 214, 90),
+	})
+	Style.text(billboard, {
+		name = "Subtitle", weight = "body",
+		size = UDim2.fromScale(1, 0.34), position = UDim2.fromScale(0, 0.62),
+		text = "pvp enabled inside the ring", color = Color3.fromRGB(255, 255, 255),
+	})
 
 	return arena
 end
@@ -243,13 +229,9 @@ function MapBuilder.buildPlotPad(parent: Instance, index: number): (Model, CFram
 	local totem = newPart(model, "Totem", Vector3.new(4, 12, 4), totemCF, Color3.fromRGB(70, 52, 40), Enum.Material.Wood)
 	totem:SetAttribute("PlotIndex", index)
 
-	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "Sign"
-	billboard.Size = UDim2.fromScale(26, 9)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, 9, 0)
-	billboard.MaxDistance = 500
-	billboard.AlwaysOnTop = false
-	billboard.Parent = totem
+	local billboard = Style.billboard(totem, {
+		name = "Sign", width = 26, height = 9, distance = "plot", offset = 9,
+	})
 
 	local frame = Instance.new("Frame")
 	frame.Size = UDim2.fromScale(1, 1)
@@ -264,16 +246,12 @@ function MapBuilder.buildPlotPad(parent: Instance, index: number): (Model, CFram
 	stroke.Thickness = 3
 	stroke.Parent = frame
 
-	local label = Instance.new("TextLabel")
-	label.Name = "Owner"
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.fromScale(0.92, 0.9)
-	label.Position = UDim2.fromScale(0.04, 0.05)
-	label.Font = Enum.Font.FredokaOne
-	label.Text = "UNCLAIMED PLOT " .. index .. "\nstep on the pad to claim"
-	label.TextColor3 = Color3.fromRGB(255, 236, 180)
-	label.TextScaled = true
-	label.Parent = frame
+	Style.text(frame, {
+		name = "Owner",
+		size = UDim2.fromScale(0.92, 0.9), position = UDim2.fromScale(0.04, 0.05),
+		text = "UNCLAIMED PLOT " .. index .. "\nstep on the pad to claim",
+		color = Color3.fromRGB(255, 236, 180),
+	})
 
 	return model, cf
 end

@@ -898,6 +898,74 @@ for count = Config.World.MinPlots, Config.World.MaxPlots do
 			:format(count, farthest - Config.World.ArenaRadius, MAX_WALK))
 end
 
+-- ── world text ──────────────────────────────────────────────────────────────
+--
+-- The values themselves are one line each; what these checks are really for is
+-- the RELATIONSHIPS, because those are what nobody was tracking when each label
+-- picked its own number. A view distance is only meaningful against the thing
+-- it has to be read from.
+
+local ST = Config.Style
+check(type(ST.TitleFont) == "string" and #ST.TitleFont > 0, "Style.TitleFont must be a font name")
+check(type(ST.BodyFont) == "string" and #ST.BodyFont > 0, "Style.BodyFont must be a font name")
+check(ST.TitleFont ~= ST.BodyFont,
+	"Style.TitleFont and Style.BodyFont are the same face; a label with one weight has no reading order")
+check(ST.StrokeTransparency >= 0 and ST.StrokeTransparency <= 1,
+	("Style.StrokeTransparency is %.2f; it is a transparency, so 0..1"):format(ST.StrokeTransparency))
+check(ST.LightInfluence >= 0 and ST.LightInfluence <= 1,
+	("Style.LightInfluence is %.2f; it is a fraction, so 0..1"):format(ST.LightInfluence))
+
+-- The four tiers exist and mean what their names say. A tier list that is not
+-- ordered is four numbers with labels on, which is what this replaced.
+local TIER_ORDER = { "machine", "prop", "plot", "world" }
+local previousTier = 0
+for _, tier in ipairs(TIER_ORDER) do
+	local value = ST.Distance[tier]
+	check(type(value) == "number" and value > 0,
+		("Style.Distance.%s is missing or not a positive number"):format(tier))
+	if type(value) == "number" then
+		check(value > previousTier,
+			("Style.Distance.%s is %.0f but the tier below it is %.0f — the tiers have to be ordered or the names mean nothing")
+				:format(tier, value, previousTier))
+		previousTier = value
+	end
+end
+local tierCount = 0
+for _ in pairs(ST.Distance) do
+	tierCount += 1
+end
+check(tierCount == #TIER_ORDER,
+	("Style.Distance has %d tiers but %d are named; an unnamed tier is a number nobody chose against the others")
+		:format(tierCount, #TIER_ORDER))
+
+-- `plot` has to carry your own factory: corner to corner, and from the arena
+-- rim, because the vault sign and the roof sign are both read from outside.
+local plotDiagonal = math.sqrt(Config.World.PlotSize.X ^ 2 + Config.World.PlotSize.Z ^ 2)
+check(ST.Distance.plot >= plotDiagonal,
+	("Style.Distance.plot is %.0f but a plot is %.0f studs corner to corner; your own vault sign would cut out while you stood on your own plot")
+		:format(ST.Distance.plot, plotDiagonal))
+
+-- ...and `world` has to carry the claim beacon across the ring, which is the
+-- one label whose old value (1200) was doing a real job. Looped over the
+-- supported player range rather than read off Config.World.PlotRadius: the ring
+-- is clamped to MinPlotRadius for small counts and only grows past it later, so
+-- the widest ring is not the one this server happens to be configured for.
+for count = Config.World.MinPlots, Config.World.MaxPlots do
+	local placements = Config.plotPlacements(count)
+	local widest = 0
+	for _, p in ipairs(placements) do
+		widest = math.max(widest, p.radius)
+	end
+	check(ST.Distance.world >= widest * 2,
+		("Style.Distance.world is %.0f but at %d plots the two furthest-apart plots are %.0f studs from each other; a free plot has to be findable from across the ring")
+			:format(ST.Distance.world, count, widest * 2))
+
+	local rimToFarEdge = placements[1].radius + Config.World.PlotSize.Z / 2 - Config.World.ArenaRadius
+	check(ST.Distance.plot >= rimToFarEdge,
+		("Style.Distance.plot is %.0f but at %d plots the far edge of a plot is %.0f studs from the arena rim; plot signs would cut out from the arena")
+			:format(ST.Distance.plot, count, rimToFarEdge))
+end
+
 check(Config.plotCountFor(50) == Config.World.MaxPlots, "plot count should clamp up to MaxPlots")
 check(Config.plotCountFor(2) == Config.World.MinPlots, "plot count should clamp down to MinPlots")
 local midCount = math.floor((Config.World.MinPlots + Config.World.MaxPlots) / 2)

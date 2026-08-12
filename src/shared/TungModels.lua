@@ -15,6 +15,7 @@
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
+local Style = Req("Style")
 local Util = Req("Util")
 local Fx = Req("Fx")
 
@@ -85,9 +86,15 @@ function TungModels.paintFace(facePlate: BasePart, variant, mood: string?, maxDi
 	gui.Face = Enum.NormalId.Front
 	gui.CanvasSize = Vector2.new(200, 200)
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
-	gui.LightInfluence = 0
+	gui.LightInfluence = Config.Style.LightInfluence
 	gui.AlwaysOnTop = false
-	gui.MaxDistance = maxDistance or 0    -- 0 = always render; drops pass ~140
+	-- A face is the most expensive label on screen — sixteen frames apiece, one
+	-- per Tung on the belt — and the default used to be 0, which in
+	-- SurfaceGui.MaxDistance means "never stop drawing". The arena statue and
+	-- every raider inherited that. Callers that know better still pass their
+	-- own (drops use `machine`); everything else gets the range at which a face
+	-- has stopped being a face.
+	gui.MaxDistance = maxDistance or Style.distance("plot")
 	gui.Parent = facePlate
 
 	local root = Instance.new("Frame")
@@ -373,7 +380,7 @@ function TungModels.buildDrop(variantName: string, scale: number?): Model
 	face.Massless = true
 	face.CFrame = body.CFrame * CFrame.Angles(0, 0, -HALF_PI) * CFrame.new(0, 0.55 * s, -0.58 * s)
 	face.Parent = model
-	TungModels.paintFace(face, v, "angry", 140)
+	TungModels.paintFace(face, v, "angry", Style.distance("machine"))
 	Util.weld(body, face)
 
 	if v.fx and v.fx ~= "none" then
