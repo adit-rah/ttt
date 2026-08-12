@@ -777,6 +777,27 @@ __MODULES["Config"] = function()
 		RepathReturn = 0.8,
 		AggroCheck = 0.25,          -- how often an idling raider looks around
 		SnapshotInterval = 0.1,     -- how often the shared player snapshot rebuilds
+
+		-- ANTI-SWARM. An aggro radius alone does not fix the pile-up: raiders that
+		-- spawn on one evenly-divided ring all cross the same threshold on the same
+		-- tick and then converge on one point, so the wave arrives as a wall and
+		-- fights as a single blob standing inside itself.
+		SpawnGroupSize = 4,         -- clusters, not one synchronised ring
+		SpawnGroupGap = 0.6,        -- pause between clusters
+		GroupArc = 0.35,            -- radians of jitter within a cluster (~18 studs at r=52)
+		AggroStagger = 1.8,         -- each raider holds you this long, at random, before committing
+		-- Raiders MoveTo a point on a ring around you rather than to you. Under
+		-- AttackRange, so a raider parked on its slot is already in swing range and
+		-- the ring costs no damage output — it only stops 26 bodies occupying one
+		-- stud.
+		ApproachStandoff = 6.5,
+		OrbitSpeed = 0.35,          -- rad/sec of drift, so the ring reads as a mob not a formation
+		-- How many may engage one player at once. Not arbitrary: a 6.5-stud ring
+		-- has a circumference of 40.8 and a raider is about 4.5 studs wide, so nine
+		-- fit shoulder to shoulder. Eight leaves a slot of slack, and the ones over
+		-- the cap keep milling and step in as slots free — which reads as
+		-- reinforcements rather than as a queue.
+		MaxChasers = 8,
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────

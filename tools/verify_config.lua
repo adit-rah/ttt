@@ -514,6 +514,50 @@ check(WV.AggroCheck > 0 and WV.AggroCheck <= 1,
 	("AggroCheck is %.2fs; past a second a player can walk through a raider's aggro radius unnoticed")
 		:format(WV.AggroCheck))
 
+-- ── anti-swarm ──────────────────────────────────────────────────────────────
+
+check(WV.ApproachStandoff > 0 and WV.ApproachStandoff < WV.AttackRange,
+	("raiders hold %.1f studs off their target but only swing at %.1f — they would ring you and never attack (and at 0 they all stand on the same stud)")
+		:format(WV.ApproachStandoff, WV.AttackRange))
+
+-- How many bodies actually FIT on the approach ring, at roughly 4.5 studs of
+-- shoulder each. MaxChasers above this is not a cap, it is a queue.
+local approachSlots = math.floor((2 * math.pi * WV.ApproachStandoff) / 4.5)
+check(WV.MaxChasers <= approachSlots,
+	("MaxChasers is %d but only %d raiders fit shoulder to shoulder on a %.1f-stud approach ring; the rest pile up behind and the swarm is back")
+		:format(WV.MaxChasers, approachSlots, WV.ApproachStandoff))
+check(WV.MaxChasers >= 1 and WV.MaxChasers < WV.MaxCount,
+	("MaxChasers %d against MaxCount %d: capping at or above the wave size caps nothing")
+		:format(WV.MaxChasers, WV.MaxCount))
+
+check(WV.AggroStagger > 0 and WV.AggroStagger < 4,
+	("aggro stagger of %.1fs: at 0 every raider commits on the same frame, and past ~3s the one still staring at you reads as broken")
+		:format(WV.AggroStagger))
+-- The stagger has to be long enough to actually spread a mass flip across more
+-- than one aggro check, or it is decoration.
+check(WV.AggroStagger > WV.AggroCheck * 2,
+	("aggro stagger %.1fs against a %.2fs aggro check: the delay resolves within a tick or two and the pack still commits as a block")
+		:format(WV.AggroStagger, WV.AggroCheck))
+
+check(WV.SpawnGroupSize >= 2 and WV.SpawnGroupSize <= 8,
+	("SpawnGroupSize %d: one synchronised ring is what made a wave read as a wall"):format(WV.SpawnGroupSize))
+check(WV.SpawnGroupGap > 0, "SpawnGroupGap must be positive or the clusters land together anyway")
+check(WV.GroupArc > 0 and WV.GroupArc < math.pi / 4,
+	("GroupArc is %.2f rad; past a quarter-turn a cluster is not a cluster"):format(WV.GroupArc))
+check(WV.OrbitSpeed > 0 and WV.OrbitSpeed < 2,
+	("OrbitSpeed is %.2f rad/s; past ~2 the ring spins rather than drifts"):format(WV.OrbitSpeed))
+
+-- The grouped drip is slower than the flat one, so re-check it against the
+-- deadline it must not collide with.
+local groupCount = math.ceil(WV.MaxCount / WV.SpawnGroupSize)
+local grouppedSpawnSeconds = WV.MaxCount * WV.SpawnGap + (groupCount - 1) * WV.SpawnGroupGap
+check(WV.MaxWaveTime > grouppedSpawnSeconds * 4,
+	("MaxWaveTime is %ds but a full wave now takes %.1fs to arrive in clusters; the deadline would fire during the fight")
+		:format(WV.MaxWaveTime, grouppedSpawnSeconds))
+check(grouppedSpawnSeconds < WV.RestTime,
+	("a full wave takes %.1fs to arrive but the rest between waves is only %ds; the raid would still be landing when it is meant to be over")
+		:format(grouppedSpawnSeconds, WV.RestTime))
+
 -- ── raider telegraph ────────────────────────────────────────────────────────
 
 -- The wind-up is the only warning a player gets. Below human reaction time it

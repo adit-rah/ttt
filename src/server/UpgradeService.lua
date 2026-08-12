@@ -464,13 +464,14 @@ end
 
 --- STUB. It builds and shows the decoy, and raiders completely ignore it.
 ---
---- Making it real is a change in NPCService, not here: `nearestPlayer()` only
---- scans Players:GetPlayers(), so nothing else can ever be a target. The hook
---- it needs is for the target search to also consider models tagged
---- IsSahurDecoy and prefer the nearest of either kind, plus a Humanoid on the
---- decoy so raider swings have something to connect with. Left as a stub on
---- purpose: faking it here (e.g. teleporting raiders at the decoy) would look
---- right for one wave and fight the AI forever after.
+--- Making it real is a change in NPCService, not here, and that change now has
+--- exactly one site: `refreshSnapshot()` builds the single list of everything
+--- raiders consider a target, and `nearestSnapshotEntry()` reads it. Adding
+--- models tagged IsSahurDecoy to that list — plus a Humanoid on the decoy so
+--- raider swings have something to connect with — is the whole hook.
+---
+--- Left as a stub on purpose: faking it here (e.g. teleporting raiders at the
+--- decoy) would look right for one wave and fight the AI forever after.
 VERBS.decoy = function(player: Player, character: Model, root: BasePart, def): boolean
 	local dummy = Instance.new("Part")
 	dummy.Name = "TungDecoy"
