@@ -15,6 +15,7 @@ local Economy = Req("Economy")
 local CombatService = Req("CombatService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
+local AdminService = Req("AdminService")
 
 -- Prototype services. Each one is a no-op unless its Config.Prototypes flag is
 -- on, so this list costs nothing in a shipping build.
@@ -42,6 +43,11 @@ PlotService.start()
 
 -- 4. raids
 NPCService.start()
+
+-- 4b. admin chat commands. Self-gating on Config.Admin and on WHO is asking, so
+-- this is a no-op for an ordinary player on a live server. After NPCService,
+-- because !wave and !clear drive its schedule.
+AdminService.start()
 
 -- 5. prototypes, each gated on its own flag
 UpgradeService.start()

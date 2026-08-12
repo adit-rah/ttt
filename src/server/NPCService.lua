@@ -845,4 +845,44 @@ function NPCService.remaining(): number?
 	return liveWave and liveWave.alive or nil
 end
 
+--- ADMIN HOOKS, for AdminService's !wave and !clear.
+---
+--- Public functions rather than AdminService reaching in, because the whole
+--- reason the schedule is one readable `step` is that nothing else writes
+--- `phase` and `phaseUntil`. These two go through the state machine rather than
+--- around it: !wave collapses the rest timer so the next step begins a wave the
+--- ordinary way, and !clear ends the live one through forceEnd so the flop, the
+--- Debris cleanup and the clear banner all still run.
+---
+--- Neither is reachable without Config.Admin authorisation — see AdminService.
+
+--- Skip the wait before the next raid. False if one is already in flight.
+function NPCService.forceWave(): boolean
+	if not WV.Enabled then
+		return false
+	end
+	if phase == "idle" then
+		setPhase("resting", 0)
+		return true
+	end
+	if phase ~= "resting" then
+		return false
+	end
+	phaseUntil = 0
+	return true
+end
+
+--- Kill whatever is standing. False if nothing is.
+function NPCService.forceClear(): boolean
+	if not liveWave or (phase ~= "active" and phase ~= "spawning") then
+		return false
+	end
+	-- Without this the clear would be read as the mid-drip moment when `alive`
+	-- legitimately touches zero, which is the case `spawnFinished` exists for.
+	liveWave.spawnFinished = true
+	forceEnd(liveWave)
+	setPhase("clear", WV.ClearBannerTime)
+	return true
+end
+
 return NPCService
