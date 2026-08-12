@@ -33,12 +33,17 @@
 	prints. Both survive the card being redrawn, which is what happened to both of
 	those panels in this very round.
 
-	THE LAST SPEC IS THE POINT OF THE FILE. HUD.lua says of its cheapestAvailable
-	that keeping two hand-maintained copies of Tycoon:pointAt's tie-break
-	identical "is not a plan, it is a hope", and nothing has ever checked that they
-	agree. Tycoon is already in the harness, so both are reachable in one realm:
-	the spec walks the entire build, buying whatever the card names, and asserts at
-	every one of the 43 steps that refreshButtons hands pointAt the same button.
+	THE LAST TWO SPECS ARE THE POINT OF THE FILE. HUD.lua says of its
+	cheapestAvailable that keeping two hand-maintained copies of Tycoon:pointAt's
+	ranking identical "is not a plan, it is a hope", and nothing has ever checked
+	that they agree. Tycoon is already in the harness, so both are reachable in one
+	realm: the first walks the whole build, buying whatever the card names and
+	asserting at every one of the 34 steps that refreshButtons hands pointAt the
+	same button; the second puts the two branches that walk cannot reach — the
+	track gate and the price tie-break — somewhere they decide the answer. See the
+	note above that spec for why neither is reachable from any state the shipped
+	Config can produce, which is itself the most interesting thing this family
+	found.
 
 	WHAT THIS FAMILY DOES NOT COVER, because the mock deliberately stops short:
 	no tween advances, so HUD.toast, the rebirth modal and the welcome-back modal
@@ -47,17 +52,27 @@
 	unreached. All of it is named, with what it costs, in mock/gui.lua's header.
 
 	EVERY SPEC HERE HAS BEEN MADE TO FAIL — two specs in this project were once
-	found that could not, and a green spec is read as evidence. In a scratch copy:
-	the smoke was watched failing with `local Config` deleted from UiKit.lua (the
-	shipped defect's shape, on a different file) and with a require of a module the
-	bundle has no factory for; the layer specs with buildLayer returning the same
-	frame twice, with the UIScale never parented, and with the 1/scale sizing
-	dropped; the balance spec with cashLabel written from `state.cash` instead of
-	the lerped `displayedCash` (which passes the first packet and fails the
-	second) and with the RenderStepped connection removed; the ranking spec with
-	Config.TrackRank inverted in the HUD's realm, with cheapestAvailable's
-	tie-break flipped to `>`, and with its trackUnlocked gate dropped — the last
-	of which fails at step 13, which is where the mezzanine opens the cabinets.
+	found that could not, and a green spec is read as evidence. Each was watched
+	failing under one mutation of the file it guards, applied and reverted in the
+	working tree:
+
+	  smoke        `local Config` deleted from UiKit.lua (the shipped defect's
+	               shape, on a different file); UiKit returning nil
+	  the layers   Overlay assigned the Root frame; the UIScale never parented;
+	               the UIPadding never parented
+	  the viewport the layers sized fromScale(1, 1) instead of 1/scale
+	  the arena    the missing-RaidAnchor warn deleted
+	  boot order   HUD.root() returning nil, which is what the three panels
+	               guard against and the shape of the defect that shipped
+	  the balance  applyStats not reading payload.cash; the label printed once
+	               from a constant (which passes the first assertion and fails the
+	               second); the counter moved off RenderStepped
+	  the ranking  the plot ranking by price alone (fails at step 8); the HUD's
+	               tie-break flipped to `>`; the HUD's trackUnlocked gate deleted;
+	               the plot's gate deleted from BOTH refreshButtons and
+	               requirementsMet — either one alone changes no answer, because
+	               the plot applies that gate twice on purpose, and the spec is
+	               right not to fail for it.
 ]]
 
 return function(T)
@@ -355,11 +370,29 @@ local function fakePlot(world)
 	return plot, pointed
 end
 
+--- Both answers for one `owned` set: what the card names, and what refreshButtons
+--- hands pointAt. Cash is deliberately enormous — affordability moves the card's
+--- COLOURS and never its ranking, and the plot's ranking never reads it at all.
+local function picks(t, world, root, plot, pointed, owned)
+	toClient(world, "Stats", {
+		cash = 1e12, rebirths = 0, kills = 0, multiplier = 1,
+		owned = owned, rebirthCost = 5000,
+	})
+	quiet(t, world, "the Stats handler raised")
+	local card = cardNames(root, world.config)
+
+	plot.owned = owned
+	pointed.entry = nil
+	plot:refreshButtons()
+	return card, pointed.entry and pointed.entry.def or nil
+end
+
 T.spec("the card names the button the plot's beacon points at, at every step of the build", function(t)
 	local world = clientWorld()
 	local Config = world.config
 	local HUD = world.req("HUD")
 	HUD.start()
+	local root = HUD.root()
 	local plot, pointed = fakePlot(world)
 
 	-- The precondition of reading the card by name: two defs sharing a name would
@@ -373,21 +406,7 @@ T.spec("the card names the button the plot's beacon points at, at every step of 
 	local owned = {}
 	local steps = 0
 	while steps <= #Config.Buttons do
-		-- Cash is deliberately enormous: affordability changes the card's COLOURS
-		-- and never its ranking, and neither implementation ranks on price except
-		-- as a tie-break within one track.
-		toClient(world, "Stats", {
-			cash = 1e12, rebirths = 0, kills = 0, multiplier = 1,
-			owned = owned, rebirthCost = 5000,
-		})
-		quiet(t, world, "the Stats handler raised")
-		local card = cardNames(HUD.root(), Config)
-
-		plot.owned = owned
-		pointed.entry = nil
-		plot:refreshButtons()
-		local beacon = pointed.entry and pointed.entry.def or nil
-
+		local card, beacon = picks(t, world, root, plot, pointed, owned)
 		if card == nil and beacon == nil then
 			break      -- everything built, and both agree there is nothing left
 		end
@@ -403,6 +422,69 @@ T.spec("the card names the button the plot's beacon points at, at every step of 
 	-- A loop that asserts inside itself passes for free when it never runs. This
 	-- is what it actually visited, and it has to be the whole build.
 	t:eq(steps, #Config.Buttons, "the walk did not buy every button in Config.Buttons")
+end)
+
+--- THE WALK ABOVE CANNOT REACH EITHER OF THE OTHER TWO BRANCHES, and that was
+--- worth finding out. With today's Config:
+---
+---   * THE TRACK GATE never decides anything. It only hides the two cabinets, and
+---     it only hides them while `mezzanine` is unowned — but mezzanine is a
+---     FACTORY rung, and the factory is rank 1, so while it is unowned the factory
+---     always has an available rung that outranks everything the gate could have
+---     hidden. Deleting the gate from either copy leaves both answers unchanged at
+---     all 34 steps.
+---   * THE PRICE TIE-BREAK never fires. Two buttons only tie on rank if they are
+---     in the SAME track, a track is a chain, so exactly one of its rungs is ever
+---     available at once. Flipping `<` to `>` in either copy changes nothing.
+---
+--- Two hand-maintained copies of a branch that cannot change the answer is worse
+--- than one, not better: it can drift for as long as it likes and the game looks
+--- fine. So this spec puts each branch somewhere it DOES decide, by mutating this
+--- realm's own Config — legal for the reason structure_spec.lua gives when it does
+--- the same to Config.Structure: a fresh realm's Config belongs to one spec, and
+--- the degenerate case the shipped numbers happen not to contain is exactly where
+--- this kind of arithmetic breaks.
+T.spec("the gate and the price tie-break agree too, where the shipped build cannot reach them", function(t)
+	local world = clientWorld()
+	local Config = world.config
+	local HUD = world.req("HUD")
+	HUD.start()
+	local root = HUD.root()
+	local plot, pointed = fakePlot(world)
+
+	local everything = {}
+	for _, def in ipairs(Config.Buttons) do
+		everything[def.id] = true
+	end
+
+	-- THE GATE. Gate the POWER track, which today is gated on nothing and ranks
+	-- last: with everything else built, a gate on it is the only thing left that
+	-- can decide the answer. Both copies must offer nothing at all.
+	Config.TrackUnlock.power = "no_such_button"
+	local owned = table.clone(everything)
+	for _, def in ipairs(Config.Tracks.power) do
+		owned[def.id] = nil
+	end
+	local card, beacon = picks(t, world, root, plot, pointed, owned)
+	t:isNil(card, "the card named a rung of a gated track")
+	t:isNil(beacon, "the beacon pointed at a rung of a gated track")
+
+	-- THE TIE-BREAK. Tie the two cabinets on rank and leave the top rung of each
+	-- unbought: the ranks are now equal, so price is all that is left, and both
+	-- copies have their own copy of "cheapest wins".
+	Config.TrackUnlock.power = nil
+	Config.TrackRank.armor = Config.TrackRank.weapons
+	local weapon = Config.Tracks.weapons[#Config.Tracks.weapons]
+	local armor = Config.Tracks.armor[#Config.Tracks.armor]
+	t:ne(weapon.price, armor.price, "the two top rungs cost the same, so the tie-break is unobservable")
+	local cheaper = weapon.price < armor.price and weapon or armor
+
+	owned = table.clone(everything)
+	owned[weapon.id] = nil
+	owned[armor.id] = nil
+	card, beacon = picks(t, world, root, plot, pointed, owned)
+	t:eq(card and card.id, cheaper.id, "the card did not take the cheaper of two tracks tied on rank")
+	t:eq(beacon and beacon.id, cheaper.id, "the beacon did not take the cheaper of two tracks tied on rank")
 end)
 
 end
