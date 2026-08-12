@@ -150,6 +150,20 @@ never fire. It covered three surfaces while appearing to cover four.
 
 **Same shape as the generator bug: a thing that reads as checked and is not.**
 
+Fixed in **#39 `power/yard-rework`** — *not* #38 — because that is where it was
+tripped over: the surfaces check was supposed to be covering `YardTopY` and was
+not. Branch by branch:
+
+| branch | state |
+| --- | --- |
+| `pacing/early-mezzanine` (#36) | still live |
+| `floors/ladder` (#38) | still live |
+| `power/yard-rework` (#39) | **fixed** |
+| `admin/commands` (#40) | fixed |
+
+This is why **#43 was rebased onto #40** rather than left as a sibling of #38 —
+a sibling of #38 would still have had the dead key underneath it.
+
 The growth round swept `verify_config.lua` for the pattern — every
 `X = Config.<path>` whose leaf never appears as an assignment in `Config.lua`.
 **Result: a clean negative.** `PathTopY` was the only real one; the two other
