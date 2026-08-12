@@ -41,7 +41,7 @@ local function check(condition, message)
 end
 
 -- installers that Tycoon.lua actually implements
-local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true }
+local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Floor = true }
 local KNOWN_STRUCTURES = { walls = true, roof = true }
 
 local seenIds, dropperSlots, upgraderSlots = {}, {}, {}
@@ -84,23 +84,59 @@ for index, def in ipairs(Config.Buttons) do
 		end
 	end
 
+	-- A BELT MACHINE IS EITHER SLOTTED OR PINNED.
+	--
+	-- `slot` indexes Layout.DropperDist / UpgraderDist, which describe the
+	-- GROUND floor's two legs and nothing else. A machine on any other floor
+	-- names its path and its distance along a leg of it instead — which is what
+	-- Tycoon:legOf has always accepted, and what the slot tables could never
+	-- express. One or the other, never both and never neither.
+	local function checkPlacement(kind, distances, used)
+		if def.path then
+			check(def.slot == nil,
+				("%s carries both a slot and a path; a slot means the ground floor's %s"):format(where, kind))
+			local known = false
+			for _, path in ipairs(Config.BeltPaths) do
+				known = known or path.id == def.path
+			end
+			check(known, ("%s names belt path %q, which is not in Config.BeltPaths"):format(where, tostring(def.path)))
+			check(type(def.legIndex) == "number" and def.legIndex >= 1,
+				where .. ": a pinned machine needs a legIndex")
+			check(type(def.legDistance) == "number" and def.legDistance >= 0,
+				where .. ": a pinned machine needs a legDistance")
+		else
+			check(type(def.slot) == "number", where .. ": " .. kind .. " needs a slot or a path")
+			check(distances[def.slot] ~= nil,
+				where .. ": " .. kind .. " slot " .. tostring(def.slot) .. " has no distance entry")
+			check(not used[def.slot], where .. ": " .. kind .. " slot " .. tostring(def.slot) .. " already used")
+			used[def.slot] = true
+		end
+	end
+
 	if def.kind == "Dropper" then
-		check(type(def.slot) == "number", where .. ": dropper needs a slot")
-		check(Config.Layout.DropperDist[def.slot] ~= nil, where .. ": dropper slot " .. tostring(def.slot) .. " has no Layout.DropperDist entry")
-		check(not dropperSlots[def.slot], where .. ": dropper slot " .. tostring(def.slot) .. " already used")
-		dropperSlots[def.slot] = true
+		checkPlacement("dropper", Config.Layout.DropperDist, dropperSlots)
 		check(type(def.dropValue) == "number" and def.dropValue > 0, where .. ": bad dropValue")
 		check(type(def.dropRate) == "number" and def.dropRate > 0.2, where .. ": dropRate too fast (< 0.2s will flood physics)")
 		check(Config.Variants[def.variant] ~= nil, where .. ": unknown variant " .. tostring(def.variant))
 		-- a dropper should always out-earn the one before it
 		check(def.price / def.dropValue > 0, where .. ": bad payback")
 	elseif def.kind == "Upgrader" then
-		check(type(def.slot) == "number", where .. ": upgrader needs a slot")
-		check(Config.Layout.UpgraderDist[def.slot] ~= nil, where .. ": upgrader slot " .. tostring(def.slot) .. " has no Layout.UpgraderDist entry")
-		check(not upgraderSlots[def.slot], where .. ": upgrader slot " .. tostring(def.slot) .. " already used")
-		upgraderSlots[def.slot] = true
+		checkPlacement("upgrader", Config.Layout.UpgraderDist, upgraderSlots)
 		check(type(def.multiplier) == "number" and def.multiplier > 1, where .. ": multiplier must be > 1")
 		check(Config.Variants[def.variant] ~= nil, where .. ": unknown variant " .. tostring(def.variant))
+	elseif def.kind == "Floor" then
+		local floor
+		for _, entry in ipairs(Config.Floors) do
+			if entry.button == def.id then
+				check(floor == nil,
+					("two Floor buttons both build %s; the second would charge and do nothing"):format(entry.id))
+				floor = entry
+			end
+		end
+		check(floor ~= nil,
+			("%s is a Floor button but no Config.Floors entry names it; it would charge and build nothing"):format(where))
+		check(def.floor == nil or (floor and floor.id == def.floor),
+			("%s says it builds floor %q but Config.Floors disagrees"):format(where, tostring(def.floor)))
 	elseif def.kind == "Belt" then
 		check(type(def.speedBonus) == "number" and def.speedBonus > 0, where .. ": bad speedBonus")
 	elseif def.kind == "Structure" then
@@ -298,27 +334,36 @@ for id, spot in pairs(Config.Layout.MiscButtons) do
 end
 
 -- Floors. The deck must clear everything the ground floor stands up, and the
--- unlock must be a real button — a floor gated on a typo never opens.
+-- button that builds it must be a real one — a floor gated on a typo never
+-- opens.
+--
+-- WHERE the floor lands in the build is asserted separately, below the
+-- progression simulation, because it is a question about MINUTES and this block
+-- runs before the curve exists. It used to live here as
+-- `trackOrder >= #factory - 1` — "finish the ground floor first" — which is
+-- index-based, so it could express "at the end" and could not express "halfway"
+-- at all. HANDOFF_v4 predicted this exact break: an assertion written against a
+-- global that quietly became a per-track one, and now a positional one that
+-- had to become a measured one.
 local plotHalfX, plotHalfZ = Config.World.PlotSize.X / 2, Config.World.PlotSize.Z / 2
 for _, floor in ipairs(Config.Floors) do
-	check(Config.ButtonById[floor.requires] ~= nil,
-		("Floors.%s requires %q, which is not a button"):format(floor.id, tostring(floor.requires)))
-	-- unlocking a floor before the ground floor is finished is the single most
-	-- complained-about thing in multi-floor tycoons.
-	--
-	-- Measured against the FACTORY track, not the merged array. This used to
-	-- read `order >= #Config.Buttons - 1`, which was true only while there was
-	-- one track: the moment anything is appended after the factory, dropper10
-	-- stops being one of the last two rows and this fails — on a feature whose
-	-- flag is off, which is exactly the kind of breakage nobody goes looking
-	-- for.
-	local unlock = Config.ButtonById[floor.requires]
-	check(unlock.track == "factory",
-		("Floors.%s unlocks on the %s track; a floor is factory progression")
-			:format(floor.id, tostring(unlock.track)))
-	check(unlock.trackOrder >= #Config.Tracks.factory - 1,
-		("Floors.%s unlocks at factory step %d of %d — finish the ground floor first")
-			:format(floor.id, unlock.trackOrder, #Config.Tracks.factory))
+	local unlock = Config.ButtonById[floor.button]
+	check(unlock ~= nil,
+		("Floors.%s is built by %q, which is not a button"):format(floor.id, tostring(floor.button)))
+	if unlock then
+		check(unlock.kind == "Floor",
+			("Floors.%s is built by %s, which is a %s button — a floor needs a Floor button so the installer knows what it is")
+				:format(floor.id, unlock.id, tostring(unlock.kind)))
+		check(unlock.track == "factory",
+			("Floors.%s is bought on the %s track; a floor is factory progression")
+				:format(floor.id, tostring(unlock.track)))
+		-- Without a MiscButtons entry buttonPosition falls back to (0,0,0) and
+		-- says nothing about it: the button gets built at the plot origin, on
+		-- top of the belt.
+		check(Config.Layout.MiscButtons[unlock.id] ~= nil,
+			("Floors.%s's buy button %s has no Layout.MiscButtons position — it would be built at the plot origin, on the belt")
+				:format(floor.id, unlock.id))
+	end
 	-- headroom over the tallest thing the ground floor stands up (the vault
 	-- statue, ~13.5) plus a player
 	check(floor.height >= 18,
@@ -727,24 +772,46 @@ checkSpacing("UpgraderDist", L.UpgraderDist, leg2)
 -- THROUGHPUT: the belt has to physically fit the drops it carries. If the
 -- peak spawn rate times the transit time exceeds the drop cap, the belt runs
 -- bumper-to-bumper, drops shove each other, and the cap silently eats income.
-local peakRate = 0
-for _, def in ipairs(Config.Buttons) do
-	if def.kind == "Dropper" then
-		peakRate += 1 / def.dropRate
+--
+-- MaxDropsPerPlot is a WHOLE-PLOT budget — spawnDrop's counter is per plot, not
+-- per belt — so the cap is checked against the sum over every floor while the
+-- occupancy check stays per-belt, which is where jamming actually happens. This
+-- used to be one belt's arithmetic because there was only ever one belt whose
+-- machines were in Config; the mezzanine's dropper spent the same budget and
+-- was invisible here.
+local DROP_LENGTH = 1.5   -- longest variant, standing upright
+local groundId = Config.BeltPaths[1].id
+local totalInFlight = 0
+local beltLength, transit, inFlight = 0, 0, 0
+
+for _, path in ipairs(Config.BeltPaths) do
+	local pathRate = 0
+	for _, def in ipairs(Config.Buttons) do
+		if def.kind == "Dropper" and (def.path or groundId) == path.id then
+			pathRate += 1 / def.dropRate
+		end
+	end
+
+	local length = len(sub(path.collectorAt, path.points[#path.points]))
+	for leg = 1, #path.points - 1 do
+		length += len(sub(path.points[leg + 1], path.points[leg]))
+	end
+	local pathTransit = length / L.BeltSpeed
+	local pathInFlight = pathRate * pathTransit
+	totalInFlight += pathInFlight
+
+	check(pathInFlight * DROP_LENGTH <= length * 0.75,
+		("the %s belt would run at %.0f%% occupancy at peak — drops will jam into each other; raise Layout.BeltSpeed")
+			:format(path.id, pathInFlight * DROP_LENGTH / length * 100))
+
+	if path.id == groundId then
+		beltLength, transit, inFlight = length, pathTransit, pathInFlight
 	end
 end
-local runOffLen = len(sub(L.CollectorAt, L.BeltEnd))
-local beltLength = leg1 + leg2 + runOffLen
-local transit = beltLength / L.BeltSpeed
-local inFlight = peakRate * transit
-local DROP_LENGTH = 1.5   -- longest variant, standing upright
 
-check(inFlight <= Config.Economy.MaxDropsPerPlot,
-	("belt carries %.0f drops at peak but MaxDropsPerPlot is %d — the cap would silently eat income; raise BeltSpeed")
-		:format(inFlight, Config.Economy.MaxDropsPerPlot))
-check(inFlight * DROP_LENGTH <= beltLength * 0.75,
-	("belt would run at %.0f%% occupancy at peak — drops will jam into each other; raise Layout.BeltSpeed")
-		:format(inFlight * DROP_LENGTH / beltLength * 100))
+check(totalInFlight <= Config.Economy.MaxDropsPerPlot,
+	("the plot carries %.0f drops at peak across %d belts but MaxDropsPerPlot is %d — the cap would silently eat income; raise BeltSpeed or thin a dropper")
+		:format(totalInFlight, #Config.BeltPaths, Config.Economy.MaxDropsPerPlot))
 
 -- everything the belt places has to stay inside the plot
 local halfX, halfZ = Config.World.PlotSize.X / 2, Config.World.PlotSize.Z / 2
@@ -1378,6 +1445,68 @@ local rebirthMinutes = Config.Rebirth.BaseCost / endgameIncome / 60
 check(rebirthMinutes >= 4 and rebirthMinutes <= 40,
 	("first rebirth is %.1f min of endgame income; want 4-40"):format(rebirthMinutes))
 
+-- ── where the second floor lands ────────────────────────────────────────────
+--
+-- This replaces `unlock.trackOrder >= #Config.Tracks.factory - 1`, which said
+-- "at the end" in the only vocabulary it had: an index. Halfway is not a
+-- position in a list, it is a fraction of the minutes the list takes, so the
+-- check has to live down here where the curve exists.
+local function curveRow(id: string)
+	for _, row in ipairs(curve) do
+		if row.id == id then
+			return row
+		end
+	end
+	return nil
+end
+
+local buildMinutes = elapsed / 60
+local floorReport = nil
+for _, floor in ipairs(Config.Floors) do
+	local row = curveRow(floor.button)
+	if row then
+		local at = row.at / 60
+		local fraction = at / buildMinutes
+		check(fraction >= 0.35,
+			("Floors.%s opens at minute %.0f of a %.0f-minute build (%.0f%%) — before a third of the way in, the ground floor is not yet real progress to have finished with")
+				:format(floor.id, at, buildMinutes, fraction * 100))
+		check(fraction <= 0.65,
+			("Floors.%s opens at %.0f%% of the build; past two thirds it is in the stretch nobody reaches")
+				:format(floor.id, fraction * 100))
+		-- Roblox credits the first 60 minutes of a session and nothing after,
+		-- so a floor past 50 is a floor most players never see even once.
+		check(at <= 50,
+			("Floors.%s opens %.0f minutes in; past ~50 it is outside the session anyone actually plays")
+				:format(floor.id, at))
+
+		-- HOW MUCH THE FLOOR IS WORTH THE MINUTE YOU BUY IT. The upstairs
+		-- machines are refined by the plot's upgrade stack (see
+		-- Tycoon:refineryMultiplierFor), so this share is a constant for the
+		-- rest of the build rather than something that decays — which is the
+		-- entire reason for that decision, and the reason to keep measuring it.
+		local floorDps, groundDps = 0, 0
+		for _, def in ipairs(Config.Tracks.factory) do
+			if def.kind == "Dropper" then
+				local defRow = curveRow(def.id)
+				if defRow and defRow.at <= row.at + 1e-9 then
+					groundDps += def.dropValue / def.dropRate
+				end
+			end
+		end
+		for _, def in ipairs(Config.Tracks.factory) do
+			if def.kind == "Dropper" and def.path == floor.id then
+				floorDps += def.dropValue / def.dropRate
+			end
+		end
+		local share = floorDps / (groundDps + floorDps)
+		floorReport = ("floor %s:        opens at %.0f min (%.0f%% of build), worth %.0f%% of income")
+			:format(floor.id, at, fraction * 100, share * 100)
+		check(share >= 0.10 and share <= 0.30,
+			("Floors.%s's own machines are %.0f%% of plot income (want 10-30%%) — below that the floor is scenery, above it the ground floor stops mattering")
+				:format(floor.id, share * 100))
+	end
+end
+
 -- ── side-track pacing ───────────────────────────────────────────────────────
 -- A side track has no requirement into the factory, so PRICE is the only thing
 -- pacing it. That means "is this affordable" cannot be asked in the abstract —
@@ -1470,6 +1599,10 @@ print(("solo clear:        %.0fs with %s, %.0fs with %s (deadline %ds)")
 	:format(clearTop, topBat.name, clearStart, startBat.name, WV.MaxWaveTime))
 print(("belt:              %.0f studs, %.1fs transit, %.0f drops in flight at peak (%.0f%% full)")
 	:format(beltLength, transit, inFlight, inFlight * DROP_LENGTH / beltLength * 100))
+if floorReport then print(floorReport) end
+print(("plot drop budget:  %.0f in flight across %d belts, cap %d (%.0f%%)")
+	:format(totalInFlight, #Config.BeltPaths, Config.Economy.MaxDropsPerPlot,
+		totalInFlight / Config.Economy.MaxDropsPerPlot * 100))
 print(("first rebirth:     %.3g  (+%.0f min after full build)"):format(Config.Rebirth.BaseCost, rebirthMinutes))
 print(("rebirth pacing:    each one takes %.2fx as long as the last"):format(costRatio))
 print("\nprogression curve (minutes of grind per purchase):")

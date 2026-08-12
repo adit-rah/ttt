@@ -1,12 +1,18 @@
 --[[
-	FloorService.lua — the second-storey prototype.
+	FloorService.lua — the second storey.
 
-	A mezzanine deck over the BACK half of the plot, with its own dropper ->
-	belt -> collector loop and a pair of teleport pads. Gated on
-	Config.Prototypes.Floors; a no-op when the flag is off, and per plot it only
-	appears once that plot owns Config.Floors[1].requires — the last button of
-	the ground floor. "You buy floor 2 before you get anywhere near finishing
-	floor 1" is the single most complained-about thing in multi-floor tycoons.
+	A mezzanine deck over the BACK half of the plot, with its own belt and
+	collector and a pair of teleport pads. It appears when the plot buys
+	Config.Floors[1].button, which sits at roughly the halfway point of the
+	factory track.
+
+	NO LONGER A PROTOTYPE. It was gated on Config.Prototypes.Floors, and the
+	verifier asserts every prototype flag ships false — so graduating it meant
+	deleting the flag rather than flipping it. It also used to appear for FREE
+	the moment you owned dropper10, the last button of the ground floor, about
+	eighty minutes in. "You buy floor 2 before you get anywhere near finishing
+	floor 1" is the most complained-about thing in multi-floor tycoons, but the
+	answer to it is not "put it where nobody will ever see it".
 
 	Three decisions that look arbitrary and are not:
 
@@ -39,7 +45,6 @@ local FLOOR = Config.Floors and Config.Floors[1]
 -- built the mezzanine's belt in CODE, so none of the belt-path assertions ever
 -- saw it — not that its legs stay on the deck, not that its collector clears
 -- the teleport pad, not its outboard count. Two of those were wrong.
-local DROPPER_AT = 14        -- distance along leg 1 for the floor's dropper
 
 local COLORS = {
 	deck   = Color3.fromRGB(138, 88, 58),
@@ -71,30 +76,6 @@ end
 --- no new code on their side.
 local function deckPath()
 	return Config.floorBeltPath(FLOOR), FLOOR.belt.outboard
-end
-
---- The mezzanine's dropper. It mirrors the button that unlocked the floor, so
---- the upper floor rides the ground floor's balance instead of introducing a
---- second curve nobody has tuned — but at half the rate and twice the value,
---- for the same income out of half as many parts. Config.Economy.MaxDropsPerPlot
---- is a whole-plot budget and the modelled ground-floor peak already spends 58
---- of its 70.
----
---- SHOULD MOVE TO CONFIG: Config.Floors[1] has no dropper spec.
-local function dropperDef(pathIndex: number)
-	local unlock = Config.ButtonById[FLOOR.requires]
-	return {
-		id = "floor_" .. FLOOR.id,
-		name = "Mezzanine Tung",
-		kind = "Dropper",
-		variant = (unlock and unlock.variant) or "classic",
-		dropValue = ((unlock and unlock.dropValue) or 1) * 2,
-		dropRate = ((unlock and unlock.dropRate) or 1.5) * 2,
-		-- pins the machine to a leg of a specific floor's belt; see Tycoon:legOf
-		legIndex = 1,
-		legDistance = DROPPER_AT,
-		pathIndex = pathIndex,
-	}
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -290,14 +271,21 @@ function FloorService.build(tycoon)
 
 	FloorService.buildDeck(tycoon, entry.folder)
 
+	-- addBeltPath is idempotent by id and Tycoon.new already registered every
+	-- path in Config.BeltPaths, so this resolves rather than adds. It has to:
+	-- the mezzanine's buy buttons were built on first claim, and they took
+	-- their height from this path existing.
 	local def, outboard = deckPath()
 	local pathIndex = tycoon:addBeltPath(def, outboard)
 	tycoon:buildBelt(pathIndex, entry.folder)
 	tycoon:buildCollector(pathIndex, entry.folder, false)
 
-	local dropper = dropperDef(pathIndex)
-	local model, nozzle, legIndex = tycoon:buildDropperMachine(dropper, entry.folder)
-	tycoon:startDropLoop(dropper, model, nozzle, legIndex, pathIndex)
+	-- NO DROPPER HERE ANY MORE. It used to be synthesised in this file and
+	-- installed straight through buildDropperMachine/startDropLoop, bypassing
+	-- Tycoon:install — which is why it appeared in neither Config.ButtonById
+	-- nor `owned`, and why every income readout in the game under-reported a
+	-- plot that had one. It is Config.FactoryButtons.mezz_dropper1 now, an
+	-- ordinary Dropper row pinned to this path, installed like everything else.
 
 	FloorService.buildPads(tycoon, entry.folder)
 	entry.built = true
@@ -317,28 +305,33 @@ function FloorService.teardown(tycoon)
 end
 
 --- Builds or tears down a plot's floors to match what it owns right now.
+---
+--- Driven off ownedChanged rather than from the Floor button's installer,
+--- because the deck outlives the button: a release, a rebirth and a re-claim
+--- all have to rebuild or drop it and none of them go through install().
 function FloorService.sync(tycoon)
-	local unlocked = tycoon.owner ~= nil and tycoon.owned[FLOOR.requires] == true
+	local unlocked = tycoon.owner ~= nil and tycoon.owned[FLOOR.button] == true
 	local entry = state[tycoon]
 	local built = entry ~= nil and entry.built
 
 	if unlocked and not built then
 		FloorService.build(tycoon)
+		-- The roof was shaped for a plot with no floor in it. Reshape it now,
+		-- or the deck grows through it.
+		tycoon:refreshRoof()
 	elseif built and not unlocked then
 		FloorService.teardown(tycoon)
+		tycoon:refreshRoof()
 	end
 end
 
 function FloorService.start()
-	if not Config.Prototypes.Floors then
-		return
-	end
 	if not FLOOR then
-		warn("[Tung] Prototypes.Floors is on but Config.Floors is empty")
 		return
 	end
-	if not Config.ButtonById[FLOOR.requires] then
-		warn("[Tung] floor " .. tostring(FLOOR.id) .. " requires an unknown button: " .. tostring(FLOOR.requires))
+	local button = Config.ButtonById[FLOOR.button]
+	if not button then
+		warn("[Tung] floor " .. tostring(FLOOR.id) .. " is built by an unknown button: " .. tostring(FLOOR.button))
 		return
 	end
 
