@@ -497,14 +497,20 @@ function Tycoon:buildStoreyWalls(model: Instance, storeyId: string)
 			local tag = ("%s_%s_%d"):format(storeyId, side, index)
 			if segment.kind == "solid" then
 				wallBox(self, model, "Sill_" .. tag, extent, segment.from, segment.to, floorY, sill)
+				-- A BAY IS BUILT SOLID AND GLAZED LATER. `windows` is its own
+				-- purchase now (TODO.md item 3), and the alternative — leaving
+				-- the bay as a hole until it is bought — would mean a wall that
+				-- does not keep a raider out, which is the one thing `walls` is
+				-- sold on. So an unglazed bay is literally a piece of wall, and
+				-- buying the windows restyles it rather than filling it.
+				--
+				-- That also means the part count does not move when the glass
+				-- arrives, so Config.shellPartCount and the PartBudget are
+				-- measuring the same shell they always were.
 				for bay, span in ipairs(Config.wallBays(segment.from, segment.to)) do
-					local part = wallBox(self, model,
+					wallBox(self, model,
 						("%s_%s_%d"):format(span.kind == "pane" and "Pane" or "Pier", tag, bay),
 						extent, span.from, span.to, sill, head)
-					if span.kind == "pane" then
-						part.Material = Enum.Material.Glass
-						part.Transparency = S.Window.transparency
-					end
 				end
 				wallBox(self, model, "Head_" .. tag, extent, segment.from, segment.to, head, top)
 			else
@@ -532,13 +538,97 @@ function Tycoon:buildStoreyWalls(model: Instance, storeyId: string)
 			extent.from, extent.to, top, TRIM_SECTION, S.WallThickness / 2)
 	end
 
-	-- THE GATE LEAVES, hung off the face `opening.face` names. They live in this
-	-- model with the walls, so release() and rebirth() take them down with
-	-- everything else — which is why GateService checks a leaf's Parent before it
-	-- moves it, rather than holding a reference and trusting it.
-	for _, leaf in ipairs(self:gateLeafSpecs(storeyId)) do
-		newPart(model, leaf.name, leaf.size, leaf.closed, WALL_COLOR, Enum.Material.WoodPlanks)
+	-- THE TWO UPGRADES THIS STOREY MAY ALREADY HAVE BEEN SOLD.
+	--
+	-- `walls`, `gates` and `windows` are three purchases and an installer runs
+	-- once, so a storey built AFTER one of them was bought has to arrive already
+	-- carrying it — the same hole `refreshRoof` exists to plug, and the reason
+	-- FloorService owns the upper ring at all. The ground ring is built at
+	-- `walls`, so these are both no-ops there; the upper ring is built whenever
+	-- the deck lands, which is after all three.
+	self:applyStructureUpgrades(model, storeyId)
+end
+
+--- Whether this plot owns a `Structure` button of the given kind.
+---
+--- Derived from `owned` rather than stored, so it survives release, rebirth and
+--- re-claim for free — the same argument as Config.trackUnlocked. A plot that
+--- has been rebirthed has lost `walls` too, so there is no state where the glass
+--- outlives the wall it is set into.
+function Tycoon:hasStructure(structure: string): boolean
+	for id in pairs(self.owned) do
+		local def = Config.ButtonById[id]
+		if def and def.kind == "Structure" and def.structure == structure then
+			return true
+		end
 	end
+	return false
+end
+
+--- Turn a storey's solid bays into glass. Idempotent, and it adds no parts.
+function Tycoon:glazeStorey(model: Instance)
+	local glazed = 0
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") and part.Name:sub(1, 5) == "Pane_" then
+			part.Material = Enum.Material.Glass
+			part.Transparency = S.Window.transparency
+			glazed += 1
+		end
+	end
+	return glazed
+end
+
+--- Hang a storey's gate leaves, off the face `opening.face` names.
+---
+--- They live in the WALL's model rather than one of their own, so release() and
+--- rebirth() take them down with everything else — which is why GateService
+--- checks a leaf's Parent before it moves it rather than holding a reference and
+--- trusting it. Idempotent by name: `gates` can be replayed by assign() over a
+--- storey that already has them.
+function Tycoon:hangGateLeaves(model: Instance, storeyId: string)
+	local hung = 0
+	for _, leaf in ipairs(self:gateLeafSpecs(storeyId)) do
+		if not model:FindFirstChild(leaf.name, true) then
+			newPart(model, leaf.name, leaf.size, leaf.closed, WALL_COLOR, Enum.Material.WoodPlanks)
+			hung += 1
+		end
+	end
+	return hung
+end
+
+--- Bring one storey's ring up to whatever this plot has bought.
+function Tycoon:applyStructureUpgrades(model: Instance, storeyId: string)
+	if self:hasStructure("windows") then
+		self:glazeStorey(model)
+	end
+	if self:hasStructure("gates") then
+		self:hangGateLeaves(model, storeyId)
+	end
+end
+
+--- Every storey ring standing on this plot right now, as (model, storeyId).
+---
+--- A ring is found by its own trim bar rather than by a folder reference,
+--- because the two rings live in DIFFERENT folders and always have: the ground
+--- one is a `Structure_walls` model under `machines`, and the upper one is built
+--- by FloorService into the deck's folder so that the storey arrives and leaves
+--- as one object. `factoryFolders` is the registry both are in. This is the same
+--- lookup GateService does for a leaf, and it is here so that `gates` and
+--- `windows` do not have to learn where a storey lives.
+function Tycoon:eachStoreyRing(fn)
+	local found = 0
+	for _, storey in ipairs(S.Storeys) do
+		local marker = "Trim_" .. storey.id .. "_" .. S.Sides[1]
+		for _, folder in ipairs(self.factoryFolders) do
+			local part = folder:FindFirstChild(marker, true)
+			if part and part.Parent then
+				fn(part.Parent, storey.id)
+				found += 1
+				break
+			end
+		end
+	end
+	return found
 end
 
 Tycoon.INSTALLERS.Structure = function(self, def, silent)
@@ -553,6 +643,28 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 		-- this purchase happens around minute three, when there is nothing up there
 		-- to stand a wall on, and an installer never runs again.
 		self:buildStoreyWalls(model, S.Storeys[1].id)
+	elseif def.structure == "gates" or def.structure == "windows" then
+		-- ADDITIVE, AND ON EVERY RING THAT EXISTS — never a rebuild.
+		--
+		-- The obvious implementation is to re-emit the wall with the upgrade
+		-- included, and FloorService's header already argues at length against
+		-- exactly that: it would destroy the gate leaves GateService may be
+		-- mid-tween on and re-emit sixty parts that have not changed. Glass is a
+		-- material change on a bay that is already built and a leaf is a part
+		-- with nothing standing where it goes, so neither needs the wall touched.
+		--
+		-- `model` stays empty for these two and that is deliberate: the parts
+		-- belong to the ring they are part of, so a rebirth takes the glass down
+		-- with the wall rather than leaving panes floating in a plot with no
+		-- shell. The entry below still records the model so the object bookkeeping
+		-- is uniform.
+		self:eachStoreyRing(function(ring, storeyId)
+			if def.structure == "windows" then
+				self:glazeStorey(ring)
+			else
+				self:hangGateLeaves(ring, storeyId)
+			end
+		end)
 	elseif def.structure == "roof" then
 		self:buildRoofModel(model)
 	end

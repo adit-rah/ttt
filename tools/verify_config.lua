@@ -42,7 +42,7 @@ end
 
 -- installers that Tycoon.lua actually implements
 local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Floor = true, Power = true }
-local KNOWN_STRUCTURES = { walls = true, roof = true }
+local KNOWN_STRUCTURES = { walls = true, gates = true, windows = true, roof = true }
 
 local seenIds, dropperSlots, upgraderSlots = {}, {}, {}
 -- Per TRACK, not global. Prices only have to climb against the other rungs of
@@ -2813,6 +2813,50 @@ local function openingById(id)
 		end
 	end
 	return nil
+end
+
+-- ── the shell is THREE purchases, in one order ──────────────────────────────
+--
+-- TODO.md item 3 splits it into walls, then gates, then windows. All three are
+-- Structure rows on the factory track, so the loader derives the chain from
+-- table order — which means the ordering is real but nothing states it, and
+-- INVARIANTS.md's "table order IS dependency order" is marked [nothing] for
+-- exactly this reason. Moving a row is the way to get it wrong and no check
+-- refuses it.
+--
+-- These are those checks. Each names what the parts would be standing on.
+local structureOrder = {}
+for _, def in ipairs(Config.Tracks.factory) do
+	if def.kind == "Structure" then
+		structureOrder[def.structure] = def.trackOrder
+	end
+end
+for _, needs in ipairs({ { "gates", "walls" }, { "windows", "walls" } }) do
+	local later, earlier = needs[1], needs[2]
+	check(structureOrder[later] ~= nil,
+		("nothing on the factory track builds %q; INSTALLERS.Structure has a case for it that can never run"):format(later))
+	check(structureOrder[earlier] ~= nil,
+		("nothing on the factory track builds %q"):format(earlier))
+	if structureOrder[later] and structureOrder[earlier] then
+		check(structureOrder[later] > structureOrder[earlier],
+			("%q is bought at factory step %d and %q at step %d — %s is hung on the wall ring, so buying it first is parts attached to a building that is not there yet")
+				:format(later, structureOrder[later], earlier, structureOrder[earlier], later))
+	end
+end
+
+-- ...AND EVERY LEAF IS PAID FOR. An opening declares how many leaves it has and
+-- INSTALLERS.Structure hangs them from the `gates` purchase. Declare an opening
+-- with leaves and no gates button and the gateway is a hole forever, with the
+-- wall's own segment check still passing because the hole is exactly the shape
+-- the wall says it should be.
+do
+	local leaves = 0
+	for _, opening in ipairs(SH.Openings) do
+		leaves += opening.leaves or 0
+	end
+	check(leaves == 0 or structureOrder.gates ~= nil,
+		("Structure.Openings declares %d gate leaves and no factory button builds them; every opening would stay a hole and the wall spans would still tile perfectly")
+			:format(leaves))
 end
 
 --- An axis-aligned box for a span of one wall, in plan: `extent.axis` is the
