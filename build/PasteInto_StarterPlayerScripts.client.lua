@@ -1206,17 +1206,25 @@ __MODULES["Config"] = function()
 		-- doubled endgame income — the round that shipped the generator had to come
 		-- back and edit this number to keep its own comment true.
 		--
-		-- PriceRung = 4 means the pad costs what the 4th most expensive thing on
+		-- PriceRung = 6 means the pad costs what the 6th most expensive thing on
 		-- the spine costs, which buys a property no constant can:
 		--
 		--   the minute you can afford the rebirth is at most the minute you could
-		--   afford that rung, so the THREE rungs above it are provably still
+		--   afford that rung, so the FIVE rungs above it are provably still
 		--   unbought when the pad lights up.
 		--
 		-- That is "the session ends on a choice rather than on being finished",
 		-- guaranteed by construction rather than by luck, and it re-derives itself
 		-- under whatever prices the ladder lands on next.
-		PriceRung = 4,
+		--
+		-- IT WAS 4, AND IT MOVED BECAUSE THE SPINE GREW BY TWO. `mezz_line` and
+		-- `mezz_dropper1` are now the two most expensive things on it (TODO.md item
+		-- 5 puts the upstairs line after the whole ground floor), so every rank
+		-- below them shifted by two: at 4 this pad would have priced itself off
+		-- `upgrader6` instead of `dropper9` and the first rebirth would have slid
+		-- five minutes later for no reason anyone chose. 6 restores the rank the
+		-- number was chosen at.
+		PriceRung = 6,
 		CostGrowth = 3.4,            -- cost multiplier per rebirth
 		MultiplierPerRebirth = 2.25, -- payout multiplier is this ^ rebirths
 		MaxRebirths = 25,
@@ -1492,29 +1500,89 @@ __MODULES["Config"] = function()
 			blurb = "They know when you're coming.",
 		},
 		{
-			id = "windows", name = "Glazed Bays", price = 1700,
+			id = "windows", name = "Glazed Bays", price = 1900,
 			kind = "Structure", structure = "windows",
 			blurb = "Let the neighbours watch.",
 		},
-		-- THE SECOND FLOOR, and it is what the walls just made room for.
+		{
+			id = "dropper4", name = "Golden Tung", price = 2600,
+			kind = "Dropper", slot = 4, variant = "golden",
+			dropValue = 40, dropRate = 1.4,
+			blurb = "Sahur, but expensive.",
+		},
+		{
+			id = "upgrader2", name = "Sahur Bat Upgrader", price = 7800,
+			kind = "Upgrader", slot = 2, variant = "golden",
+			multiplier = 1.85,
+			blurb = "Whacks value into them. x1.85",
+		},
+		{
+			id = "dropper5", name = "Crimson Tung", price = 18000,
+			kind = "Dropper", slot = 5, variant = "crimson",
+			dropValue = 150, dropRate = 1.3,
+			blurb = "It has seen things.",
+		},
+		{
+			id = "belt1", name = "Belt Overdrive", price = 66000,
+			kind = "Belt", speedBonus = 9,
+			blurb = "Conveyor goes brrrr.",
+		},
+		{
+			id = "upgrader3", name = "Tralalero Refiner", price = 72000,
+			kind = "Upgrader", slot = 3, variant = "crimson",
+			multiplier = 2.1,
+			blurb = "Sharks approve. x2.1",
+		},
+		{
+			id = "dropper6", name = "Neon Tung", price = 152000,
+			kind = "Dropper", slot = 6, variant = "neon",
+			dropValue = 620, dropRate = 1.25,
+			blurb = "3am energy drink sahur.",
+		},
+		{
+			id = "roof", name = "Sahur Roof + Sign", price = 690000,
+			kind = "Structure", structure = "roof",
+			blurb = "Now it's a real business.",
+		},
+		{
+			id = "dropper7", name = "Void Tung", price = 800000,
+			kind = "Dropper", slot = 7, variant = "void",
+			dropValue = 2600, dropRate = 1.2,
+			blurb = "tung from beyond.",
+		},
+		{
+			id = "upgrader4", name = "Void Furnace", price = 3900000,
+			kind = "Upgrader", slot = 4, variant = "void",
+			multiplier = 2.4,
+			blurb = "Melts them into money. x2.4",
+		},
+		-- THE SECOND FLOOR, and it is the building growing rather than the
+		-- enclosure it grew inside.
 		--
-		-- It has moved twice. It began as a free reward for owning dropper10 — the
-		-- very last button, eighty minutes in. #29 made it a purchase at the
-		-- halfway mark, minute forty-one. Both of those put the one piece of new
-		-- geography in the stretch of the build that GROWTH-TODO item 1 says counts
-		-- for nothing, and #29's own note conceded the floor then stayed at minute
-		-- 41 while everything around it got faster.
+		-- IT HAS MOVED THREE TIMES AND THIS IS THE FIRST ONE THAT IS ABOUT THE
+		-- FLOOR. It began as a free reward for owning dropper10 — the very last
+		-- button, eighty minutes in. #29 made it a purchase at the halfway mark.
+		-- #36 moved it to minute six, and said so plainly: "the deciding fact is
+		-- not about the floor at all" — Config.TrackUnlock gated the weapons AND
+		-- armour cabinets on this button, so parking the floor parked both side
+		-- ladders behind it, and moving one button fixed three.
 		--
-		-- The deciding fact is not about the floor at all: Config.TrackUnlock gates
-		-- the weapons AND armour cabinets on this button. Parking it at the halfway
-		-- mark parked both side ladders behind it, which is how the verifier ended
-		-- up printing "opens at 41 min with 4 of 5 rungs already affordable" — a
-		-- cabinet you empty in one pass because you spent forty minutes able to
-		-- afford it and unable to reach it. Moving one button fixes three ladders.
+		-- Round 8 moved that gate to `dropper3` and both cabinets to the ground
+		-- floor (TODO.md item 2). The floor gates nothing now. Every argument that
+		-- pinned it to minute six was an argument about the cabinets, and it left
+		-- with them — so TODO.md item 3 gets to ask the question that was never
+		-- actually asked, which is where a second storey belongs on its own merits.
 		--
-		-- So it lands right after the walls, around minute six, for 1750 rather
-		-- than eight million. You buy the enclosure, then you buy the storey it
-		-- encloses, and the ladder up stands by the gateway you walk in through.
+		-- AFTER THE ROOF, and that is not a preference. FloorService stands this
+		-- storey's own wall ring up and nothing else ever roofs it, so on the
+		-- shipped ladder — floor at six, roof at twenty-seven — every plot spent
+		-- twenty-one minutes wearing upper walls open to the sky. Nobody had named
+		-- it, and putting the floor after the roof makes it unreachable rather than
+		-- unlikely.
+		--
+		-- Two thirds of the way in, at 67%: after the shell, after the belt
+		-- overdrive and after the four ground droppers that follow it, with enough
+		-- session left to buy the line for it and a machine to stand on that.
 		--
 		-- Two buttons, not one. The deck is the purchase; the machine that stands
 		-- on it is the next purchase, and it is an ORDINARY Dropper row pinned to
@@ -1522,126 +1590,81 @@ __MODULES["Config"] = function()
 		-- can buy things rather than scenery with a free dropper on it — and it is
 		-- why the income readout can see it, which the free one never could.
 		{
-			id = "floor2", name = "The Mezzanine", price = 1750,
+			id = "floor2", name = "The Mezzanine", price = 9300000,
 			kind = "Floor", floor = "mezzanine",
 			blurb = "A second storey. Empty, for now.",
+		},
+		{
+			id = "dropper8", name = "Eclipse Tung", price = 10000000,
+			kind = "Dropper", slot = 8, variant = "eclipse",
+			dropValue = 11000, dropRate = 1.15,
+			blurb = "Sahur at the end of the night.",
+		},
+		{
+			id = "upgrader5", name = "Eclipse Ascension", price = 41000000,
+			kind = "Upgrader", slot = 5, variant = "eclipse",
+			multiplier = 2.8,
+			blurb = "Ascends the tung. x2.8",
+		},
+		{
+			id = "dropper9", name = "Galaxy Tung", price = 115000000,
+			kind = "Dropper", slot = 9, variant = "galaxy",
+			dropValue = 48000, dropRate = 1.1,
+			blurb = "tung tung tung across the stars.",
+		},
+		{
+			id = "upgrader6", name = "Tung Singularity", price = 650000000,
+			kind = "Upgrader", slot = 6, variant = "galaxy",
+			multiplier = 3.4,
+			blurb = "Do not look directly at it. x3.4",
+		},
+		{
+			id = "dropper10", name = "INFINITY TUNG TUNG TUNG SAHUR", price = 2200000000,
+			kind = "Dropper", slot = 10, variant = "infinity",
+			dropValue = 240000, dropRate = 1.0,
+			blurb = "TUNG TUNG TUNG TUNG TUNG TUNG SAHUR",
 		},
 		{
 			-- THE UPSTAIRS LINE, AND IT IS NOT THE STOREY. TODO.md items 4 and 5:
 			-- the mezzanine arrives barren — deck, ladder and its own wall ring —
 			-- and the conveyor on it is a later purchase. Placed here in the table
 			-- so the derived chain runs floor2 -> mezz_line -> mezz_dropper1; the
-			-- rungs between them are what item 5's "after all of first floor" moves,
-			-- and that reorder is its own change.
+			-- AFTER THE WHOLE GROUND FLOOR, which is TODO.md item 5 exactly: the
+			-- last thing on the ladder, past dropper10. The storey is bought at 67%
+			-- of the build and stands barren for the fifteen minutes it takes to
+			-- afford this — which is the shape item 4 asks for, and the reason the
+			-- line's own buy pad stands upstairs where the emptiness is.
 			--
 			-- `kind = "Line"` rather than a second Floor row: verify_config refuses
 			-- two Floor buttons naming one floor, and it is right to — Floors[n].button
 			-- is read as "the button that builds this storey" by the rebirth perks
 			-- and by FloorService. A named kind also gives every assertion below
 			-- something to be about.
-			id = "mezz_line", name = "The Upstairs Line", price = 1900,
+			id = "mezz_line", name = "The Upstairs Line", price = 10000000000,
 			kind = "Line", floor = "mezzanine",
 			blurb = "A conveyor for the empty storey.",
 		},
 		{
-			id = "mezz_dropper1", name = "Mezzanine Tung", price = 2000,
+			id = "mezz_dropper1", name = "Mezzanine Tung", price = 12000000000,
 			kind = "Dropper", variant = "eclipse",
 			-- `path` is an id, not an index: pathIndex is assigned at runtime by
 			-- addBeltPath and Config cannot know it. legIndex/legDistance pin the
 			-- machine to a leg of that path, exactly as Config.Layout.DropperDist
 			-- pins one to a leg of the ground floor's.
 			path = "mezzanine", legIndex = 1, legDistance = 14,
-			-- dropValue was 1400, for a machine bought at minute forty-four beside
-			-- seven ground droppers. At minute eight it stands beside three, worth
-			-- 11.9 raw dps between them, and 1400 would have made the upstairs line
-			-- 98% of the plot's income the second it was bought — the ground floor
-			-- would have stopped being the thing you were playing. At 12 it is a
-			-- shade under dropper3 and a third of plot income, which is a peer of
-			-- the newest ground machine rather than a replacement for all of them.
-			dropValue = 12, dropRate = 2.0,
+			-- dropValue HAS BEEN 1400, THEN 12, AND IS NOW 160000, and all three
+			-- were the same decision made against a different neighbour. It is
+			-- always priced so the upstairs line is a PEER of the ground floor as it
+			-- stands when the line opens — a third of plot income, not a decoration
+			-- on top of it and not a replacement for it.
+			--
+			-- 1400 was for a machine bought at minute forty-four beside seven ground
+			-- droppers. 12 was for minute eight beside three. This one stands beside
+			-- all ten, at minute fifty, and the verifier measures the share at the
+			-- LINE's purchase rather than the deck's — which it could not do while
+			-- the two were one button.
+			dropValue = 160000, dropRate = 1.0,
 			blurb = "The upstairs line.",
-		},
-		{
-			id = "dropper4", name = "Golden Tung", price = 3250,
-			kind = "Dropper", slot = 4, variant = "golden",
-			dropValue = 40, dropRate = 1.4,
-			blurb = "Sahur, but expensive.",
-		},
-		{
-			id = "upgrader2", name = "Sahur Bat Upgrader", price = 9000,
-			kind = "Upgrader", slot = 2, variant = "golden",
-			multiplier = 1.85,
-			blurb = "Whacks value into them. x1.85",
-		},
-		{
-			id = "dropper5", name = "Crimson Tung", price = 21000,
-			kind = "Dropper", slot = 5, variant = "crimson",
-			dropValue = 150, dropRate = 1.3,
-			blurb = "It has seen things.",
-		},
-		{
-			id = "belt1", name = "Belt Overdrive", price = 68000,
-			kind = "Belt", speedBonus = 9,
-			blurb = "Conveyor goes brrrr.",
-		},
-		{
-			id = "upgrader3", name = "Tralalero Refiner", price = 82000,
-			kind = "Upgrader", slot = 3, variant = "crimson",
-			multiplier = 2.1,
-			blurb = "Sharks approve. x2.1",
-		},
-		{
-			id = "dropper6", name = "Neon Tung", price = 165000,
-			kind = "Dropper", slot = 6, variant = "neon",
-			dropValue = 620, dropRate = 1.25,
-			blurb = "3am energy drink sahur.",
-		},
-		{
-			id = "roof", name = "Sahur Roof + Sign", price = 760000,
-			kind = "Structure", structure = "roof",
-			blurb = "Now it's a real business.",
-		},
-		{
-			id = "dropper7", name = "Void Tung", price = 900000,
-			kind = "Dropper", slot = 7, variant = "void",
-			dropValue = 2600, dropRate = 1.2,
-			blurb = "tung from beyond.",
-		},
-		{
-			id = "upgrader4", name = "Void Furnace", price = 4500000,
-			kind = "Upgrader", slot = 4, variant = "void",
-			multiplier = 2.4,
-			blurb = "Melts them into money. x2.4",
-		},
-		{
-			id = "dropper8", name = "Eclipse Tung", price = 11000000,
-			kind = "Dropper", slot = 8, variant = "eclipse",
-			dropValue = 11000, dropRate = 1.15,
-			blurb = "Sahur at the end of the night.",
-		},
-		{
-			id = "upgrader5", name = "Eclipse Ascension", price = 48000000,
-			kind = "Upgrader", slot = 5, variant = "eclipse",
-			multiplier = 2.8,
-			blurb = "Ascends the tung. x2.8",
-		},
-		{
-			id = "dropper9", name = "Galaxy Tung", price = 140000000,
-			kind = "Dropper", slot = 9, variant = "galaxy",
-			dropValue = 48000, dropRate = 1.1,
-			blurb = "tung tung tung across the stars.",
-		},
-		{
-			id = "upgrader6", name = "Tung Singularity", price = 820000000,
-			kind = "Upgrader", slot = 6, variant = "galaxy",
-			multiplier = 3.4,
-			blurb = "Do not look directly at it. x3.4",
-		},
-		{
-			id = "dropper10", name = "INFINITY TUNG TUNG TUNG SAHUR", price = 2800000000,
-			kind = "Dropper", slot = 10, variant = "infinity",
-			dropValue = 240000, dropRate = 1.0,
-			blurb = "TUNG TUNG TUNG TUNG TUNG TUNG SAHUR",
 		},
 	}
 
@@ -1834,22 +1857,22 @@ __MODULES["Config"] = function()
 	-- and a save that somehow holds rung 3 without rung 2 lands on a defined value.
 	Config.PowerButtons = {
 		{
-			id = "power1", name = "Diesel Generator", price = 17500,
+			id = "power1", name = "Diesel Generator", price = 14000,
 			kind = "Power", factor = 1.19, variant = "golden",
 			blurb = "The whole line runs 19% faster.",
 		},
 		{
-			id = "power2", name = "Twin Turbine", price = 650000,
+			id = "power2", name = "Twin Turbine", price = 550000,
 			kind = "Power", factor = 1.42, variant = "crimson",
 			blurb = "The whole line runs 42% faster.",
 		},
 		{
-			id = "power3", name = "Sahur Reactor", price = 3600000,
+			id = "power3", name = "Sahur Reactor", price = 3000000,
 			kind = "Power", factor = 1.68, variant = "void",
 			blurb = "The whole line runs 68% faster.",
 		},
 		{
-			id = "power4", name = "Tung Fusion Core", price = 260000000,
+			id = "power4", name = "Tung Fusion Core", price = 400000000,
 			kind = "Power", factor = 2.00, variant = "infinity",
 			blurb = "Double production. Droppers and belt alike.",
 		},
