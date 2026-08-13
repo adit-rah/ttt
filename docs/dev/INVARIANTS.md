@@ -196,13 +196,40 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **`Lighting.Technology` is not script-writable at runtime.** It is set in the Rojo project
   file and the runtime assignment is wrapped in `pcall` so a paste-in install does not die
   on boot. `[nothing]`
+- **AN ENCLOSED STOREY NEEDS REAL FIXTURES, AND THEY ARE `SurfaceLight` ON THE BOTTOM FACE.**
+  `Ambient` is black and the mezzanine deck spans wall face to wall face, so from the minute
+  the storey lands the ground floor has no sky — and the wall's neon "light strip" is
+  `Material.Neon`, which illuminates nothing. Every fixture runs `Shadows = false`, and a
+  Roblox light with shadows off **ignores occluders entirely**: a `PointLight` under the deck
+  would shine through a 1.6-stud slab onto the floor above. A `SurfaceLight` emits from one
+  face into a cone and cannot. `[assert]`
+- **Roblox CLAMPS a light's `Range` at 60 and says nothing about it,** so a larger number
+  reads as set in the source and is not. `[assert]`
+- **The grid has to reach the corners, and that is sampled rather than reasoned about.**
+  "The fixtures are inside the room" says nothing about the room being lit; drop `rows` and
+  the back of the plot goes dark with every containment check still passing. The darkest
+  floor sample must sit within 80% of a fixture's range — which is the check that chose the
+  shipped 3x4, because two columns leave the middle of the back wall 47 studs from either of
+  them. `[assert]`
 
 ### The belt
 
 - **Nothing collidable may sit near the belt except the running surface.** Drops are driven
   by a `LinearVelocity` in Plane mode, which pins lateral velocity to zero, so they cannot
-  drift off and rails were never load-bearing. Trim, end cap, turn trigger, dropper arm,
-  spout, nozzle and upgrader beam are all `CanCollide = false`. `[nothing]`
+  drift off and rails were never load-bearing. End cap, turn trigger, dropper arm, spout,
+  nozzle, upgrader beam and both guard rails are all `CanCollide = false`. `[nothing]`
+- **A GUARD RAIL IS A RUN ON ONE LEG, SET BACK FROM BOTH OF THAT LEG'S ENDS.** The rails
+  that shipped once ran each leg's FULL length, and every leg's surface deliberately
+  overruns its bend by half a belt width — so leg 2's inboard rail crossed leg 1's path and
+  vice versa: two solid walls across the conveyor plus an 11x11 block on the bend, which is
+  what the drops were piling up against. `Layout.BeltGuard.corner` is the whole of the fix.
+  `[assert]` a leg's rail box may not overlap any OTHER leg's running surface, corner
+  overrun included; setting `corner` to 0 reproduces the original defect verbatim.
+- **`Config.beltHalfWidth()` is the only statement of how far the belt reaches.** It was
+  `width + 1.2` in `Belt.lua` and a mirrored `BELT_BASE_PROUD = 1.2` in the verifier, and
+  the two agreeing was luck — that coupling is what put the mezzanine's hatch guard 0.1
+  studs inside the belt base while every check reported a stud of daylight. It carries the
+  rails too, so every clearance check measures the real object. `[assert]`
 - **Overhead parts need real headroom over the tallest variant standing on the belt**
   (infinity, 2.23 studs; current minimum clearance 0.7). `[nothing]`
 - **Machines must be spaced at least their own footprint apart along a leg**, and every
@@ -273,11 +300,39 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   is an additive term against a multiplicative curve — 17% of plot income on purchase, 0.02%
   by the end. `refineryMultiplierFor` already returns 1 for a path with its own upgraders.
   `[nothing]` for the mechanism; the income share it produces is asserted below.
-- **The floor is EARLY BUT NOT FIRST**, and v5's "the floor is the halfway mark" is
-  superseded. It is the purchase straight after `walls`, around minute six: anchored to
-  `walls` *by name* plus a 6–20% band, with a 10-minute deadline because it gates three
-  ladders (itself, weapons, armour) — the question stopped being "inside the session" and
-  became "with a session left after it". `[assert]` three checks, each naming its own defect.
+- **The floor is LATE, AFTER THE ROOF, and it gates nothing.** v5's "halfway mark" and v7's
+  "early but not first" are both superseded, and the second one only ever held because
+  `Config.TrackUnlock` gated both cabinets on this button — #36 said so in its own words.
+  Round 8 moved that gate to `dropper3`, so every argument for an early floor left with the
+  cabinets. Anchored to `roof` *by name* plus a 50–80% band. The 10-minute deadline is
+  DELETED rather than retuned: its stated reason was "it gates both cabinets", and an
+  assertion whose argument is false is worse than none. `[assert]` three checks.
+- **The anchor is `roof` and not `walls`, and that is a fix rather than a translation.**
+  `FloorService` stands the upper storey's own wall ring up and nothing else ever roofs it,
+  so a floor bought before the roof leaves every plot wearing upper walls open to the sky —
+  twenty-one minutes of it on the shipped ladder, and nobody had named it. `[assert]`
+- **The deck and the LINE on it are two purchases.** `Floors[n].button` buys the storey;
+  `Floors[n].lineButton` buys the conveyor and the hopper. The storey arrives barren.
+  `Config.floorLineBuilt` is sticky and derived, for the same reason `trackUnlocked` is: a
+  save written before the split owns `mezz_dropper1` and no `mezz_line`, and installing that
+  dropper onto a path with no conveyor drops its output through the deck. `[assert]` the
+  ordering and that nothing pinned to the path precedes the line; `[spec]` the stickiness.
+- **A machine on a belt waits for the BELT; a pad on a deck waits for the DECK.**
+  `Tycoon:floorBuiltFor` used to ask one question for both, and its own comment flagged that
+  the armoury's nine pads were correct only by the coincidence that `TrackUnlock` named the
+  button that built the deck. Round 8 broke that coincidence in both directions. `[spec]`
+- **The floor's income share is measured when its LINE opens, not when the deck is bought.**
+  It read `defRow.at <= row.at` against the deck and then counted every dropper pinned to the
+  path whenever it was bought — harmless while they were one purchase, and afterwards a check
+  whose lower bound fails on a correct build and whose upper bound can never fail at all.
+  `[assert]` 25–45%.
+- **The storey takes 3–10 seconds to arrive, in contiguous stages, ladder last.** A gap
+  between stages reads as a hitch rather than as building; the ladder is last because the
+  climb must not open until there is a floor at the top of it; the pieces DESCEND because a
+  slab rising from y = 0 sweeps through every player on the ground floor and Roblox ejects or
+  wedges them. A rebuild on release, rebirth or re-claim is instant — the animation is a
+  reward for a purchase, not a loading screen. `[assert]` the table; `[nothing]` that the
+  builder honours it, beyond a boot-time warn that the stage ids match.
 - **The floor's income share is measured at the moment of purchase**, so the band moved when
   its position did: 25–45% against three owned droppers, not 10–30% against seven.
   `mezz_dropper1.dropValue` is 12 for this reason and not 1400 — at 1400 the upstairs line
@@ -460,9 +515,34 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   (a side track gating a side track can deadlock), and the factory itself cannot be gated.
   `[assert]` four checks.
 - **The cabinet gate is STICKY and derived**: owning any rung of a track counts as having it
-  open. Rebirth wipes the factory — and so `floor2` — while keeping weapons and armour, so
-  without that clause your first rebirth deletes both cabinets and leaves the shelf displays
-  and the granted bat standing. `[nothing]`
+  open. Rebirth wipes the factory — and so the gate button — while keeping weapons and
+  armour, so without that clause your first rebirth deletes both cabinets and leaves the
+  shelf displays and the granted bat standing. `[nothing]`
+- **The gate is `dropper3`, and the cabinets stand on the GROUND floor.** It was `floor2`
+  for two rounds and that was only ever a proxy — the cases stood on the deck, so the deck's
+  button was the thing that could open them. With them downstairs the coupling has no
+  argument behind it. `[assert]` the gate opens inside the opening minutes.
+- **A cabinet column is not a misc column, and `Layout.CabinetSlotSpacing` says so.** One
+  constant policed both, which is one constant doing two jobs: the misc column is five
+  unrelated purchases in a line down an open floor, and a cabinet column is nine pads that
+  are deliberately one object in front of one case. The pair check takes the STRICTER of the
+  two. `[assert]`
+- **No row may restate the chain the loader derives.** The oldest `[nothing]` in this file,
+  and it had a shipped defect behind it: every row used to restate its own requirement, and
+  the restating hid a fork that made the mezzanine a branch you could skip entirely. Now
+  `[assert]` — the chain must be exactly the table order, checked as "requires equals the row
+  above" because the loader has filled the field in by the time the verifier runs.
+- **THE SHELL IS THREE PURCHASES, IN ONE ORDER.** `walls` -> `gates` -> `windows`, all
+  `Structure` rows on one track, so the ordering is derived from table order and nothing else
+  stated it. The wall arrives SOLID: an unglazed bay is a piece of wall, not a hole, because
+  a purchase called "Plot Walls" that does not keep a raider out is not walls. Glazing is
+  therefore a material change and the part count does not move between the three. `[assert]`
+  the order, and that every declared gate leaf is paid for by a `gates` button.
+- **`gates` and `windows` ADD to the ring that is standing; they never rebuild it.** A
+  rebuild would destroy the gate leaves `GateService` may be mid-tween on and re-emit sixty
+  parts that have not changed — the argument `FloorService`'s header already makes about the
+  upper walls. Their parts live in the ring's own model, so a rebirth takes the glass down
+  with the wall. `[nothing]`
 - **Every button must be reachable, every bat and armour tier must be granted by exactly one
   button, and armour tier 1 must grant nothing** (it is the bare humanoid you spawn as, which
   is what keeps the raider-damage assertions honest). `[assert]`
@@ -953,8 +1033,10 @@ times in `verify.py`):
 - The mezzanine's refinery multiplier: the income-share band is asserted, the mechanism that
   produces it is not.
 - Non-square pad edge strips reading both `PlotSize` halves.
-- A hand-typed `requires` on a factory row — the loader derives the chain, and nothing refuses
-  a restatement, which is exactly how the mezzanine became a dead-end branch.
+- ~~A hand-typed `requires` on a factory row~~ — **CLOSED in round 8.** The check is
+  "the chain is exactly the table order", written as `requires` equals the row above,
+  because the loader has filled the field in by the time the verifier runs. Round 8 moved
+  six rows and added three, which is what finally made it worth the twenty lines.
 
 **A runtime spec would catch these** (the module already executes under the harness):
 
