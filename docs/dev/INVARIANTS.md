@@ -756,6 +756,14 @@ defects in the same file.
 - **Do not re-apply the top inset.** `IgnoreGuiInset = false` already pushes the ScreenGui
   below the topbar; subtracting `GetGuiInset()` again is the classic double-inset bug.
   `[nothing]`
+- **`GuiService.TopbarInset` is not a safe area and nothing reads it.** It is the strip left
+  over for CUSTOM topbar buttons, so its `Min.X` sits past Roblox's own menu and chat buttons —
+  165 px on an ordinary desktop. Read as "the only reading of the side safe area available to a
+  LocalScript" and applied as a full-height gutter, it pushed the whole left column 191 px into
+  the screen on every device, to clear an obstruction inside a strip `IgnoreGuiInset = false`
+  had already put the entire layer below. The side gutter comes from `GetGuiInset().topLeft.X`,
+  which is 0 on a desktop and the display cutout on a phone. `[spec]` — `hud_spec.lua` builds
+  two clients whose topbars differ only in `Min.X` and asserts their left padding is equal.
 - **`Util.abbreviate` trims trailing zeros only past a decimal point.** Trimming
   unconditionally turned `320` into `32`, so 320K rendered as 32K. `[nothing]`
 - **Every model, face and UI element is generated in code, and every referenced asset is an

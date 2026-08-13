@@ -968,7 +968,7 @@ local function applyViewport()
 	-- out not to scale UIPadding the way it scales everything else, this errs
 	-- generous (1/0.62 is a wider gutter, never a narrower one), which is the
 	-- direction a guess about a notch should be wrong in.
-	local insets = UiKit.safeInsets(viewport)
+	local insets = UiKit.safeInsets()
 	rootPadding.PaddingLeft = UDim.new(0, math.round(insets.left / scale))
 	rootPadding.PaddingRight = UDim.new(0, math.round(insets.right / scale))
 	rootPadding.PaddingBottom = UDim.new(0, math.round(insets.bottom / scale))

@@ -362,6 +362,10 @@ end
 --- The gutter, in PHYSICAL pixels, the persistent HUD should keep clear on each
 --- edge: notch, home indicator, rounded corners.
 ---
+--- Takes no viewport. It took one, to measure a right-hand inset off
+--- GuiService.TopbarInset's far edge; that whole reading is gone — see the note
+--- at the bottom of this function for what it actually measured.
+---
 --- WHAT IS CONFIDENT AND WHAT IS NOT. GuiService:GetGuiInset() returns two
 --- Vector2s and has been stable for years, so it is read directly. Everything
 --- else here is newer surface that a given client may not have, so it is
@@ -372,31 +376,56 @@ end
 --- IgnoreGuiInset = false, so the engine has ALREADY pushed the whole layer
 --- below the topbar. Adding GetGuiInset().Y on top of that is the classic
 --- double-inset bug and costs 36 design pixels of screen for nothing.
-function UiKit.safeInsets(viewport: Vector2)
+function UiKit.safeInsets()
 	local pad = UI.SafeAreaPad
 	local insets = { left = pad, right = pad, top = pad, bottom = pad }
 
-	-- topLeft is the inset the ScreenGui already applied; only bottomRight is
-	-- news, and on a phone with a home indicator it is the news that matters.
-	local ok, _topLeft, bottomRight = pcall(function()
+	-- GetGuiInset's two corners answer two different questions.
+	--
+	-- topLeft.Y is the topbar, which the ScreenGui has ALREADY been pushed below
+	-- (see the note above) and which must not be counted twice. topLeft.X is
+	-- something else entirely: it is how far in from the left the usable area
+	-- starts, which is zero on every desktop and is the DISPLAY CUTOUT on a
+	-- notched phone held in landscape. bottomRight is the home indicator, and on
+	-- a phone that has one it is the news that matters.
+	--
+	-- The X terms err outward on purpose. If a client turns out to apply the
+	-- side inset to the ScreenGui itself, this double-counts it and the cost is a
+	-- gutter one notch too wide — the direction Config.UI.SafeAreaPad's comment
+	-- says a guess about a cutout should be wrong in.
+	local ok, topLeft, bottomRight = pcall(function()
 		return GuiService:GetGuiInset()
 	end)
+	if ok and typeof(topLeft) == "Vector2" then
+		insets.left += math.max(0, topLeft.X)
+	end
 	if ok and typeof(bottomRight) == "Vector2" then
 		insets.right += math.max(0, bottomRight.X)
 		insets.bottom += math.max(0, bottomRight.Y)
 	end
 
-	-- TopbarInset is a Rect describing where the CoreUI topbar actually sits.
-	-- In landscape on a notched phone its left edge is pushed in past the
-	-- notch, which is the only reading of the SIDE safe area available to a
-	-- LocalScript. Guarded because it does not exist on every client.
-	local okBar, bar = pcall(function()
-		return GuiService.TopbarInset
-	end)
-	if okBar and typeof(bar) == "Rect" and bar.Width > 0 then
-		insets.left = math.max(insets.left, bar.Min.X + pad)
-		insets.right = math.max(insets.right, viewport.X - bar.Max.X + pad)
-	end
+	-- GuiService.TopbarInset IS NOT READ, AND THAT IS THE POINT OF THIS COMMENT.
+	--
+	-- It was, on the argument that "in landscape on a notched phone its left edge
+	-- is pushed in past the notch, which is the only reading of the SIDE safe
+	-- area available to a LocalScript":
+	--
+	--     insets.left = math.max(insets.left, bar.Min.X + pad)
+	--
+	-- That is not what the Rect measures. TopbarInset is the strip left over for
+	-- CUSTOM topbar buttons, so its left edge sits past Roblox's OWN menu and
+	-- chat buttons — 165 physical pixels in on the desktop this was found on, and
+	-- nothing to do with a notch. Applied as a full-height gutter it pushed the
+	-- entire left column 191 px inside the screen, on every device, to clear an
+	-- obstruction that lives in a strip `IgnoreGuiInset = false` has already put
+	-- the whole layer below. It cost about a sixth of the screen's width and it
+	-- looked deliberate.
+	--
+	-- The notch case it was reaching for is real and is covered twice over: the
+	-- ScreenGui asks for Enum.ScreenInsets.CoreUISafeInsets, which is the device
+	-- safe area, and topLeft.X above is the same number read a second way. A
+	-- top-strip measurement is not a side gutter, and there is no third reading
+	-- to go looking for.
 
 	return insets
 end
