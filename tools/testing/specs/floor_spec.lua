@@ -1106,6 +1106,46 @@ T.spec("a pad on the deck waits for the deck, and a pad on the belt waits for th
 	t:isTrue(pad({}, "floor2"), "the button that buys the storey is waiting on the storey")
 end)
 
+T.spec("the storey's pad STANDS while the roof gate is shut, and still cannot be bought", function(t)
+	-- TWO DIFFERENT QUESTIONS ABOUT THE SAME BUTTON, and the whole design of
+	-- Config.ButtonUnlock lives in the gap between them.
+	--
+	-- floorBuiltFor asks "is there anything under this pedestal", and for
+	-- `floor2` the answer is yes — it stands on the ground floor at the near end
+	-- of the misc column, and it must go on standing whether or not the roof is
+	-- bought. A false answer here would unparent the pad and leave a gap in a
+	-- line of six that reads as purchase order.
+	--
+	-- requirementsMet asks "may this be bought", and the roof gate belongs in
+	-- that one and only that one. The pad is therefore visible, dimmed and
+	-- inert — which is exactly the state a preview pad is already built to be,
+	-- and the reason the gate was deliberately kept out of refreshButtons's
+	-- `standing` term.
+	local w = T.world()
+	local Config = w.config
+	local Tycoon = w.req("Tycoon")
+
+	local plot = setmetatable({ owned = {} }, { __index = Tycoon })
+	local floorDef = Config.ButtonById.floor2
+
+	t:isTrue(plot:floorBuiltFor(floorDef),
+		"the storey's own pedestal is on the ground floor and must never be hidden by a floor test")
+
+	-- Everything on the factory chain up to the storey, and no roof.
+	for _, def in ipairs(Config.Tracks.factory) do
+		if def.id == "floor2" then break end
+		plot.owned[def.id] = true
+	end
+	t:isTrue(plot:floorBuiltFor(floorDef),
+		"the pad must stand whether or not the gate is open")
+	t:isFalse(plot:requirementsMet("floor2"),
+		"every chain requirement is met and the roof is not bought, so this must still be refused")
+
+	plot.owned.roof = true
+	t:isTrue(plot:requirementsMet("floor2"),
+		"the roof is standing and the storey is still refused")
+end)
+
 -- ── a slot the shipped table does not have ──────────────────────────────────
 
 T.spec("a sixth weapons slot would stand through the front wall, and armour's fifth inside the weapons column", function(t)

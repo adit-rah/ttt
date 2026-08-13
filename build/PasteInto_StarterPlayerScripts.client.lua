@@ -1291,6 +1291,15 @@ __MODULES["Config"] = function()
 		-- `upgrader6` instead of `dropper9` and the first rebirth would have slid
 		-- five minutes later for no reason anyone chose. 6 restores the rank the
 		-- number was chosen at.
+		--
+		-- THE SHELL MOVING TO ITS OWN TRACK DID NOT MOVE THIS, and that is worth
+		-- recording so nobody has to re-derive it. spinePricesDescending() now
+		-- reads `paced`, so the four structure prices joined the list — but the
+		-- largest of them, `roof` at 690000, lands at rank 13. Rank 6 is `dropper9`
+		-- at 115000000 either way and BaseCost is 120000000 either way. The
+		-- property above also survives verbatim: the five rungs over rank 6 are
+		-- power4, upgrader6, dropper10, mezz_line and mezz_dropper1, none of which
+		-- is on a track you can decline.
 		PriceRung = 6,
 		CostGrowth = 3.4,            -- cost multiplier per rebirth
 		MultiplierPerRebirth = 2.25, -- payout multiplier is this ^ rebirths
@@ -1478,12 +1487,17 @@ __MODULES["Config"] = function()
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- THE BUTTON TABLES — these ARE the tycoon.
 	--
-	-- There are THREE of them, one per track, and each track is a chain that is
+	-- There is one per track — FIVE now — and each track is a chain that is
 	-- ordered only against ITSELF. The factory does not gate your bat and your bat
 	-- does not gate the factory; they are separate systems that happen to share a
 	-- wallet. Before this split every button `requires`d the one before it in a
 	-- single 21-long line, so `dropper5` was unreachable until you had bought a
 	-- weapon and the weapon was unreachable until you had bought `upgrader2`.
+	--
+	-- THE COUNT IN THIS BANNER HAS BEEN WRONG BEFORE. It said THREE for two rounds
+	-- after `power` was added, because a prose count is a fact stored in the one
+	-- place nothing reads. Config.TrackOrder is the list; this sentence is a
+	-- courtesy, and if the two disagree the list is right.
 	--
 	--  id        unique key, also used as the save key
 	--  name      shown on the button billboard
@@ -1519,8 +1533,13 @@ __MODULES["Config"] = function()
 	--
 	-- Moving the floor to position 6 is what finally makes table order and
 	-- dependency order the same thing, which is what lets the derivation stand
-	-- alone. One root, twenty links, no forks, and the order you read is the order
-	-- you buy.
+	-- alone. One root, no forks, and the order you read is the order you buy.
+	--
+	-- THE COUNT USED TO BE HERE TOO ("twenty links"), AND IT IS GONE ON PURPOSE.
+	-- This table has been 21, 24 and now 20 rows long across three rounds and the
+	-- sentence was re-typed wrong twice. `#Config.Tracks.factory` is the number;
+	-- a hand-maintained copy of a length is the same defect as a hand-maintained
+	-- copy of a requirement, which is the entire subject of the paragraph above.
 	Config.FactoryButtons = {
 		{
 			id = "dropper1", name = "Tung Dropper", price = 50,
@@ -1546,31 +1565,9 @@ __MODULES["Config"] = function()
 			dropValue = 12, dropRate = 1.4,
 			blurb = "tung tung tung.",
 		},
-		-- THE SHELL, IN THREE RUNGS. TODO.md item 3 asks for walls, then gates, then
-		-- windows, and they are in that order because each one is only worth
-		-- anything once the one before it is standing.
-		--
-		-- The wall arrives SOLID and CLOSED — bays included, glazed later. The
-		-- alternative reading, where `walls` leaves the bays as holes and `windows`
-		-- fills them, gives you a purchase called "Plot Walls" that does not keep a
-		-- raider out; and INSTALLERS.Structure builds a bay as a box either way, so
-		-- glazing is a material change on a part that already exists rather than
-		-- sixty new ones. The part count does not move between these three.
-		{
-			id = "walls", name = "Plot Walls", price = 1500,
-			kind = "Structure", structure = "walls",
-			blurb = "Keeps the raiders honest.",
-		},
-		{
-			id = "gates", name = "Sliding Gates", price = 1600,
-			kind = "Structure", structure = "gates",
-			blurb = "They know when you're coming.",
-		},
-		{
-			id = "windows", name = "Glazed Bays", price = 1900,
-			kind = "Structure", structure = "windows",
-			blurb = "Let the neighbours watch.",
-		},
+		-- THE SHELL USED TO BE THE NEXT THREE ROWS. It is Config.StructureButtons
+		-- now — see the banner there for why the building stopped being a rung on
+		-- the ladder that pays for it.
 		{
 			id = "dropper4", name = "Golden Tung", price = 2600,
 			kind = "Dropper", slot = 4, variant = "golden",
@@ -1607,11 +1604,6 @@ __MODULES["Config"] = function()
 			blurb = "3am energy drink sahur.",
 		},
 		{
-			id = "roof", name = "Sahur Roof + Sign", price = 690000,
-			kind = "Structure", structure = "roof",
-			blurb = "Now it's a real business.",
-		},
-		{
 			id = "dropper7", name = "Void Tung", price = 800000,
 			kind = "Dropper", slot = 7, variant = "void",
 			dropValue = 2600, dropRate = 1.2,
@@ -1640,16 +1632,23 @@ __MODULES["Config"] = function()
 		-- with them — so TODO.md item 3 gets to ask the question that was never
 		-- actually asked, which is where a second storey belongs on its own merits.
 		--
-		-- AFTER THE ROOF, and that is not a preference. FloorService stands this
-		-- storey's own wall ring up and nothing else ever roofs it, so on the
-		-- shipped ladder — floor at six, roof at twenty-seven — every plot spent
-		-- twenty-one minutes wearing upper walls open to the sky. Nobody had named
-		-- it, and putting the floor after the roof makes it unreachable rather than
-		-- unlikely.
+		-- AFTER THE ROOF, AND THAT IS A GATE NOW RATHER THAN A ROW POSITION.
+		-- FloorService stands this storey's own wall ring up and nothing else ever
+		-- roofs it, so on the shipped ladder — floor at six, roof at twenty-seven —
+		-- every plot spent twenty-one minutes wearing upper walls open to the sky.
 		--
-		-- Two thirds of the way in, at 67%: after the shell, after the belt
-		-- overdrive and after the four ground droppers that follow it, with enough
-		-- session left to buy the line for it and a machine to stand on that.
+		-- Round 8 fixed that by ORDERING: put `roof` earlier in this table and the
+		-- chain makes the sky-hole unreachable. That fix died the moment the shell
+		-- moved to its own track, because a parallel track is one you can decline —
+		-- the roof is no longer upstream of anything and a player who never buys it
+		-- can still buy this. So the guarantee moved from the table to
+		-- Config.ButtonUnlock, which is a precondition on THIS PURCHASE rather than
+		-- a link in the chain. See that table for why it is not a `requires`.
+		--
+		-- Two thirds of the way in, at 67%: after the belt overdrive and after the
+		-- four ground droppers that follow it, with enough session left to buy the
+		-- line for it and a machine to stand on that. The shell is no longer part
+		-- of that count — it is bought alongside, not before.
 		--
 		-- Two buttons, not one. The deck is the purchase; the machine that stands
 		-- on it is the next purchase, and it is an ORDINARY Dropper row pinned to
@@ -1732,6 +1731,61 @@ __MODULES["Config"] = function()
 			-- the two were one button.
 			dropValue = 160000, dropRate = 1.0,
 			blurb = "The upstairs line.",
+		},
+	}
+
+	-- THE BUILDING, WHICH IS NO LONGER A RUNG ON THE LADDER THAT PAYS FOR IT.
+	--
+	-- These four rows were positions 5, 6, 7 and 14 of Config.FactoryButtons. A
+	-- track is a strict chain, so that made the shell MANDATORY AND BLOCKING: you
+	-- could not buy `dropper4` until you had bought walls, gates and windows, and
+	-- three consecutive purchases that drop, refine and multiply nothing sat on the
+	-- one ladder the player measures themselves by. The verifier's MAX_FLAT_RUN
+	-- check exists because round 8 created exactly that hazard and guarded it
+	-- instead of removing it; this removes it.
+	--
+	-- The shell is now a PARALLEL track gated on `dropper1`, so the building is
+	-- something you buy alongside the line rather than instead of it. Prices and
+	-- internal order are byte-identical to what shipped — this is a re-parenting,
+	-- not a retune, and the simulated curve is row-for-row unchanged because the
+	-- spine simulation buys the cheapest available rung and these four still fall
+	-- in exactly the same places (1500/1600/1900 under dropper4's 2600; 690000
+	-- between power2's 550000 and dropper7's 800000).
+	--
+	-- WALLS, THEN GATES, THEN WINDOWS, and they are in that order because each one
+	-- is only worth anything once the one before it is standing. The wall arrives
+	-- SOLID and CLOSED — bays included, glazed later. The alternative reading,
+	-- where `walls` leaves the bays as holes and `windows` fills them, gives you a
+	-- purchase called "Plot Walls" that does not keep a raider out; and
+	-- INSTALLERS.Structure builds a bay as a box either way, so glazing is a
+	-- material change on a part that already exists rather than sixty new ones.
+	-- The part count does not move between the first three.
+	--
+	-- THE ROOF IS ON THIS TRACK AND STILL GATES THE MEZZANINE. It is the one place
+	-- the shell reaches back into the spine — see Config.ButtonUnlock. Being last
+	-- here is load-bearing twice over: buildRoofModel derives its column positions
+	-- from Config.wallExtent, so a roof with no wall under it is four columns and a
+	-- slab standing in a field.
+	Config.StructureButtons = {
+		{
+			id = "walls", name = "Plot Walls", price = 1500,
+			kind = "Structure", structure = "walls",
+			blurb = "Keeps the raiders honest.",
+		},
+		{
+			id = "gates", name = "Sliding Gates", price = 1600,
+			kind = "Structure", structure = "gates",
+			blurb = "They know when you're coming.",
+		},
+		{
+			id = "windows", name = "Glazed Bays", price = 1900,
+			kind = "Structure", structure = "windows",
+			blurb = "Let the neighbours watch.",
+		},
+		{
+			id = "roof", name = "Sahur Roof + Sign", price = 690000,
+			kind = "Structure", structure = "roof",
+			blurb = "Now it's a real business.",
 		},
 	}
 
@@ -3310,15 +3364,34 @@ __MODULES["Config"] = function()
 	--               display key: it is what the buy-button billboard counts, what
 	--               the three-state reveal measures its frontier against, and
 	--               what the HUD calls a step.
-	-- POWER GOES LAST. Appending leaves every existing button's `order` exactly
-	-- where it was, so no save's install replay changes sequence and "requires
-	-- points at an earlier index" stays trivially true.
-	Config.TrackOrder = { "factory", "weapons", "armor", "power" }
+	-- POWER WENT LAST FOR THIS REASON: appending leaves every existing button's
+	-- `order` exactly where it was, so no save's install replay changes sequence.
+	--
+	-- STRUCTURE DOES NOT GO LAST, AND THAT BREAKS THE CONVENTION DELIBERATELY.
+	-- Two things make it the right call anyway. The first is that the convention
+	-- is already spent: pulling four rows out of FactoryButtons renumbers the
+	-- merged array from index 5 onwards no matter where the new track is spliced
+	-- in, so there is no placement that preserves the old `order` values. The
+	-- second is that `order` is not a saved field. A profile stores
+	-- `owned = { [id] = true }` and Tycoon:assign sorts those ids against the
+	-- CURRENT Config every time it replays them, so renumbering costs nothing as
+	-- long as ids never change — which is a rule this file already enforces for
+	-- other reasons (see the WeaponButtons banner).
+	--
+	-- What position 2 buys is the BEACON. Config.TrackRank is the TrackOrder index,
+	-- and both Tycoon:pointAt and the HUD card rank candidates by (rank, price).
+	-- Rank 5 would put `roof` behind every bat and every armour tier — so at the
+	-- moment the ladder stalls on `floor2`, the marker pointing you at the thing
+	-- that unblocks it would instead be glowing on an eclipse bat. Nothing in the
+	-- verifier can catch a beacon that points somewhere useless; it is a property
+	-- of this list and it has to be decided here.
+	Config.TrackOrder = { "factory", "structure", "weapons", "armor", "power" }
 	Config.Tracks = {
-		factory = Config.FactoryButtons,
-		weapons = Config.WeaponButtons,
-		armor   = Config.ArmorButtons,
-		power   = Config.PowerButtons,
+		factory   = Config.FactoryButtons,
+		structure = Config.StructureButtons,
+		weapons   = Config.WeaponButtons,
+		armor     = Config.ArmorButtons,
+		power     = Config.PowerButtons,
 	}
 
 	-- EVERYTHING THAT IS TRUE OF A TRACK RATHER THAN OF A BUTTON, in one table.
@@ -3344,6 +3417,31 @@ __MODULES["Config"] = function()
 	-- below, which deletes both copies rather than adding a third.
 	Config.TrackInfo = {
 		factory = { label = "FACTORY", preview = 3, keepOnRebirth = false, paced = "spine", furniture = "misc" },
+		-- THE SHELL. Three of its five facts are forced rather than chosen:
+		--
+		-- paced = "spine" because the detour model prices a track against a curve
+		-- it does not change AND assumes you can decline it. The first half is true
+		-- of the shell; the second is not, since Config.ButtonUnlock puts `roof`
+		-- between the player and the mezzanine. Measured as a detour the build
+		-- reads 46 minutes against a MIN_TOTAL_MINUTES of 45 — and the four
+		-- purchases did not stop happening, the verifier just stopped counting
+		-- them, which is the kind of slack that fails honestly-looking later.
+		--
+		-- keepOnRebirth = false because rebirth() clears self.machines
+		-- unconditionally and the wall ring lives there, not in self.props. Set it
+		-- true and the ring is destroyed while `owned.walls` survives, so
+		-- refreshButtons hides a pad for a building that is not standing and the
+		-- plot has no shell for the rest of that owner's life. The cabinets get to
+		-- be true because their props are the exempt folder; this track is not.
+		--
+		-- furniture = "misc" because these four already have hand-placed positions
+		-- in Layout.MiscButtons and they are exactly the case that table is for:
+		-- unrelated purchases in a line down an open floor.
+		--
+		-- preview = 2 is the one real choice. At 3 the whole four-rung track is
+		-- visible from the moment you claim, which puts a 690000 price tag on the
+		-- plot at minute three; at 2 the roof stays hidden until `gates` is owned.
+		structure = { label = "STRUCTURE", preview = 2, keepOnRebirth = false, paced = "spine", furniture = "misc" },
 		weapons = { label = "WEAPONS", preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
 		armor   = { label = "ARMORY",  preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
 		-- The generator multiplies exactly what a rebirth resets. Keeping it would
@@ -3393,7 +3491,50 @@ __MODULES["Config"] = function()
 	-- It must name a FACTORY button — the verifier asserts that, because a side
 	-- track gating a side track can deadlock — and the gate is sticky, so a rebirth
 	-- that wipes `dropper3` does not take both cabinets with it.
-	Config.TrackUnlock = { weapons = "dropper3", armor = "dropper3" }
+	-- `structure` opens on the FIRST rung, which is as close to "not gated" as this
+	-- table can say while still saying something. The plot you claim is a bare slab
+	-- and the first thing anyone does is buy a dropper; offering Plot Walls in the
+	-- same breath is two ladders before there is one. One purchase later the line
+	-- exists and the building becomes a thing you can want. It is also what keeps
+	-- the "no side track's first rung is affordable at spawn" question moot for
+	-- this track — you cannot buy walls at minute zero at any price.
+	Config.TrackUnlock = { weapons = "dropper3", armor = "dropper3", structure = "dropper1" }
+
+	-- WHAT A SINGLE PURCHASE WAITS ON, WHEN THE THING IT WAITS ON IS NOT ON ITS OWN
+	-- LADDER.
+	--
+	-- There is exactly one of these and it should stay that way. `floor2` builds a
+	-- storey whose own wall ring FloorService stands up and nothing else ever
+	-- roofs, so a mezzanine bought before the roof is a room open to the sky. While
+	-- the shell was welded into the factory chain that was guaranteed by ORDERING —
+	-- `roof` was simply an earlier row. Moving the shell onto its own track made it
+	-- declinable and took the guarantee with it.
+	--
+	-- WHY THIS IS NOT A `requires`. The loader derives `requires` from the row
+	-- above and the verifier asserts that the derived chain IS the table order, so
+	-- a hand-typed cross-track requirement would either be overwritten or would
+	-- silently fork the chain — which is the precise defect that made the mezzanine
+	-- a skippable dead-end branch two rounds ago. `requires` is a link inside a
+	-- chain. This is a precondition on a purchase, the same kind of thing
+	-- TrackUnlock is for a whole ladder, and keeping the two kinds apart is what
+	-- lets "no requirement ever crosses a track" stay a property of the loader
+	-- rather than a promise somebody has to keep.
+	Config.ButtonUnlock = { floor2 = "roof" }
+
+	--- Whether `id` may be bought on a plot that owns `owned`.
+	---
+	--- DELIBERATELY NOT STICKY, which is the one way this differs from
+	--- Config.trackUnlocked. That function forgives a missing gate because rebirth
+	--- wipes the factory while keeping the cabinets, so the gate button can be gone
+	--- while the track it opened is still owned. Nothing like that can happen here:
+	--- `factory` and `structure` are both keepOnRebirth = false, so a rebirth takes
+	--- `roof` and `floor2` together and the next build re-earns both in order. A
+	--- copied "owning the gated button counts" clause would be unreachable code —
+	--- you cannot own floor2 without having satisfied this.
+	function Config.buttonUnlocked(id: string, owned): boolean
+		local gate = Config.ButtonUnlock[id]
+		return gate == nil or owned[gate] == true
+	end
 
 	--- Whether `track` is open on a plot that owns `owned`.
 	---
@@ -3437,19 +3578,28 @@ __MODULES["Config"] = function()
 		end
 	end
 
-	--- Every price on the SPINE — factory plus power — highest first.
+	--- Every price on the SPINE, highest first.
 	---
 	--- The spine is what the progression simulation walks and what the build time
 	--- is measured against. Weapons and armour are deliberately excluded: they are
 	--- side tracks, priced against the factory rather than pacing it, and a bat
 	--- costing more than a dropper is the entire point of that split.
+	---
+	--- READS `paced` RATHER THAN NAMING THE TRACKS. It listed factory and power by
+	--- hand while its own comment argued from "what the simulation walks", which is
+	--- two statements of one fact with a list as the tiebreak — the same shape as
+	--- the two hand-kept copies of the beacon ranking that TrackRank replaced. A
+	--- third spine track had to be added in two places or it would have been
+	--- half-counted, and the half that got missed would have been this one, silently,
+	--- because nothing downstream of here fails loudly on a slightly short list.
 	function Config.spinePricesDescending(): { number }
 		local prices = {}
-		for _, def in ipairs(Config.Tracks.factory) do
-			table.insert(prices, def.price)
-		end
-		for _, def in ipairs(Config.Tracks.power) do
-			table.insert(prices, def.price)
+		for _, track in ipairs(Config.TrackOrder) do
+			if Config.TrackInfo[track].paced == "spine" then
+				for _, def in ipairs(Config.Tracks[track]) do
+					table.insert(prices, def.price)
+				end
+			end
 		end
 		table.sort(prices, function(a, b)
 			return a > b
@@ -3615,9 +3765,20 @@ __MODULES["Config"] = function()
 	}
 
 	-- The factory track and nothing else: a first purchase is an ONBOARDING signal,
-	-- and the side tracks are gated behind floor2 forty minutes in, so they cannot
-	-- be anybody's first button. Adding a fifth factory rung widens this set by one
-	-- and the verifier re-prices the combination budget on the next run.
+	-- and no other track can supply one. Adding a factory rung widens this set by
+	-- one and the verifier re-prices the combination budget on the next run.
+	--
+	-- THE REASON HAS BEEN RESTATED TWICE AND WAS WRONG BOTH TIMES IN BETWEEN. It
+	-- read "the side tracks are gated behind floor2 forty minutes in" for a round
+	-- after round 8 moved that gate to `dropper3` at minute three. The durable form
+	-- is the one that does not name a button: EVERY other track is gated on a
+	-- factory rung (Config.TrackUnlock), and `power`, which is not, opens at 14000
+	-- against a StartingCash of 100. So the first purchase is always a factory
+	-- purchase, and it is `dropper1` in particular.
+	--
+	-- This set SHRANK by four when the shell moved to its own track, which is the
+	-- derivation working: walls/gates/windows/roof were never reachable as a first
+	-- buy and were costing combinations for a state that could not happen.
 	for _, def in ipairs(Config.Tracks.factory) do
 		table.insert(Config.Analytics.Fields.buttonId.values, def.id)
 	end
@@ -7002,7 +7163,14 @@ __MODULES["HUD"] = function()
 			-- ranking does: a track that has not opened yet has no cabinet and no
 			-- buttons anywhere on the plot, so naming one of its rungs as your next
 			-- purchase points you at nothing.
-			if not state.owned[def.id] and Config.trackUnlocked(def.track, state.owned) then
+			-- Config.buttonUnlocked is ANDed in for the same reason, one level down.
+			-- Without it this card names `floor2` and starts filling a bar towards
+			-- 9.3M while the beacon out on the plot is glowing on the roof — the
+			-- card would be counting towards a purchase the server will refuse.
+			if not state.owned[def.id]
+				and Config.trackUnlocked(def.track, state.owned)
+				and Config.buttonUnlocked(def.id, state.owned)
+			then
 				local ok = true
 				for _, req in ipairs(Config.requirementsOf(def)) do
 					if not state.owned[req] then

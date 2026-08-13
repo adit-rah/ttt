@@ -688,4 +688,62 @@ T.spec("the gate and the price tie-break agree too, where the shipped build cann
 	t:eq(beacon and beacon.id, cheaper.id, "the beacon did not take the cheaper of two tracks tied on rank")
 end)
 
+--- THE THIRD BRANCH, AND UNLIKE THE OTHER TWO THE SHIPPED BUILD DOES REACH IT.
+---
+--- Config.ButtonUnlock.floor2 = "roof" is the only cross-ladder precondition in
+--- the game, and it is the one place where the thing blocking your next purchase
+--- is on a track you were not looking at. Both copies of the ranking have to
+--- know about it or they disagree in the most expensive way available: the card
+--- names the mezzanine and starts filling a progress bar towards 9.3 million,
+--- while the beacon out on the plot glows on a roof costing a fifteenth of that.
+---
+--- The walk above does exercise this — it would stall or mismatch at floor2 if
+--- either copy were missing the gate — but it exercises it in passing, mixed in
+--- with thirty-six other steps. This puts the gate on its own, and then TAKES IT
+--- AWAY and shows the answer changes, which is the part that proves the branch
+--- is deciding something rather than agreeing by luck.
+T.spec("the card and the beacon both wait for the roof before naming the mezzanine", function(t)
+	local world = clientWorld()
+	local Config = world.config
+	local HUD = world.req("HUD")
+	HUD.start()
+	local root = HUD.root()
+	local plot, pointed = fakePlot(world)
+
+	local floorButton = Config.Floors[1].button
+	local gate = Config.ButtonUnlock[floorButton]
+	t:eq(gate, "roof", "this spec is about the roof gating the storey")
+
+	-- Everything on the factory chain up to the mezzanine, and everything on the
+	-- shell except the roof. So the factory's frontier IS the mezzanine and the
+	-- shell's frontier IS the roof, and exactly one of those two is buyable.
+	local owned = {}
+	for _, def in ipairs(Config.Tracks.factory) do
+		if def.id == floorButton then break end
+		owned[def.id] = true
+	end
+	for _, def in ipairs(Config.Tracks.structure) do
+		if def.id == gate then break end
+		owned[def.id] = true
+	end
+
+	local card, beacon = picks(t, world, root, plot, pointed, owned)
+	t:eq(card and card.id, gate,
+		"the card named the mezzanine while the storey below it has no roof")
+	t:eq(beacon and beacon.id, gate,
+		"the beacon pointed at the mezzanine while the storey below it has no roof")
+
+	-- FACTORY OUTRANKS STRUCTURE, so this is not the ranking picking the roof by
+	-- accident: with the gate gone, rank 1 wins and both answers move to the
+	-- mezzanine. If deleting the gate changes nothing, the gate was never being
+	-- read and the two assertions above were passing for the wrong reason.
+	t:lte(Config.TrackRank.factory, Config.TrackRank.structure)
+	Config.ButtonUnlock[floorButton] = nil
+	card, beacon = picks(t, world, root, plot, pointed, owned)
+	t:eq(card and card.id, floorButton,
+		"removing the gate did not change the card, so the card was not reading it")
+	t:eq(beacon and beacon.id, floorButton,
+		"removing the gate did not change the beacon, so the beacon was not reading it")
+end)
+
 end

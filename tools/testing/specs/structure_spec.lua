@@ -680,37 +680,96 @@ T.spec("glass stays at or above PopperCam's 0.25 occlusion threshold", function(
 	t:lt(window.transparency, 1, "a fully invisible pane is not a window")
 end)
 
--- ── the shell as three purchases ────────────────────────────────────────────
+-- ── the shell as its own track ──────────────────────────────────────────────
 
-T.spec("the shell is walls, then gates, then windows, and each one needs the last", function(t)
-	-- TODO.md item 3. All three are Structure rows on the factory track, so the
-	-- ORDER IS THE TABLE ORDER — the loader derives `requires` from it and
+T.spec("the shell is walls, then gates, then windows, then roof, on a track of its own", function(t)
+	-- The ORDER IS THE TABLE ORDER — the loader derives `requires` from it and
 	-- nothing else states the dependency. INVARIANTS.md marks that [nothing],
 	-- and this is half of what closes it; the other half is a config check.
+	--
+	-- THE TRACK IS `structure` AND IT USED TO BE `factory`. The four rows were
+	-- positions 5, 6, 7 and 14 of the factory chain, which made the building
+	-- mandatory and blocking: no dropper4 until you had bought walls, gates and
+	-- windows. They are a parallel ladder now, gated as a whole on `dropper1`.
 	local w = T.world()
 	local Config = w.config
 
 	local seen = {}
 	local structures = 0
-	for _, def in ipairs(Config.Tracks.factory) do
-		if def.kind == "Structure" then
-			seen[def.structure] = def.trackOrder
-			structures += 1
-		end
+	for _, def in ipairs(Config.Tracks.structure) do
+		t:eq(def.kind, "Structure",
+			("%s is on the structure track and is not a Structure row"):format(def.id))
+		seen[def.structure] = def.trackOrder
+		structures += 1
 	end
 	t:eq(structures, 4, "walls, gates, windows and the roof")
+
+	-- ...and nothing was left behind on the spine. A Structure row still sitting
+	-- in FactoryButtons would be a fifth piece of building blocking the line,
+	-- which is the entire defect this split was for.
+	for _, def in ipairs(Config.Tracks.factory) do
+		t:isTrue(def.kind ~= "Structure",
+			("%s is a Structure row still on the factory track — the shell is not supposed to block the line any more"):format(def.id))
+	end
 
 	t:notNil(seen.walls)
 	t:gt(seen.gates, seen.walls, "gates hang on the wall ring, so they cannot precede it")
 	t:gt(seen.windows, seen.walls, "glass is set into the bay course, so it cannot precede it")
 	t:gt(seen.roof, seen.windows, "the roof is still the last piece of the shell")
 
-	-- The chain the loader derives, end to end: each of the three names the one
-	-- before it without any of them saying so in Config.
+	-- The chain the loader derives, end to end: each names the one before it
+	-- without any of them saying so in Config, and the FIRST one names nothing.
+	-- `walls` is a track root now rather than a link behind dropper3, and a root
+	-- that carried a requirement would be a ladder nothing can start.
+	t:isNil(Config.ButtonById.walls.requires,
+		"walls is the root of the structure track; a root with a requirement is a track nothing can start")
 	t:eq(Config.ButtonById.gates.requires, "walls",
 		"the derived chain no longer runs walls -> gates")
 	t:eq(Config.ButtonById.windows.requires, "gates",
 		"the derived chain no longer runs gates -> windows")
+	t:eq(Config.ButtonById.roof.requires, "windows",
+		"the derived chain no longer runs windows -> roof")
+
+	-- The whole ladder waits on the first dropper, so the shell can never be
+	-- somebody's opening purchase.
+	t:eq(Config.TrackUnlock.structure, "dropper1",
+		"the structure track is meant to open one purchase in, not on claim")
+	t:isFalse(Config.trackUnlocked("structure", {}),
+		"a plot that has bought nothing must not be offered Plot Walls")
+	t:isTrue(Config.trackUnlocked("structure", { dropper1 = true }),
+		"one dropper in, the building becomes something you can want")
+end)
+
+T.spec("the mezzanine cannot be bought before something has roofed the storey below", function(t)
+	-- FloorService stands each storey's own wall ring up and nothing else ever
+	-- roofs it. While the shell was welded into the factory chain this was
+	-- guaranteed by ORDERING — `roof` was simply an earlier row, and the config
+	-- check asserted the deck was bought later. A parallel track is one you can
+	-- decline, so that guarantee left with the shell and Config.ButtonUnlock
+	-- replaces it.
+	local w = T.world()
+	local Config = w.config
+
+	t:eq(Config.ButtonUnlock.floor2, "roof",
+		"nothing makes the storey wait for a roof; it would arrive open to the sky")
+
+	t:isFalse(Config.buttonUnlocked("floor2", { upgrader4 = true }),
+		"every chain requirement is met and the roof is not bought — this must still be refused")
+	t:isTrue(Config.buttonUnlocked("floor2", { upgrader4 = true, roof = true }),
+		"with the roof standing the storey is buyable")
+
+	-- NOT STICKY, which is the one way it differs from Config.trackUnlocked.
+	-- That function forgives a missing gate because rebirth keeps the cabinets
+	-- while wiping the factory button that opened them. Nothing like that can
+	-- happen here: factory and structure are both keepOnRebirth = false, so a
+	-- rebirth takes `roof` and `floor2` together.
+	t:isFalse(Config.buttonUnlocked("floor2", { floor2 = true }),
+		"owning the gated button must not satisfy its own gate")
+
+	-- An ungated button is unaffected — the helper answers true for everything
+	-- that has no row, or it would gate the entire game.
+	t:isTrue(Config.buttonUnlocked("dropper1", {}))
+	t:isTrue(Config.buttonUnlocked("walls", {}))
 end)
 
 T.spec("splitting the shell costs no parts, because an unglazed bay is still a wall", function(t)
@@ -779,6 +838,89 @@ T.spec("a plot owns the glass only while it owns the wall the glass is in", func
 	local junk = { owned = { not_a_button = true } }
 	t:isFalse(Tycoon.hasStructure(junk, "walls"),
 		"an owned id with no Config row is being treated as a structure")
+end)
+
+-- ── the shell does not survive a rebirth, and must not ──────────────────────
+
+T.spec("a rebirth takes the whole shell down and every rung of it is buyable again", function(t)
+	-- THIS IS A TRACE OF A BUG THAT WOULD BE PERMANENT AND SILENT, written as a
+	-- test because nothing else in the repo can see it.
+	--
+	-- TrackInfo.structure.keepOnRebirth is false. If it were true:
+	-- Tycoon:rebirth keeps the four ids in `profile.owned`, SKIPS clearing their
+	-- entry.machine handles because the skip is keyed on the same flag, and then
+	-- calls self.machines:ClearAllChildren() anyway — which destroys the wall
+	-- ring, because the ring is parented to self.machines and not to the
+	-- self.props folder the exemption is actually about. refreshButtons then
+	-- reads owned.walls == true and unparents the pad. The plot has no shell,
+	-- cannot buy one, and stays that way for the rest of that owner's session.
+	--
+	-- The verifier asserts keepOnRebirth == (furniture == "cabinet") from the
+	-- config side. This is the behavioural half: it runs the real rebirth.
+	local w = T.world()
+	local Config = w.config
+	local Data = w.req("DataService")
+	local Tycoon = w.req("Tycoon")
+
+	local player = w.join("rebuilder")
+	local profile = Data.load(player)
+
+	local cleared = 0
+	local plot = setmetatable({}, { __index = Tycoon })
+	plot.owner = player
+	plot.owned = {}
+	plot.objects = {}
+	plot.generation = 0
+	plot.beltBonus, plot.powerFactor = 0, 1
+	plot.machines = { ClearAllChildren = function() cleared += 1 end }
+	plot.refreshBeltSpeed = function() end
+	plot.refreshButtons = function() end
+	plot.updateSign = function() end
+	plot.fireOwnedChanged = function() end
+	plot.clearDrops = function() end
+
+	-- Own the entire shell plus a weapons tier, so the assertion below
+	-- distinguishes "a rebirth wipes everything" from "a rebirth wipes the
+	-- right things". A spec where all the ids vanish proves much less.
+	local shell = {}
+	for _, def in ipairs(Config.Tracks.structure) do
+		table.insert(shell, def.id)
+		profile.owned[def.id] = true
+		plot.owned[def.id] = true
+		plot.objects[def.id] = { def = def, machine = { name = def.id } }
+	end
+	local bat = Config.Tracks.weapons[1]
+	profile.owned[bat.id] = true
+	plot.owned[bat.id] = true
+	plot.objects[bat.id] = { def = bat, machine = { name = bat.id } }
+	profile.owned.dropper1 = true
+	plot.owned.dropper1 = true
+
+	profile.cash = 60e9
+	t:isTrue(plot:rebirth(player), "the rebirth was refused, so this proves nothing")
+
+	t:eq(cleared, 1, "self.machines was never cleared, so the wall ring is still standing")
+	for _, id in ipairs(shell) do
+		t:isNil(profile.owned[id],
+			("%s survived a rebirth; the wall ring it refers to was just destroyed, so the pad would hide itself for a building that is not there"):format(id))
+		t:isNil(plot.owned[id],
+			("the plot still thinks it owns %s after a rebirth"):format(id))
+		t:isNil(plot.objects[id].machine,
+			("%s kept its machine handle through a rebirth; the model is destroyed and the reference outlives it"):format(id))
+	end
+
+	-- ...and the bat did not go with it. keepOnRebirth is not "wipe everything".
+	t:isTrue(profile.owned[bat.id],
+		"the rebirth took a weapons tier, which is the coupling the track split exists to remove")
+	t:notNil(plot.objects[bat.id].machine,
+		"a cabinet prop lost its handle; those live in self.props and are not cleared")
+
+	-- The gate is sticky for the cabinets and NOT for the shell, and both of
+	-- those are load-bearing. The shell has to be re-offered from scratch.
+	t:isFalse(Config.trackUnlocked("structure", plot.owned),
+		"the structure track stayed open after a rebirth wiped the dropper that gates it")
+	t:isTrue(Config.trackUnlocked("weapons", plot.owned),
+		"the weapons cabinet closed on a rebirth, leaving the granted bat with no cabinet")
 end)
 
 end

@@ -300,17 +300,25 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   is an additive term against a multiplicative curve — 17% of plot income on purchase, 0.02%
   by the end. `refineryMultiplierFor` already returns 1 for a path with its own upgraders.
   `[nothing]` for the mechanism; the income share it produces is asserted below.
-- **The floor is LATE, AFTER THE ROOF, and it gates nothing.** v5's "halfway mark" and v7's
-  "early but not first" are both superseded, and the second one only ever held because
-  `Config.TrackUnlock` gated both cabinets on this button — #36 said so in its own words.
-  Round 8 moved that gate to `dropper3`, so every argument for an early floor left with the
-  cabinets. Anchored to `roof` *by name* plus a 50–80% band. The 10-minute deadline is
-  DELETED rather than retuned: its stated reason was "it gates both cabinets", and an
-  assertion whose argument is false is worse than none. `[assert]` three checks.
-- **The anchor is `roof` and not `walls`, and that is a fix rather than a translation.**
-  `FloorService` stands the upper storey's own wall ring up and nothing else ever roofs it,
-  so a floor bought before the roof leaves every plot wearing upper walls open to the sky —
-  twenty-one minutes of it on the shipped ladder, and nobody had named it. `[assert]`
+- **The floor is LATE and it gates nothing.** v5's "halfway mark" and v7's "early but not
+  first" are both superseded, and the second one only ever held because `Config.TrackUnlock`
+  gated both cabinets on this button — #36 said so in its own words. Round 8 moved that gate
+  to `dropper3`, so every argument for an early floor left with the cabinets. A 50–80% band,
+  and it lands at 67%. The 10-minute deadline is DELETED rather than retuned: its stated
+  reason was "it gates both cabinets", and an assertion whose argument is false is worse than
+  none. `[assert]`
+- **AFTER THE ROOF, and that is now a GATE rather than an ordering.** `FloorService` stands
+  the upper storey's own wall ring up and nothing else ever roofs it, so a floor bought
+  before the roof leaves every plot wearing upper walls open to the sky — twenty-one minutes
+  of it on the pre-round-8 ladder, and nobody had named it. Round 8 fixed it by putting
+  `roof` earlier on the same chain; that fix died the moment the shell moved to a parallel
+  track, because a track you can decline cannot guarantee anything. `Config.ButtonUnlock`
+  carries it now and the runtime refuses the purchase. **The pacing assertion that used to
+  enforce this was DELETED for the same reason the 10-minute deadline was**: it said a deck
+  bought first "leaves the upper walls open to the sky for the N minutes in between", and
+  once the purchase is impossible that state cannot be reached and those minutes do not
+  exist. It still fired; it fired for a reason that had stopped being the reason. `[assert]`
+  the gate's shape and its price order, in §4.
 - **The deck and the LINE on it are two purchases.** `Floors[n].button` buys the storey;
   `Floors[n].lineButton` buys the conveyor and the hopper. The storey arrives barren.
   `Config.floorLineBuilt` is sticky and derived, for the same reason `trackUnlocked` is: a
@@ -511,9 +519,30 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   one in `Tycoon` and one in `HUD`, with a comment warning they had to match. `[assert]`
   "TrackRank disagrees with TrackOrder for %q".
 - **A track-level gate is not a `requires`.** `Config.TrackUnlock` is a separate concept: it
-  cannot name a button on its own track (that is a chain link), must name a *factory* button
-  (a side track gating a side track can deadlock), and the factory itself cannot be gated.
-  `[assert]` four checks.
+  cannot name a button on its own track (that is a chain link), must name a button on a
+  **spine** track (a detour gating a ladder can deadlock it, because nothing guarantees a
+  detour is ever taken), and the factory itself cannot be gated. `[assert]` four checks. The
+  middle rule read "must name a *factory* button" until the shell became a second spine
+  track — "factory" was the only vocabulary that property had while the factory was the only
+  ladder everyone walks, and the old form refused a perfectly safe gate on `walls` with a
+  message calling structure a side track.
+- **A single-button gate is not a `requires` EITHER, and there is exactly one.**
+  `Config.ButtonUnlock = { floor2 = "roof" }`. `FloorService` stands each storey's own wall
+  ring up and nothing else ever roofs it, so a mezzanine bought before the roof is a room
+  open to the sky. That used to be guaranteed by ORDERING — `roof` was simply an earlier row
+  on the same chain — and moving the shell to its own track made it declinable and took the
+  guarantee with it. It cannot be a `requires` because the loader derives `requires` from the
+  row above and the verifier asserts the derived chain IS the table order, so a hand-typed
+  cross-track one is either overwritten or forks the chain. `[assert]` the pair's shape, that
+  the gated purchase is reachable in price order, and — separately — that the storey's gate
+  names a button that builds a **roof**, which is the fact the row exists for.
+- **Reachability must count the GATES, not just the chains.** The old walk followed `requires`
+  and was safe rather than correct: `requires` never crosses a track and `TrackUnlock` was
+  asserted onto the ungated factory, so the gate was always satisfiable. `ButtonUnlock`
+  removes that, and `TrackUnlock.structure = "dropper8"` plus the shipped
+  `ButtonUnlock.floor2 = "roof"` deadlocks the plot four rungs from the end with every
+  structural check passing. `[assert]` a fixpoint from an empty save over
+  `requires` ∪ `TrackUnlock` ∪ `ButtonUnlock`.
 - **The cabinet gate is STICKY and derived**: owning any rung of a track counts as having it
   open. Rebirth wipes the factory — and so the gate button — while keeping weapons and
   armour, so without that clause your first rebirth deletes both cabinets and leaves the
@@ -532,12 +561,39 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   the restating hid a fork that made the mezzanine a branch you could skip entirely. Now
   `[assert]` — the chain must be exactly the table order, checked as "requires equals the row
   above" because the loader has filled the field in by the time the verifier runs.
-- **THE SHELL IS THREE PURCHASES, IN ONE ORDER.** `walls` -> `gates` -> `windows`, all
-  `Structure` rows on one track, so the ordering is derived from table order and nothing else
-  stated it. The wall arrives SOLID: an unglazed bay is a piece of wall, not a hole, because
-  a purchase called "Plot Walls" that does not keep a raider out is not walls. Glazing is
-  therefore a material change and the part count does not move between the three. `[assert]`
-  the order, and that every declared gate leaf is paid for by a `gates` button.
+- **THE SHELL IS FOUR PURCHASES ON A TRACK OF ITS OWN, IN ONE ORDER.**
+  `walls` -> `gates` -> `windows` -> `roof`, gated as a whole on `dropper1`. The ordering is
+  derived from table order and nothing else stated it. The wall arrives SOLID: an unglazed
+  bay is a piece of wall, not a hole, because a purchase called "Plot Walls" that does not
+  keep a raider out is not walls. Glazing is therefore a material change and the part count
+  does not move between the first three. `[assert]` the order — including `roof` needs
+  `walls`, which was never checked and is what stops a roof being four columns and a slab
+  standing in a field — and that every declared gate leaf is paid for by a `gates` button.
+  The order check now scans `Config.Buttons` on the GLOBAL `order` key rather than one
+  track's `trackOrder`, so it survives the shell moving again.
+- **The shell is PARALLEL to the factory, and that is the point of the track.** These four
+  were rungs 5, 6, 7 and 14 of the factory chain, which is a strict chain — so you could not
+  buy `dropper4` until you had bought walls, gates and windows, and three consecutive
+  purchases that drop, refine and multiply nothing sat on the one ladder the player measures
+  themselves by. `MAX_FLAT_RUN` was written to guard that hazard rather than remove it.
+  Prices and internal order did not move in the split and the simulated curve is unchanged
+  row for row, because the spine simulation buys the cheapest available rung and these four
+  still fall in the same places. `[assert]` no `Structure` row remains on the factory track.
+- **The shell is paced as SPINE, not as a detour.** The detour model assumes buying a track
+  does not change the curve it is measured against *and* that you can decline it; the second
+  half is false once `ButtonUnlock` puts `roof` between the player and the mezzanine.
+  Measured as a detour the build reads 46 minutes against a `MIN_TOTAL_MINUTES` of 45 — and
+  the four purchases did not stop happening, the verifier just stopped counting them.
+  `[assert]` via `paced`, which the spine simulation and `spinePricesDescending` both now
+  read instead of naming factory and power by hand.
+- **The shell does NOT survive a rebirth, and that is forced rather than chosen.**
+  `rebirth()` clears `self.machines` unconditionally and the wall ring lives there, not in
+  the `self.props` folder the `keepOnRebirth` exemption is about. Set it true and the ring is
+  destroyed while `owned.walls` survives, so `refreshButtons` hides the pad for a building
+  that is not standing and the plot has no shell for the rest of that owner's session.
+  `[assert]` `keepOnRebirth == (furniture == "cabinet")` for every track, which also retires
+  the old `[nothing]` about only the factory's value being checked. A runtime spec runs the
+  real rebirth and confirms all four ids clear while a weapons tier survives.
 - **`gates` and `windows` ADD to the ring that is standing; they never rebuild it.** A
   rebuild would destroy the gate leaves `GateService` may be mid-tween on and re-emit sixty
   parts that have not changed — the argument `FloorService`'s header already makes about the
