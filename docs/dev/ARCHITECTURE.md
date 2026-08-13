@@ -330,10 +330,11 @@ installers implement it (`Tycoon.INSTALLERS`, `tycoon/Installers.lua:121-539`); 
 | `Upgrader` | placement (below) + `variant`, `multiplier` (> 1) | `:190` |
 | `Belt` | `speedBonus` (> 0) | `:258` |
 | `Power` | `factor` (> 1, **cumulative**), `variant`, and **no `slot`** — there is one generator stand and every rung upgrades the machine on it | `:267` |
-| `Structure` | `structure` ∈ `{ "walls", "roof" }` | `:512` — a two-line dispatch; it emits what `Config.wallSegments` / `Config.wallBays` / `Config.roofUnderside` describe and decides no geometry of its own |
+| `Structure` | `structure` ∈ `{ "walls", "gates", "windows", "roof" }` | `:512` — a two-line dispatch; it emits what `Config.wallSegments` / `Config.wallBays` / `Config.roofUnderside` describe and decides no geometry of its own |
 | `Gear` | `grants` → a `Config.Bats` id | `:334` |
 | `Armor` | `grants` → a `Config.Armor` id | `:350` |
-| `Floor` | a matching `Config.Floors` entry naming this button id | `:371` — a **documented no-op**; `FloorService` builds the deck off `onOwnedChanged` |
+| `Floor` | a matching `Config.Floors` entry naming this button id as its `button` |
+| `Line` | a matching `Config.Floors` entry naming this button id as its `lineButton` — the conveyor ON a floor, a separate purchase from the floor | a **documented no-op**, same reason as `Floor`; `FloorService.buildLine` runs off `onOwnedChanged` |
 
 *Placement* is exclusive-or: either `slot` (an index into
 `Layout.DropperDist` / `Layout.UpgraderDist`, the ground floor's two legs — must
@@ -341,7 +342,7 @@ exist and must be unused) **or** `path` + `legIndex` + `legDistance` for a
 machine pinned to a named `Config.BeltPaths` entry. Never both, never neither
 (`verify_config.lua:85-115`).
 
-**All eight kinds are in all three places now.** The header used to name five:
+**All nine kinds are in all three places now.** The header used to name five:
 `Power`, `Armor` and `Floor` arrived later and never reached it, while
 `Tycoon.INSTALLERS` and `verify_config.lua`'s `KNOWN_KINDS` carried all eight.
 Nothing enforces that third copy: `KNOWN_KINDS` mirrors the installers and the

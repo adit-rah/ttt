@@ -97,12 +97,15 @@ third value neither round had guessed.
 | retune the curve | `price` values | the economy simulation: build length band, per-purchase waits, the floor's position |
 | move the belt | `Config.Layout.BeltStart/BeltCorner/BeltEnd` | `inPlot`, machine spacing, trigger dwell, drop budget |
 | change the plot's walls or roof | `INSTALLERS.Structure` in `src/server/tycoon/Installers.lua`, `Config.Layout.Roof*`, `GateCentre/GateWidth` | the doorway span, the gateway vs the belt, deck-vs-roof clearance |
-| change the second floor | `Config.Floors[1]` | the mezzanine family: deck vs walls, belt legs vs zone, hatch vs guard |
+| change the second floor | `Config.Floors[1]` | the mezzanine family: deck vs walls, belt legs vs zone, hatch vs guard, the raise table |
+| change what a storey is lit by | `Config.Structure.Lights` | fixtures inside the ring, above the machines and the cabinet signs, `Range` under Roblox's silent 60 clamp, and a sampled coverage check |
+| change the belt's guard rails | `Config.Layout.BeltGuard` | a leg's rail may not overlap another leg's running surface — set `corner` to 0 and watch the deleted rails' bug come back |
 | add a UI panel | build into `HUD.root()` — or `HUD.column()` if it belongs in the left stack — via `UiKit.dock`; geometry in `Config.UI` | one-ScreenGui, card-scale literals, the column fits at `MinScale` |
 | put anything near a screen edge | a `UiKit.dock` corner; `Config.UI.TouchReserve` if it is near the bottom | the reserve assertions — both bottom corners are the engine's thumbstick and jump button |
 | add a persisted field | **both** `defaultProfile()` and the explicit `save()` payload in `DataService` | nothing — this is in the `[nothing]` backlog. With only the first it works all session and is gone at next login |
 | add a wave behaviour | `Config.Waves` | wave part budget, clear time, aggro/leash relationships |
-| add a new kind of buyable | a case in `src/server/tycoon/Installers.lua`, **and** the `kind` list in `tycoon/Tycoon.lua`'s header | `KNOWN_KINDS` in `verify_config.lua` |
+| add a new kind of buyable | a case in `src/server/tycoon/Installers.lua`, **and** the `kind` list in `tycoon/Tycoon.lua`'s header | `KNOWN_KINDS` in `verify_config.lua`. The header list is checked by nobody — it is the copy to do by hand |
+| reorder the factory ladder | move the ROW in `Config.FactoryButtons`; never add a `requires` | the chain-equals-table-order assertion, plus the economy simulation. The 60-minute credit cap binds before `MAX_TOTAL_MINUTES` does |
 
 ---
 
