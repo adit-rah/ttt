@@ -248,6 +248,44 @@ check(totalTracked == #Config.Buttons,
 	("the tracks hold %d buttons but Config.Buttons has %d — the merge dropped or duplicated a row")
 		:format(totalTracked, #Config.Buttons))
 
+-- ── NO ROW MAY RESTATE THE CHAIN THE LOADER DERIVES ─────────────────────────
+--
+-- The loader sets `def.requires` from the row above when the row does not carry
+-- one, so by the time this file runs every row has the field and a hand-typed
+-- one is indistinguishable from a derived one — UNLESS it disagrees with the
+-- row above, which is exactly the case that matters.
+--
+-- This is INVARIANTS.md's oldest `[nothing]` entry and it has a shipped defect
+-- behind it. Every row used to restate its own requirement, and the restating
+-- hid a fork: `dropper8` required `upgrader4` while `floor2 -> mezz_dropper1`
+-- hung off `upgrader4` too, so the mezzanine was a dead-end branch you could
+-- skip entirely — and with the cabinets gated on `floor2` at the time, you
+-- could finish the whole ground floor without ever seeing a weapon or a suit of
+-- armour. The root-count check above cannot see a fork BELOW the root, so
+-- nothing caught it.
+--
+-- Round 8 is the round that makes reordering routine — six rows moved and three
+-- arrived — so this is the round that owes the check. Written as "the chain is
+-- exactly the table order" rather than "no row has a requires field", because
+-- the field always exists by now and the property worth having is the one the
+-- convention actually claims.
+for _, track in ipairs(Config.TrackOrder) do
+	local defs = Config.Tracks[track] or {}
+	for slot, def in ipairs(defs) do
+		local want = slot > 1 and defs[slot - 1].id or nil
+		local got = def.requires
+		if want == nil then
+			check(got == nil,
+				("%s is the first rung of the %s track but requires %s; a track's root is requirement-free, and a root with a requirement is a track nothing can start")
+					:format(def.id, track, tostring(got)))
+		else
+			check(got == want,
+				("%s requires %s, but the row above it in the %s table is %s. The loader derives the chain from table order and a hand-typed requirement silently overrides it — that is how the mezzanine became a branch you could skip. Move the row instead.")
+					:format(def.id, tostring(got), track, want))
+		end
+	end
+end
+
 -- bats
 local seenBats = {}
 for tier, bat in ipairs(Config.Bats) do
@@ -4041,6 +4079,51 @@ check(elapsed / 60 >= MIN_TOTAL_MINUTES,
 check(elapsed / 60 <= MAX_TOTAL_MINUTES,
 	("full build takes %.0f min (want <= %d) — too grindy"):format(elapsed / 60, MAX_TOTAL_MINUTES))
 
+-- ── how long the number is allowed to stand still ───────────────────────────
+--
+-- NEW, AND THIS ROUND CREATED THE HAZARD IT GUARDS. Splitting the shell into
+-- walls, gates and windows (TODO.md item 3) puts three consecutive purchases on
+-- the ladder that change no number at all: the enclosure does not drop, refine
+-- or multiply anything. Neither does the roof, and neither does the deck.
+--
+-- Six of the twenty-four factory rungs are like that, and they are not a
+-- mistake — a tycoon whose every purchase is a bigger number is a spreadsheet.
+-- But a RUN of them is different from one of them: for the whole run the income
+-- readout is frozen, and the player is buying scenery while the thing they are
+-- measuring themselves by has stopped moving. Nothing has ever looked at that.
+--
+-- Belt is on the list deliberately: belt speed changes latency and density, not
+-- income (INVARIANTS.md §2), so `belt1` genuinely does not move the number
+-- either.
+local EARNS = { Dropper = true, Upgrader = true, Power = true }
+local MAX_FLAT_RUN = 3
+local MAX_FLAT_MINUTES = 6
+
+local runLength, runMinutes, runFrom = 0, 0, nil
+local worstRun, worstMinutes, worstIds = 0, 0, ""
+for _, entry in ipairs(curve) do
+	local def = Config.ButtonById[entry.id]
+	if def and not EARNS[def.kind] then
+		runLength += 1
+		runMinutes += entry.wait
+		runFrom = runFrom or entry.id
+		if runLength > worstRun then
+			worstRun, worstMinutes, worstIds = runLength, runMinutes, runFrom .. " through " .. entry.id
+		elseif runLength == worstRun and runMinutes > worstMinutes then
+			worstMinutes, worstIds = runMinutes, runFrom .. " through " .. entry.id
+		end
+	else
+		runLength, runMinutes, runFrom = 0, 0, nil
+	end
+end
+
+check(worstRun <= MAX_FLAT_RUN,
+	("%d purchases in a row (%s) leave income exactly where it was; past %d the player is buying scenery with the number they measure themselves by standing still")
+		:format(worstRun, worstIds, MAX_FLAT_RUN))
+check(worstMinutes / 60 <= MAX_FLAT_MINUTES,
+	("%s is %.1f minutes of grind at an unchanged income (limit %d) — that is the longest stretch of this build where nothing gets better")
+		:format(worstIds, worstMinutes / 60, MAX_FLAT_MINUTES))
+
 -- ── the sixty-minute credit cap ─────────────────────────────────────────────
 --
 -- Roblox's `7 Day Playtime Per User` signal counts "a maximum of 60 minutes per
@@ -4160,44 +4243,46 @@ for _, floor in ipairs(Config.Floors) do
 	if row then
 		local at = row.at / 60
 		local fraction = at / buildMinutes
-		-- WHERE THE FLOOR LANDS, now that it is early expansion space.
+		-- WHERE THE FLOOR LANDS, now that it is a storey and not a gate.
 		--
-		-- This replaces `fraction >= 0.35 and fraction <= 0.65`, which said
-		-- "the floor is the halfway prize". That premise is deliberately
-		-- overturned. The floor is what the walls make room for, it is bought
-		-- with the walls' money, and — the deciding fact — it is the gate on
-		-- BOTH side-track cabinets. Parking it at the halfway mark parked the
-		-- weapons and armour ladders there too, which is GROWTH-TODO item 1's
-		-- complaint about the back third of the build in its purest form: a
-		-- forty-minute button standing in front of nine other buttons.
+		-- PREMISE OVERTURNED, TWICE, AND THE SECOND TIME BY THE FIRST. The band
+		-- before this one was `0.06 <= fraction <= 0.20` with a hard `at <= 10`,
+		-- and every word of its argument rested on one fact: Config.TrackUnlock
+		-- gated BOTH side-track cabinets on this button, so parking the floor
+		-- parked the weapons and armour ladders behind it. Round 8 moved that
+		-- gate to `dropper3` (TODO.md item 2, the cabinets are downstairs now).
+		-- The floor gates nothing. Every reason it had to be early went with the
+		-- cabinets, and TODO.md item 3 asks for it late — after the shell and
+		-- after a run of conveyor upgrades.
 		--
-		-- What is still true, still falsifiable, and is now the actual defect
-		-- to guard against, is EARLY BUT NOT FIRST.
+		-- `at <= 10` is DELETED rather than retuned. Its stated reason — "it
+		-- gates both cabinets, so past ~10 the side tracks have no session left
+		-- to be climbed in" — is now false, and a check whose argument is false
+		-- is worse than no check: the next person reads the message, believes
+		-- it, and reasons from it. What it was really protecting is protected
+		-- below, against the thing that is actually on a deadline.
 		--
-		-- Not first is the sharper half. A deck bought before the ground line
-		-- works is a bill for empty scenery, and it invites an opener a new
-		-- player can strand themselves on — the same defect the "side tracks
-		-- must not be affordable at spawn" check above exists for, one track
-		-- over. Anchoring to `walls` names the purchase it must follow instead
-		-- of guessing at a percentage that happens to sit after it today.
-		local wallsRow = curveRow("walls")
-		check(wallsRow ~= nil and row.at > wallsRow.at,
-			("Floors.%s is bought at minute %.1f, at or before the walls at minute %.1f — the deck is the expansion the walls enclose, and a floor you can buy before the plot is enclosed is scenery you are billed for")
-				:format(floor.id, at, wallsRow and wallsRow.at / 60 or -1))
-		check(fraction >= 0.06,
-			("Floors.%s opens at %.0f%% of the build — that is inside the opening minutes, before the ground floor is a line worth extending")
+		-- THE ANCHOR MOVED FROM `walls` TO `roof`, and that is a fix rather
+		-- than a translation. FloorService stands this storey's own wall ring
+		-- up and nothing else ever roofs it, so with the floor before the roof
+		-- every plot spent the gap between them wearing upper walls open to the
+		-- sky. On the shipped ladder that gap was minute 6 to minute 27 — three
+		-- quarters of an hour of a defect nobody had named. After the roof it
+		-- cannot happen.
+		local roofRow = curveRow("roof")
+		check(roofRow ~= nil and row.at > roofRow.at,
+			("Floors.%s is bought at minute %.1f and the roof at minute %.1f — FloorService stands this storey's own wall ring up and nothing else ever roofs it, so a deck bought first leaves the upper walls open to the sky for the %.1f minutes in between")
+				:format(floor.id, at, roofRow and roofRow.at / 60 or -1,
+					roofRow and (roofRow.at - row.at) / 60 or -1))
+		-- THE BAND. Late, because the storey is the building growing rather than
+		-- the enclosure it grew inside; not last, because it arrives BARREN
+		-- (TODO.md item 4) and a room you never fill is a room you paid for.
+		check(fraction >= 0.50,
+			("Floors.%s opens at %.0f%% of the build (want 50-80%%) — the ground floor is not finished yet, and a second storey offered while the first one still has empty slots is a room you buy instead of the line you were building")
 				:format(floor.id, fraction * 100))
-		check(fraction <= 0.20,
-			("Floors.%s opens at %.0f%% of the build; past a fifth in it slides back toward being the mid-build wall it used to be, and it drags both cabinets it gates along with it")
+		check(fraction <= 0.80,
+			("Floors.%s opens at %.0f%% of the build (want 50-80%%) — the storey arrives barren and its conveyor is a further purchase, so past four fifths there is no session left to put anything in it")
 				:format(floor.id, fraction * 100))
-		-- Roblox credits the first 60 minutes of a session and nothing after.
-		-- `at <= 50` was the version of this rule that only had to cover the
-		-- floor itself. The floor gates the weapons and armour tracks now, so
-		-- this is the deadline for THREE ladders, and the question stopped
-		-- being "inside the session" and became "with a session left after it".
-		check(at <= 10,
-			("Floors.%s opens %.0f minutes in; it gates both cabinets, so past ~10 the side tracks have no session left to be climbed in")
-				:format(floor.id, at))
 
 		-- ── the deck, and the line on it, are two purchases ──────────────────
 		--
