@@ -295,6 +295,54 @@ __MODULES["Config"] = function()
 
 		MachineOffset = 8,       -- droppers/upgraders sit this far OUTBOARD of the belt
 		ButtonOffset = 11,       -- buy buttons sit this far INBOARD, facing the floor
+
+		-- HOW FAR PROUD OF ITS RUNNING SURFACE THE BELT'S SOLID SLAB STANDS.
+		--
+		-- Belt.lua builds `BeltBase` at BeltWidth + this, so the surface is 8 studs
+		-- and the collidable thing under it is 9.2. It was a literal in the builder
+		-- and a MIRRORED literal in tools/verify_config, which is the coupling that
+		-- put the mezzanine's hatch guard 0.1 studs inside the belt base while every
+		-- check said it cleared by a stud — HANDOFF_v7 lists it as one of two
+		-- builder literals wanting to become Config keys. This is that move.
+		BeltBaseProud = 1.2,
+
+		-- ── THE GUARD WALLS, AND THE BUG THEY MUST NOT REPEAT ────────────────────
+		--
+		-- TODO.md item 5 asks for slightly prominent guard walls on both belts.
+		-- There were rails once and they were DELETED, for a reason worth reading
+		-- before touching any of this (Belt.lua's own block comment): each leg's
+		-- rails ran its FULL length, so leg 2's inboard rail crossed leg 1's path
+		-- and vice versa — two solid walls straight across the conveyor, plus an
+		-- 11x11 corner block sitting on the bend. That is what the drops were piling
+		-- up against.
+		--
+		-- So a rail is not "a wall down the side of the belt". It is A RUN ON ONE
+		-- LEG THAT IS SET BACK FROM BOTH OF THAT LEG'S ENDS, and `corner` is the
+		-- whole of the fix. The verifier asserts the property directly: a leg's rail
+		-- box may not overlap any OTHER leg's running surface.
+		--
+		-- NOT COLLIDABLE, and that is a decision rather than an oversight. Drops ride
+		-- a LinearVelocity in Plane mode, which pins lateral velocity to exactly
+		-- zero, so there is no force that pushes one sideways and a solid rail
+		-- catches nothing that would otherwise escape. It could only catch things
+		-- that should not have been caught: INVARIANTS.md's "nothing collidable may
+		-- sit near the belt except the running surface", the buy-button walk across
+		-- the belt that BeltY = 1.4 exists to allow, and a 0.8-stud slot between the
+		-- rail and the machine row for a raider to wedge in. The prominence asked
+		-- for is visual, and whether it reads as a guard you can walk through is the
+		-- Studio question this round leaves.
+		BeltGuard = {
+			thickness = 0.8,   -- across the belt
+			bite = 0.1,        -- how far the inner face is buried in the surface, so
+			                   -- there are never two coplanar faces to z-fight
+			kick = 0.7,        -- underside of the solid kick plate, over the surface
+			height = 1.9,      -- the neon top rail's centre, over the surface
+			bar = 0.35,        -- that rail's section
+			-- SETBACK FROM EACH END OF A LEG, along it. Big enough to clear the
+			-- corner square the surfaces overrun by half a belt width, and to clear
+			-- the turn sensor's leading face.
+			corner = 8,
+		},
 		ButtonHeight = 1.4,      -- total button height; must be low enough to run over
 		MachineFootprint = 5,    -- machines are this deep along the belt
 
@@ -437,6 +485,25 @@ __MODULES["Config"] = function()
 	-- it is what the buy-button label has to clear now that the label no longer
 	-- draws through walls, and the verifier can only check a relationship it can
 	-- see. If you raise the arm, raise this.
+	--- HOW FAR THE BELT PHYSICALLY REACHES FROM ITS CENTRE LINE, rails included.
+	---
+	--- ONE DERIVATION, READ BY THE BUILDER AND BY THE VERIFIER. The base's width was
+	--- a literal in Belt.lua mirrored by a second literal in tools/verify_config,
+	--- and the two agreeing was luck rather than structure — that is the coupling
+	--- that put the mezzanine's hatch guard 0.1 studs inside the belt base while
+	--- every clearance check reported a stud of daylight.
+	---
+	--- Now the guard rails widen the belt too, so this is also what makes every
+	--- existing clearance check — the hatch, the pillars, the misc pedestals, the
+	--- zone containment, both cabinets — measure against the real object for free.
+	function Config.beltHalfWidth(): number
+		local L = Config.Layout
+		local guard = L.BeltGuard
+		local base = L.BeltWidth / 2 + L.BeltBaseProud / 2
+		local rail = L.BeltWidth / 2 - guard.bite + guard.thickness
+		return math.max(base, rail)
+	end
+
 	Config.Layout.MachineTopY = Config.Layout.BeltY + 5.5
 
 	-- HOW THICK A TRIGGER ON THE BELT HAS TO BE.
@@ -13309,6 +13376,7 @@ __MODULES["Belt"] = function()
 
 		local width = L.BeltWidth
 		local half = width / 2
+		local GUARD = L.BeltGuard
 		local surfaceY = L.BeltY
 		local legs = self:legCount(pathIndex)
 
@@ -13332,7 +13400,7 @@ __MODULES["Belt"] = function()
 			local length = toDist - fromDist
 			local mid = (fromDist + toDist) / 2
 
-			newPart(folder, "BeltBase" .. index, Vector3.new(width + 1.2, surfaceY - 0.2, length),
+			newPart(folder, "BeltBase" .. index, Vector3.new(width + L.BeltBaseProud, surfaceY - 0.2, length),
 				self:segmentCF(index, mid, 0, (surfaceY - 0.2) / 2, pathIndex), COLORS.frame, Enum.Material.DiamondPlate)
 
 			local surface = newPart(folder, "BeltSurface" .. index, Vector3.new(width, 0.4, length),
@@ -13348,15 +13416,53 @@ __MODULES["Belt"] = function()
 			texture.Color3 = COLORS.beltLine
 			texture.Parent = surface
 
-			-- Decorative edge trim ONLY on the outer side of the L, and never
-			-- collidable. The inner side is left completely open so the two legs
-			-- flow into each other.
-			local trim = newPart(folder, "Trim" .. index, Vector3.new(0.5, 0.5, length),
-				self:segmentCF(index, mid, half + 0.25, surfaceY + 0.15, pathIndex),
-				COLORS.beltLine, Enum.Material.Neon, false)
-			trim.CanQuery = false
-
 			return surface
+		end
+
+		-- ── the guard walls ──────────────────────────────────────────────────────
+		--
+		-- TODO.md item 5. These replace the 0.5-stud neon trim that ran the outer
+		-- side of each leg, and they are the shape the DELETED rails should have
+		-- been: a run on one leg, set back from both of that leg's ends by
+		-- BeltGuard.corner, on BOTH sides.
+		--
+		-- The setback is the whole of the fix. The old rails ran each leg's full
+		-- length, and because every leg's surface deliberately overruns its bend by
+		-- half a belt width (see the loop below), leg 2's inboard rail crossed leg
+		-- 1's path and vice versa. Pulling back eight studs at each end leaves the
+		-- corner square completely clear — of the neighbouring leg, and of the turn
+		-- sensor whose leading face sits just past the bend.
+		--
+		-- Two parts a side: a solid kick plate at drop height's underside and a neon
+		-- top rail floating above it. The stud of air between them is deliberate —
+		-- it sits at exactly drop-body height, so the drops are still the thing you
+		-- watch rather than something you glimpse between two walls.
+		--
+		-- NEVER COLLIDABLE. Same contract as the end cap and the flow markers, and
+		-- the long argument is in Config.Layout.BeltGuard.
+		local function buildGuard(index, fromDist, toDist)
+			local run = toDist - fromDist
+			if run <= Tycoon.MIN_PART then
+				return
+			end
+			local mid = (fromDist + toDist) / 2
+			local lateral = half - GUARD.bite + GUARD.thickness / 2
+
+			for _, side in ipairs({ -1, 1 }) do
+				local kickHeight = GUARD.height - GUARD.bar / 2 - GUARD.kick
+				local kick = newPart(folder, ("Guard%d_%s"):format(index, side < 0 and "in" or "out"),
+					Vector3.new(GUARD.thickness, kickHeight, run),
+					self:segmentCF(index, mid, side * lateral, surfaceY + GUARD.kick + kickHeight / 2, pathIndex),
+					COLORS.frame, Enum.Material.DiamondPlate, false)
+				kick.CanQuery = false
+
+				local bar = newPart(folder, ("GuardRail%d_%s"):format(index, side < 0 and "in" or "out"),
+					Vector3.new(GUARD.bar, GUARD.bar, run),
+					self:segmentCF(index, mid, side * lateral, surfaceY + GUARD.height + GUARD.bar, pathIndex),
+					COLORS.beltLine, Enum.Material.Neon, false)
+				bar.CanQuery = false
+				bar.CastShadow = false
+			end
 		end
 
 		local path = self:beltPath(pathIndex)
@@ -13372,12 +13478,16 @@ __MODULES["Belt"] = function()
 			-- belt-width past the bend so there is no separate corner plate.
 			local toDist = (index == legs) and length or (length + half)
 			surfaces[index] = buildRun(index, fromDist, toDist)
+			-- The guard is the run pulled back from BOTH ends, measured off the
+			-- surface's own span rather than off the leg's, so a leg that overruns
+			-- its bend does not drag its rails over the neighbour.
+			buildGuard(index, fromDist + GUARD.corner, toDist - GUARD.corner)
 		end
 		path.surfaces = surfaces
 
 		-- Visual end cap behind the first dropper. Non-collidable: nothing should
 		-- ever reach it, and if something does we want it to slide off, not wedge.
-		local cap = newPart(folder, "BeltCap", Vector3.new(width + 1.2, 1.6, 0.6),
+		local cap = newPart(folder, "BeltCap", Vector3.new(width + L.BeltBaseProud, 1.6, 0.6),
 			self:segmentCF(1, -1.2, 0, surfaceY + 0.8, pathIndex), COLORS.metal, Enum.Material.Metal, false)
 		cap.CanQuery = false
 

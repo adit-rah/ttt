@@ -1656,9 +1656,15 @@ end
 -- two places (the mezzanine hatch's back lip, and the pillar note's "leg 2 reaches
 -- x = -48.6", which is -44 less 4.6), and measuring against the surface instead is
 -- how the stairwell's guard came to be 0.1 studs inside the belt base while
--- looking like it cleared by a stud. Same standing coupling as the cabinet sign
--- below: a builder literal this file cannot derive, named where it is used.
-local BELT_BASE_PROUD = 1.2
+-- looking like it cleared by a stud.
+--
+-- THE MIRRORED LITERAL IS GONE. It was `local BELT_BASE_PROUD = 1.2` here and
+-- `width + 1.2` in Belt.lua, and the two agreeing was luck rather than
+-- structure — HANDOFF_v7 named it as one of two builder literals wanting to
+-- become Config keys. Config.beltHalfWidth is that key's derivation, read by
+-- both, and it now also carries the guard rails: every clearance check in this
+-- file measures against the belt's REAL reach for free.
+local BELT_REACH = Config.beltHalfWidth()
 
 --- The three rectangles one belt leg occupies in plan: the collidable base, the
 --- machine row OUTBOARD of it, and the buy-button row INBOARD of it.
@@ -1694,13 +1700,120 @@ local function legBoxes(path)
 		end
 		table.insert(boxes, {
 			index = index,
-			belt = strip(0, L.BeltWidth + BELT_BASE_PROUD, 0),
+			belt = strip(0, BELT_REACH * 2, 0),
 			machines = strip(L.MachineOffset, L.MachineFootprint, L.MachineFootprint),
 			buttons = strip(-L.ButtonOffset, PEDESTAL.X, PEDESTAL.X),
 		})
 	end
 	return boxes
 end
+
+-- ── the guard walls, and the bug they must not repeat ───────────────────────
+--
+-- NEW. TODO.md item 5 asks for prominent guard walls on both belts. There were
+-- rails once and they were deleted, and this is the check that would have made
+-- deleting them unnecessary.
+--
+-- THE DEFECT, AS GEOMETRY. Each leg's rails ran its FULL length. Every leg's
+-- running surface deliberately overruns its bend by half a belt width so the
+-- two surfaces share a face rather than seaming, so a rail that followed its
+-- leg's full span crossed the NEIGHBOURING leg's surface — two solid walls
+-- straight across the conveyor, plus an 11x11 block on the bend. Drops piled up
+-- against them.
+--
+-- Stated directly: a leg's rail run may not overlap any OTHER leg's running
+-- surface. BeltGuard.corner is what makes that true, and setting it to 0
+-- reproduces the original bug exactly.
+do
+	local GUARD = L.BeltGuard
+	local railLateral = L.BeltWidth / 2 - GUARD.bite + GUARD.thickness / 2
+
+	for _, path in ipairs(Config.BeltPaths) do
+		local legs = {}
+		for index = 1, #path.points - 1 do
+			local a, b = path.points[index], path.points[index + 1]
+			local dirX = (b.X > a.X and 1) or (b.X < a.X and -1) or 0
+			local dirZ = (b.Z > a.Z and 1) or (b.Z < a.Z and -1) or 0
+			local along = math.abs(b.X - a.X) + math.abs(b.Z - a.Z)
+			legs[index] = { a = a, b = b, dirX = dirX, dirZ = dirZ, along = along }
+		end
+
+		for index, leg in ipairs(legs) do
+			-- A leg shorter than two setbacks plus a usable run has no rail at
+			-- all, which is a silent hole rather than a crash: Belt.lua drops the
+			-- part rather than emitting a negative-length one, and Roblox would
+			-- otherwise keep the previous size.
+			check(leg.along > 2 * GUARD.corner + 6,
+				("BeltPaths.%s leg %d is %.0f studs and the guard is set back %d at each end; under %d there is no rail left to build and the leg silently gets none")
+					:format(path.id, index, leg.along, GUARD.corner, 2 * GUARD.corner + 6))
+
+			-- The rail's own box: the leg's span pulled in at both ends, offset
+			-- laterally, on whichever side.
+			local midX = (leg.a.X + leg.b.X) / 2
+			local midZ = (leg.a.Z + leg.b.Z) / 2
+			local run = math.max(leg.along - 2 * GUARD.corner, 0)
+			for _, side in ipairs({ -1, 1 }) do
+				local nX, nZ = -leg.dirZ * side, leg.dirX * side
+				local railAt = Vector3.new(midX + nX * railLateral, 0, midZ + nZ * railLateral)
+				local railSize = Vector3.new(
+					math.abs(leg.dirX) * run + math.abs(nX) * GUARD.thickness, 1,
+					math.abs(leg.dirZ) * run + math.abs(nZ) * GUARD.thickness)
+
+				for other, otherLeg in ipairs(legs) do
+					if other ~= index then
+						-- The other leg's surface, INCLUDING the corner overrun,
+						-- because the overrun is the part the old rails crossed.
+						local overrun = (other == #legs) and 0 or L.BeltWidth / 2
+						local oMidX = (otherLeg.a.X + otherLeg.b.X) / 2 + otherLeg.dirX * overrun / 2
+						local oMidZ = (otherLeg.a.Z + otherLeg.b.Z) / 2 + otherLeg.dirZ * overrun / 2
+						local oLen = otherLeg.along + overrun
+						local oNX, oNZ = math.abs(otherLeg.dirZ), math.abs(otherLeg.dirX)
+						local surfaceAt = Vector3.new(oMidX, 0, oMidZ)
+						local surfaceSize = Vector3.new(
+							math.abs(otherLeg.dirX) * oLen + oNX * L.BeltWidth, 1,
+							math.abs(otherLeg.dirZ) * oLen + oNZ * L.BeltWidth)
+
+						local into = boxBoxOverlap(railAt, railSize, surfaceAt, surfaceSize)
+						check(into == 0,
+							("BeltPaths.%s leg %d's %s guard rail overlaps leg %d's running surface by %.1f studs — that is a solid wall straight across the conveyor, and it is exactly the bug the old full-length rails shipped. Raise Layout.BeltGuard.corner.")
+								:format(path.id, index, side < 0 and "inboard" or "outboard", other, into))
+					end
+				end
+			end
+		end
+	end
+
+	-- The setback has to clear the corner square the surfaces overrun...
+	check(GUARD.corner >= L.BeltWidth / 2 + GUARD.thickness + 2,
+		("Layout.BeltGuard.corner is %.1f against a corner square %.1f deep plus a %.1f rail; a rail that reaches the bend is a rail in the corner the drops turn through")
+			:format(GUARD.corner, L.BeltWidth / 2, GUARD.thickness))
+	-- ...and the turn sensor's leading face, which sits downstream of the bend.
+	check(GUARD.corner >= L.TriggerThickness / 2 + (L.TriggerThickness - 2.5) / 2 + 1,
+		("Layout.BeltGuard.corner is %.1f and the turn sensor reaches %.1f past the bend; a rail inside it is a part the sensor's Touched fires on")
+			:format(GUARD.corner, L.TriggerThickness / 2 + (L.TriggerThickness - 2.5) / 2))
+
+	-- THE RAIL MAY NOT REACH THE MACHINE ROW. This is the tightest pair in the
+	-- design and the reason `thickness` is 0.8 rather than something rounder.
+	check(L.MachineOffset - L.MachineFootprint / 2 >= Config.beltHalfWidth() + 0.5,
+		("the machine row starts %.1f studs from the belt centre and the belt now reaches %.1f with its rails on; a guard that reaches the machines is a fence built into a dropper")
+			:format(L.MachineOffset - L.MachineFootprint / 2, Config.beltHalfWidth()))
+	-- ...nor the walkway the buy buttons stand on.
+	check(L.ButtonOffset - PEDESTAL.X / 2 >= Config.beltHalfWidth() + 2,
+		("the buy-button row starts %.1f studs from the belt centre against a belt reaching %.1f; there has to be floor between the rail and the pads to stand on")
+			:format(L.ButtonOffset - PEDESTAL.X / 2, Config.beltHalfWidth()))
+
+	-- Buried in the surface at one end and under the machine arms at the other.
+	check(GUARD.bite > 0 and GUARD.bite <= GUARD.thickness / 2,
+		("Layout.BeltGuard.bite is %.2f against a %.2f-thick rail; at 0 the rail's inner face is coplanar with the running surface and z-fights, and past half the thickness it swallows the upgrader's scanner plate")
+			:format(GUARD.bite, GUARD.thickness))
+	check(L.BeltY + GUARD.height + GUARD.bar / 2 <= L.MachineTopY - 1,
+		("the guard's top rail reaches y=%.2f and a dropper's arm hangs at %.2f; the rail would be inside the machine")
+			:format(L.BeltY + GUARD.height + GUARD.bar / 2, L.MachineTopY))
+	check(GUARD.height >= 1.5,
+		("Layout.BeltGuard.height is %.2f above the running surface; TODO.md item 5 asked for prominent, and under 1.5 it is the trim it replaced")
+			:format(GUARD.height))
+end
+
 
 -- HOW MANY PLAN COMPARISONS THE FURNITURE BLOCK MAKES, printed at the end.
 -- Partitioning the furniture by floor removes pairs by construction — a cabinet
