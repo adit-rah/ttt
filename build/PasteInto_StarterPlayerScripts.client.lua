@@ -295,6 +295,54 @@ __MODULES["Config"] = function()
 
 		MachineOffset = 8,       -- droppers/upgraders sit this far OUTBOARD of the belt
 		ButtonOffset = 11,       -- buy buttons sit this far INBOARD, facing the floor
+
+		-- HOW FAR PROUD OF ITS RUNNING SURFACE THE BELT'S SOLID SLAB STANDS.
+		--
+		-- Belt.lua builds `BeltBase` at BeltWidth + this, so the surface is 8 studs
+		-- and the collidable thing under it is 9.2. It was a literal in the builder
+		-- and a MIRRORED literal in tools/verify_config, which is the coupling that
+		-- put the mezzanine's hatch guard 0.1 studs inside the belt base while every
+		-- check said it cleared by a stud — HANDOFF_v7 lists it as one of two
+		-- builder literals wanting to become Config keys. This is that move.
+		BeltBaseProud = 1.2,
+
+		-- ── THE GUARD WALLS, AND THE BUG THEY MUST NOT REPEAT ────────────────────
+		--
+		-- TODO.md item 5 asks for slightly prominent guard walls on both belts.
+		-- There were rails once and they were DELETED, for a reason worth reading
+		-- before touching any of this (Belt.lua's own block comment): each leg's
+		-- rails ran its FULL length, so leg 2's inboard rail crossed leg 1's path
+		-- and vice versa — two solid walls straight across the conveyor, plus an
+		-- 11x11 corner block sitting on the bend. That is what the drops were piling
+		-- up against.
+		--
+		-- So a rail is not "a wall down the side of the belt". It is A RUN ON ONE
+		-- LEG THAT IS SET BACK FROM BOTH OF THAT LEG'S ENDS, and `corner` is the
+		-- whole of the fix. The verifier asserts the property directly: a leg's rail
+		-- box may not overlap any OTHER leg's running surface.
+		--
+		-- NOT COLLIDABLE, and that is a decision rather than an oversight. Drops ride
+		-- a LinearVelocity in Plane mode, which pins lateral velocity to exactly
+		-- zero, so there is no force that pushes one sideways and a solid rail
+		-- catches nothing that would otherwise escape. It could only catch things
+		-- that should not have been caught: INVARIANTS.md's "nothing collidable may
+		-- sit near the belt except the running surface", the buy-button walk across
+		-- the belt that BeltY = 1.4 exists to allow, and a 0.8-stud slot between the
+		-- rail and the machine row for a raider to wedge in. The prominence asked
+		-- for is visual, and whether it reads as a guard you can walk through is the
+		-- Studio question this round leaves.
+		BeltGuard = {
+			thickness = 0.8,   -- across the belt
+			bite = 0.1,        -- how far the inner face is buried in the surface, so
+			                   -- there are never two coplanar faces to z-fight
+			kick = 0.7,        -- underside of the solid kick plate, over the surface
+			height = 1.9,      -- the neon top rail's centre, over the surface
+			bar = 0.35,        -- that rail's section
+			-- SETBACK FROM EACH END OF A LEG, along it. Big enough to clear the
+			-- corner square the surfaces overrun by half a belt width, and to clear
+			-- the turn sensor's leading face.
+			corner = 8,
+		},
 		ButtonHeight = 1.4,      -- total button height; must be low enough to run over
 		MachineFootprint = 5,    -- machines are this deep along the belt
 
@@ -437,6 +485,25 @@ __MODULES["Config"] = function()
 	-- it is what the buy-button label has to clear now that the label no longer
 	-- draws through walls, and the verifier can only check a relationship it can
 	-- see. If you raise the arm, raise this.
+	--- HOW FAR THE BELT PHYSICALLY REACHES FROM ITS CENTRE LINE, rails included.
+	---
+	--- ONE DERIVATION, READ BY THE BUILDER AND BY THE VERIFIER. The base's width was
+	--- a literal in Belt.lua mirrored by a second literal in tools/verify_config,
+	--- and the two agreeing was luck rather than structure — that is the coupling
+	--- that put the mezzanine's hatch guard 0.1 studs inside the belt base while
+	--- every clearance check reported a stud of daylight.
+	---
+	--- Now the guard rails widen the belt too, so this is also what makes every
+	--- existing clearance check — the hatch, the pillars, the misc pedestals, the
+	--- zone containment, both cabinets — measure against the real object for free.
+	function Config.beltHalfWidth(): number
+		local L = Config.Layout
+		local guard = L.BeltGuard
+		local base = L.BeltWidth / 2 + L.BeltBaseProud / 2
+		local rail = L.BeltWidth / 2 - guard.bite + guard.thickness
+		return math.max(base, rail)
+	end
+
 	Config.Layout.MachineTopY = Config.Layout.BeltY + 5.5
 
 	-- HOW THICK A TRIGGER ON THE BELT HAS TO BE.

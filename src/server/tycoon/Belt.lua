@@ -101,6 +101,7 @@ function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
 
 	local width = L.BeltWidth
 	local half = width / 2
+	local GUARD = L.BeltGuard
 	local surfaceY = L.BeltY
 	local legs = self:legCount(pathIndex)
 
@@ -124,7 +125,7 @@ function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
 		local length = toDist - fromDist
 		local mid = (fromDist + toDist) / 2
 
-		newPart(folder, "BeltBase" .. index, Vector3.new(width + 1.2, surfaceY - 0.2, length),
+		newPart(folder, "BeltBase" .. index, Vector3.new(width + L.BeltBaseProud, surfaceY - 0.2, length),
 			self:segmentCF(index, mid, 0, (surfaceY - 0.2) / 2, pathIndex), COLORS.frame, Enum.Material.DiamondPlate)
 
 		local surface = newPart(folder, "BeltSurface" .. index, Vector3.new(width, 0.4, length),
@@ -140,15 +141,53 @@ function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
 		texture.Color3 = COLORS.beltLine
 		texture.Parent = surface
 
-		-- Decorative edge trim ONLY on the outer side of the L, and never
-		-- collidable. The inner side is left completely open so the two legs
-		-- flow into each other.
-		local trim = newPart(folder, "Trim" .. index, Vector3.new(0.5, 0.5, length),
-			self:segmentCF(index, mid, half + 0.25, surfaceY + 0.15, pathIndex),
-			COLORS.beltLine, Enum.Material.Neon, false)
-		trim.CanQuery = false
-
 		return surface
+	end
+
+	-- ── the guard walls ──────────────────────────────────────────────────────
+	--
+	-- TODO.md item 5. These replace the 0.5-stud neon trim that ran the outer
+	-- side of each leg, and they are the shape the DELETED rails should have
+	-- been: a run on one leg, set back from both of that leg's ends by
+	-- BeltGuard.corner, on BOTH sides.
+	--
+	-- The setback is the whole of the fix. The old rails ran each leg's full
+	-- length, and because every leg's surface deliberately overruns its bend by
+	-- half a belt width (see the loop below), leg 2's inboard rail crossed leg
+	-- 1's path and vice versa. Pulling back eight studs at each end leaves the
+	-- corner square completely clear — of the neighbouring leg, and of the turn
+	-- sensor whose leading face sits just past the bend.
+	--
+	-- Two parts a side: a solid kick plate at drop height's underside and a neon
+	-- top rail floating above it. The stud of air between them is deliberate —
+	-- it sits at exactly drop-body height, so the drops are still the thing you
+	-- watch rather than something you glimpse between two walls.
+	--
+	-- NEVER COLLIDABLE. Same contract as the end cap and the flow markers, and
+	-- the long argument is in Config.Layout.BeltGuard.
+	local function buildGuard(index, fromDist, toDist)
+		local run = toDist - fromDist
+		if run <= Tycoon.MIN_PART then
+			return
+		end
+		local mid = (fromDist + toDist) / 2
+		local lateral = half - GUARD.bite + GUARD.thickness / 2
+
+		for _, side in ipairs({ -1, 1 }) do
+			local kickHeight = GUARD.height - GUARD.bar / 2 - GUARD.kick
+			local kick = newPart(folder, ("Guard%d_%s"):format(index, side < 0 and "in" or "out"),
+				Vector3.new(GUARD.thickness, kickHeight, run),
+				self:segmentCF(index, mid, side * lateral, surfaceY + GUARD.kick + kickHeight / 2, pathIndex),
+				COLORS.frame, Enum.Material.DiamondPlate, false)
+			kick.CanQuery = false
+
+			local bar = newPart(folder, ("GuardRail%d_%s"):format(index, side < 0 and "in" or "out"),
+				Vector3.new(GUARD.bar, GUARD.bar, run),
+				self:segmentCF(index, mid, side * lateral, surfaceY + GUARD.height + GUARD.bar, pathIndex),
+				COLORS.beltLine, Enum.Material.Neon, false)
+			bar.CanQuery = false
+			bar.CastShadow = false
+		end
 	end
 
 	local path = self:beltPath(pathIndex)
@@ -164,12 +203,16 @@ function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
 		-- belt-width past the bend so there is no separate corner plate.
 		local toDist = (index == legs) and length or (length + half)
 		surfaces[index] = buildRun(index, fromDist, toDist)
+		-- The guard is the run pulled back from BOTH ends, measured off the
+		-- surface's own span rather than off the leg's, so a leg that overruns
+		-- its bend does not drag its rails over the neighbour.
+		buildGuard(index, fromDist + GUARD.corner, toDist - GUARD.corner)
 	end
 	path.surfaces = surfaces
 
 	-- Visual end cap behind the first dropper. Non-collidable: nothing should
 	-- ever reach it, and if something does we want it to slide off, not wedge.
-	local cap = newPart(folder, "BeltCap", Vector3.new(width + 1.2, 1.6, 0.6),
+	local cap = newPart(folder, "BeltCap", Vector3.new(width + L.BeltBaseProud, 1.6, 0.6),
 		self:segmentCF(1, -1.2, 0, surfaceY + 0.8, pathIndex), COLORS.metal, Enum.Material.Metal, false)
 	cap.CanQuery = false
 
