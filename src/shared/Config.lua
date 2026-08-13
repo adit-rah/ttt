@@ -286,6 +286,25 @@ Config.Layout = {
 	},
 	MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
 
+	-- THE SAME RULE FOR A CABINET COLUMN, AND A DIFFERENT NUMBER.
+	--
+	-- One constant used to police both, and that was one constant doing two
+	-- jobs. MiscButtonSpacing is about the misc COLUMN — five unrelated
+	-- purchases (the shell, the belt, the storey) standing in a line down the
+	-- middle of an open floor, where 14 studs is what stops them reading as one
+	-- object. A cabinet column is the opposite case: nine pads that are
+	-- deliberately one object, in front of one case, in track order.
+	--
+	-- 12 is what makes the armoury a single straight file. Nine pedestals at 14
+	-- need 112 studs of run; the clear band down the right-hand side is 101.5,
+	-- bounded at the back by belt leg 1's base and buy-button row and at the
+	-- front by the wall. At 12 the run is 96 and it fits with five studs spare.
+	--
+	-- A pedestal is 5 wide, so 12 leaves SEVEN studs of clear floor between two
+	-- pads — you cannot stand on one and wonder which one you are on, which is
+	-- the entire thing either number is protecting. Below about 10 you could.
+	CabinetSlotSpacing = 12,
+
 	-- SIDE-TRACK FURNITURE. Each cabinet is a display case standing behind a
 	-- column of its own buy buttons, so the right half of the plot reads as an
 	-- armoury aisle the way the left half reads as a production line.
@@ -299,30 +318,60 @@ Config.Layout = {
 	-- track; the verifier asserts the track fits, which is what stops a new
 	-- tier silently stacking a pedestal on top of the one before it.
 	--
-	-- THEY STAND ON THE MEZZANINE, IN ITS ARMOURY ZONE. `floor` names a
-	-- Config.Floors id and every one of the three position helpers at the bottom
-	-- of this file takes its Y from it. TODO.md item 1: "cabinets and armor should
-	-- not be on the first floor."
+	-- THEY STAND ON THE GROUND FLOOR, IN ONE FILE DOWN THE RIGHT-HAND SIDE, and
+	-- `floor` is ABSENT rather than set — Config.floorTopY documents nil as "the
+	-- ground floor, and a legitimate answer", so the three position helpers at
+	-- the bottom of this file take y = 0 for both tracks.
 	--
-	-- Config.TrackUnlock has gated both of these on `floor2` for two rounds, so
-	-- the mezzanine was already the thing that opened them — and they stood
-	-- downstairs, because ensureCabinets built at y = 0 and these three helpers
-	-- hardcoded it. The ground floor is the production line; this is the armoury
-	-- above it, and the two no longer share an aisle.
+	-- #58 moved them onto the mezzanine and this moves them back. That is a
+	-- reversal, not drift: #58's own Studio list asked "does the ground floor
+	-- read as emptier for having lost them?", and TODO.md item 2 is the answer.
+	-- The production line is the left half and the armoury is the right half,
+	-- which is the arrangement the plot had before the deck existed and the one
+	-- that survives the deck now spanning the whole storey.
 	--
-	-- firstZ moved from -34 to 4 with the same spacing, which puts the columns in
-	-- the armoury zone (z -8..68) rather than over the belt. weapons' five slots
-	-- run z 4..60 and armour's four run z 4..46, both clear of the deck's front
-	-- edge at 68 and of the stairwell, which ends at z = -7.
+	-- ONE FILE, BOTH CASES, WHICH IS WHY THE REBIRTH PAD MOVED. Nine pedestals
+	-- on a 14-stud pitch is 112 studs of column plus 4 studs of case overhang at
+	-- each end: 120 studs of display case looking for a straight run. The pad
+	-- stood at (42, 40) with a 12x12 body and a 14-stud spacing rule around it,
+	-- which forbade any pedestal between z 26 and z 54 — room for one slot above
+	-- it and eight below, and eight below runs off the back of the plot. Moving
+	-- one pad is what makes the file straight; see RebirthPadAt.
+	--
+	-- WHY x = 48 AND NOT HARD AGAINST THE WALL AT 54. Two solids stand at
+	-- x = ±54 for the full height of the ground storey, and neither can move:
+	-- the roof's columns (Structure.Roof.columnInset 3, so x = ±56, 2.4 square)
+	-- and the mezzanine deck's own posts (Floors[1].pillar.insetSide 4, so
+	-- x = ±54 — and widening that inset walks the LEFT pair into belt leg 2's
+	-- base at x -48.6..-39.4). A 4-deep case centred at 54 spans x 52..56 and
+	-- interpenetrates both. At 48 it spans 46..50 and clears the posts by 2.8.
+	--
+	-- The aisle then has to go inboard of the case (buttonX 40), which is the
+	-- correct side anyway: you walk the armoury with the cases on your right,
+	-- the mirror of walking the line with the belt on your left.
 	Tracks = {
-		-- weapons stops at 5: a sixth slot would land at z = 74, past the deck's
-		-- front edge. Downstairs the binding constraint was the rebirth pad; up
-		-- here it is the building.
-		weapons = { floor = "mezzanine", cabinetX = 20, buttonX = 30, firstZ = 4, spacing = 14, slots = 5, depth = 4, height = 13 },
-		armor   = { floor = "mezzanine", cabinetX = 54, buttonX = 44, firstZ = 4, spacing = 14, slots = 4, depth = 4, height = 13 },
+		-- weapons is the FRONT column, nearer the gateway, because refreshButtons
+		-- picks the beacon target by (TrackRank, price) and weapons outranks
+		-- armour — so the marker points at this cabinet first for the whole build,
+		-- and the nearer aisle has to be the one it points at.
+		--
+		-- firstZ is not a free choice for either. Belt leg 1's buy-button row is a
+		-- 95x5 box centred at (1, -45), and these pedestals share its x range, so
+		-- no pedestal centre may sit between z -50 and z -40. armour's column is
+		-- aligned to land on -52 and -38 rather than straddling that band.
+		weapons = { cabinetX = 48, buttonX = 40, firstZ = 14, spacing = 12, slots = 5, depth = 4, height = 13 },
+		armor   = { cabinetX = 48, buttonX = 40, firstZ = -36, spacing = 12, slots = 4, depth = 4, height = 13 },
 	},
 
-	RebirthPadAt = Vector3.new(42, 0, 40),   -- front-right, away from the vault
+	-- MOVED OFF THE RIGHT-HAND WALL, so the armoury can be one straight file.
+	--
+	-- It was (42, 40): front-right, chosen when the right wall was empty floor.
+	-- It is now the open middle of the plot, which is the one large clear area
+	-- left once the line has the left half and the cases have the right — and it
+	-- is on the walk from the gateway to both, rather than tucked behind one of
+	-- them. Still clear of the vault, which is the constraint the old comment
+	-- named and the only one that was ever about the pad itself.
+	RebirthPadAt = Vector3.new(24, 0, 0),
 	ClaimPadAt   = Vector3.new(14, 0, 52),   -- front-centre-right, on the aisle
 	-- Where the owner lands on claim and on every respawn: just inside the
 	-- gateway, on the aisle, looking down plot-local -Z at the machines.
@@ -2068,7 +2117,7 @@ Config.Floors = {
 		-- TODO.md item 1: "make the code clean so each floor and its contents can
 		-- be easily deciphered without extensive detailing". A deck rectangle plus
 		-- four belt margins could not say that the back of the storey is a
-		-- production line and the front is an armoury — you had to read
+		-- production line and the front is where you arrive — you had to read
 		-- FloorService and Layout.Tracks and hold both in your head.
 		--
 		-- `line` IS DELIBERATELY THE OLD DECK RECTANGLE, to the stud. The belt is
@@ -2076,16 +2125,29 @@ Config.Floors = {
 		-- below), so widening the deck moved no belt leg, no machine and no
 		-- collector — and every belt assertion, the drop budget and the trigger
 		-- dwell all still measure exactly what they measured before.
+		--
+		-- THE FRONT ZONE WAS `armoury` AND IT IS `landing` NOW. It was named for
+		-- the two display cases #58 stood in it, and TODO.md item 2 has taken
+		-- both of them back downstairs — so the name described a thing that is no
+		-- longer there, and every check written against it was measuring an empty
+		-- rectangle and passing for that reason. Renaming it is the cheap half;
+		-- the expensive half is that the containment checks which named it are
+		-- deleted rather than left standing, because an assertion that cannot
+		-- fail is a guess with a check() around it.
+		--
+		-- What is actually in it: the stairwell, and the way onto the storey. It
+		-- keeps the full deck width because the zone pair has to tile the slab —
+		-- floor that belongs to neither zone is floor nothing describes.
 		zones = {
 			line = {
 				at = Vector3.new(0, 0, -38),
 				size = Vector3.new(112, 0, 60),
 				holds = "the mezzanine belt, its dropper and its hopper",
 			},
-			armoury = {
+			landing = {
 				at = Vector3.new(0, 0, 30),
 				size = Vector3.new(116, 0, 76),
-				holds = "the weapons and armour cabinets and their button columns",
+				holds = "the stairwell, its guard, and the open floor you arrive on",
 			},
 		},
 
@@ -2950,8 +3012,24 @@ end
 -- The two cabinets stood on the plot from the moment you claimed it: two
 -- display cases and nine pedestals, for upgrades you could not use and had no
 -- reason to care about yet. That is most of the visual noise in the first few
--- minutes, and it is why they now arrive with the second floor.
-Config.TrackUnlock = { weapons = "floor2", armor = "floor2" }
+-- minutes, and it is why they arrive on a gate rather than on claim.
+--
+-- THE GATE IS THE FOURTH FACTORY RUNG, NOT THE FLOOR. It was `floor2` for two
+-- rounds, and that was only ever a proxy: the cabinets stood on the deck, so
+-- the deck's button was the thing that could open them. With the cases back
+-- downstairs (Layout.Tracks) the deck has nothing to do with it, and leaving
+-- the gate on `floor2` would mean two cabinets on the ground floor appearing
+-- when a storey lands above them — a coupling with no argument behind it.
+--
+-- `dropper3` is the fourth thing you buy, about three minutes in: late enough
+-- that the opening minutes are the line and nothing else, early enough that
+-- the first bat is a purchase you make during the first raid rather than after
+-- it. TODO.md item 2, "after the 4th conveyor upgrade".
+--
+-- It must name a FACTORY button — the verifier asserts that, because a side
+-- track gating a side track can deadlock — and the gate is sticky, so a rebirth
+-- that wipes `dropper3` does not take both cabinets with it.
+Config.TrackUnlock = { weapons = "dropper3", armor = "dropper3" }
 
 --- Whether `track` is open on a plot that owns `owned`.
 ---

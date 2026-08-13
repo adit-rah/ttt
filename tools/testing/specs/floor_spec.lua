@@ -501,24 +501,34 @@ T.spec("floorTopY is 0 for the ground and the deck's top for a floor that exists
 	t:eq(checked, 2, "both cabinets")
 end)
 
-T.spec("the three track helpers put every slot of both cabinets on the deck", function(t)
+T.spec("the three track helpers put every slot of both cabinets on the ground, in one file", function(t)
 	local w = T.world()
 	local Config = w.config
-	local floor = floorOf(Config)
-	local top = floor.height
 
-	-- Hand-derived from Layout.Tracks (firstZ 4, spacing 14), so the columns are
-	-- an oracle rather than a re-run of the same expression.
+	-- Hand-derived from Layout.Tracks (armour firstZ -36, weapons firstZ 14,
+	-- both at spacing 12), so the columns are an oracle rather than a re-run of
+	-- the same expression.
+	--
+	-- PREMISE OVERTURNED. This spec used to end "...on the deck" and its oracle
+	-- was the mezzanine's y = 22. Both cabinets came back downstairs in round 8
+	-- (TODO.md item 2), so every Y here is 0 — and the `t:ne(shelf.Y, 5)` guard
+	-- that used to catch a shelf built 5 above the WORLD instead of 5 above the
+	-- deck is gone with it, because on the ground floor those are the same
+	-- number. What replaces it is the ordering below: the two cases are one
+	-- straight file, so their spans must not overlap.
 	local want = {
-		weapons = { buttonX = 30, cabinetX = 20, z = { 4, 18, 32, 46, 60 }, cabinet = { 32, 4, 13, 64 } },
-		armor = { buttonX = 44, cabinetX = 54, z = { 4, 18, 32, 46 }, cabinet = { 25, 4, 13, 50 } },
+		armor = { buttonX = 40, cabinetX = 48, z = { -36, -24, -12, 0 }, cabinet = { -18, 4, 13, 44 } },
+		weapons = { buttonX = 40, cabinetX = 48, z = { 14, 26, 38, 50, 62 }, cabinet = { 38, 4, 13, 56 } },
 	}
 
 	local slots = 0
+	local spans = {}
 	local visited = eachTrack(t, Config, function(name, track)
 		local expect = want[name]
 		t:notNil(expect, name .. ": this file has no expectation for that track")
 		t:eq(track.slots, #expect.z, name .. ": the slot count moved")
+		t:isNil(track.floor,
+			name .. ": the cabinets stand on the ground floor, and `floor` says so by being absent")
 
 		for slot = 1, track.slots do
 			local button = Config.trackButtonPosition(name, slot)
@@ -527,13 +537,9 @@ T.spec("the three track helpers put every slot of both cabinets on the deck", fu
 
 			t:near(button.X, expect.buttonX, EPS, label .. ": the button column moved on X")
 			t:near(button.Z, expect.z[slot], EPS, label .. ": the button moved on Z")
-			t:near(button.Y, top, EPS, label .. ": the buy button is not standing on the deck")
+			t:near(button.Y, 0, EPS, label .. ": the buy button left the plot floor")
 
-			-- The shelf is 5 above the DECK, not 5 above the world. Both halves
-			-- are asserted: a hardcoded 5 satisfies the first and fails the
-			-- second, and that is exactly the bug the helpers used to have.
-			t:near(shelf.Y, top + 5, EPS, label .. ": the shelf display is not 5 above the deck")
-			t:ne(shelf.Y, 5, label .. ": the shelf is 5 above the WORLD — it is under the deck")
+			t:near(shelf.Y, 5, EPS, label .. ": the shelf display is not 5 above the floor")
 			t:near(shelf.X, expect.cabinetX, EPS,
 				label .. ": the shelf is not on its cabinet's face")
 			t:near(shelf.Z, button.Z, EPS, label .. ": the shelf does not line up with its buy button")
@@ -543,7 +549,7 @@ T.spec("the three track helpers put every slot of both cabinets on the deck", fu
 		local centre, size = Config.trackCabinet(name)
 		t:near(centre.X, expect.cabinetX, EPS, name .. ": the cabinet moved on X")
 		t:near(centre.Z, expect.cabinet[1], EPS, name .. ": the cabinet is not centred on its column")
-		t:near(centre.Y, top, EPS, name .. ": the cabinet is not standing on the deck")
+		t:near(centre.Y, 0, EPS, name .. ": the cabinet left the plot floor")
 		t:near(size.X, expect.cabinet[2], EPS, name .. ": the cabinet's depth moved")
 		t:near(size.Y, expect.cabinet[3], EPS, name .. ": the cabinet's height moved")
 		t:near(size.Z, expect.cabinet[4], EPS, name .. ": the cabinet no longer spans its column")
@@ -552,39 +558,59 @@ T.spec("the three track helpers put every slot of both cabinets on the deck", fu
 		t:near(centre.Z - size.Z / 2, expect.z[1] - 4, EPS, name .. ": the cabinet's near end is not 4 proud of slot 1")
 		t:near(centre.Z + size.Z / 2, expect.z[#expect.z] + 4, EPS,
 			name .. ": the cabinet's far end is not 4 proud of the last slot")
+
+		table.insert(spans, { id = name, from = centre.Z - size.Z / 2, to = centre.Z + size.Z / 2, x = centre.X })
 	end)
+
+	-- ONE FILE, WHICH IS THE WHOLE POINT OF THE MOVE. Both cases share an x, so
+	-- the only thing keeping them apart is z, and nothing else in this file
+	-- would notice if one grew through the other.
+	t:eq(#spans, 2, "two cases to compare")
+	t:near(spans[1].x, spans[2].x, EPS, "the two cases are not in the same file")
+	table.sort(spans, function(a, b) return a.from < b.from end)
+	t:gte(spans[2].from - spans[1].to, 2,
+		("%s ends at z=%.1f and %s starts at z=%.1f — the two cases are one file and must not grow through each other")
+			:format(spans[1].id, spans[1].to, spans[2].id, spans[2].from))
 
 	t:eq(visited, 2, "both cabinets")
 	t:eq(slots, 9, "five weapons slots and four armour slots")
 end)
 
-T.spec("a track with no floor still lands on the ground floor", function(t)
-	-- What keeps a future GROUND-floor track working. Both cabinets name the
-	-- mezzanine today, so `floor = nil` is a path with no shipped caller — which
-	-- is precisely why it needs a spec rather than a config check.
+T.spec("a track that names a floor rides it, and clearing one does not move the other", function(t)
+	-- THE MIRROR OF WHAT THIS SPEC USED TO BE. It was written when both cabinets
+	-- named the mezzanine and `floor = nil` was a path with no shipped caller;
+	-- round 8 made nil the shipped answer, so the untested direction is now the
+	-- other one. Same argument, same reason it is a spec rather than a config
+	-- check: nothing in Config.lua exercises a value nothing sets.
 	local w = T.world()
 	local Config = w.config
+	local top = floorOf(Config).height
 
-	Config.Layout.Tracks.weapons.floor = nil
+	-- Both start on the ground.
+	t:isNil(Config.Layout.Tracks.weapons.floor)
+	t:isNil(Config.Layout.Tracks.armor.floor)
+	t:near(Config.trackButtonPosition("weapons", 1).Y, 0, EPS)
+
+	Config.Layout.Tracks.weapons.floor = "mezzanine"
 
 	for slot = 1, Config.Layout.Tracks.weapons.slots do
-		t:near(Config.trackButtonPosition("weapons", slot).Y, 0, EPS,
-			("a floorless track's slot %d button left the ground"):format(slot))
-		t:near(Config.trackShelfPosition("weapons", slot).Y, 5, EPS,
-			("a floorless track's slot %d shelf is not 5 above the ground"):format(slot))
+		t:near(Config.trackButtonPosition("weapons", slot).Y, top, EPS,
+			("a track sent upstairs left slot %d's button on the ground"):format(slot))
+		t:near(Config.trackShelfPosition("weapons", slot).Y, top + 5, EPS,
+			("a track sent upstairs left slot %d's shelf on the ground"):format(slot))
 	end
 	local centre = Config.trackCabinet("weapons")
-	t:near(centre.Y, 0, EPS, "a floorless track's cabinet left the ground")
+	t:near(centre.Y, top, EPS, "a track sent upstairs left its cabinet on the ground")
 
-	-- X and Z are untouched by the floor: dropping a track downstairs must not
-	-- also slide it sideways.
-	t:near(centre.X, 20, EPS)
-	t:near(Config.trackButtonPosition("weapons", 1).Z, 4, EPS)
+	-- X and Z are untouched by the floor: sending a track upstairs must not also
+	-- slide it sideways.
+	t:near(centre.X, 48, EPS)
+	t:near(Config.trackButtonPosition("weapons", 1).Z, 14, EPS)
 
-	-- ...and the other cabinet is still upstairs, so this is one track's floor
+	-- ...and the other cabinet is still downstairs, so this is one track's floor
 	-- rather than a global.
-	t:near(Config.trackButtonPosition("armor", 1).Y, floorOf(Config).height, EPS,
-		"clearing one track's floor moved the other one too")
+	t:near(Config.trackButtonPosition("armor", 1).Y, 0, EPS,
+		"setting one track's floor moved the other one too")
 end)
 
 T.spec("buttonPosition sends the armoury and the upstairs line to the deck, and the ground floor to the ground", function(t)
@@ -640,16 +666,20 @@ T.spec("buttonPosition sends the armoury and the upstairs line to the deck, and 
 	end
 	t:eq(returnLeg, 3, "three points along the return leg")
 
-	-- Both cabinets' first rungs, through the same call.
+	-- Both cabinets' first rungs, through the same call. They are DOWNSTAIRS now
+	-- (TODO.md item 2), which is what makes the pair of assertions below the
+	-- interesting ones: the armoury and the upstairs line share one dispatcher,
+	-- and it has to send them to different storeys on the same call.
 	local cabinets = 0
-	for _, pair in ipairs({ { "batforge", 30 }, { "armor_padded", 44 } }) do
+	for _, pair in ipairs({ { "batforge", 40, 14 }, { "armor_padded", 40, -36 } }) do
 		local def = Config.ButtonById[pair[1]]
 		t:notNil(def, pair[1] .. ": no such button")
 		if def then
 			local spot = plot:buttonPosition(def)
 			t:near(spot.X, pair[2], EPS, pair[1] .. ": the button column moved")
-			t:near(spot.Z, 4, EPS, pair[1] .. ": the first rung is not at firstZ")
-			t:near(spot.Y, floor.height, EPS, pair[1] .. ": the armoury is still downstairs")
+			t:near(spot.Z, pair[3], EPS, pair[1] .. ": the first rung is not at firstZ")
+			t:near(spot.Y, 0, EPS, pair[1] .. ": the armoury left the plot floor")
+			t:ne(spot.Y, floor.height, pair[1] .. ": the armoury is back on the deck")
 			cabinets += 1
 		end
 	end
@@ -711,30 +741,59 @@ T.spec("both zones lie on the deck and their interiors do not overlap", function
 	t:eq(pairsChecked, 1, "one pair of zones to compare")
 end)
 
-T.spec("every cabinet, every button and every shelf stands in the armoury zone", function(t)
-	-- The zone is what makes "the armoury moved upstairs" a checkable statement
-	-- rather than a comment: firstZ moved from -34 to 4 to get the columns off the
-	-- belt, and this is the assertion that says it landed somewhere named.
+T.spec("every cabinet, every button and every shelf stands in the right-hand aisle, off the production line", function(t)
+	-- PREMISE OVERTURNED. This spec used to assert the armoury stood in the
+	-- mezzanine's `armoury` zone, which is how "the armoury moved upstairs"
+	-- became checkable rather than commented. TODO.md item 2 moved it back down,
+	-- and there is no ground-floor zone table to point at — the ground storey is
+	-- described by Config.Layout, not by Config.Floors.
+	--
+	-- So the claim is re-stated in the vocabulary the ground floor does have:
+	-- the plot's left half is the production line and its right half is the
+	-- armoury, and every piece of both cases is on the right of the belt with
+	-- clear air between them. That is the same assertion — "it landed somewhere
+	-- named" — against the boundary that actually exists.
 	local w = T.world()
 	local Config = w.config
-	local floor = floorOf(Config)
-	local armoury = zoneBox(floor, "armoury")
-	local line = zoneBox(floor, "line")
+	local L = Config.Layout
+
+	-- The ground belt as two leg boxes, derived rather than typed: leg 1 runs
+	-- along the back at BeltStart.Z, leg 2 down the left at BeltCorner.X. The
+	-- machine row sits MachineOffset outboard and the buy-button row
+	-- ButtonOffset inboard, so the strip a cabinet must clear is wider than the
+	-- running surface — which is the whole reason to derive it here.
+	local reach = L.MachineOffset + L.MachineFootprint / 2
+	local legs = {
+		{ id = "leg 1 (the dropper row)", box = {
+			minX = math.min(L.BeltStart.X, L.BeltCorner.X), maxX = math.max(L.BeltStart.X, L.BeltCorner.X),
+			minZ = L.BeltStart.Z - reach, maxZ = L.BeltStart.Z + L.ButtonOffset } },
+		{ id = "leg 2 (the upgrader row)", box = {
+			minX = L.BeltCorner.X - reach, maxX = L.BeltCorner.X + L.ButtonOffset,
+			minZ = math.min(L.BeltCorner.Z, L.BeltEnd.Z), maxZ = math.max(L.BeltCorner.Z, L.BeltEnd.Z) } },
+	}
 
 	local pieces = 0
 	local visited = eachTrack(t, Config, function(name, track)
 		local centre, size = Config.trackCabinet(name)
 		local body = box(centre, size)
-		within(t, body, armoury, name .. " cabinet body")
-		t:gt(gap(body, line), 0,
-			("%s cabinet reaches into the production line: %s"):format(name, describeBox(body)))
+
+		t:gt(body.minX, 0,
+			("%s cabinet crosses into the left half of the plot: %s"):format(name, describeBox(body)))
+		for _, leg in ipairs(legs) do
+			t:gt(gap(body, leg.box), 0,
+				("%s cabinet reaches into %s: %s"):format(name, leg.id, describeBox(body)))
+		end
 		pieces += 1
 
 		for slot = 1, track.slots do
-			within(t, square(Config.trackButtonPosition(name, slot), 5), armoury,
-				("%s slot %d button pedestal"):format(name, slot))
-			within(t, square(Config.trackShelfPosition(name, slot), 5), armoury,
-				("%s slot %d shelf display"):format(name, slot))
+			local pad = square(Config.trackButtonPosition(name, slot), 5)
+			local shelf = square(Config.trackShelfPosition(name, slot), 5)
+			local label = ("%s slot %d"):format(name, slot)
+			t:gt(pad.minX, 0, label .. " button pedestal is in the left half of the plot")
+			for _, leg in ipairs(legs) do
+				t:gt(gap(pad, leg.box), 0, label .. " button pedestal reaches into " .. leg.id)
+			end
+			t:gt(shelf.minX, 0, label .. " shelf display is in the left half of the plot")
 			pieces += 2
 		end
 	end)
@@ -742,16 +801,27 @@ T.spec("every cabinet, every button and every shelf stands in the armoury zone",
 	t:eq(visited, 2)
 	t:eq(pieces, 20, "two cabinets, nine pedestals and nine shelves")
 
-	-- The two columns do not stand in each other either: weapons at x 30 and
-	-- armour at x 44, on a 14-stud pitch, five studs of pedestal each.
-	local columns = 0
-	for slot = 1, math.min(Config.Layout.Tracks.weapons.slots, Config.Layout.Tracks.armor.slots) do
-		clear(t, square(Config.trackButtonPosition("weapons", slot), 5),
-			square(Config.trackButtonPosition("armor", slot), 5), 1,
-			("slot %d: the two button columns are standing in each other"):format(slot))
-		columns += 1
+	-- ONE FILE MEANS ONE COLUMN, which is the thing that changed. Both tracks
+	-- share buttonX now, so slot-against-slot in plan is no longer the question
+	-- — every pedestal against every OTHER pedestal is, because two columns at
+	-- one x are a single ladder and nothing else here would notice a collision.
+	local spots = {}
+	for _, name in ipairs({ "weapons", "armor" }) do
+		for slot = 1, Config.Layout.Tracks[name].slots do
+			table.insert(spots, { id = ("%s[%d]"):format(name, slot),
+				at = Config.trackButtonPosition(name, slot) })
+		end
 	end
-	t:eq(columns, 4)
+	t:eq(#spots, 9, "nine pedestals in the file")
+	local compared = 0
+	for i = 1, #spots do
+		for j = i + 1, #spots do
+			clear(t, square(spots[i].at, 5), square(spots[j].at, 5), 1,
+				("%s and %s are standing in each other"):format(spots[i].id, spots[j].id))
+			compared += 1
+		end
+	end
+	t:eq(compared, 36, "every pair of the nine")
 end)
 
 -- ── the stairwell ───────────────────────────────────────────────────────────
@@ -966,44 +1036,64 @@ end)
 
 -- ── a slot the shipped table does not have ──────────────────────────────────
 
-T.spec("a sixth weapons slot would stand past the deck's front edge, and armour's fifth would not", function(t)
-	-- Config.Layout.Tracks says exactly this in a comment: "weapons stops at 5: a
-	-- sixth slot would land at z = 74, past the deck's front edge". It is a
-	-- property of firstZ, spacing and the deck rather than of the shipped table,
-	-- so a config check cannot see it — and the day the deck grows the comment
+T.spec("a sixth weapons slot would stand through the front wall, and armour's fifth inside the weapons column", function(t)
+	-- Config.Layout.Tracks says exactly this in a comment. It is a property of
+	-- firstZ, spacing and the plot rather than of the shipped table, so a config
+	-- check cannot see it — and the day the plot or the belt moves, the comment
 	-- becomes wrong silently.
+	--
+	-- PREMISE OVERTURNED, and what changed is what each column runs OUT OF.
+	-- Upstairs both grew forward into open deck and only the front edge ever
+	-- stopped anything. Down here the two columns share one file, so weapons —
+	-- the front one — still runs out of plot, but armour runs out of WEAPONS:
+	-- both grow in +Z from their own firstZ, and armour's next slot lands two
+	-- studs short of the first weapons pedestal. That is the cost of one file
+	-- and it should fail loudly rather than be discovered by a fifth armour
+	-- tier appearing inside a bat cabinet.
 	local w = T.world()
 	local Config = w.config
-	local floor = floorOf(Config)
-	local deck = deckBox(floor)
-	local armoury = zoneBox(floor, "armoury")
-	local weapons = Config.Layout.Tracks.weapons
+	local L = Config.Layout
+	local halfZ = Config.World.PlotSize.Z / 2
 
+	local weapons = L.Tracks.weapons
 	t:eq(weapons.slots, 5, "the claim below is about the slot AFTER the last shipped one")
 	local sixth = Config.trackButtonPosition("weapons", 6)
 	t:near(sixth.Z, 74, EPS, "the sixth slot is not where the Config comment says it is")
-	t:gt(sixth.Z, deck.maxZ, "a sixth weapons slot would stand past the deck's front edge")
-	t:gt(sixth.Z - 2.5, armoury.maxZ, "a sixth weapons slot would stand outside the armoury zone")
+	t:gt(sixth.Z, halfZ, "a sixth weapons slot would stand outside the plot entirely")
 
 	-- And the case behind it: raising `slots` lengthens the cabinet from both the
-	-- count and the pitch, so the body overruns the deck as well as the pedestal.
+	-- count and the pitch, so the body overruns the wall as well as the pedestal.
 	weapons.slots = 6
 	local centre, size = Config.trackCabinet("weapons")
 	local body = box(centre, size)
-	t:gt(body.maxZ, deck.maxZ,
-		("a six-slot weapons case runs to z = %g and the deck ends at %g"):format(body.maxZ, deck.maxZ))
+	t:gt(body.maxZ, halfZ,
+		("a six-slot weapons case runs to z = %g and the plot ends at %g"):format(body.maxZ, halfZ))
+	weapons.slots = 5
 
-	-- THE CONTRAST THAT KEEPS THIS HONEST: armour's next slot still fits, so the
-	-- spec above is about the geometry and not about "six of anything overflows".
-	-- Armour stops at four because Config.Armor has four tiers, not because the
-	-- deck ran out.
-	local armor = Config.Layout.Tracks.armor
+	-- THE OTHER END, and it is the one that only exists because both cases share
+	-- a file. Armour stops at four because Config.Armor has four tiers; this is
+	-- what says the column could not take a fifth even if it did.
+	local armor = L.Tracks.armor
 	t:eq(armor.slots, 4)
 	local fifth = Config.trackButtonPosition("armor", 5)
-	within(t, square(fifth, 5), armoury, "a fifth armour slot")
+	local firstWeapon = Config.trackButtonPosition("weapons", 1)
+	t:near(fifth.Z, 12, EPS, "a fifth armour slot is not where firstZ and spacing put it")
+	t:lt(fifth.Z, firstWeapon.Z,
+		"a fifth armour slot lands past the first weapons pedestal, on the wrong side of the file")
+	-- `apart` is a local rather than an expression inside :format because
+	-- luau-analyze cannot type `firstWeapon.Z - fifth.Z` through the mock's
+	-- Vector3 and pass 2 fails the build on it.
+	local apart = math.abs(fifth.Z - firstWeapon.Z)
+	t:lt(apart, L.CabinetSlotSpacing,
+		("a fifth armour slot lands %g studs from the first weapons pedestal — inside the next cabinet's column, which needs %g")
+			:format(apart, L.CabinetSlotSpacing))
+
+	-- ...and the case behind it grows with it, into the weapons case.
 	armor.slots = 5
 	local armorCentre, armorSize = Config.trackCabinet("armor")
-	within(t, box(armorCentre, armorSize), armoury, "a five-slot armour case")
+	local weaponsCentre, weaponsSize = Config.trackCabinet("weapons")
+	t:gt(box(armorCentre, armorSize).maxZ, box(weaponsCentre, weaponsSize).minZ,
+		"a five-slot armour case grows through the weapons case beside it")
 end)
 
 end
