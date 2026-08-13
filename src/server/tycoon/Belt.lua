@@ -158,10 +158,10 @@ function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
 	-- corner square completely clear — of the neighbouring leg, and of the turn
 	-- sensor whose leading face sits just past the bend.
 	--
-	-- Two parts a side: a solid kick plate at drop height's underside and a neon
-	-- top rail floating above it. The stud of air between them is deliberate —
-	-- it sits at exactly drop-body height, so the drops are still the thing you
-	-- watch rather than something you glimpse between two walls.
+	-- Two parts a side: a solid kick plate at drop height's underside with a neon
+	-- top rail sitting flush on it, so the pair reads as one guard with a lit
+	-- cap rather than as two separate bars. The kick is sized off the rail's
+	-- centre for exactly that reason — see the note in buildGuard.
 	--
 	-- NEVER COLLIDABLE. Same contract as the end cap and the flow markers, and
 	-- the long argument is in Config.Layout.BeltGuard.
@@ -181,9 +181,24 @@ function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
 				COLORS.frame, Enum.Material.DiamondPlate, false)
 			kick.CanQuery = false
 
+			-- `height` IS THE BAR'S CENTRE, which is what Config says it is and
+			-- what the kick plate above is sized against: kickHeight is
+			-- `height - bar/2 - kick`, so the plate's top lands at exactly the
+			-- bar's underside and the two make one continuous guard.
+			--
+			-- This read `height + bar` and three things disagreed about one
+			-- rail. Config documented the field as the centre; the kick plate's
+			-- own arithmetic assumed the centre; the verifier's clearance check
+			-- modelled the top at `BeltY + height + bar/2`. Only the builder
+			-- added the extra section, so the rail floated 0.35 studs clear of
+			-- the plate it is supposed to sit on, and every clearance check in
+			-- verify_config was measuring a rail 0.35 studs shorter than the one
+			-- being built. The comment above this block then explained the slot
+			-- as deliberate air "at exactly drop-body height" — 0.35 studs is
+			-- not a drop, and the gap was arithmetic rather than a decision.
 			local bar = newPart(folder, ("GuardRail%d_%s"):format(index, side < 0 and "in" or "out"),
 				Vector3.new(GUARD.bar, GUARD.bar, run),
-				self:segmentCF(index, mid, side * lateral, surfaceY + GUARD.height + GUARD.bar, pathIndex),
+				self:segmentCF(index, mid, side * lateral, surfaceY + GUARD.height, pathIndex),
 				COLORS.beltLine, Enum.Material.Neon, false)
 			bar.CanQuery = false
 			bar.CastShadow = false
@@ -203,10 +218,24 @@ function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
 		-- belt-width past the bend so there is no separate corner plate.
 		local toDist = (index == legs) and length or (length + half)
 		surfaces[index] = buildRun(index, fromDist, toDist)
-		-- The guard is the run pulled back from BOTH ends, measured off the
-		-- surface's own span rather than off the leg's, so a leg that overruns
-		-- its bend does not drag its rails over the neighbour.
-		buildGuard(index, fromDist + GUARD.corner, toDist - GUARD.corner)
+		-- The guard is the run pulled back AT EVERY END THAT MEETS ANOTHER LEG,
+		-- measured off the surface's own span rather than off the leg's, so a
+		-- leg that overruns its bend does not drag its rails over the neighbour.
+		--
+		-- PULLED BACK AT BENDS ONLY, WHICH IS WHERE THE REASON HOLDS. This set
+		-- back both ends of every leg, and the setback's whole argument is about
+		-- a neighbour: clear the corner square the surfaces overrun by half a
+		-- belt width, and clear the turn sensor's leading face just past the
+		-- bend. Leg 1 starts behind the first dropper and the last leg ends at
+		-- the collector — no neighbour, no corner square, no sensor at either.
+		-- So the ground belt ran its surface -1.0 .. 94.0 with rail only over
+		-- 7.0 .. 86.0, and the eight bare studs at each open end were the rule
+		-- being applied where its reason had run out.
+		local startsAtBend = index > 1
+		local endsAtBend = index < legs
+		buildGuard(index,
+			fromDist + (startsAtBend and GUARD.corner or 0),
+			toDist - (endsAtBend and GUARD.corner or 0))
 	end
 	path.surfaces = surfaces
 
