@@ -249,6 +249,47 @@ T.spec("on a landscape phone both layers take the same scale, and 1/scale for th
 	end
 end)
 
+T.spec("the topbar's own buttons are not a full-height left gutter", function(t)
+	--- Root's safe-area padding, in design px, for a given TopbarInset.
+	local function paddingUnder(bar)
+		local world = clientWorld()
+		-- Set before start(): boot makes the one applyViewport() call this
+		-- harness can produce (mock/gui.lua, claim 3).
+		world.services.GuiService.TopbarInset = bar
+		local HUD = world.req("HUD")
+		HUD.start()
+		local padding = HUD.root():FindFirstChildOfClass("UIPadding")
+		t:notNil(padding, "the root layer lost its safe-area padding")
+		return padding
+	end
+
+	-- A DESKTOP TOPBAR, WHICH IS NOT A NOTCH. GuiService.TopbarInset is the strip
+	-- left over for CUSTOM topbar buttons, so its left edge sits past Roblox's own
+	-- menu and chat buttons — 165 px in, on the machine this was found on. It was
+	-- read as "the only reading of the side safe area available to a LocalScript"
+	-- and applied as a full-height gutter, which pushed the entire left column 191
+	-- px inside the screen on every device, to clear an obstruction that lives in a
+	-- strip IgnoreGuiInset = false has already put the whole layer below. About a
+	-- sixth of the screen's width, and it looked deliberate.
+	local wide = paddingUnder(Rect.new(165, 0, 1280, 36))
+	-- ...and the same client with nothing reserved at either end of the topbar.
+	local flush = paddingUnder(Rect.new(0, 0, 1280, 36))
+
+	t:eq(wide.PaddingLeft.Offset, flush.PaddingLeft.Offset,
+		("165 px of Roblox's own topbar buttons moved the HUD's left edge: %d px against %d")
+			:format(wide.PaddingLeft.Offset, flush.PaddingLeft.Offset))
+	t:eq(wide.PaddingRight.Offset, flush.PaddingRight.Offset,
+		"the topbar's far edge moved the HUD's right edge")
+
+	-- ...and what is left is the declared gutter and nothing else, because this
+	-- mock's GetGuiInset reports no side cutout (claim 4). On a notched phone
+	-- topLeft.X is the cutout and this number grows; on a desktop it is exactly
+	-- SafeAreaPad, and a desktop is where the defect was visible.
+	local Config = clientWorld().req("Config")
+	t:eq(flush.PaddingLeft.Offset, Config.UI.SafeAreaPad,
+		"an unnotched client's left gutter is not just SafeAreaPad")
+end)
+
 T.spec("with no arena in the workspace the raid sign is skipped, not fatal", function(t)
 	local world = clientWorld()
 	local HUD = world.req("HUD")

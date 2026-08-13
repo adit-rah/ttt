@@ -41,9 +41,13 @@
 	     device emulator are all UNCOVERED. A spec sets the size it wants before
 	     start() and gets the one applyViewport() call that boot makes.
 	  4. THE INSETS ARE PLAUSIBLE, NOT MEASURED. GetGuiInset returns (0,36) and
-	     (0,0) and TopbarInset is the full viewport width; both are guesses about a
-	     device nobody here owns. A spec that wants a notch sets
-	     world.services.GuiService.TopbarInset itself.
+	     (0,0) — a topbar and no side cutout, which is a desktop. Both are guesses
+	     about a device nobody here owns, and topLeft.X is the one that decides
+	     the HUD's left gutter, so a spec that wants a notched phone overwrites
+	     GetGuiInset itself. TopbarInset is still installed and is read by
+	     NOTHING in src/ — it is there for the spec that asserts it stays that
+	     way, after its Min.X spent a round being applied as a full-height left
+	     gutter and pushing the whole HUD a sixth of the screen inward.
 	  5. RunService STILL SAYS IsServer(). The client specs share the server's
 	     world, so Net.lua takes its server branch and CREATES the remote folder
 	     rather than waiting for it to replicate. That is what lets a spec push a
@@ -90,7 +94,8 @@ V2.zero = V2.new(0, 0)
 V2.one = V2.new(1, 1)
 
 --- The shape GuiService.TopbarInset comes back as: two corners, plus the width
---- and height UiKit.safeInsets reads to decide whether the answer is usable.
+--- and height derived from them. Nothing in src/ reads it any more; hud_spec
+--- does, to assert that it does not move the HUD's left edge.
 local RectType = {}
 RectType.__index = function(self, key)
 	if key == "Width" then
@@ -174,8 +179,10 @@ function Gui.build(world, services, deps)
 		world.renderBindings[name] = nil
 	end
 
-	-- Landscape, full width, 36 tall: the topbar as it sits on a machine with no
-	-- notch. A spec that wants a notched phone overwrites this Rect.
+	-- Landscape, full width, 36 tall. NOT what a real client returns: on a desktop
+	-- Min.X sits past Roblox's own menu and chat buttons, ~165 px in. Left at 0
+	-- here so the default world is the simple case, and set to the realistic
+	-- shape by the one spec that cares.
 	services.GuiService.TopbarInset = RectType.new(0, 0, 1280, 36)
 	services.GuiService.IsTenFootInterface = function() return false end
 

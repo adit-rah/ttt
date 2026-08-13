@@ -7,12 +7,14 @@ real phone is answered below only in the sense that the numbers moved — nobody
 has still looked at one.
 
 `docs/dev/INVARIANTS.md` §7 is the live contract; this document is why this round
-changed it. One pull request.
+changed it. Two pull requests: the layout, then the gutter the first one made
+visible.
 
 **The brief was "the UI looks odd — standardise it, make the positioning
-relative, and move the invite out of the top-left card." Three of the four
-defects behind that were findable by reading; the fourth was findable only by
-adding up two numbers in two different files.**
+relative, and move the invite out of the top-left card." Three of the five
+defects behind that were findable by reading, the fourth by adding up two
+numbers in two different files, and the fifth — the largest — only by opening
+the game and looking at it.**
 
 ---
 
@@ -27,8 +29,9 @@ adding up two numbers in two different files.**
 | `verify_config.lua` | Two friend-row checks retired, one tautology and one false proxy written and then withdrawn (see §3), fifteen added |
 | `hud_spec.lua` | Two new specs; the boot-order spec now asserts through the column |
 | `mock/instance.lua` | `GetDescendants`, and a property read that can return `false` (see §3) |
+| `UiKit.safeInsets` | **Second PR.** The side gutter comes from `GetGuiInset().topLeft.X`; `GuiService.TopbarInset` is not read at all, and a spec says so (see §4.0) |
 
-### The four defects
+### The five defects — four read out of the code, one seen in Studio
 
 1. **The invite was inside the balance card.** A pill on a friend row, with five
    `Config.UI.StatusCard` keys and four derived Xs and Ys existing to fit it. It
@@ -68,6 +71,15 @@ adding up two numbers in two different files.**
 
    `render()` was also writing a height and then calling `layoutTail()`, which
    overwrote it two lines later. Two writers, and the dead one was the wrong one.
+
+5. **The whole HUD sat a sixth of the screen's width in from the left edge**, and
+   had since the safe-area work landed. This one was invisible to reading and to
+   the harness, and obvious in the first screenshot. It is §4.0.
+
+   It is also the answer to a question this round did not think to ask. The four
+   defects above were all found by reading; this one needed a person to open the
+   game and look, which is exactly what §4 exists to ask for. It took one
+   screenshot.
 
 ### The layout, at the 1280×720 design canvas
 
@@ -149,6 +161,18 @@ said it was.
 
 The harness resolves no rectangle and advances no tween, so **every number in §1
 is computed correct, not seen correct.** In rough order of what would hurt most.
+
+0. **ANSWERED, AND IT WAS A BUG.** The first thing Studio said about this round
+   was that the left column sat about a sixth of the screen's width inside the
+   left edge. `UiKit.safeInsets` was widening the left gutter from
+   `GuiService.TopbarInset.Min.X`, which is not a safe area: it is where the
+   strip for CUSTOM topbar buttons begins, i.e. past Roblox's own menu and chat
+   buttons — 165 px on the desktop it was seen on, 191 px to the card's edge once
+   the pad and the margin were added. It has been applied to every device since
+   the safe-area work landed, and nothing could see it: the mock returned a
+   `TopbarInset` with `Min.X = 0`, which is the one value that hides the defect.
+   The side gutter reads `GetGuiInset().topLeft.X` now. A spec builds two clients
+   differing only in that number and asserts their padding matches.
 
 1. **Is 170 design px the right bottom reserve?** It is a guess at how tall
    Roblox's touch controls get, guarded only by being at least two primary
