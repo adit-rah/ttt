@@ -1492,7 +1492,24 @@ Config.FactoryButtons = {
 	{
 		id = "floor2", name = "The Mezzanine", price = 1750,
 		kind = "Floor", floor = "mezzanine",
-		blurb = "A second storey, with its own line.",
+		blurb = "A second storey. Empty, for now.",
+	},
+	{
+		-- THE UPSTAIRS LINE, AND IT IS NOT THE STOREY. TODO.md items 4 and 5:
+		-- the mezzanine arrives barren — deck, ladder and its own wall ring —
+		-- and the conveyor on it is a later purchase. Placed here in the table
+		-- so the derived chain runs floor2 -> mezz_line -> mezz_dropper1; the
+		-- rungs between them are what item 5's "after all of first floor" moves,
+		-- and that reorder is its own change.
+		--
+		-- `kind = "Line"` rather than a second Floor row: verify_config refuses
+		-- two Floor buttons naming one floor, and it is right to — Floors[n].button
+		-- is read as "the button that builds this storey" by the rebirth perks
+		-- and by FloorService. A named kind also gives every assertion below
+		-- something to be about.
+		id = "mezz_line", name = "The Upstairs Line", price = 1900,
+		kind = "Line", floor = "mezzanine",
+		blurb = "A conveyor for the empty storey.",
 	},
 	{
 		id = "mezz_dropper1", name = "Mezzanine Tung", price = 2000,
@@ -1710,7 +1727,28 @@ Config.Armor = {
 
 Config.ArmorButtons = {
 	{
-		id = "armor_padded", name = "Padded Sahur", price = 12000,
+		-- 12000 BEFORE THE CABINET GATE MOVED, and the two side-track bounds
+		-- squeeze from opposite ends once it does.
+		--
+		-- The gate is `dropper3` now rather than `floor2`, so the case opens at
+		-- minute three instead of minute six. FIRST_SIDE_RUNG_BY_MINUTE measures
+		-- from when the cabinet APPEARS, and at 12000 the factory does not bank
+		-- it until eleven minutes after that — a case you cannot buy from for
+		-- eleven minutes is the scenery that check exists to refuse. But
+		-- SIDE_MAX_DETOUR_MINUTES measures price against the income you have the
+		-- moment you can first afford it, and dropping the price makes THAT
+		-- worse, because minute-three income is small: 10000 costs 5.8 minutes
+		-- of it and 8000 costs 7.0, against a limit of 4.
+		--
+		-- There is no price between those two that satisfies both, which is the
+		-- finding rather than the problem: 12000 was priced against a cabinet
+		-- that opened at minute six with three droppers running. Against one
+		-- that opens at minute three it has to be priced the way the weapons
+		-- track already is — against what it does, not as a toll on the factory.
+		-- `batforge` is 2500, so your first vest costing a shade under twice
+		-- your first bat is the shape being asserted. At 4500 the detour is 3.6
+		-- minutes and the cabinet opens with one of four rungs in reach.
+		id = "armor_padded", name = "Padded Sahur", price = 4500,
 		kind = "Armor", grants = "padded",
 		blurb = "Take a hit and keep walking.",
 	},
@@ -2128,7 +2166,28 @@ Config.Floors = {
 		-- mark. It is now the purchase straight after the walls, around minute
 		-- six: the storey the enclosure made room for, and the gate on both
 		-- side-track cabinets, which is the reason it could not stay at forty.
+		--
+		-- IT NO LONGER GATES THE CABINETS — round 8 moved both downstairs and
+		-- put their gate on dropper3 — so the argument that pinned this button to
+		-- minute six is gone with them. Where it lands now is TODO.md item 3's
+		-- question and it is answered when the ladder is reordered.
 		button = "floor2",
+
+		-- ...AND WHAT IT BUILDS IS THE STOREY, NOT THE LINE ON IT. TODO.md item
+		-- 4: the mezzanine arrives BARREN. `button` gets you the deck, its
+		-- guards, the ladder and the storey's own wall ring; `lineButton` gets
+		-- you the conveyor, its corner sensors and the hopper it ends in.
+		--
+		-- Two buttons because they are two purchases with two different reasons.
+		-- The deck is somewhere to stand and the room the building grows; the
+		-- line is income. Bundling them made the storey a machine you bought
+		-- rather than a place you filled, which is the thing item 4 is about.
+		--
+		-- The belt PATH is registered at plot construction either way and always
+		-- has been — a path is pure maths, registering one builds nothing, and a
+		-- buy button standing on this deck needs it to exist to know its own
+		-- height.
+		lineButton = "mezz_line",
 		height = 22,             -- floor top, plot-local
 
 		-- THE DECK SPANS THE PLOT, wall face to wall face on both axes: x -58..58
@@ -2237,6 +2296,20 @@ Config.Floors = {
 			-- cannot check against.
 			arrival = "-Z",
 		},
+		-- WHERE THE LINE'S OWN BUY BUTTON STANDS, and it stands UPSTAIRS.
+		--
+		-- It could have gone in the misc column downstairs with the walls and the
+		-- roof, and that would be one fewer moving part. It is up here because
+		-- the storey is barren for as long as it takes to afford this, and a
+		-- barren room with nothing in it to press is a room you climb once. It is
+		-- also the only thing that makes the ladder worth using before the line
+		-- exists.
+		--
+		-- In the landing zone, on the deck's centre line, well clear of the
+		-- stairwell at (-16, 58) and of every leg of the belt it buys — the belt
+		-- lives in the `line` zone, which ends at z = -8.
+		lineButtonAt = Vector3.new(0, 0, 20),
+
 		-- belt and machines float this far over the deck: a belt base whose
 		-- underside is coplanar with the deck's top face is two surfaces at one
 		-- Y, which z-fights
@@ -3393,6 +3466,48 @@ function Config.floorTopY(floorId: string?): number
 		end
 	end
 	error(("[Tung] Config.floorTopY: no floor with id %q"):format(tostring(floorId)), 2)
+end
+
+--- The floor a `Line` button builds the conveyor on, or nil.
+function Config.floorForLineButton(id: string)
+	for _, floor in ipairs(Config.Floors) do
+		if floor.lineButton == id then
+			return floor
+		end
+	end
+	return nil
+end
+
+--- Where that button's pedestal stands: on the deck it belongs to.
+function Config.floorLineButtonPosition(floor): Vector3
+	local at = floor.lineButtonAt
+	return Vector3.new(at.X, Config.floorTopY(floor.id), at.Z)
+end
+
+--- Whether `floor`'s conveyor should be standing on a plot that owns `owned`.
+---
+--- STICKY, and derived rather than stored, for the same reason
+--- Config.trackUnlocked is: a save written before the line was a purchase holds
+--- `mezz_dropper1` and no `mezz_line`, and installing that dropper onto a path
+--- with no conveyor under it drops its output through the deck. Owning anything
+--- pinned to this floor's belt counts as owning the belt.
+---
+--- It costs no persisted field and no migration, which is the whole argument —
+--- DataService already carries LEGACY_BAT_TIERS, so live saves are a real thing
+--- to be careful of rather than a hypothetical.
+function Config.floorLineBuilt(floor, owned): boolean
+	if not floor.lineButton then
+		return true
+	end
+	if owned[floor.lineButton] then
+		return true
+	end
+	for _, def in ipairs(Config.Buttons) do
+		if def.path == floor.id and owned[def.id] then
+			return true
+		end
+	end
+	return false
 end
 
 function Config.trackButtonPosition(track: string, slot: number): Vector3

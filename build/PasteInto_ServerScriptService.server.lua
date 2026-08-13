@@ -1524,7 +1524,24 @@ __MODULES["Config"] = function()
 		{
 			id = "floor2", name = "The Mezzanine", price = 1750,
 			kind = "Floor", floor = "mezzanine",
-			blurb = "A second storey, with its own line.",
+			blurb = "A second storey. Empty, for now.",
+		},
+		{
+			-- THE UPSTAIRS LINE, AND IT IS NOT THE STOREY. TODO.md items 4 and 5:
+			-- the mezzanine arrives barren — deck, ladder and its own wall ring —
+			-- and the conveyor on it is a later purchase. Placed here in the table
+			-- so the derived chain runs floor2 -> mezz_line -> mezz_dropper1; the
+			-- rungs between them are what item 5's "after all of first floor" moves,
+			-- and that reorder is its own change.
+			--
+			-- `kind = "Line"` rather than a second Floor row: verify_config refuses
+			-- two Floor buttons naming one floor, and it is right to — Floors[n].button
+			-- is read as "the button that builds this storey" by the rebirth perks
+			-- and by FloorService. A named kind also gives every assertion below
+			-- something to be about.
+			id = "mezz_line", name = "The Upstairs Line", price = 1900,
+			kind = "Line", floor = "mezzanine",
+			blurb = "A conveyor for the empty storey.",
 		},
 		{
 			id = "mezz_dropper1", name = "Mezzanine Tung", price = 2000,
@@ -1742,7 +1759,28 @@ __MODULES["Config"] = function()
 
 	Config.ArmorButtons = {
 		{
-			id = "armor_padded", name = "Padded Sahur", price = 12000,
+			-- 12000 BEFORE THE CABINET GATE MOVED, and the two side-track bounds
+			-- squeeze from opposite ends once it does.
+			--
+			-- The gate is `dropper3` now rather than `floor2`, so the case opens at
+			-- minute three instead of minute six. FIRST_SIDE_RUNG_BY_MINUTE measures
+			-- from when the cabinet APPEARS, and at 12000 the factory does not bank
+			-- it until eleven minutes after that — a case you cannot buy from for
+			-- eleven minutes is the scenery that check exists to refuse. But
+			-- SIDE_MAX_DETOUR_MINUTES measures price against the income you have the
+			-- moment you can first afford it, and dropping the price makes THAT
+			-- worse, because minute-three income is small: 10000 costs 5.8 minutes
+			-- of it and 8000 costs 7.0, against a limit of 4.
+			--
+			-- There is no price between those two that satisfies both, which is the
+			-- finding rather than the problem: 12000 was priced against a cabinet
+			-- that opened at minute six with three droppers running. Against one
+			-- that opens at minute three it has to be priced the way the weapons
+			-- track already is — against what it does, not as a toll on the factory.
+			-- `batforge` is 2500, so your first vest costing a shade under twice
+			-- your first bat is the shape being asserted. At 4500 the detour is 3.6
+			-- minutes and the cabinet opens with one of four rungs in reach.
+			id = "armor_padded", name = "Padded Sahur", price = 4500,
 			kind = "Armor", grants = "padded",
 			blurb = "Take a hit and keep walking.",
 		},
@@ -2160,7 +2198,28 @@ __MODULES["Config"] = function()
 			-- mark. It is now the purchase straight after the walls, around minute
 			-- six: the storey the enclosure made room for, and the gate on both
 			-- side-track cabinets, which is the reason it could not stay at forty.
+			--
+			-- IT NO LONGER GATES THE CABINETS — round 8 moved both downstairs and
+			-- put their gate on dropper3 — so the argument that pinned this button to
+			-- minute six is gone with them. Where it lands now is TODO.md item 3's
+			-- question and it is answered when the ladder is reordered.
 			button = "floor2",
+
+			-- ...AND WHAT IT BUILDS IS THE STOREY, NOT THE LINE ON IT. TODO.md item
+			-- 4: the mezzanine arrives BARREN. `button` gets you the deck, its
+			-- guards, the ladder and the storey's own wall ring; `lineButton` gets
+			-- you the conveyor, its corner sensors and the hopper it ends in.
+			--
+			-- Two buttons because they are two purchases with two different reasons.
+			-- The deck is somewhere to stand and the room the building grows; the
+			-- line is income. Bundling them made the storey a machine you bought
+			-- rather than a place you filled, which is the thing item 4 is about.
+			--
+			-- The belt PATH is registered at plot construction either way and always
+			-- has been — a path is pure maths, registering one builds nothing, and a
+			-- buy button standing on this deck needs it to exist to know its own
+			-- height.
+			lineButton = "mezz_line",
 			height = 22,             -- floor top, plot-local
 
 			-- THE DECK SPANS THE PLOT, wall face to wall face on both axes: x -58..58
@@ -2269,6 +2328,20 @@ __MODULES["Config"] = function()
 				-- cannot check against.
 				arrival = "-Z",
 			},
+			-- WHERE THE LINE'S OWN BUY BUTTON STANDS, and it stands UPSTAIRS.
+			--
+			-- It could have gone in the misc column downstairs with the walls and the
+			-- roof, and that would be one fewer moving part. It is up here because
+			-- the storey is barren for as long as it takes to afford this, and a
+			-- barren room with nothing in it to press is a room you climb once. It is
+			-- also the only thing that makes the ladder worth using before the line
+			-- exists.
+			--
+			-- In the landing zone, on the deck's centre line, well clear of the
+			-- stairwell at (-16, 58) and of every leg of the belt it buys — the belt
+			-- lives in the `line` zone, which ends at z = -8.
+			lineButtonAt = Vector3.new(0, 0, 20),
+
 			-- belt and machines float this far over the deck: a belt base whose
 			-- underside is coplanar with the deck's top face is two surfaces at one
 			-- Y, which z-fights
@@ -3425,6 +3498,48 @@ __MODULES["Config"] = function()
 			end
 		end
 		error(("[Tung] Config.floorTopY: no floor with id %q"):format(tostring(floorId)), 2)
+	end
+
+	--- The floor a `Line` button builds the conveyor on, or nil.
+	function Config.floorForLineButton(id: string)
+		for _, floor in ipairs(Config.Floors) do
+			if floor.lineButton == id then
+				return floor
+			end
+		end
+		return nil
+	end
+
+	--- Where that button's pedestal stands: on the deck it belongs to.
+	function Config.floorLineButtonPosition(floor): Vector3
+		local at = floor.lineButtonAt
+		return Vector3.new(at.X, Config.floorTopY(floor.id), at.Z)
+	end
+
+	--- Whether `floor`'s conveyor should be standing on a plot that owns `owned`.
+	---
+	--- STICKY, and derived rather than stored, for the same reason
+	--- Config.trackUnlocked is: a save written before the line was a purchase holds
+	--- `mezz_dropper1` and no `mezz_line`, and installing that dropper onto a path
+	--- with no conveyor under it drops its output through the deck. Owning anything
+	--- pinned to this floor's belt counts as owning the belt.
+	---
+	--- It costs no persisted field and no migration, which is the whole argument —
+	--- DataService already carries LEGACY_BAT_TIERS, so live saves are a real thing
+	--- to be careful of rather than a hypothetical.
+	function Config.floorLineBuilt(floor, owned): boolean
+		if not floor.lineButton then
+			return true
+		end
+		if owned[floor.lineButton] then
+			return true
+		end
+		for _, def in ipairs(Config.Buttons) do
+			if def.path == floor.id and owned[def.id] then
+				return true
+			end
+		end
+		return false
 	end
 
 	function Config.trackButtonPosition(track: string, slot: number): Vector3
@@ -8411,24 +8526,60 @@ __MODULES["FloorService"] = function()
 				:format(tostring(FLOOR.id), tostring(FLOOR.height)))
 		end
 
+		-- NO BELT HERE ANY MORE, AND NO DROPPER. TODO.md item 4: the storey arrives
+		-- barren. What `floor2` buys is the deck, its guards, the wall ring above it
+		-- and the ladder up — somewhere to stand. The conveyor, its corner sensors
+		-- and the hopper it ends in are FloorService.buildLine below, keyed on
+		-- Floors[n].lineButton, and the machines on it are ordinary Dropper rows
+		-- pinned to its path.
+		--
+		-- (The dropper stopped being built here for a different reason two rounds
+		-- ago: it was synthesised in this file and installed straight through
+		-- buildDropperMachine/startDropLoop, bypassing Tycoon:install, so it
+		-- appeared in neither Config.ButtonById nor `owned` and every income readout
+		-- under-reported a plot that had one.)
+
+		FloorService.buildLadder(tycoon, entry.folder)
+		entry.built = true
+	end
+
+	--- The conveyor on the deck, and the hopper it ends in.
+	---
+	--- ITS OWN FOLDER, INSIDE THE DECK'S. Nested rather than beside it so that
+	--- tearing the storey down takes the line with it — there is no state in which
+	--- a plot has a conveyor and no floor under it — while the line can still be
+	--- torn down on its own, which is what a rebirth that keeps the deck would need.
+	function FloorService.buildLine(tycoon)
+		local entry = stateFor(tycoon)
+		local folder = entry.folder:FindFirstChild("Line")
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = "Line"
+			folder.Parent = entry.folder
+		end
+		folder:ClearAllChildren()
+
 		-- addBeltPath is idempotent by id and Tycoon.new already registered every
 		-- path in Config.BeltPaths, so this resolves rather than adds. It has to:
 		-- the mezzanine's buy buttons were built on first claim, and they took
 		-- their height from this path existing.
 		local def, outboard = deckPath()
 		local pathIndex = tycoon:addBeltPath(def, outboard)
-		tycoon:buildBelt(pathIndex, entry.folder)
-		tycoon:buildCollector(pathIndex, entry.folder, false)
+		tycoon:buildBelt(pathIndex, folder)
+		tycoon:buildCollector(pathIndex, folder, false)
+		entry.lineBuilt = true
+	end
 
-		-- NO DROPPER HERE ANY MORE. It used to be synthesised in this file and
-		-- installed straight through buildDropperMachine/startDropLoop, bypassing
-		-- Tycoon:install — which is why it appeared in neither Config.ButtonById
-		-- nor `owned`, and why every income readout in the game under-reported a
-		-- plot that had one. It is Config.FactoryButtons.mezz_dropper1 now, an
-		-- ordinary Dropper row pinned to this path, installed like everything else.
-
-		FloorService.buildLadder(tycoon, entry.folder)
-		entry.built = true
+	function FloorService.teardownLine(tycoon)
+		local entry = state[tycoon]
+		if not entry then
+			return
+		end
+		local folder = entry.folder:FindFirstChild("Line")
+		if folder then
+			folder:ClearAllChildren()
+		end
+		entry.lineBuilt = false
 	end
 
 	function FloorService.teardown(tycoon)
@@ -8442,6 +8593,10 @@ __MODULES["FloorService"] = function()
 		-- than stacking a second path onto the plot.
 		entry.folder:ClearAllChildren()
 		entry.built = false
+		-- The Line folder was a child of the one just cleared, so the belt has gone
+		-- with the deck. Say so, or sync would believe a conveyor is standing on a
+		-- storey that no longer exists and never rebuild it.
+		entry.lineBuilt = false
 	end
 
 	--- Builds or tears down a plot's floors to match what it owns right now.
@@ -8454,6 +8609,14 @@ __MODULES["FloorService"] = function()
 		local entry = state[tycoon]
 		local built = entry ~= nil and entry.built
 
+		-- TWO THINGS TO KEEP IN STEP, NOT ONE. The deck and the line on it are
+		-- separate purchases (TODO.md item 4), so this is four transitions rather
+		-- than two — and the line's is ANDed with the deck's, because a conveyor in
+		-- mid-air is worse than no conveyor. The chain makes that unreachable by
+		-- purchase, but assign() replays owned ids by `order` and a save can present
+		-- them in any state at all.
+		local wantsLine = unlocked and Config.floorLineBuilt(FLOOR, tycoon.owned)
+
 		if unlocked and not built then
 			FloorService.build(tycoon)
 			-- THE BEAT THAT RAISES THE BUILDING. The roof was sitting on the ground
@@ -8465,6 +8628,17 @@ __MODULES["FloorService"] = function()
 		elseif built and not unlocked then
 			FloorService.teardown(tycoon)
 			tycoon:refreshRoof()
+		end
+
+		-- Re-read: build() and teardown() above both move `lineBuilt`.
+		local entry2 = state[tycoon]
+		local lineBuilt = entry2 ~= nil and entry2.lineBuilt
+		local deckStanding = entry2 ~= nil and entry2.built
+
+		if wantsLine and deckStanding and not lineBuilt then
+			FloorService.buildLine(tycoon)
+		elseif lineBuilt and not (wantsLine and deckStanding) then
+			FloorService.teardownLine(tycoon)
 		end
 	end
 
@@ -13203,6 +13377,15 @@ __MODULES["Buttons"] = function()
 		-- and the wrong one for a row of generators on a slab behind it — and
 		-- Layout.Tracks has no `power` entry, so it would have indexed nil and
 		-- taken the whole plot's construction down with it.
+		-- A Line button stands on the deck whose conveyor it buys, so its position
+		-- comes from the floor rather than from Layout.MiscButtons — which asserts
+		-- y = 0 and would put this pedestal on the ground floor under its own deck.
+		if def.kind == "Line" then
+			local floor = Config.floorForLineButton(def.id)
+			if floor then
+				return Config.floorLineButtonPosition(floor)
+			end
+		end
 		local furniture = def.track and Config.TrackInfo[def.track].furniture
 		if furniture == "cabinet" then
 			return Config.trackButtonPosition(def.track, def.trackOrder)
@@ -13384,6 +13567,13 @@ __MODULES["Buttons"] = function()
 	--- track gated on anything else, or a floor that stopped being what unlocked it,
 	--- would hang nine pads in open air and this function would have said yes.
 	function Tycoon:floorBuiltFor(def): boolean
+		-- A LINE BUTTON WAITS ON THE DECK IT STANDS ON. Its pedestal is at y = 22,
+		-- so before the storey lands it would hang in open air over the aisle.
+		if def.kind == "Line" then
+			local floor = Config.floorForLineButton(def.id)
+			return floor == nil or self.owned[floor.button] == true
+		end
+
 		local track = def.track and Config.Layout.Tracks[def.track]
 		local floorId = def.path or (track and track.floor)
 		if not floorId then
@@ -13391,6 +13581,18 @@ __MODULES["Buttons"] = function()
 		end
 		for _, floor in ipairs(Config.Floors) do
 			if floor.id == floorId then
+				-- A MACHINE ON A BELT WAITS ON THE BELT, NOT ON THE STOREY. These
+				-- used to be the same question — buying the floor built the deck and
+				-- the conveyor together — and this function's own comment above
+				-- flagged that as a coincidence it was banking on. TODO.md item 4
+				-- split them, so a plot can own a barren deck for the rest of the
+				-- build; `mezz_dropper1` revealed there would be a pad standing over
+				-- a slab with no conveyor under it, dropping its output through the
+				-- floor.
+				if def.path == floor.id then
+					return self.owned[floor.button] == true
+						and Config.floorLineBuilt(floor, self.owned)
+				end
 				return self.owned[floor.button] == true
 			end
 		end
@@ -14588,6 +14790,14 @@ __MODULES["Installers"] = function()
 	Tycoon.INSTALLERS.Floor = function(self, def, silent)
 	end
 
+	--- The conveyor on a floor. A DOCUMENTED NO-OP, for exactly the reason
+	--- INSTALLERS.Floor is one: the belt outlives the purchase. FloorService builds
+	--- it off onOwnedChanged, which is the one signal that fires on purchase,
+	--- release, rebirth AND re-claim — an installer runs once and none of the other
+	--- three go through install().
+	Tycoon.INSTALLERS.Line = function(self, def, silent)
+	end
+
 	--- Every gate leaf one storey's openings carry: what to build, where it hangs
 	--- closed, and where it slides to.
 	---
@@ -15752,15 +15962,20 @@ __MODULES["Tycoon"] = function()
 			kind = "Upgrader"  -> needs slot, variant, multiplier
 			kind = "Belt"      -> needs speedBonus
 			kind = "Power"     -> needs factor (cumulative), variant, and NO slot
-			kind = "Structure" -> needs structure ("walls" | "roof")
+			kind = "Structure" -> needs structure ("walls" | "gates" | "windows" | "roof")
 			kind = "Gear"      -> needs grants (a Config.Bats id)
 			kind = "Armor"     -> needs grants (a Config.Armor id)
 			kind = "Floor"     -> needs a Config.Floors entry naming this button
+			kind = "Line"      -> needs a Config.Floors entry naming this button as
+			                      its lineButton. The conveyor ON a floor, which is a
+			                      different purchase from the floor: the storey
+			                      arrives barren and you buy the belt for it.
 
-		EIGHT KINDS, IN THREE PLACES. Add a case to tycoon/Installers.lua to invent
+		NINE KINDS, IN THREE PLACES. Add a case to tycoon/Installers.lua to invent
 		one, add it to KNOWN_KINDS in tools/verify_config.lua, and add it to the list
 		above. This list is the copy that fell behind: it said five while INSTALLERS
-		and KNOWN_KINDS carried Power, Armor and Floor as well.
+		and KNOWN_KINDS carried Power, Armor and Floor as well. Nothing checks it,
+		which is why it is named here and in CLAUDE.md as the one to do by hand.
 
 		THIS FILE IS THE AGGREGATOR AND NOTHING ELSE. Req searches one level of
 		folder nesting (Req.lua:54-62), so Req("Tycoon") resolves here and this is

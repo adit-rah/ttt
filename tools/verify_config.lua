@@ -41,7 +41,7 @@ local function check(condition, message)
 end
 
 -- installers that Tycoon.lua actually implements
-local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Floor = true, Power = true }
+local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Floor = true, Line = true, Power = true }
 local KNOWN_STRUCTURES = { walls = true, gates = true, windows = true, roof = true }
 
 local seenIds, dropperSlots, upgraderSlots = {}, {}, {}
@@ -137,6 +137,24 @@ for index, def in ipairs(Config.Buttons) do
 			("%s is a Floor button but no Config.Floors entry names it; it would charge and build nothing"):format(where))
 		check(def.floor == nil or (floor and floor.id == def.floor),
 			("%s says it builds floor %q but Config.Floors disagrees"):format(where, tostring(def.floor)))
+	elseif def.kind == "Line" then
+		-- THE CONVEYOR ON A FLOOR, which is a different purchase from the floor
+		-- (TODO.md item 4). Same shape of contract as Floor and for the same
+		-- reason: the installer is a documented no-op and FloorService builds it
+		-- off onOwnedChanged, so a row that no Config.Floors entry claims charges
+		-- money and builds nothing, silently, forever.
+		local floor
+		for _, entry in ipairs(Config.Floors) do
+			if entry.lineButton == def.id then
+				check(floor == nil,
+					("two Line buttons both build %s's conveyor; the second would charge and do nothing"):format(entry.id))
+				floor = entry
+			end
+		end
+		check(floor ~= nil,
+			("%s is a Line button but no Config.Floors entry names it as its lineButton; it would charge and build nothing"):format(where))
+		check(def.floor == nil or (floor and floor.id == def.floor),
+			("%s says it builds the line on floor %q but Config.Floors disagrees"):format(where, tostring(def.floor)))
 	elseif def.kind == "Belt" then
 		check(type(def.speedBonus) == "number" and def.speedBonus > 0, where .. ": bad speedBonus")
 	elseif def.kind == "Structure" then
@@ -4181,44 +4199,98 @@ for _, floor in ipairs(Config.Floors) do
 			("Floors.%s opens %.0f minutes in; it gates both cabinets, so past ~10 the side tracks have no session left to be climbed in")
 				:format(floor.id, at))
 
-		-- HOW MUCH THE FLOOR IS WORTH THE MINUTE YOU BUY IT. The upstairs
+		-- ── the deck, and the line on it, are two purchases ──────────────────
+		--
+		-- TODO.md item 4: the storey arrives BARREN. `floor.button` buys the
+		-- deck, its guards, the wall ring and the ladder; `floor.lineButton`
+		-- buys the conveyor and the hopper. Neither of the next two can be got
+		-- wrong by a player — the loader derives the chain from table order — but
+		-- both can be got wrong by moving a row, which is the whole of
+		-- INVARIANTS.md's `[nothing]` entry about table order.
+		local lineDef = floor.lineButton and Config.ButtonById[floor.lineButton]
+		local lineRow = floor.lineButton and curveRow(floor.lineButton)
+		if floor.lineButton then
+			check(lineDef ~= nil,
+				("Floors.%s names %q as its lineButton and no such button exists; the storey would never get a conveyor")
+					:format(floor.id, tostring(floor.lineButton)))
+			check(lineRow ~= nil,
+				("Floors.%s's line is built by %q, which the spine never buys")
+					:format(floor.id, tostring(floor.lineButton)))
+			if lineRow then
+				check(lineRow.at > row.at,
+					("Floors.%s's deck is bought at minute %.1f and its conveyor at %.1f — a belt is built on a storey, so buying the line first is a conveyor in mid-air")
+						:format(floor.id, at, lineRow.at / 60))
+			end
+			-- ...AND NOTHING RIDES A BELT THAT IS NOT THERE. A machine pinned to
+			-- this path used to be gated on the deck, because the deck came with
+			-- the belt; it is gated on the line now, and a row moved above it
+			-- would put a dropper on a slab with no conveyor under it, dropping
+			-- its output through the floor.
+			for _, def in ipairs(Config.Tracks.factory) do
+				if def.path == floor.id then
+					local machineRow = curveRow(def.id)
+					check(machineRow ~= nil and lineRow ~= nil and machineRow.at > lineRow.at,
+						("%s is pinned to %s's belt but is bought at minute %.1f, before the line that carries it at %.1f — its drops would fall through a deck with no conveyor on it")
+							:format(def.id, floor.id,
+								machineRow and machineRow.at / 60 or -1,
+								lineRow and lineRow.at / 60 or -1))
+				end
+			end
+		end
+
+		-- HOW MUCH THE LINE IS WORTH THE MINUTE YOU BUY IT. The upstairs
 		-- machines are refined by the plot's upgrade stack (see
 		-- Tycoon:refineryMultiplierFor), so this share is a constant for the
 		-- rest of the build rather than something that decays — which is the
 		-- entire reason for that decision, and the reason to keep measuring it.
+		--
+		-- MEASURED AT THE LINE, NOT AT THE DECK, and that is not a refinement.
+		-- It used to read `defRow.at <= row.at`, where `row` is the DECK's
+		-- purchase — so it counted the upstairs dropper's output as arriving the
+		-- minute you bought a storey that does not have it yet. That was
+		-- harmless while the two were one purchase and is a straight lie now: a
+		-- barren deck's own machines are 0% of plot income by construction, so
+		-- the lower bound would fail on a correct build and the upper bound
+		-- could never fail on any build at all.
+		local shareAt = lineRow or row
 		local floorDps, groundDps = 0, 0
 		for _, def in ipairs(Config.Tracks.factory) do
 			if def.kind == "Dropper" then
 				local defRow = curveRow(def.id)
-				if defRow and defRow.at <= row.at + 1e-9 then
-					groundDps += def.dropValue / def.dropRate
+				if defRow and defRow.at <= shareAt.at + 1e-9 then
+					if def.path == floor.id then
+						floorDps += def.dropValue / def.dropRate
+					else
+						groundDps += def.dropValue / def.dropRate
+					end
 				end
 			end
 		end
+		-- The first machine on the line is bought AFTER the line itself, so at
+		-- the moment of purchase the numerator is zero by construction. What the
+		-- band is about is what the line is worth once it is running, so the
+		-- machines that arrive on it are counted against the ground floor as it
+		-- stands when the line opens.
 		for _, def in ipairs(Config.Tracks.factory) do
 			if def.kind == "Dropper" and def.path == floor.id then
-				floorDps += def.dropValue / def.dropRate
+				local defRow = curveRow(def.id)
+				if defRow and defRow.at > shareAt.at then
+					floorDps += def.dropValue / def.dropRate
+				end
 			end
 		end
 		local share = floorDps / (groundDps + floorDps)
-		floorReport = ("floor %s:        opens at %.0f min (%.0f%% of build), worth %.0f%% of income")
-			:format(floor.id, at, fraction * 100, share * 100)
-		-- THE BAND MOVED WITH THE FLOOR, because the denominator did. This is
-		-- measured against the droppers owned AT THE MOMENT OF PURCHASE, and at
-		-- minute six that is three of them rather than the seven a minute-forty
-		-- floor stood on. Holding 10-30% here would force the upstairs machine
-		-- below dropper2 — which is the "floor is scenery" defect the lower
-		-- bound exists to catch, arrived at by way of the lower bound itself.
-		--
+		floorReport = ("floor %s:        deck at %.0f min (%.0f%% of build), line at %.0f min, worth %.0f%% of income")
+			:format(floor.id, at, fraction * 100, shareAt.at / 60, share * 100)
 		-- A third is the shape being asserted: the first upstairs machine is a
 		-- PEER of the ground floor's newest dropper, not a replacement for the
 		-- ground floor and not a decoration on top of it. Split into two checks
 		-- so each failure names the defect it is about.
 		check(share >= 0.25,
-			("Floors.%s's own machines are %.0f%% of plot income the minute you buy it (want 25-45%%) — below that the deck is a viewing platform and its dropper is a decoration")
+			("Floors.%s's own machines are %.0f%% of plot income when its line opens (want 25-45%%) — below that the deck is a viewing platform and its dropper is a decoration")
 				:format(floor.id, share * 100))
 		check(share <= 0.45,
-			("Floors.%s's own machines are %.0f%% of plot income the minute you buy it (want 25-45%%) — above that the ground slots you have not filled yet stop being what you are playing for")
+			("Floors.%s's own machines are %.0f%% of plot income when its line opens (want 25-45%%) — above that the ground slots you have not filled yet stop being what you are playing for")
 				:format(floor.id, share * 100))
 	end
 end
