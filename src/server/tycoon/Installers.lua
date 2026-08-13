@@ -67,6 +67,7 @@ local ROOF_COLOR = Color3.fromRGB(138, 88, 58)
 -- for a shipped number: Config.shellPartCount could not count a part whose
 -- existence it could not see, and the budget was being asserted 13% under what
 -- the builder emits.
+local LIGHTS = S.Lights
 local TRIM_SECTION = S.Trim.section
 local TRIM_PROUD = S.Trim.proud
 
@@ -544,6 +545,25 @@ function Tycoon:buildStoreyWalls(model: Instance, storeyId: string)
 			S.WallThickness + TRIM_PROUD, 0)
 		neonBar(self, model, "Light_" .. storeyId .. "_" .. side, extent,
 			extent.from, extent.to, top, TRIM_SECTION, S.WallThickness / 2)
+	end
+
+	-- THE CEILING FIXTURES, and they arrive with the ring rather than with the
+	-- deck that makes them necessary.
+	--
+	-- Tying them to `floor2` would be tying them to the minute the room actually
+	-- goes dark, which reads as the sharper answer and is the wrong owner:
+	-- FloorService would then be building the GROUND storey's lights, and a
+	-- second place would have to know what a storey is. buildStoreyWalls already
+	-- runs once per storey from both callers, so this is one owner, one folder,
+	-- one clearing rule and one entry in Config.shellPartCount. The cost is
+	-- three minutes of lights-on-in-daylight between `walls` and the roof, which
+	-- is what a factory looks like anyway.
+	for index, spot in ipairs(Config.storeyLightPositions(storeyId)) do
+		local batten = newPart(model, ("Fixture_%s_%d"):format(storeyId, index),
+			Vector3.new(LIGHTS.batten.width, LIGHTS.batten.thickness, LIGHTS.batten.length),
+			self:at(spot.X, spot.Y, spot.Z), Color3.fromRGB(236, 226, 202), Enum.Material.SmoothPlastic, false)
+		batten.CanQuery = false
+		Fx.ceilingLight(batten)
 	end
 
 	-- THE TWO UPGRADES THIS STOREY MAY ALREADY HAVE BEEN SOLD.

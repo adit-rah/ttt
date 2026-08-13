@@ -2209,6 +2209,69 @@ for _, floor in ipairs(Config.Floors) do
 	local legs = legBoxes(path)
 	local reach = L.MachineOffset + L.MachineFootprint / 2 + floor.rail.thickness
 
+	-- ── HOW LONG THE STOREY TAKES TO ARRIVE ──────────────────────────────────
+	--
+	-- NEW. TODO.md item 1: "we need it to happen slower". The build was one
+	-- frame, so a purchase you spend two thirds of the build saving for produced
+	-- a building that was simply already there.
+	--
+	-- The verifier cannot watch an animation. What it can check is that the
+	-- table describes a coherent one — stages in order with no gap, a stated
+	-- total that matches what the stages actually take, and a lift far enough
+	-- that a piece has somewhere to fall from.
+	local raise = floor.raise
+	check(raise ~= nil, ("%s has no `raise` block; the storey would arrive in one frame"):format(where))
+	if raise then
+		local finish = 0
+		local previous = nil
+		local count = 0
+		for index, stage in ipairs(raise.stages) do
+			local stageWhere = ("%s raise stage %d (%s)"):format(where, index, tostring(stage.id))
+			check(type(stage.id) == "string" and stage.id ~= "",
+				stageWhere .. " has no id; FloorService dispatches on it by name")
+			check(stage.time > 0, ("%s takes %s seconds"):format(stageWhere, tostring(stage.time)))
+			check(stage.at >= 0, ("%s starts at %s"):format(stageWhere, tostring(stage.at)))
+			if previous then
+				check(stage.at >= previous.at,
+					("%s starts at %.1fs, before the stage above it at %.1fs — the stages are the order the building goes up")
+						:format(stageWhere, stage.at, previous.at))
+				-- NO DEAD AIR. A gap between one stage finishing and the next
+				-- starting is the storey pausing halfway up, which reads as a
+				-- hitch rather than as construction.
+				check(stage.at <= previous.at + previous.time,
+					("%s starts at %.1fs but the stage before it finishes at %.1fs — %.1fs of nothing happening reads as a hitch, not as building")
+						:format(stageWhere, stage.at, previous.at + previous.time,
+							stage.at - (previous.at + previous.time)))
+			end
+			finish = math.max(finish, stage.at + stage.time)
+			previous = stage
+			count += 1
+		end
+		check(count >= 1, ("%s has no raise stages"):format(where))
+		-- THE LADDER IS LAST, and nothing but the order guards it: the climb must
+		-- not open until there is a floor at the top of it.
+		check(previous == nil or previous.id == "ladder",
+			("%s's last raise stage is %q; the ladder has to be last, or the climb opens onto a storey that has not landed")
+				:format(where, previous and tostring(previous.id) or "none"))
+		check(math.abs(raise.total - finish) < 1e-9,
+			("%s claims a raise of %.2fs but its stages finish at %.2fs — a stated total that is not what it takes is a number nobody can trust")
+				:format(where, raise.total, finish))
+		-- Long enough to read as construction, short enough not to be a loading
+		-- screen you paid for.
+		check(raise.total >= 3 and raise.total <= 10,
+			("%s takes %.1fs to arrive (want 3-10) — under three it is still a pop, and over ten it is a wait for something already bought")
+				:format(where, raise.total))
+		-- A piece that starts inside its own resting position has nowhere to
+		-- descend from, and descending is what stops a slab sweeping through a
+		-- player standing under it.
+		check(raise.lift > floor.deckSize.Y,
+			("%s lifts a piece %.1f studs to descend from, and the slab is %.1f thick — it would start inside where it lands")
+				:format(where, raise.lift, floor.deckSize.Y))
+		check(raise.fade > 0 and raise.fade < 1,
+			("%s descends at transparency %.2f; at 0 the piece is solid on the way down and at 1 it is invisible until it lands")
+				:format(where, raise.fade))
+	end
+
 	-- ── THE ZONES ────────────────────────────────────────────────────────────
 	--
 	-- NEW, and the reason the rest of this block could be written at all. A deck
@@ -2869,6 +2932,115 @@ local function openingById(id)
 		end
 	end
 	return nil
+end
+
+local lightReport = nil
+
+-- ── the light in an enclosed storey ─────────────────────────────────────────
+--
+-- NEW. TODO.md item 1, and HANDOFF_v7 §5 listed it first: the mezzanine deck
+-- spans wall face to wall face and Lighting.Ambient is black, so from the minute
+-- the storey lands the ground floor has no sky and nothing but buy-button pads
+-- to see by. Nothing in this file has ever looked at light, because until #58
+-- there was nothing enclosed to look at.
+--
+-- The verifier cannot see a room. What it can see is whether the fixtures are
+-- inside it, clear of what stands in it, above what walks under them, and
+-- numerous enough to reach the corners — which is every way this can be wrong
+-- except "does it look right", and that one is on the Studio list.
+do
+	local LIGHT = SH.Lights
+	local halfX = Config.World.PlotSize.X / 2 - 1 - SH.WallThickness / 2
+	local halfZ = Config.World.PlotSize.Z / 2 - 1 - SH.WallThickness / 2
+
+	check(LIGHT.columns >= 1 and LIGHT.rows >= 1,
+		("Structure.Lights is a %dx%d grid; a storey with no fixtures is a black box, and Ambient is (0,0,0)")
+			:format(LIGHT.columns, LIGHT.rows))
+	-- ROBLOX SILENTLY CLAMPS Range AT 60. A number above it reads as set in the
+	-- source, is not set at runtime, and nothing anywhere reports the
+	-- difference.
+	check(LIGHT.range > 0 and LIGHT.range <= 60,
+		("Structure.Lights.range is %.0f; Roblox clamps a light's Range at 60 and says nothing, so anything above it is a number that reads as set and is not")
+			:format(LIGHT.range))
+	check(LIGHT.brightness > 0,
+		"Structure.Lights.brightness is 0 — the fixtures would be built, counted against the part budget, and light nothing")
+
+	local fixtureCount = 0
+	for _, storey in ipairs(SH.Storeys) do
+		local spots = Config.storeyLightPositions(storey.id)
+		check(#spots == LIGHT.columns * LIGHT.rows,
+			("%s hangs %d fixtures for a %dx%d grid"):format(storey.id, #spots, LIGHT.columns, LIGHT.rows))
+
+		for index, spot in ipairs(spots) do
+			fixtureCount += 1
+			local where = ("the %s storey's fixture %d at (%.0f, %.0f)"):format(storey.id, index, spot.X, spot.Z)
+
+			-- INSIDE THE ROOM. A fixture in a wall is a fixture inside solid
+			-- geometry, lighting the outside of the building.
+			check(math.abs(spot.X) + LIGHT.batten.width / 2 <= halfX - 1,
+				("%s spans x %.1f..%.1f against an inner wall face at %.1f")
+					:format(where, spot.X - LIGHT.batten.width / 2, spot.X + LIGHT.batten.width / 2, halfX))
+			check(math.abs(spot.Z) + LIGHT.batten.length / 2 <= halfZ - 1,
+				("%s spans z %.1f..%.1f against an inner wall face at %.1f")
+					:format(where, spot.Z - LIGHT.batten.length / 2, spot.Z + LIGHT.batten.length / 2, halfZ))
+
+			-- ABOVE EVERYTHING THAT STANDS UNDER IT. The tightest pair on the
+			-- plot is a cabinet's sign, which reaches 17.5 above its own floor.
+			local clear = spot.Y - LIGHT.batten.thickness / 2 - storey.floorY
+			check(clear > L.MachineTopY,
+				("%s hangs %.1f above its own floor; a dropper's arm reaches %.1f")
+					:format(where, clear, L.MachineTopY))
+			check(clear > 17.5,
+				("%s hangs %.1f above its own floor and a cabinet's sign reaches 17.5 — the fixture would be inside the billboard")
+					:format(where, clear))
+
+			-- ...AND CLEAR OF WHAT IT HANGS OVER, in plan. This is the check
+			-- that CHOOSES `inset`: at 24 the +X column lands on the armoury.
+			local batten = Vector3.new(LIGHT.batten.width, 1, LIGHT.batten.length)
+			for _, track in ipairs(Config.TrackOrder) do
+				local layout = L.Tracks[track]
+				if layout and (layout.floor or GROUND) == (storey.id == "ground" and GROUND or layout.floor) then
+					local centre, size = Config.trackCabinet(track)
+					local gap = boxBoxGap(spot, batten, centre, size)
+					check(gap >= 2,
+						("%s is %.1f studs from the %s cabinet in plan (need 2) — the case is 13 tall and the fixture is on the ceiling above it")
+							:format(where, gap, track))
+				end
+			end
+		end
+	end
+
+	-- ENOUGH OF THEM TO REACH THE CORNERS. Sampled on a grid rather than
+	-- reasoned about, because "the fixtures are inside the room" says nothing
+	-- about the room being lit — drop `rows` to 2 and the back of the plot goes
+	-- dark with every check above still passing.
+	local worst, worstAt = 0, nil
+	local ground = Config.storey("ground")
+	local spots = Config.storeyLightPositions("ground")
+	local x = -halfX
+	while x <= halfX do
+		local z = -halfZ
+		while z <= halfZ do
+			local nearest = math.huge
+			for _, spot in ipairs(spots) do
+				local dx, dz = spot.X - x, spot.Z - z
+				local dy = spot.Y - ground.floorY
+				local d = math.sqrt(dx * dx + dz * dz + dy * dy)
+				nearest = math.min(nearest, d)
+			end
+			if nearest > worst then
+				worst, worstAt = nearest, Vector3.new(x, 0, z)
+			end
+			z += 4
+		end
+		x += 4
+	end
+	check(worst <= LIGHT.range * 0.8,
+		("the darkest spot on the ground storey is (%.0f, %.0f), %.1f studs from its nearest fixture, against a range of %.0f — a light's falloff is not a cliff, so 80%% of range is where a corner stops reading as lit")
+			:format(worstAt and worstAt.X or 0, worstAt and worstAt.Z or 0, worst, LIGHT.range))
+
+	lightReport = ("lighting:          %d fixtures over %d storeys, darkest floor sample %.0f studs from one (range %d)")
+		:format(fixtureCount, #SH.Storeys, worst, LIGHT.range)
 end
 
 -- ── the shell is THREE purchases, in one order ──────────────────────────────
@@ -4685,6 +4857,7 @@ print(("belt:              %.0f studs, %.1fs transit, %.0f drops in flight at pe
 -- coverage. It was 204 on a one-floor plot.
 print(("furniture:         %d pieces on %d floors, %d plan pairs compared")
 	:format(#floorSpots, 1 + #Config.Floors, furniturePairs))
+if lightReport then print(lightReport) end
 if floorReport then print(floorReport) end
 print(("vault timers:      %dh free, then %s")
 	:format(Config.Offline.CapHours, table.concat(vaultReport, ", ")))

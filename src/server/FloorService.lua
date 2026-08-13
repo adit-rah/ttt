@@ -8,14 +8,15 @@
 	storey as a deck rectangle, two named zones and a stairwell, and that is the
 	map — you should not have to read this file to find out what is on the floor:
 
-	  zones.line     the belt, its dropper and its hopper          THIS FILE
-	  zones.armoury  the weapons and armour cabinets, their
-	                 button columns and their shelf displays        tycoon/Props,
-	                                                               tycoon/Buttons,
-	                                                               tycoon/Installers
-	                 (they stand up here because Layout.Tracks
-	                 names floor = "mezzanine"; every position
-	                 helper takes its Y from Config.floorTopY)
+	  zones.line     the belt, its dropper and its hopper          THIS FILE,
+	                 — but only once Floors[1].lineButton is bought  on its own beat
+	  zones.landing  the stairwell, its guard, the open floor you
+	                 arrive on, and the pedestal that buys the line THIS FILE,
+	                                                               tycoon/Buttons
+	                 (the armoury USED to be here. Round 8 took
+	                 both cabinets back to the ground floor —
+	                 Layout.Tracks no longer names a `floor` — so
+	                 this half of the storey is deliberately empty)
 	  hatch          the void the ladder climbs through, and the
 	                 railing round three sides of it                THIS FILE
 	  the shell      the upper storey's own walls and the roof
@@ -56,6 +57,7 @@ local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShare
 local Config = Req("Config")
 local Style = Req("Style")
 local Tycoon = Req("Tycoon")
+local TweenService = game:GetService("TweenService")
 
 local FloorService = {}
 
@@ -396,16 +398,114 @@ local function stateFor(tycoon)
 	-- so a released plot doesn't leave a deck hanging over a bare claim pad
 	tycoon:registerFactoryFolder(folder)
 
-	entry = { folder = folder, built = false }
+	entry = { folder = folder, built = false, lineBuilt = false, generation = 0, tweens = {} }
 	state[tycoon] = entry
 	return entry
 end
 
-function FloorService.build(tycoon)
-	local entry = stateFor(tycoon)
-	entry.folder:ClearAllChildren()
+--- Send every part built during `fn` up to its starting pose, and tween it back
+--- down over `stage`'s window.
+---
+--- WHY THE BUILDERS ARE UNTOUCHED. Staging by wrapping rather than by teaching
+--- five builders about animation keeps the geometry in one place: buildDeck
+--- still emits a slab where a slab goes, and this moves the finished part and
+--- puts it back. A builder that knew about tweens would be a builder the
+--- verifier's geometry checks are one step further from.
+---
+--- `generation` is checked on every resume. A build takes six seconds and
+--- onOwnedChanged fires on purchase, release, rebirth AND re-claim, so a
+--- teardown can and will land in the middle of one — and the folder those parts
+--- are in has been cleared by then. Cancel-then-clear, and a stale stage returns
+--- rather than writing to a destroyed instance.
+local function raiseStage(entry, generation, stage, fn)
+	local before = {}
+	for _, existing in ipairs(entry.folder:GetDescendants()) do
+		before[existing] = true
+	end
 
-	FloorService.buildDeck(tycoon, entry.folder)
+	fn()
+
+	local fresh = {}
+	for _, part in ipairs(entry.folder:GetDescendants()) do
+		if not before[part] and part:IsA("BasePart") then
+			table.insert(fresh, part)
+		end
+	end
+	if #fresh == 0 then
+		return
+	end
+
+	local RAISE = FLOOR.raise
+	for index, part in ipairs(fresh) do
+		local resting = part.CFrame
+		local collide, transparency = part.CanCollide, part.Transparency
+		part.CanCollide = false
+		part.Transparency = math.max(transparency, RAISE.fade)
+		part.CFrame = resting + Vector3.new(0, RAISE.lift, 0)
+
+		local delay = stage.at + (index - 1) * stage.stagger
+		task.delay(delay, function()
+			if entry.generation ~= generation or part.Parent == nil then
+				return
+			end
+			local tween = TweenService:Create(part,
+				TweenInfo.new(stage.time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{ CFrame = resting, Transparency = transparency })
+			table.insert(entry.tweens, tween)
+			tween.Completed:Connect(function()
+				if entry.generation == generation and part.Parent ~= nil then
+					part.CanCollide = collide
+				end
+			end)
+			tween:Play()
+		end)
+	end
+end
+
+--- Stop whatever is mid-flight and forget it. Cancel BEFORE clearing:
+--- TweenService writes a property on the next frame regardless, and writing to a
+--- destroyed instance throws.
+local function halt(entry)
+	entry.generation = (entry.generation or 0) + 1
+	for _, tween in ipairs(entry.tweens or {}) do
+		pcall(function()
+			tween:Cancel()
+		end)
+	end
+	entry.tweens = {}
+end
+
+--- One stage of the raise, by id.
+local function stageNamed(id: string)
+	for _, stage in ipairs(FLOOR.raise.stages) do
+		if stage.id == id then
+			return stage
+		end
+	end
+	error(("[Tung] FloorService: no raise stage named %q in Config.Floors"):format(id), 2)
+end
+
+function FloorService.build(tycoon, animate: boolean?)
+	local entry = stateFor(tycoon)
+	halt(entry)
+	entry.folder:ClearAllChildren()
+	local generation = entry.generation
+
+	-- A REBUILD IS NOT A PURCHASE. sync() runs on release, rebirth and re-claim
+	-- as well, and a player walking back onto a plot they already own should not
+	-- watch six seconds of construction before they can climb their own stairs.
+	-- The animation is a reward for buying the thing, so only the purchase gets
+	-- it; everything else builds in one frame exactly as before.
+	local stage = animate and stageNamed or function()
+		return { at = 0, time = 0, stagger = 0 }
+	end
+	local raise = animate and raiseStage or function(_, _, _, fn)
+		fn()
+	end
+
+	raise(entry, generation, stage("deck"), function()
+		FloorService.buildDeck(tycoon, entry.folder)
+	end)
 
 	-- THE UPPER STOREY'S WALLS, AND WHY THEY ARE OURS RATHER THAN THE STRUCTURE
 	-- INSTALLER'S.
@@ -434,7 +534,9 @@ function FloorService.build(tycoon)
 	-- is declared, that lookup has to widen to the plot model.
 	local storey = storeyId()
 	if storey then
-		tycoon:buildStoreyWalls(entry.folder, storey)
+		raise(entry, generation, stage("walls"), function()
+			tycoon:buildStoreyWalls(entry.folder, storey)
+		end)
 	else
 		warn(("[Tung] floor %s has no Config.Structure.Storeys entry at y=%s, so it gets no walls")
 			:format(tostring(FLOOR.id), tostring(FLOOR.height)))
@@ -453,7 +555,9 @@ function FloorService.build(tycoon)
 	-- appeared in neither Config.ButtonById nor `owned` and every income readout
 	-- under-reported a plot that had one.)
 
-	FloorService.buildLadder(tycoon, entry.folder)
+	raise(entry, generation, stage("ladder"), function()
+		FloorService.buildLadder(tycoon, entry.folder)
+	end)
 	entry.built = true
 end
 
@@ -505,6 +609,7 @@ function FloorService.teardown(tycoon)
 	-- its own model's Parent. The belt PATH stays registered — it is pure maths
 	-- and addBeltPath is idempotent by id, so a rebuild rebuilds parts rather
 	-- than stacking a second path onto the plot.
+	halt(entry)
 	entry.folder:ClearAllChildren()
 	entry.built = false
 	-- The Line folder was a child of the one just cleared, so the belt has gone
@@ -531,8 +636,20 @@ function FloorService.sync(tycoon)
 	-- them in any state at all.
 	local wantsLine = unlocked and Config.floorLineBuilt(FLOOR, tycoon.owned)
 
+	-- WHETHER THIS IS A PURCHASE OR A REBUILD, and only a purchase gets the six
+	-- seconds. `sync` fires on purchase, release, rebirth and re-claim, and a
+	-- player walking back onto a plot they already own should not watch their
+	-- own building go up again before they can climb their own stairs.
+	--
+	-- The signal is the owner: on the first sync after an assign, `lastOwner` is
+	-- nil and the deck arrives instantly; on any later sync for the same owner,
+	-- the only way `unlocked` can have just become true is that they bought it.
+	local entry0 = state[tycoon]
+	local sameOwner = entry0 ~= nil and entry0.lastOwner == tycoon.owner
+	local animate = unlocked and not built and sameOwner
+
 	if unlocked and not built then
-		FloorService.build(tycoon)
+		FloorService.build(tycoon, animate)
 		-- THE BEAT THAT RAISES THE BUILDING. The roof was sitting on the ground
 		-- storey's line, which is this deck's underside; rebuilt now it sits on the
 		-- upper storey's, on top of the walls build() just put up. Without this call
@@ -554,11 +671,42 @@ function FloorService.sync(tycoon)
 	elseif lineBuilt and not (wantsLine and deckStanding) then
 		FloorService.teardownLine(tycoon)
 	end
+
+	-- Stamped last, so the NEXT sync can tell a purchase from a re-claim.
+	local final = state[tycoon]
+	if final then
+		final.lastOwner = tycoon.owner
+	end
 end
+
+--- The stage ids this file actually raises. Named here so start() can hold the
+--- Config table to it: a stage in Config that nothing dispatches is a duration
+--- someone tuned that does nothing, and an id this file asks for that Config
+--- does not have takes the whole build down at the first purchase. The verifier
+--- reads Config and cannot see either.
+local RAISED_STAGES = { "deck", "walls", "ladder" }
 
 function FloorService.start()
 	if not FLOOR then
 		return
+	end
+
+	do
+		local declared, dispatched = {}, {}
+		for _, stage in ipairs(FLOOR.raise and FLOOR.raise.stages or {}) do
+			declared[stage.id] = true
+		end
+		for _, id in ipairs(RAISED_STAGES) do
+			dispatched[id] = true
+			if not declared[id] then
+				warn(("[Tung] FloorService raises stage %q, which Config.Floors[1].raise does not declare"):format(id))
+			end
+		end
+		for id in pairs(declared) do
+			if not dispatched[id] then
+				warn(("[Tung] Config.Floors[1].raise declares stage %q, which nothing raises — it is a duration that does nothing"):format(id))
+			end
+		end
 	end
 	local button = Config.ButtonById[FLOOR.button]
 	if not button then

@@ -2365,6 +2365,47 @@ __MODULES["Config"] = function()
 			-- lives in the `line` zone, which ends at z = -8.
 			lineButtonAt = Vector3.new(0, 0, 20),
 
+			-- HOW THE STOREY ARRIVES. TODO.md item 1: "we need it to happen slower."
+			--
+			-- It was one frame — ClearAllChildren, deck, walls, ladder, done — so a
+			-- purchase you spend two thirds of the build saving for produced a
+			-- building that was simply already there. Six and a half seconds of it
+			-- going up is the difference between a transaction and an event.
+			--
+			-- THE PIECES DESCEND. A slab rising from y = 0 sweeps through every
+			-- player standing on the ground floor, and Roblox's answer to an
+			-- anchored part moving through a character is to eject or wedge them.
+			-- Arriving from `lift` studs above with collision off cannot touch
+			-- anyone; collision and transparency are set on the tween's Completed.
+			--
+			-- The ladder is LAST, and not for looks: the climb must not open until
+			-- there is a floor at the top of it. Nothing guards that but the order.
+			--
+			-- `total` is asserted equal to the last stage's finish, so this table
+			-- cannot claim a duration it does not take.
+			-- THREE STAGES, NOT FIVE, and the count is the builder's rather than a
+			-- preference: FloorService.buildDeck emits the slabs, the four posts and
+			-- every guard in one call, so "posts" and "guards" as separate stages
+			-- would be stages nothing dispatches. FloorService asserts at boot that
+			-- the ids here and the ids it raises are the same set.
+			--
+			-- `at` may overlap the stage before it but must not leave a GAP — a pause
+			-- between one stage finishing and the next starting reads as a hitch
+			-- rather than as building, and the verifier refuses it. `total` is the
+			-- nominal finish (the last stage's at + time); `stagger` extends each
+			-- stage's own tail past that by stagger x however many parts it emitted,
+			-- which Config cannot know.
+			raise = {
+				lift = 16,          -- how far above its resting place a piece starts
+				fade = 0.55,        -- transparency a piece descends at
+				total = 5.2,
+				stages = {
+					{ id = "deck",   at = 0.0, time = 2.2, stagger = 0.15 },
+					{ id = "walls",  at = 2.0, time = 2.6, stagger = 0.04 },
+					{ id = "ladder", at = 4.4, time = 0.8, stagger = 0.00 },
+				},
+			},
+
 			-- belt and machines float this far over the deck: a belt base whose
 			-- underside is coplanar with the deck's top face is two surfaces at one
 			-- Y, which z-fights
@@ -2690,6 +2731,56 @@ __MODULES["Config"] = function()
 		-- times ten plots. HANDOFF_v5 §4 has listed "part budget at full scale is
 		-- still untested" for three rounds. Config.shellPartCount() models it from
 		-- this spec and the verifier asserts the result.
+		-- ── LIGHT, BECAUSE THE GROUND FLOOR IS INDOORS ───────────────────────────
+		--
+		-- TODO.md item 1, and HANDOFF_v7 §5 listed it first: "THE GROUND FLOOR IS
+		-- NOW INDOORS." Lighting.Ambient is (0,0,0) and the mezzanine deck spans
+		-- wall face to wall face, so from the minute the storey lands the ground
+		-- floor has no sky. The only artificial light down there was a PointLight on
+		-- each buy-button pad and the variant glow on higher-tier machine cores —
+		-- and classic, oak and ash carry no light at all, so the first three
+		-- droppers and the first upgrader emit nothing.
+		--
+		-- The wall's neon "light strip" is not a light. It is Material.Neon, which
+		-- in Roblox illuminates exactly nothing; its own comment calls it "the
+		-- cheapest light in an enclosed box", which is true of the look and not of
+		-- the room.
+		--
+		-- SurfaceLight ON THE BOTTOM FACE, and that is the whole design. Every light
+		-- here runs Shadows = false — at 8 fixtures x 2 storeys x 10 plots it has
+		-- to — and a Roblox light with shadows off IGNORES OCCLUDERS ENTIRELY. A
+		-- PointLight bolted under the deck would shine straight through a 1.6-stud
+		-- slab and light the mezzanine floor above it. A SurfaceLight emits from one
+		-- face into a cone and cannot leak upward at all. SpotLight makes a pool on
+		-- the floor and leaves the walls black.
+		--
+		-- A GRID, DERIVED FROM THE WALL RING, exactly like the wall spans are.
+		-- Hand-listed coordinates are coordinates that stop being under the ceiling
+		-- the first time the plot changes size.
+		--
+		-- 3x4 AT AN INSET OF 20, and the coverage assertion chose all three numbers.
+		-- 2x4 at an inset of 30 was the first guess and it fails: it puts the
+		-- darkest floor sample 46.8 studs from its nearest fixture against a range
+		-- of 55, and a light's falloff is not a cliff. The binding point is not the
+		-- corner — it is the MIDDLE OF THE BACK WALL, which two columns leave 47
+		-- studs from either of them. A third column down the centre line fixes it.
+		--
+		-- `inset` is also what keeps the +X column off the armoury: a batten at
+		-- x = 38 spans 36.5..39.5 against a cabinet at 46..50. Asserted, not
+		-- remembered.
+		Lights = {
+			columns = 3,
+			rows = 4,
+			inset = 20,
+			batten = { width = 3, length = 24, thickness = 0.6 },
+			drop = 0.3,              -- top face sunk this far into the ceiling above
+			brightness = 2,
+			-- Roblox CLAMPS a light's Range at 60 and says nothing about it, so a
+			-- number above that reads as set and is not. Asserted below.
+			range = 55,
+			angle = 150,
+		},
+
 		PartBudget = 200,
 	}
 
@@ -2836,10 +2927,53 @@ __MODULES["Config"] = function()
 	--- reported 59 against 68 actually built and 107 against 124 — a budget asserted
 	--- 13% under the truth, which is a budget that passes right up until it matters.
 	--- Both numbers were reconciled against a count taken from the real builder.
+	--- WHERE ONE STOREY'S CEILING FIXTURES HANG, in plot-local coordinates.
+	---
+	--- Derived from the wall ring and the storey, so a fixture cannot end up
+	--- outside the room or below the machines. Component arithmetic only: the
+	--- verifier's Vector3 is a bare table with no operators.
+	---
+	--- The ceiling plane never moves. Storeys[1].clear is 20.4 and
+	--- Config.roofUnderside(false) is the same 20.4 — before the mezzanine the roof
+	--- is on that line, after it the deck's underside is — so a height derived from
+	--- the storey is right in both states and needs no rebuild when the deck lands.
+	function Config.storeyLightPositions(storeyId: string): { Vector3 }
+		local L = Config.Structure.Lights
+		local storey = Config.storey(storeyId)
+		local halfX = Config.World.PlotSize.X / 2 - 1 - Config.Structure.WallThickness / 2
+		local halfZ = Config.World.PlotSize.Z / 2 - 1 - Config.Structure.WallThickness / 2
+		local y = storey.floorY + storey.clear - L.drop - L.batten.thickness / 2
+
+		local spots = {}
+		local spanZ = halfZ - L.inset
+		for column = 1, L.columns do
+			-- evenly across X, symmetric about the centre line
+			local x = -(halfX - L.inset)
+			if L.columns > 1 then
+				x += (column - 1) * (2 * (halfX - L.inset)) / (L.columns - 1)
+			else
+				x = 0
+			end
+			for row = 1, L.rows do
+				local z = -spanZ
+				if L.rows > 1 then
+					z += (row - 1) * (2 * spanZ) / (L.rows - 1)
+				else
+					z = 0
+				end
+				table.insert(spots, Vector3.new(x, y, z))
+			end
+		end
+		return spots
+	end
+
 	function Config.shellPartCount(hasFloor: boolean): number
 		local total = 0
 		local storeys = hasFloor and { "ground", "upper" } or { "ground" }
 		for _, storey in ipairs(storeys) do
+			-- the ceiling fixtures this storey hangs. They are Parts; the Lights
+			-- themselves are not, so this counts battens and not lights.
+			total += #Config.storeyLightPositions(storey)
 			for _, side in ipairs(Config.Structure.Sides) do
 				-- the neon cap along this wall's top, and the light strip inside it
 				total += 2
@@ -3811,6 +3945,30 @@ __MODULES["Fx"] = function()
 			light.Shadows = false
 			light.Parent = part
 		end
+	end
+
+	--- The ceiling fixture that lights an enclosed storey.
+	---
+	--- A SurfaceLight on the BOTTOM face, and both halves of that are load-bearing.
+	--- Shadows are off — at eight fixtures per storey across ten plots they have to
+	--- be — and a Roblox light with shadows off ignores occluders entirely, so a
+	--- PointLight hung under the mezzanine deck would shine straight through a
+	--- 1.6-stud slab and light the floor above it. A SurfaceLight emits from one
+	--- face into a cone and cannot leak upward at all.
+	---
+	--- Every number comes from Config.Structure.Lights, because tools/verify_config
+	--- reads Config and nothing else: a brightness typed here is a brightness no
+	--- check can ever see.
+	function Fx.ceilingLight(part: BasePart)
+		local spec = Config.Structure.Lights
+		local light = Instance.new("SurfaceLight")
+		light.Face = Enum.NormalId.Bottom
+		light.Range = spec.range
+		light.Brightness = spec.brightness
+		light.Angle = spec.angle
+		light.Shadows = false
+		light.Parent = part
+		return light
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
