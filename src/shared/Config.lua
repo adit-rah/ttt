@@ -680,10 +680,35 @@ Config.UI = {
 		pill = 44,
 	},
 
+	-- WHAT IS RESERVED FOR ROBLOX'S OWN CONTROLS, and the one number in this
+	-- table that is about a rectangle nothing in this repo draws.
+	--
+	-- On a touch device the engine puts the movement thumbstick in the BOTTOM
+	-- LEFT and the jump button in the BOTTOM RIGHT, on a layer above ours, and
+	-- there is no API a LocalScript can ask for either rectangle. The action
+	-- stack shipped anchored at (1,-Margin),(1,-Margin) — 200x112 in exactly the
+	-- corner the jump button occupies — so on four out of five sessions REBIRTH
+	-- and the jump button were the same pixels. It looked fine on the machine it
+	-- was written on, which is the failure mode this whole table exists for.
+	--
+	-- So both bottom corners belong to the engine and the HUD keeps off them.
+	-- The number is a guess at the tallest those controls get, and it errs
+	-- generous for the same reason SafeAreaPad does: being wrong should cost
+	-- empty screen, not an unpressable button. Only Studio on a real phone can
+	-- settle it — see docs/dev/HANDOFF_v8.md.
+	TouchReserve = {
+		Bottom = 170,
+	},
+
 	-- THE TOP-LEFT COLUMN. The status card, then the session panel, both one
-	-- width, stacked from the top margin down. The Y of each is derived below
-	-- rather than written, because the bug this table exists to catch was two
-	-- files disagreeing about where this column ends.
+	-- width, stacked from the top margin down.
+	--
+	-- THE Y OF EACH PANEL IS NO LONGER A NUMBER AT ALL. It was derived here and
+	-- read by two files; it is now a UIListLayout in HUD.column(), so the two
+	-- panels cannot disagree about where the column starts because neither of
+	-- them is told. What survives here is ColumnBottom — derived below, and the
+	-- budget the verifier holds the column to, since a list layout will happily
+	-- lay a panel out past the bottom of the screen.
 	ColumnWidth = 280,
 
 	-- ONE STATUS CARD, WHERE THERE WERE TWO PANELS. It replaces CashPanel
@@ -705,24 +730,33 @@ Config.UI = {
 	-- against MinTextPx, and it can only assert what it can read.
 	StatusCard = {
 		Width  = 280,
-		Height = 238,
+		Height = 208,
 
 		Pad     = 14,   -- the gutter inside the card, all four sides
 		RowGap  = 6,    -- between two lines of the same group
 		GroupGap = 14,  -- between the balance group and the next-purchase group
 
-		-- the balance group: the coin, the number, and what multiplies it
-		IconSize = 56,
+		-- THE BALANCE GROUP IS THREE LINES: the number, what it multiplies to,
+		-- and the terms that got it there. The coin sits beside the first two.
+		--
+		-- THE CARD HAS NO BUTTON ON IT ANY MORE. There was an INVITE pill on a
+		-- friend row here, and four keys plus five derived Xs and Ys existed to
+		-- fit it. A control on the one surface whose whole job is to be read at a
+		-- glance is a control competing with the number the game is about; the
+		-- invite is a rail item now (see UI.Rail) and the friend bonus is what it
+		-- always was arithmetically — a term in the multiplier, printed on the
+		-- terms line with the others.
+		IconSize = 48,
 		IconGap  = 10,
 		BalanceHeight = 46, BalanceTextPx = 38,
-		MultHeight    = 24, MultTextPx    = 15,
-		-- The friend row is as tall as the INVITE pill inside it, because the
-		-- pill is the tallest thing in it. It shipped at 26, which is 16 physical
-		-- pixels at MinScale — a thumb target under half the floor this file
-		-- already declares. The pill's own height still comes from UI.Button.
-		FriendRowHeight  = 44,
-		FriendTextHeight = 22, FriendTextPx = 14,
-		InviteWidth = 72,
+		MultHeight    = 22, MultTextPx    = 15,
+		-- FULL WIDTH, UNLIKE THE TWO LINES ABOVE IT, which are indented past the
+		-- coin. "x1.30 • 2 rebirths • 0 KOs • +20% friends" is 40 characters and
+		-- the indented lines get 194 design px; at MultTextPx that truncates the
+		-- moment a player has a friend in the server, which is the moment the
+		-- line has something to say. A row that fits only until its feature turns
+		-- on is not a row, so the terms get the card's whole content width.
+		TermsHeight = 18, TermsTextPx = 13,
 
 		-- a rule between the two groups: one card, two things to read
 		DividerHeight = 2,
@@ -742,16 +776,83 @@ Config.UI = {
 		DetailHeight = 18, DetailTextPx = 13,
 	},
 
-	-- Height is the ordinary panel; TallHeight adds the pending-offline row.
+	-- THE SESSION PANEL, ROW BY ROW — and BOTH ITS HEIGHTS ARE DERIVED NOW.
 	--
-	-- There used to be a third, CompactHeight = 88: the panel a build with
-	-- Prototypes.Sessions OFF collapsed to, showing the offline row alone. That
-	-- flag graduated in #50 and the local that chose between the two heights was
+	-- Height is the ordinary panel; TallHeight is the panel with its whole
+	-- optional tail showing. There used to be a third, CompactHeight = 88: the
+	-- panel a build with Prototypes.Sessions OFF collapsed to. That flag
+	-- graduated in #50 and the local that chose between the two heights was
 	-- deleted with it — but both READS of that local were left behind, in a file
-	-- that had also lost its `Req("Config")`. The number outlived the only state
-	-- that could select it, so it is gone: a height nothing can reach is a
-	-- height that reads as a supported layout and is not one.
-	SessionPanel = { Width = 280, Height = 216, TallHeight = 258 },
+	-- that had also lost its `Req("Config")`. A height nothing can reach reads as
+	-- a supported layout and is not one, so it is gone and asserted absent.
+	--
+	-- TALLHEIGHT SHIPPED AT 258 AND THE PANEL COULD REACH 310. 258 is the
+	-- one-optional-row case, and there are two optional rows: the Vault Timer
+	-- (gone at the top of the ladder) and the pending-offline row. Both are
+	-- visible at once for any returning player who has not maxed the vault, and
+	-- SessionUI.layoutTail() sized the panel from its own literals, so the number
+	-- ColumnBottom was measured against had already been left behind by the code.
+	-- OptionalRows is the input now and both heights come out of it.
+	--
+	-- The row geometry below was eleven literals in src/client/SessionUI.lua,
+	-- three of which (STACK_TOP, ROW_HEIGHT/ROW_GAP, PANEL_BASE_HEIGHT) were
+	-- hand-copies of numbers that already lived here.
+	SessionPanel = {
+		Width = 280,
+		Pad = 14,          -- the gutter inside the panel
+		RowGap = 6,        -- between two stacked rows
+		TailPad = 12,      -- what the panel keeps under its last row
+
+		-- the panel's own heading, and the weekend badge opposite it
+		HeadHeight = 16, HeadTextPx = 13,
+		BadgeWidth = 110,
+		HeadPad = 8,       -- the heading's own inset from the panel's top
+
+		-- a row: a title, a sub-line under it, and a claim pill on the right
+		RowPad = 12,
+		RowTitleHeight = 18, RowTitleTextPx = 15,
+		RowSubHeight   = 16, RowSubTextPx   = 13,
+		RowPadY = 8,
+		ActionWidth = 66, ActionTextPx = 14,
+		-- 12 shipped on the heading, the sub-lines and the badge — 7.4 physical
+		-- pixels at MinScale, under both floors this file declares. It is the
+		-- same defect the NEXT UPGRADE heading had, for the same reason: it was a
+		-- literal in a builder and nothing could read it to say so.
+
+		-- the fixed stack, top to bottom
+		DailyY = 28, DailyHeight = 50,
+		PlaytimeHeight = 56,
+		BarHeight = 4, BarY = 44,   -- the playtime gauge, inside the playtime row
+		BoostTextPx = 18,
+
+		-- the optional tail
+		RowHeight = 46,
+		OptionalRows = 2,
+	},
+
+	-- THE TOP-RIGHT UTILITY RAIL. One item wide today and built to hold more:
+	-- an icon over a caption, docked to the top-right corner, with the toast
+	-- column derived to start below it rather than on top of it.
+	--
+	-- WHY THE INVITE IS HERE AND NOT ON THE STATUS CARD. It was a pill on the
+	-- card's friend row, which put the game's only social control inside the
+	-- surface a player reads to answer "can I afford the next thing yet". The
+	-- rail is where a control that acts on the world outside this server belongs,
+	-- and the top-right corner is reachable and out of the way of both thumbs.
+	--
+	-- THE CAPTION IS THE PRICE TAG. The friend row's zero state was the whole
+	-- point of it — "+0% • no friends here yet" is what turns an invite into an
+	-- offer — and that argument survives the move: the badge under the glyph
+	-- reads what you would gain when you have nobody here, and what you are
+	-- getting once you do.
+	Rail = {
+		ItemWidth = 56,
+		ItemHeight = 72,
+		Pad = 6,
+		GlyphSize = 40,
+		GlyphGap = 2,
+		BadgeHeight = 16, BadgeTextPx = 13,
+	},
 
 	-- THE UPGRADE SHOP IS A SECOND COLUMN, not the bottom of the first. It is
 	-- bottom-anchored and proportionally tall, so on a short screen it grows
@@ -767,30 +868,65 @@ Config.UI = {
 		RowHeight = 62,      -- the whole row is the hit target, so this is a touch size
 	},
 
-	Toast  = { Width = 320, ListHeight = 500, CardHeight = 66 },
-	-- Rebirth over leave-plot, bottom right: primary + Gap + secondary.
+	-- THE NOTIFICATION COLUMN, under the rail on the same right edge.
+	--
+	-- MaxCards IS ENFORCED, NOT DESCRIBED. ListHeight shipped at 500 with nothing
+	-- bounding how many cards went into the frame, so a burst of toasts simply
+	-- drew past the bottom of their own container — which meant ListHeight was a
+	-- number no assertion could be built on. HUD.toast destroys the oldest card
+	-- past this count now, so ListHeight is derived from it and the clearance
+	-- against the action stack below means something.
+	Toast = {
+		Width = 320,
+		CardHeight = 66,
+		MaxCards = 4,
+		-- the card's own insides, which were six literals in HUD.lua
+		Pad = 8,
+		BarWidth = 5,
+		BarInset = 10,
+		TextX = 24,
+		TitleHeight = 22, TitleTextPx = 17,
+		BodyHeight  = 30, BodyTextPx  = 13,
+	},
+
+	-- Rebirth over leave-plot: primary + Gap + secondary. Right edge, and raised
+	-- clear of TouchReserve.Bottom rather than sitting in the corner — see that
+	-- table for what is down there.
 	Action = { Width = 200, Height = 112 },
 
 	-- Modals are centred and live on the overlay layer, which is unpadded on
 	-- purpose: a dimming shade SHOULD cover the notch.
+	--
+	-- Each card's insides are named here for the same reason every other number
+	-- in this table is. Both modals were a ladder of hand-typed Ys — the offline
+	-- one had seven — and a hand-typed ladder is one where growing the third row
+	-- means finding the four below it by eye.
 	Modal = {
 		MinWidth = 300,
 		MaxWidth = 470,
 		MaxHeight = 330,
-		Offline = { Width = 470, Height = 330 },
-		Rebirth = { Width = 430, Height = 250 },
+		Offline = {
+			Width = 470, Height = 330,
+			Pad = 22, TopPad = 18, RowGap = 6,
+			TitleHeight  = 34, TitleTextPx  = 28,
+			AwayHeight   = 20, AwayTextPx   = 14,
+			AmountHeight = 60, AmountTextPx = 46,
+			RateHeight   = 20, RateTextPx   = 13,
+			CapHeight    = 50, CapTextPx    = 13,
+			ButtonTextPx = 22,
+		},
+		Rebirth = {
+			Width = 430, Height = 250,
+			Pad = 20, TopPad = 18, RowGap = 6,
+			TitleHeight = 34, TitleTextPx = 28,
+			BodyHeight  = 96, BodyTextPx  = 15,
+			ButtonTextPx = 20,
+		},
 	},
 }
 
 do
 	local ui = Config.UI
-
-	-- the left column, top to bottom
-	ui.StatusCard.Y = ui.Margin
-	ui.SessionPanel.Y = ui.StatusCard.Y + ui.StatusCard.Height + ui.Gap
-	-- measured at the session panel's TALLEST, because "it fits unless you have
-	-- offline earnings waiting" is not a layout that fits
-	ui.ColumnBottom = ui.SessionPanel.Y + ui.SessionPanel.TallHeight
 
 	-- THE STATUS CARD, ROW BY ROW. Every Y below is an accumulation of the row
 	-- heights above it, so a row that grows pushes everything under it down and
@@ -813,18 +949,14 @@ do
 	-- the coin is centred on the two lines it belongs to, not on either one
 	ui.StatusCard.IconY = sc.BalanceY
 		+ math.floor((sc.BalanceHeight + sc.MultHeight - sc.IconSize) / 2)
-	ui.StatusCard.FriendRowY = sc.MultY + sc.MultHeight + sc.RowGap
-	ui.StatusCard.FriendTextY = sc.FriendRowY
-		+ math.floor((sc.FriendRowHeight - sc.FriendTextHeight) / 2)
-	ui.StatusCard.InviteX = sc.Width - sc.Pad - sc.InviteWidth
-	ui.StatusCard.InviteY = sc.FriendRowY
-		+ math.floor((sc.FriendRowHeight - ui.Button.pill) / 2)
-	ui.StatusCard.FriendTextWidth = sc.InviteX - sc.Pad - ui.Gap
+	-- The terms line closes the balance group and gets the card's full width; the
+	-- two lines above it are indented past the coin.
+	ui.StatusCard.TermsY = sc.MultY + sc.MultHeight
 	-- the rule, centred in the gap between the two groups
-	ui.StatusCard.DividerY = sc.FriendRowY + sc.FriendRowHeight
+	ui.StatusCard.DividerY = sc.TermsY + sc.TermsHeight
 		+ math.floor((sc.GroupGap - sc.DividerHeight) / 2)
 	-- the next-purchase group
-	ui.StatusCard.HeadingY = sc.FriendRowY + sc.FriendRowHeight + sc.GroupGap
+	ui.StatusCard.HeadingY = sc.TermsY + sc.TermsHeight + sc.GroupGap
 	ui.StatusCard.NameY = sc.HeadingY + sc.HeadingHeight
 	ui.StatusCard.BarY = sc.NameY + sc.NameHeight
 	ui.StatusCard.DetailY = sc.BarY + sc.BarHeight + sc.RowGap
@@ -833,12 +965,96 @@ do
 	-- this sum would fit by construction and catch nothing.
 	ui.StatusCard.ContentHeight = sc.DetailY + sc.DetailHeight + sc.Pad
 
+	-- ── THE SESSION PANEL, ROW BY ROW, and both of its heights ───────────────
+	local sp = ui.SessionPanel
+	ui.SessionPanel.RowWidth = sp.Width - sp.Pad * 2
+	-- a row's insides
+	ui.SessionPanel.RowSubY = sp.RowPadY + sp.RowTitleHeight
+	ui.SessionPanel.ActionX = sp.RowWidth - sp.RowPad - sp.ActionWidth
+	ui.SessionPanel.ActionTextWidth = sp.ActionX - sp.RowPad - ui.Gap
+	ui.SessionPanel.BarWidth = sp.RowWidth - sp.RowPad * 2
+	-- the heading and the badge opposite it
+	ui.SessionPanel.BadgeX = sp.Width - sp.Pad - sp.BadgeWidth
+	-- the fixed stack
+	ui.SessionPanel.PlaytimeY = sp.DailyY + sp.DailyHeight + sp.RowGap
+	ui.SessionPanel.BoostY = sp.PlaytimeY + sp.PlaytimeHeight + sp.RowGap
+	-- WHERE THE OPTIONAL TAIL STARTS, which SessionUI used to type as 200.
+	ui.SessionPanel.StackTop = sp.BoostY + ui.Button.secondary + sp.RowGap
+	-- ...and the two heights that fall out of it. Both derived: the panel is laid
+	-- out at render time from whichever optional rows are showing, so a chosen
+	-- Height would be a claim about code rather than an input to it. The number
+	-- the verifier holds this to is ColumnBottom, above.
+	ui.SessionPanel.Height = sp.StackTop + sp.TailPad
+	ui.SessionPanel.TallHeight = sp.StackTop
+		+ sp.OptionalRows * (sp.RowHeight + sp.RowGap) - sp.RowGap + sp.TailPad
+
+	-- THE LEFT COLUMN'S BUDGET, and no panel Y anywhere any more.
+	--
+	-- ui.StatusCard.Y and ui.SessionPanel.Y used to live here and be read by two
+	-- files. HUD.column() is a UIListLayout now, so the runtime stacks the panels
+	-- and neither file is told a Y — but a list layout will lay its children out
+	-- past the bottom of the screen just as happily as two hand-typed Ys would,
+	-- so the budget stays, measured at the session panel's TALLEST. "It fits
+	-- unless you have offline earnings waiting" is not a layout that fits.
+	ui.ColumnBottom = ui.Margin + ui.StatusCard.Height + ui.Gap
+		+ ui.SessionPanel.TallHeight
+
+	-- ── THE TOP-RIGHT RAIL, and the notification column under it ─────────────
+	local rail = ui.Rail
+	ui.Rail.GlyphX = math.floor((rail.ItemWidth - rail.GlyphSize) / 2)
+	ui.Rail.GlyphY = rail.Pad
+	ui.Rail.BadgeY = rail.Pad + rail.GlyphSize + rail.GlyphGap
+	ui.Rail.BadgeWidth = rail.ItemWidth - rail.Pad * 2
+	ui.Rail.ContentHeight = rail.BadgeY + rail.BadgeHeight + rail.Pad
+	ui.Rail.Bottom = ui.Margin + rail.ItemHeight
+
+	local toast = ui.Toast
+	ui.Toast.Y = ui.Rail.Bottom + ui.Gap
+	ui.Toast.ListHeight = toast.MaxCards * toast.CardHeight
+		+ (toast.MaxCards - 1) * ui.Gap
+	ui.Toast.Bottom = toast.Y + toast.ListHeight
+	-- the card's insides
+	ui.Toast.BarHeight = toast.CardHeight - toast.Pad * 2
+	ui.Toast.TitleY = toast.Pad
+	ui.Toast.BodyY = toast.Pad + toast.TitleHeight
+	ui.Toast.TextWidth = toast.Width - toast.TextX - toast.BarInset
+
+	-- ── THE ACTION STACK, raised clear of the engine's own controls ──────────
+	ui.Action.BottomGap = ui.TouchReserve.Bottom
+	ui.Action.Top = ui.ReferenceHeight - ui.Action.BottomGap - ui.Action.Height
+
 	-- the shop's own column, starting one gap clear of the left one
 	ui.ShopPanel.X = ui.Margin + ui.ColumnWidth + ui.Gap
 	-- What the shop leaves below itself: the toggle button always, plus the
 	-- utility chip when that prototype is on.
+	--
+	-- NOT YET MEASURED FROM TouchReserve, and deliberately so: the shop is behind
+	-- two Prototypes flags that both ship false, so it draws nothing and moving a
+	-- surface nobody can see is a change nobody can check. When PlayerUpgrades
+	-- graduates, this is the number that has to start at ui.TouchReserve.Bottom
+	-- rather than at ui.Margin — see docs/dev/HANDOFF_v8.md.
 	ui.ShopPanel.BottomGapNoUtility = ui.Margin + ui.Button.pill + ui.Gap
 	ui.ShopPanel.BottomGap = ui.ShopPanel.BottomGapNoUtility + ui.Button.pill + ui.Gap
+
+	-- ── THE TWO MODAL CARDS, row by row ──────────────────────────────────────
+	local reb = ui.Modal.Rebirth
+	ui.Modal.Rebirth.ContentWidth = reb.Width - reb.Pad * 2
+	ui.Modal.Rebirth.TitleY = reb.TopPad
+	ui.Modal.Rebirth.BodyY = reb.TopPad + reb.TitleHeight + reb.RowGap
+	ui.Modal.Rebirth.ButtonWidth = math.floor((reb.ContentWidth - ui.Gap) / 2)
+	ui.Modal.Rebirth.ButtonY = reb.Height - reb.Pad - ui.Button.primary
+	ui.Modal.Rebirth.CancelX = reb.Pad + reb.ButtonWidth + ui.Gap
+	ui.Modal.Rebirth.ContentHeight = reb.BodyY + reb.BodyHeight
+
+	local off = ui.Modal.Offline
+	ui.Modal.Offline.ContentWidth = off.Width - off.Pad * 2
+	ui.Modal.Offline.TitleY = off.TopPad
+	ui.Modal.Offline.AwayY = off.TopPad + off.TitleHeight
+	ui.Modal.Offline.AmountY = off.AwayY + off.AwayHeight + off.RowGap
+	ui.Modal.Offline.RateY = off.AmountY + off.AmountHeight
+	ui.Modal.Offline.CapY = off.RateY + off.RateHeight + off.RowGap
+	ui.Modal.Offline.ButtonY = off.Height - off.Pad - ui.Button.primary
+	ui.Modal.Offline.ContentHeight = off.CapY + off.CapHeight
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────

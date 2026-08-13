@@ -173,11 +173,11 @@ Three rules hold this together, and the first two are not stylistic:
 | Path | Responsibility | Required by | Must not |
 | --- | --- | --- | --- |
 | `Main.client.lua` | Entry point. Starts the four panels, then fires `ClientHello` once. | *(entry `LocalScript`)* | — |
-| `UiKit.lua` | The panel vocabulary: `PALETTE`, `corner`, `stroke`, `panel`, `text`, `button`, `scaleFor`, `safeInsets`. | `HUD`, `SessionUI`, `UpgradeUI` | move to `src/shared` (it would ship to the server build) |
-| `HUD.lua` | All on-screen furniture **and the only `ScreenGui` in the game**, carrying `Root` (UIScale + safe-area padding) and `Overlay` (UIScale, no padding, for modals). The persistent furniture is one status card (balance, multiplier, friend bonus, next purchase + progress bar), the toast column, the action stack and the raid billboard. | `CombatClient`, `SessionUI`, `UpgradeUI` (lazily, `UpgradeUI.lua:422`), `Main.client` | — |
+| `UiKit.lua` | The panel vocabulary: `PALETTE`, `corner`, `stroke`, `panel`, `text`, `button`, `scaleFor`, `safeInsets` — plus `dock` (the four named corners every top-level region is placed with), `railItem` and `personPlus`. | `HUD`, `SessionUI`, `UpgradeUI` | move to `src/shared` (it would ship to the server build) |
+| `HUD.lua` | All on-screen furniture **and the only `ScreenGui` in the game**, carrying `Root` (UIScale + safe-area padding) and `Overlay` (UIScale, no padding, for modals). It also owns four docked regions inside `Root`: `Column` (top-left, a `UIListLayout`, handed out by **`HUD.column()`**), `Rail` (top-right, the invite), `Toasts` (under the rail) and `Actions` (bottom-right, raised clear of `Config.UI.TouchReserve.Bottom`). The persistent furniture is one status card (balance, multiplier, the terms behind it, next purchase + progress bar), the toast column, the action stack and the raid billboard. | `CombatClient`, `SessionUI`, `UpgradeUI` (lazily, `UpgradeUI.lua:422`), `Main.client` | hand out the raw `ScreenGui`; put persistent furniture in a bottom corner |
 | `CombatClient.lua` | Local feel only: hitmarkers, camera shake, knockback application, swing playback. | `Main.client` | decide damage; parent UI straight to the `ScreenGui` (that is outside the UIScale *and* the safe area) |
 | `UpgradeUI.lua` | **Prototype.** Shop panel + utility chip. Draws the last `UpgradeState`. | `Main.client` | decide what you own, what a level costs, or whether a utility is off cooldown |
-| `SessionUI.lua` | Welcome-back modal, daily/playtime claims, boost button, Vault Timer row. | `Main.client` | send a level or a price — the Vault Timer sends `{ kind = "capUpgrade" }` and the server owns which rung is next |
+| `SessionUI.lua` | Welcome-back modal, daily/playtime claims, boost button, Vault Timer row. Builds into `HUD.column()` with a `LayoutOrder`, and knows no X and no Y. | `Main.client` | set a `Position`, or send a level or a price — the Vault Timer sends `{ kind = "capUpgrade" }` and the server owns which rung is next |
 
 Any client module: **build a second `ScreenGui`** (use `HUD.root()` /
 `HUD.overlay()`), **name a font, outline or view distance** (go through
@@ -600,7 +600,7 @@ python3 tools/pack.py                      # regenerate build/ only
 Needs `luau`, `luau-compile`, `luau-analyze` on `PATH`.
 `.github/workflows/verify.yml` runs `verify.py` on push, PR and dispatch.
 
-### `verify.py` — ten passes, in order
+### `verify.py` — eleven passes, in order
 
 The count is load-bearing and has drifted before: `verify.py`'s own docstring
 notes it "has said five, seven and eight while `main()` ran nine". Keep the
@@ -730,6 +730,14 @@ listed so the next reader does not trust the wrong sentence.
    list — `UpgradeService.lua:253` says so explicitly ("the declared payload is
    `{ levels, costs }`; the rest is additive").
 
+5. **`HANDOFF_v7.md` §1 and §10** describe the HUD as it was before the layout
+   round: a status card with a friend row and an INVITE pill on it, an action
+   stack in the bottom-right corner, and a left column ending at y=542. All
+   three moved — see `HANDOFF_v8.md`, which supersedes v7 on the HUD's layout and
+   nothing else.
+
 Two entries left this list rather than being carried forward, because the PR that
 split `Tycoon` fixed them: the header naming five `kind`s of eight, and
 `tools/test.py`'s comment excluding the three modules listed two lines below it.
+Two more left it in the layout round: this document's own "ten passes" heading
+and `CLAUDE.md`'s claim that all of `src/client` is outside `tools/test.py`.

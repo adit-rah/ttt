@@ -682,23 +682,70 @@ defects in the same file.
   panel with one of the two numbers in `HUD.lua` and the other in `UpgradeUI.lua`. `[lint]`
   `verify.py` "ui geometry", plus `[assert]` the shop/column overlap at the reference height.
 - **The status card's rows are named heights and every Y is accumulated from them**, in
-  `Config.lua`'s derivation block — including the session panel's `Y` and `ColumnBottom` below
-  it. `HUD.lua` types no Y and no text size at all. `[assert]` the card's `Height` against the
-  `ContentHeight` its rows add up to (the two are independent numbers on purpose: a `Height`
-  derived from the sum would fit by construction and catch nothing), its `Width` against
-  `ColumnWidth`, and the column against `ReferenceHeight` with margins.
+  `Config.lua`'s derivation block — as are the session panel's rows and `ColumnBottom` below it.
+  Neither `HUD.lua` nor `SessionUI.lua` types a Y or a text size at all. `[assert]` the card's
+  `Height` against the `ContentHeight` its rows add up to (the two are independent numbers on
+  purpose: a `Height` derived from the sum would fit by construction and catch nothing), its
+  `Width` against `ColumnWidth`, and the column against `ReferenceHeight` with margins.
+- **Every top-level region is docked to a named corner, and no call site spells one out.**
+  `UiKit.dock` owns the four corners; the anchor, the inset and the list alignment are one
+  decision, because a frame anchored `(1,0)` and positioned from the left edge is off the side
+  of the screen and a right-hand column aligned Left grows away from its own edge. Five call
+  sites across three files each wrote their own before it existed. `[nothing]` — the corners
+  are named, but nothing stops a new panel setting `Position` by hand.
+- **The left column is a `UIListLayout` and neither panel knows where it starts.** The status
+  card and the session panel are `LayoutOrder` 1 and 2 inside `HUD.column()`. They were placed
+  by two files reading `Config.UI.StatusCard.Y` and `Config.UI.SessionPanel.Y` separately —
+  which is precisely the disagreement `Config.UI`'s own column comment says that table exists
+  to catch, sitting one edit away the whole time. Both Ys are deleted. `[assert]`
+  `ColumnBottom` — a list layout will lay a panel out past the bottom of the screen as happily
+  as two hand-typed Ys would — plus `[spec]` that the panel lands in the column.
+- **The session panel's `TallHeight` is the panel with its WHOLE optional tail showing.** It
+  shipped at 258, the ONE-optional-row height, while `layoutTail()` could build 310 with the
+  Vault Timer and a pending offline grant both up — every returning player who has not maxed
+  the vault. `ColumnBottom` was measured against the number the code had already left behind,
+  so the column fitted by luck. Both heights derive from `OptionalRows` now. `[spec]` — the
+  count is asserted against the list `SessionUI` actually stacks, in `hud_spec.lua`, because
+  that list is in `src/client` and `verify_config.lua` cannot see it.
+- **`layoutTail()` is the only thing that sizes the session panel.** `render()` set a height too
+  and then called it, which overwrote the value two lines later; a write nothing can observe is
+  a write nobody checks, and the losing one was the wrong one for two rounds. `[spec]`
 - **Every text size on the card clears `MinTextPx`, and the balance is strictly the largest of
   them.** The NEXT UPGRADE heading shipped at 12 design px — 7.4 physical px at `MinScale`,
   under both floors `Config.UI` declares — because it was a literal in a builder and nothing
   could read it. The balance being biggest is the card's whole thesis: it is the number the game
   is about. `[assert]` six sizes against the floor, five against the balance.
+- **So does every text size on the session panel, on the rail and in both modals.** Three of the
+  session panel's shipped at the same 12, for the same reason: literals in a builder. The modal
+  sizes are walked by name rather than listed, because the two cards carry different rows and a
+  hand-written list stops covering the row somebody adds next. `[assert]`
 - **The progress bar is a gauge, not a control**, and is bounded from both sides: at least 3
   physical px at `MinScale` so the fill is readable, and under `MinTouchPx` so it does not read
   as something that answers a press. `[assert]`
-- **Every touch target on the card comes from the `UI.Button` ladder, and its row is at least as
-  tall as the button in it.** INVITE shipped as a 72×26 literal — 16 physical px at `MinScale`,
-  under half the floor this file declares, on the one control whose job is to be pressed by a
-  child. `[assert]` the friend row against `Button.pill`.
+- **There is nothing on the status card to press.** It carries the balance, what multiplies it
+  and the next purchase; it is read at a glance and a surface read at a glance should not also
+  be a control. The INVITE pill that used to sit on its friend row is a rail item now.
+  `[spec]` — and deliberately not `[assert]`: `Config` holds numbers and cannot see a
+  `TextButton`, and the obvious proxy ("no row is a touch target's height") is false on its
+  face, because the balance row is 46 px tall to hold 38 px of text. That proxy was written and
+  it failed against the shipped config the first time it ran.
+- **Every touch target comes from the `UI.Button` ladder, and a rail item is held to
+  `MinTouchPx` on both axes.** INVITE shipped as a 72×26 literal — 16 physical px at
+  `MinScale`, under half the floor this file declares, on the one control whose job is to be
+  pressed by a child. A rail item is a square rather than a row, so it is not on the ladder and
+  is checked directly: a 56-wide button 20 tall is as unhittable as a 20-wide one. `[assert]`
+- **Both bottom corners belong to the engine.** On touch, Roblox draws the movement thumbstick
+  bottom-left and the jump button bottom-right, on a layer above ours, and no API returns
+  either rectangle. The action stack was anchored `(1,1)` at the margin — 200×112 in exactly
+  the jump button's corner — so for four out of five players REBIRTH and JUMP were the same
+  pixels. `Config.UI.TouchReserve.Bottom` is the declared clearance. `[assert]` the stack
+  against the reserve, and the reserve against two primary buttons: a reserve smaller than our
+  own biggest control is a number that reads as a decision and is not.
+- **The right edge is a column too, and its three surfaces clear each other.** Rail, then the
+  toast list, then the action stack. `[assert]` toasts below the rail and above the actions —
+  which is only meaningful because **`HUD.toast` destroys cards past `UI.Toast.MaxCards`**: a
+  `UIListLayout` does not clip and does not stop, so before that a burst of toasts drew straight
+  through whatever was under them and `ListHeight` described nothing.
 - **The bar, the balance and the "N to go" all read `displayedCash`**, the lerped value, not
   `state.cash`. The counter takes ~0.2s to arrive after a payout; anything on the card computed
   from the packet is at the destination while the number above it is still climbing, so the card

@@ -15,6 +15,14 @@
 	different purples, and the one that drifts first is always the one nobody
 	opens.
 
+	IT ALSO OWNS WHERE A REGION GOES, not just what it looks like. `dock` names
+	the four corners of the design canvas; before it, five call sites in three
+	files each spelled out their own AnchorPoint and their own
+	`UDim2.new(1, -UI.Margin, 1, -UI.Margin)`, and the left column's two panels
+	were placed by two files reading the same Config keys separately. A panel
+	asks for a corner now and gets the anchor, the inset and the list alignment
+	that agree with it.
+
 	ONE DIVERGENCE SURVIVED THE MERGE, and it is the only interesting thing in
 	this file. HUD and UpgradeUI build TextScaled buttons with no TextSize;
 	SessionUI's are sized text (TextScaled = false, TextSize = 15). `button` here
@@ -30,6 +38,10 @@ local Style = Req("Style")
 local GuiService = game:GetService("GuiService")
 
 local UI = Config.UI
+-- Spelled from `Config` rather than from `UI`, exactly like HUD.lua's CARD, so
+-- verify.py's config-path pass can resolve it: it follows ONE alias hop, and a
+-- `local RAIL = UI.Rail` would be a name it has no way to check reads against.
+local RAIL = Config.UI.Rail
 
 local UiKit = {}
 
@@ -134,6 +146,193 @@ function UiKit.button(parent: Instance, label: string, color: Color3, props): Te
 	b.Parent = parent
 	UiKit.corner(b, 10)
 	return b
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- putting a region against an edge
+-- ─────────────────────────────────────────────────────────────────────────────
+
+--- THE FOUR CORNERS, and the AnchorPoint and list alignment each one implies.
+---
+--- A dock is (anchor, position, alignment) and the three have to agree: a frame
+--- anchored (1,0) and positioned from the LEFT edge is off the right side of the
+--- screen, and a right-hand column whose list layout aligns Left grows away from
+--- the edge it is docked to. Naming the corner once is what stops a call site
+--- getting two of the three right.
+local DOCKS = {
+	topLeft     = { x = 0, y = 0, alignX = "Left",  alignY = "Top" },
+	topRight    = { x = 1, y = 0, alignX = "Right", alignY = "Top" },
+	bottomLeft  = { x = 0, y = 1, alignX = "Left",  alignY = "Bottom" },
+	bottomRight = { x = 1, y = 1, alignX = "Right", alignY = "Bottom" },
+}
+
+--- A transparent region pinned to one corner of the design canvas.
+---
+--- WHY THIS EXISTS. Five call sites across three files each spelled out their
+--- own `AnchorPoint` and their own `UDim2.new(1, -UI.Margin, 1, -UI.Margin)`,
+--- which is five chances to disagree about what "against the edge" means — and
+--- they did: the left column's two panels were positioned by two different files
+--- from two different reads of the same Config keys. A corner is a name now.
+---
+--- `insetX` / `insetY` default to UI.Margin and are the distance from that edge,
+--- always measured INWARD whichever corner it is, so a caller never writes the
+--- sign. UI.Action passes an insetY of TouchReserve.Bottom to sit above the
+--- engine's own controls; everything else takes the margin.
+---
+--- `direction` is "Vertical" or "Horizontal", and attaches a UIListLayout that
+--- stacks children away from the docked corner with UI.Gap between them. Omit it
+--- for a region that positions its own children.
+function UiKit.dock(parent: Instance, opts): Frame
+	local spot = DOCKS[opts.corner]
+	if not spot then
+		-- Loud, like Style.distance: a typo'd corner that fell back to top-left
+		-- would be a panel silently drawn on top of the status card.
+		error(("[Tung] unknown dock corner %q; expected topLeft/topRight/bottomLeft/bottomRight")
+			:format(tostring(opts.corner)), 2)
+	end
+
+	local insetX = opts.insetX or UI.Margin
+	local insetY = opts.insetY or UI.Margin
+
+	local frame = Instance.new("Frame")
+	frame.Name = opts.name
+	frame.AnchorPoint = Vector2.new(spot.x, spot.y)
+	-- The scale term picks the edge and the offset term steps inward from it, so
+	-- the same expression serves all four corners.
+	frame.Position = UDim2.new(
+		spot.x, spot.x == 0 and insetX or -insetX,
+		spot.y, spot.y == 0 and insetY or -insetY)
+	frame.Size = UDim2.fromOffset(opts.width, opts.height)
+	frame.BackgroundTransparency = 1
+	frame.BorderSizePixel = 0
+	frame.Parent = parent
+
+	if opts.direction then
+		local layout = Instance.new("UIListLayout")
+		layout.FillDirection = (Enum.FillDirection :: any)[opts.direction]
+		layout.Padding = UDim.new(0, UI.Gap)
+		layout.HorizontalAlignment = (Enum.HorizontalAlignment :: any)[spot.alignX]
+		layout.VerticalAlignment = (Enum.VerticalAlignment :: any)[spot.alignY]
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Parent = frame
+	end
+
+	return frame
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- the rail, and the one glyph on it
+-- ─────────────────────────────────────────────────────────────────────────────
+
+--- A person with a plus, drawn out of rounded rectangles.
+---
+--- DRAWN RATHER THAN UPLOADED because that is the rule this whole game is built
+--- under: every model, face and UI element is generated in code and no asset id
+--- is ever referenced. A head, a domed torso clipped at the container's bottom
+--- edge, and a plus in a disc over its shoulder.
+---
+--- `ink` is the glyph and `cut` is the colour showing THROUGH the plus — pass
+--- the button's own background for that, and the plus reads as a hole punched in
+--- the disc rather than as a third colour competing with the first two.
+---
+--- Every number is a fraction of `size`. They are here rather than in Config
+--- because they are the shape of a drawing, not the layout of a card: nothing
+--- else on screen is measured against them and the verifier has nothing to
+--- compare them to. The one number that IS layout, how big the glyph is drawn,
+--- is UI.Rail.GlyphSize and comes in as `size`.
+function UiKit.personPlus(parent: Instance, size: number, ink: Color3, cut: Color3): Frame
+	local holder = Instance.new("Frame")
+	holder.Name = "Glyph"
+	holder.Size = UDim2.fromOffset(size, size)
+	holder.BackgroundTransparency = 1
+	holder.BorderSizePixel = 0
+	-- The torso is a full rounded rectangle whose bottom half is meant to be off
+	-- the picture; without this it is a pill floating under a head.
+	holder.ClipsDescendants = true
+	holder.Parent = parent
+
+	local function block(name: string, w: number, h: number, x: number, y: number, colour: Color3, radius: number)
+		local part = Instance.new("Frame")
+		part.Name = name
+		part.Size = UDim2.fromOffset(w, h)
+		part.Position = UDim2.fromOffset(x, y)
+		part.BackgroundColor3 = colour
+		part.BorderSizePixel = 0
+		part.Parent = holder
+		if radius > 0 then
+			UiKit.corner(part, radius)
+		end
+		return part
+	end
+
+	-- The person is pushed left of centre to leave the lower right for the disc.
+	local head = math.floor(size * 0.34)
+	local torsoW, torsoH = math.floor(size * 0.60), math.floor(size * 0.46)
+	local centre = math.floor(size * 0.39)
+	block("Head", head, head, centre - math.floor(head / 2), math.floor(size * 0.08),
+		ink, math.floor(head / 2))
+	block("Torso", torsoW, torsoH, centre - math.floor(torsoW / 2), math.floor(size * 0.48),
+		ink, math.floor(torsoW / 2))
+
+	local disc = math.floor(size * 0.46)
+	local discX, discY = size - disc, size - disc
+	block("Plus", disc, disc, discX, discY, ink, math.floor(disc / 2))
+
+	-- The two bars are children of the holder, not of the disc, so they are
+	-- positioned in one coordinate space; the disc is behind them by creation
+	-- order under ZIndexBehavior.Sibling.
+	local barLong, barShort = math.floor(disc * 0.52), math.max(2, math.floor(disc * 0.16))
+	local barX = discX + math.floor((disc - barLong) / 2)
+	local barY = discY + math.floor((disc - barShort) / 2)
+	block("PlusH", barLong, barShort, barX, barY, cut, 0)
+	block("PlusV", barShort, barLong, discX + math.floor((disc - barShort) / 2),
+		discY + math.floor((disc - barLong) / 2), cut, 0)
+
+	return holder
+end
+
+--- A rail item: a glyph over a caption, the whole thing one hit target.
+---
+--- The caption is not decoration. This is the only control in the game that asks
+--- a player to do something outside the server, and the number under the glyph
+--- is what the ask is worth — an icon on its own is a button a child has to
+--- press to find out what it does.
+---
+--- Returns the button and its caption label; the caller draws into the glyph
+--- slot and writes the caption.
+function UiKit.railItem(parent: Instance, name: string, colour: Color3): (TextButton, Frame, TextLabel)
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.Size = UDim2.fromOffset(RAIL.ItemWidth, RAIL.ItemHeight)
+	b.BackgroundColor3 = colour
+	b.BackgroundTransparency = 0.1
+	b.BorderSizePixel = 0
+	b.AutoButtonColor = true
+	b.Font = Style.Font.title
+	b.Text = ""
+	b.Parent = parent
+	UiKit.corner(b, 12)
+
+	local slot = Instance.new("Frame")
+	slot.Name = "GlyphSlot"
+	slot.Size = UDim2.fromOffset(RAIL.GlyphSize, RAIL.GlyphSize)
+	slot.Position = UDim2.fromOffset(RAIL.GlyphX, RAIL.GlyphY)
+	slot.BackgroundTransparency = 1
+	slot.BorderSizePixel = 0
+	slot.Parent = b
+
+	local caption = UiKit.text(b, {
+		Name = "Caption",
+		Size = UDim2.fromOffset(RAIL.BadgeWidth, RAIL.BadgeHeight),
+		Position = UDim2.fromOffset(RAIL.Pad, RAIL.BadgeY),
+		Font = Style.Font.title,
+		Text = "",
+		TextSize = RAIL.BadgeTextPx,
+		TextColor3 = UiKit.INK,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	})
+
+	return b, slot, caption
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
