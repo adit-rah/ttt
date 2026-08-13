@@ -215,6 +215,69 @@ for _, def in ipairs(Config.Buttons) do
 	check(reachable[def.id], ("Buttons %s is unreachable — nothing unlocks it"):format(def.id))
 end
 
+-- ...AND REACHABLE ONCE THE GATES ARE COUNTED TOO, which is a strictly harder
+-- question than the walk above answers.
+--
+-- That walk follows `requires` and nothing else. It was SAFE rather than
+-- correct: `requires` never crosses a track, and the only other precondition in
+-- the game was Config.TrackUnlock, which is asserted to name a button on a
+-- track that is itself ungated — so the gate was always satisfiable and
+-- following the chains alone could not miss anything.
+--
+-- Config.ButtonUnlock removes that guarantee, because now a track can be gated
+-- on a button that is itself waiting on the gated track. Nothing in the two
+-- structural checks further down refuses this pair:
+--
+--     TrackUnlock.structure = "dropper8"   -- a plausible-looking retune
+--     ButtonUnlock.floor2   = "roof"       -- shipped
+--
+-- floor2 waits on roof, roof is on the structure track, the structure track
+-- waits on dropper8, and dropper8 is behind floor2 in the factory chain. Every
+-- id exists, every track differs, every gate points at a spine track, and the
+-- plot deadlocks four rungs from the end with no message.
+--
+-- So this is a FIXPOINT rather than a walk: start owning nothing, repeatedly
+-- buy anything whose requirements, track gate and button gate are all already
+-- owned, and stop when a pass buys nothing. Whatever is left cannot be reached
+-- from an empty save by any route, which is the actual property. It is stated
+-- as a closure and not as a cycle search because unreachable-and-acyclic fails
+-- the same way for the player and deserves the same message.
+do
+	local owned, buyable = {}, 0
+	repeat
+		local bought = 0
+		for _, def in ipairs(Config.Buttons) do
+			if not owned[def.id] then
+				local ok = true
+				for _, req in ipairs(Config.requirementsOf(def)) do
+					if not owned[req] then ok = false end
+				end
+				local trackGate = Config.TrackUnlock[def.track]
+				if trackGate and not owned[trackGate] then ok = false end
+				local buttonGate = Config.ButtonUnlock[def.id]
+				if buttonGate and not owned[buttonGate] then ok = false end
+				if ok then
+					owned[def.id] = true
+					bought += 1
+				end
+			end
+		end
+		buyable += bought
+	until bought == 0
+
+	for _, def in ipairs(Config.Buttons) do
+		local trackGate = Config.TrackUnlock[def.track]
+		local buttonGate = Config.ButtonUnlock[def.id]
+		check(owned[def.id],
+			("%s can never be bought from a fresh save: it requires %s, its %s track waits on %s and the button itself waits on %s. Some loop among those is closed — a gate is waiting on something behind the gate")
+				:format(def.id,
+					#Config.requirementsOf(def) > 0 and table.concat(Config.requirementsOf(def), "+") or "nothing",
+					def.track, tostring(trackGate), tostring(buttonGate)))
+	end
+	check(buyable == #Config.Buttons,
+		("only %d of %d buttons are reachable once track gates and button gates are counted"):format(buyable, #Config.Buttons))
+end
+
 -- ── tracks ──────────────────────────────────────────────────────────────────
 -- A track is a CHAIN: one way in, one order through it, and no dependency on
 -- anything outside itself. The merge in Config derives the links, so these
@@ -503,6 +566,27 @@ check(Config.TrackInfo.factory.keepOnRebirth == false,
 	"TrackInfo.factory.keepOnRebirth is true; a rebirth is a factory reset by definition")
 check(Config.TrackInfo.factory.paced == "spine",
 	"the factory is the spine the build time is measured on")
+
+-- SURVIVING A REBIRTH IS A CONSEQUENCE OF WHERE THE MODELS LIVE, NOT A TASTE
+-- CALL, and until now only the factory's row had its VALUE checked — power's
+-- was checked for presence, which INVARIANTS.md carries as a [nothing].
+--
+-- Tycoon:rebirth clears self.machines unconditionally and deliberately spares
+-- self.props. Cabinet tracks build their shelf displays into props, so their
+-- purchases can honestly outlive the reset; every other track builds into
+-- machines, so a kept `owned` entry there means a button hidden as bought for a
+-- model that has just been destroyed — the pad never comes back and the plot
+-- keeps the hole for the rest of that owner's session. `furniture` is the field
+-- that already records which folder a track builds into, so the two cannot be
+-- set independently and this says so.
+for _, track in ipairs(Config.TrackOrder) do
+	local info = Config.TrackInfo[track]
+	if info then
+		check(info.keepOnRebirth == (info.furniture == "cabinet"),
+			("TrackInfo.%s has keepOnRebirth=%s and furniture=%q; only cabinet tracks build into self.props, and rebirth() clears self.machines unconditionally — so a non-cabinet track that survives is a bought button with no model, and a cabinet track that does not is a shelf of tiers you paid for and lost")
+				:format(track, tostring(info.keepOnRebirth), tostring(info.furniture)))
+	end
+end
 for rank, track in ipairs(Config.TrackOrder) do
 	check(Config.TrackRank[track] == rank,
 		("TrackRank disagrees with TrackOrder for %q; the beacon on the plot and the panel in the HUD would name different purchases")
@@ -522,13 +606,56 @@ for track, gate in pairs(Config.TrackUnlock) do
 		check(def.track ~= track,
 			("TrackUnlock.%s is gated on %s, which is on the %s track itself — that is a chain link, not a gate")
 				:format(track, gate, track))
-		check(def.track == "factory",
-			("TrackUnlock.%s is gated on a %s-track button; a side track cannot gate another side track, or two of them can deadlock each other")
-				:format(track, tostring(def.track)))
+		-- WIDENED FROM `== "factory"`, because the rule and its reason had come
+		-- apart. The reason is that the gate must stand on a ladder the player
+		-- is walked through anyway, so it is certainly reached; "factory" was
+		-- the only vocabulary available for that when the factory was the only
+		-- such ladder. With a second spine track the old form refuses a gate on
+		-- `walls` — which is perfectly safe — and refuses it with a message
+		-- calling structure a side track, which it is not. `paced` is the
+		-- property that was always meant.
+		check(Config.TrackInfo[def.track].paced == "spine",
+			("TrackUnlock.%s is gated on %s, which is on the %s track — that track is paced as a detour, and a detour gating a ladder can deadlock it, because nothing guarantees a detour is ever taken")
+				:format(track, gate, tostring(def.track)))
 	end
 end
 check(Config.TrackUnlock.factory == nil,
 	"the factory track cannot be gated — it is the thing that pays for everything else")
+
+-- SINGLE-BUTTON GATES, the same shape one level down. Config.ButtonUnlock says
+-- a purchase waits on something that is not upstream of it in its own chain,
+-- which the loader structurally cannot express and the `requires` checks
+-- structurally must refuse.
+for id, gate in pairs(Config.ButtonUnlock) do
+	local def = Config.ButtonById[id]
+	local gateDef = Config.ButtonById[gate]
+	check(def ~= nil,
+		("ButtonUnlock names %q, which is not a button"):format(tostring(id)))
+	check(gateDef ~= nil,
+		("ButtonUnlock.%s waits on %q, which is not a button"):format(tostring(id), tostring(gate)))
+	if def and gateDef then
+		check(def.track ~= gateDef.track,
+			("ButtonUnlock.%s waits on %s and both are on the %s track — within a track the loader derives the chain from table order, so this is a link pretending to be a gate. Move the row instead")
+				:format(id, gate, def.track))
+		check(Config.TrackInfo[gateDef.track].paced == "spine",
+			("ButtonUnlock.%s waits on %s, which is on the %s track — that track is paced as a detour, so this puts an optional purchase between the player and a spine rung")
+				:format(id, gate, gateDef.track))
+	end
+end
+
+-- THE GATE EXISTS BECAUSE OF A FACT ABOUT THE BUILDING, so assert it against
+-- that fact rather than against the pair of ids. FloorService stands each
+-- storey's own wall ring up and nothing roofs it, so a storey is buyable only
+-- once something has bought a roof. Written this way it fires if someone
+-- deletes the ButtonUnlock row while keeping the floor, which is the way this
+-- gets lost — the row looks like a special case until you know why it is there.
+for _, floor in ipairs(Config.Floors) do
+	local gate = Config.ButtonUnlock[floor.button]
+	local gateDef = gate and Config.ButtonById[gate]
+	check(gateDef ~= nil and gateDef.kind == "Structure" and gateDef.structure == "roof",
+		("Floors.%s is built by %s and nothing in ButtonUnlock makes it wait for a roof; FloorService stands this storey's own wall ring up and nothing else ever roofs it, so the storey would be open to the sky")
+			:format(floor.id, tostring(floor.button)))
+end
 
 -- ── analytics ───────────────────────────────────────────────────────────────
 --
@@ -3156,31 +3283,51 @@ do
 		:format(fixtureCount, #SH.Storeys, worst, LIGHT.range)
 end
 
--- ── the shell is THREE purchases, in one order ──────────────────────────────
+-- ── the shell is FOUR purchases, in one order ───────────────────────────────
 --
--- TODO.md item 3 splits it into walls, then gates, then windows. All three are
--- Structure rows on the factory track, so the loader derives the chain from
+-- walls, then gates, then windows, then roof. The loader derives the chain from
 -- table order — which means the ordering is real but nothing states it, and
 -- INVARIANTS.md's "table order IS dependency order" is marked [nothing] for
 -- exactly this reason. Moving a row is the way to get it wrong and no check
 -- refuses it.
 --
+-- SCANNED OVER Config.Buttons, NOT OVER ONE TRACK. This block read
+-- Config.Tracks.factory, which was true when the shell was welded into the
+-- spine and became four loud failures the moment it moved to its own track.
+-- The thing it is actually about is "some button, somewhere, builds this piece
+-- of the building, and it is bought after the piece it hangs on" — neither half
+-- of which is a statement about which ladder they live on. Written this way it
+-- survives the next move too.
+--
+-- The comparison key is `order`, the GLOBAL merge index, rather than
+-- `trackOrder`. On one track the two agree; across tracks only `order` is
+-- comparable, and using the per-track index here would have compared a step
+-- number against a different track's step number and called it an ordering.
+--
 -- These are those checks. Each names what the parts would be standing on.
 local structureOrder = {}
-for _, def in ipairs(Config.Tracks.factory) do
+for _, def in ipairs(Config.Buttons) do
 	if def.kind == "Structure" then
-		structureOrder[def.structure] = def.trackOrder
+		check(structureOrder[def.structure] == nil,
+			("two buttons build %q; INSTALLERS.Structure is not idempotent and the second one would build the piece again on top of the first")
+				:format(tostring(def.structure)))
+		structureOrder[def.structure] = def.order
 	end
 end
-for _, needs in ipairs({ { "gates", "walls" }, { "windows", "walls" } }) do
+-- ROOF NEEDS WALLS, AND THAT PAIR WAS NEVER ASSERTED. buildRoofModel derives
+-- its column positions from Config.wallExtent, so a roof with no wall under it
+-- is four columns and a slab standing in a field. It was unfalsifiable while
+-- both lived on one chain in a fixed order; on a track of its own the roof is
+-- the last rung precisely so that this holds, and now something says so.
+for _, needs in ipairs({ { "gates", "walls" }, { "windows", "walls" }, { "roof", "walls" } }) do
 	local later, earlier = needs[1], needs[2]
 	check(structureOrder[later] ~= nil,
-		("nothing on the factory track builds %q; INSTALLERS.Structure has a case for it that can never run"):format(later))
+		("no button anywhere builds %q; INSTALLERS.Structure has a case for it that can never run"):format(later))
 	check(structureOrder[earlier] ~= nil,
-		("nothing on the factory track builds %q"):format(earlier))
+		("no button anywhere builds %q"):format(earlier))
 	if structureOrder[later] and structureOrder[earlier] then
 		check(structureOrder[later] > structureOrder[earlier],
-			("%q is bought at factory step %d and %q at step %d — %s is hung on the wall ring, so buying it first is parts attached to a building that is not there yet")
+			("%q is button %d and %q is button %d — %s is hung on the wall ring, so buying it first is parts attached to a building that is not there yet")
 				:format(later, structureOrder[later], earlier, structureOrder[earlier], later))
 	end
 end
@@ -3196,7 +3343,7 @@ do
 		leaves += opening.leaves or 0
 	end
 	check(leaves == 0 or structureOrder.gates ~= nil,
-		("Structure.Openings declares %d gate leaves and no factory button builds them; every opening would stay a hole and the wall spans would still tile perfectly")
+		("Structure.Openings declares %d gate leaves and no button builds them; every opening would stay a hole and the wall spans would still tile perfectly")
 			:format(leaves))
 end
 
@@ -4283,15 +4430,23 @@ check(Config.Economy.StartingCash >= Config.Tracks.factory[1].price,
 	("StartingCash (%d) cannot afford the first factory button (%d) — the tycoon can never start")
 		:format(Config.Economy.StartingCash, Config.Tracks.factory[1].price))
 
--- ...and the side tracks must NOT be affordable at spawn. A player who can buy
+-- ...and an UNGATED track must NOT be affordable at spawn. A player who can buy
 -- a bat before a dropper has spent their whole opening balance on a plot with
 -- no income, and nothing in the game can dig them out of that.
+--
+-- SCOPED TO UNGATED TRACKS, because on a gated one this cannot fail at any
+-- price — Config.TrackUnlock names a factory button and you have not bought it
+-- yet, so the pad does not exist to be bought. It read `track ~= "factory"`,
+-- and round 8 gating both cabinets on `dropper3` quietly turned two of its
+-- three iterations into theatre; the structure track would have made it three
+-- of four. `power` is the one track this is really about and the one track
+-- that has never been gated.
 for _, track in ipairs(Config.TrackOrder) do
 	local defs = Config.Tracks[track]
-	if track ~= "factory" and #defs > 0 then
+	if track ~= "factory" and Config.TrackUnlock[track] == nil and #defs > 0 then
 		check(defs[1].price > Config.Economy.StartingCash,
-			("%s costs %d against StartingCash of %d — a new player could buy it instead of their first dropper and strand themselves")
-				:format(defs[1].id, defs[1].price, Config.Economy.StartingCash))
+			("%s is on the ungated %s track and costs %d against StartingCash of %d — a new player could buy it instead of their first dropper and strand themselves")
+				:format(defs[1].id, track, defs[1].price, Config.Economy.StartingCash))
 	end
 end
 
@@ -4299,27 +4454,66 @@ local cash = Config.Economy.StartingCash
 local elapsed, rawDps, upgradeMult = 0, 0, 1
 local curve = {}
 
--- THE SPINE, which is now two interleaved ladders.
+-- THE SPINE, which is N interleaved ladders.
 --
 -- The factory is the thing that generates income and therefore the thing whose
 -- "45 to 150 minutes" pacing is about. The generator belongs in here with it
 -- rather than in the side-track model below, because that model prices a track
 -- against a curve it does not change — true of a bat, false of anything that
 -- multiplies production. A power rung bought at minute 12 moves every row after
--- it.
+-- it. The shell belongs in here for the OTHER half of that model's premise: a
+-- detour is something you can decline, and Config.ButtonUnlock puts `roof`
+-- between the player and the mezzanine.
 --
--- The policy is BUY WHICHEVER OF THE TWO NEXT RUNGS IS CHEAPER. Deterministic,
--- one line, and it makes the price the control: put a rung between dropper6 and
--- roof and the sim buys it exactly there, visibly, in the printed curve. A
--- payback heuristic would model a player nobody is.
+-- READS `paced` RATHER THAN NAMING THE TRACKS. This was two hand-written
+-- indices over two named tables, so adding a third spine track meant editing a
+-- loop rather than adding a row to Config.TrackInfo — and TrackInfo exists
+-- precisely so that a per-track fact lives in one place. The two-index form
+-- also could not say what it meant: `paced` was already the field that decides
+-- this, and the loop was a second opinion about it that happened to agree.
+--
+-- The policy is UNCHANGED: BUY WHICHEVER NEXT RUNG IS CHEAPEST. Deterministic,
+-- one comparison, and it makes the price the control: put a rung between
+-- dropper6 and roof and the sim buys it exactly there, visibly, in the printed
+-- curve. A payback heuristic would model a player nobody is.
 local power = 1
-local factoryIndex, powerIndex = 1, 1
-local factoryTrack, powerTrack = Config.Tracks.factory, Config.Tracks.power
+local spineLanes = {}
+for _, track in ipairs(Config.TrackOrder) do
+	if Config.TrackInfo[track].paced == "spine" then
+		table.insert(spineLanes, { track = track, defs = Config.Tracks[track], index = 1 })
+	end
+end
+check(#spineLanes >= 1,
+	"no track is paced as the spine, so the build has no length and every pacing check below is measuring nothing")
 
-while factoryIndex <= #factoryTrack or powerIndex <= #powerTrack do
-	local nextFactory, nextPower = factoryTrack[factoryIndex], powerTrack[powerIndex]
-	local takePower = nextPower ~= nil and (nextFactory == nil or nextPower.price <= nextFactory.price)
-	local def = takePower and nextPower or nextFactory
+-- A TIE WOULD MAKE THE TIE-BREAK THE CONTROL. The two-index form wrote
+-- `nextPower.price <= nextFactory.price`, so power silently won a tie; there
+-- has never been one, and the day there is, the printed curve stops explaining
+-- itself — two rungs land in an order chosen by the iteration sequence of
+-- TrackOrder rather than by a number anybody set. Refuse it instead of picking
+-- a winner in a loop nobody reads.
+do
+	local seenPrice = {}
+	for _, lane in ipairs(spineLanes) do
+		for _, def in ipairs(lane.defs) do
+			check(seenPrice[def.price] == nil,
+				("%s and %s are both priced at %d; the spine simulation buys the cheapest next rung, so an equal price makes TrackOrder the tie-break rather than the price")
+					:format(def.id, tostring(seenPrice[def.price]), def.price))
+			seenPrice[def.price] = def.id
+		end
+	end
+end
+
+while true do
+	local pick
+	for _, lane in ipairs(spineLanes) do
+		local candidate = lane.defs[lane.index]
+		if candidate and (pick == nil or candidate.price < pick.def.price) then
+			pick = { lane = lane, def = candidate }
+		end
+	end
+	if pick == nil then break end
+	local def = pick.def
 
 	local income = rawDps * upgradeMult * power
 	local shortfall = math.max(0, def.price - cash)
@@ -4338,14 +4532,20 @@ while factoryIndex <= #factoryTrack or powerIndex <= #powerTrack do
 
 	cash = math.max(cash, def.price) - def.price
 	local previousPower = power
-	if takePower then
+	-- DISPATCHED ON KIND, NOT ON WHICH LANE IT CAME FROM. The two-index form
+	-- asked `takePower` and only consulted dropValue/multiplier on the other
+	-- branch, so a Dropper row on the power track would have been bought, paid
+	-- for and silently produced nothing. With three lanes the "which lane" and
+	-- "what does it do" questions are no longer the same question, and only one
+	-- of them was ever the one being asked.
+	if def.kind == "Power" then
 		power = def.factor
-		powerIndex += 1
-	else
-		if def.kind == "Dropper" then rawDps += def.dropValue / def.dropRate end
-		if def.kind == "Upgrader" then upgradeMult *= def.multiplier end
-		factoryIndex += 1
+	elseif def.kind == "Dropper" then
+		rawDps += def.dropValue / def.dropRate
+	elseif def.kind == "Upgrader" then
+		upgradeMult *= def.multiplier
 	end
+	pick.lane.index += 1
 
 	-- `earned` is everything the plot has produced by this point, ignoring what
 	-- was spent. It is the budget a side-track purchase competes for.
@@ -4353,7 +4553,7 @@ while factoryIndex <= #factoryTrack or powerIndex <= #powerTrack do
 		id = def.id, wait = wait, at = elapsed,
 		income = rawDps * upgradeMult * power,
 		earned = (curve[#curve] and curve[#curve].earned or 0) + (wait ~= math.huge and wait or 0) * income,
-		isPower = takePower, price = def.price,
+		isPower = def.kind == "Power", price = def.price,
 		previousPower = previousPower, power = power,
 	})
 end
@@ -4366,16 +4566,38 @@ check(elapsed / 60 <= MAX_TOTAL_MINUTES,
 
 -- ── how long the number is allowed to stand still ───────────────────────────
 --
--- NEW, AND THIS ROUND CREATED THE HAZARD IT GUARDS. Splitting the shell into
--- walls, gates and windows (TODO.md item 3) puts three consecutive purchases on
--- the ladder that change no number at all: the enclosure does not drop, refine
--- or multiply anything. Neither does the roof, and neither does the deck.
+-- Some purchases change no number at all: the enclosure does not drop, refine
+-- or multiply anything, and neither does the roof or the deck. Six of them, and
+-- they are not a mistake — a tycoon whose every purchase is a bigger number is
+-- a spreadsheet. But a RUN of them is different from one of them: for the whole
+-- run the income readout is frozen, and the player is buying scenery while the
+-- thing they are measuring themselves by has stopped moving.
 --
--- Six of the twenty-four factory rungs are like that, and they are not a
--- mistake — a tycoon whose every purchase is a bigger number is a spreadsheet.
--- But a RUN of them is different from one of them: for the whole run the income
--- readout is frozen, and the player is buying scenery while the thing they are
--- measuring themselves by has stopped moving. Nothing has ever looked at that.
+-- WHAT THIS PROVES CHANGED WHEN THE SHELL LEFT THE SPINE, AND THE CHECK IS
+-- WORTH KEEPING FOR THE NEW REASON, SO BOTH HALVES ARE WRITTEN DOWN.
+--
+-- It was added the round the shell was split into walls/gates/windows, all
+-- three welded into the factory chain. There it proved something strong: the
+-- chain is strict, so a run of three flat rungs was a FORCED MARCH — everyone
+-- walked it, in that order, to reach dropper4.
+--
+-- The shell is a parallel track now and nothing forces it. The run still shows
+-- up in the curve, byte for byte, at 4.4 minutes across walls/gates/windows —
+-- but it shows up because the SIMULATION buys the cheapest available rung and
+-- those three prices happen to sit between dropper3 and dropper4. It is a
+-- property of the model's policy, not of the ladder, and a player following the
+-- beacon need never see it. So the check proves less than it used to.
+--
+-- It also covers more. It reads the curve, and the curve is now every spine
+-- lane rather than the factory table, so a flat rung landing anywhere in that
+-- price window on any spine track joins the run. That is worth more than the
+-- guarantee it lost: three cheap income-neutral purchases clustering in the
+-- opening minutes is exactly as bad whichever ladder they came off, and this is
+-- still the only thing in the file that looks at it.
+--
+-- The count "six of twenty-four factory rungs" was true and is not: it is two
+-- of the twenty on the factory track (`belt1`, `floor2`) plus all four on the
+-- structure track.
 --
 -- Belt is on the list deliberately: belt speed changes latency and density, not
 -- income (INVARIANTS.md §2), so `belt1` genuinely does not move the number
@@ -4522,6 +4744,28 @@ end
 
 -- buildMinutes is declared with the credit-cap check above, where it is first
 -- needed; the floor's own checks read the same one.
+-- EVERY BUTTON GATE IS REACHED IN PRICE ORDER, not merely reachable.
+--
+-- The closure check near the top of this file proves a gate cannot deadlock.
+-- This is the pacing half of the same question: the simulation buys the
+-- cheapest available rung, so a gate priced ABOVE the thing it gates turns into
+-- a wall — the player arrives at floor2 with the money for it and is told to go
+-- and buy a roof that costs more. Nothing about that is a deadlock and nothing
+-- above would catch it.
+--
+-- This is also what took over from the bespoke "the deck is bought after the
+-- roof" assertion that used to live in the floor loop below, and it is stated
+-- generically on purpose: that one named two buttons and had to be rewritten
+-- every time either of them moved.
+for id, gate in pairs(Config.ButtonUnlock) do
+	local gatedRow, gateRow = curveRow(id), curveRow(gate)
+	if gatedRow and gateRow then
+		check(gateRow.at < gatedRow.at,
+			("%s waits on %s, but the spine simulation banks %s at minute %.1f and %s only at minute %.1f — the gate costs more than the thing it gates, so it is a wall rather than an order")
+				:format(id, gate, id, gatedRow.at / 60, gate, gateRow.at / 60))
+	end
+end
+
 local floorReport = nil
 for _, floor in ipairs(Config.Floors) do
 	local row = curveRow(floor.button)
@@ -4547,18 +4791,26 @@ for _, floor in ipairs(Config.Floors) do
 		-- it, and reasons from it. What it was really protecting is protected
 		-- below, against the thing that is actually on a deadline.
 		--
-		-- THE ANCHOR MOVED FROM `walls` TO `roof`, and that is a fix rather
-		-- than a translation. FloorService stands this storey's own wall ring
-		-- up and nothing else ever roofs it, so with the floor before the roof
-		-- every plot spent the gap between them wearing upper walls open to the
-		-- sky. On the shipped ladder that gap was minute 6 to minute 27 — three
-		-- quarters of an hour of a defect nobody had named. After the roof it
-		-- cannot happen.
-		local roofRow = curveRow("roof")
-		check(roofRow ~= nil and row.at > roofRow.at,
-			("Floors.%s is bought at minute %.1f and the roof at minute %.1f — FloorService stands this storey's own wall ring up and nothing else ever roofs it, so a deck bought first leaves the upper walls open to the sky for the %.1f minutes in between")
-				:format(floor.id, at, roofRow and roofRow.at / 60 or -1,
-					roofRow and (roofRow.at - row.at) / 60 or -1))
+		-- THE SKY-HOLE CHECK THAT STOOD HERE IS GONE, AND ITS JOB IS DONE
+		-- BETTER ELSEWHERE. It asserted `row.at > curveRow("roof").at` and said
+		-- that a deck bought first "leaves the upper walls open to the sky for
+		-- the N minutes in between". That sentence was true while the only
+		-- thing standing between the two was their order in one table.
+		--
+		-- It is FALSE now. Config.ButtonUnlock.floor2 = "roof" makes the
+		-- purchase impossible rather than merely late, so the state the message
+		-- describes cannot be reached at any pricing and the minutes it offers
+		-- to count do not exist. Keeping it would leave a check that still
+		-- fires for a reason that has stopped being the reason — the exact
+		-- fault that got `at <= 10` deleted six paragraphs above this one, and
+		-- the fault this file keeps rediscovering.
+		--
+		-- Two checks replace it, neither of them special-cased to the floor:
+		-- the gate is asserted against the structural fact that motivates it,
+		-- and every ButtonUnlock edge is asserted to be reachable in price
+		-- order. Both live with the other gate checks. What is left in this
+		-- loop is the pacing band, which is the only thing it was ever the
+		-- right place for.
 		-- THE BAND. Late, because the storey is the building growing rather than
 		-- the enclosure it grew inside; not last, because it arrives BARREN
 		-- (TODO.md item 4) and a room you never fill is a room you paid for.
@@ -4854,10 +5106,24 @@ end
 -- cabinet price moving, purely because the gate button moved from minute 41 to
 -- minute 6 — so keeping it printed would now be the back-door move in the other
 -- direction.
+-- SIDE TRACKS ONLY, AND THE WORD "CABINET" IN THE MESSAGE IS WHY. Every line
+-- of the argument above is about a DETOUR: a ladder of optional tiers that
+-- appears all at once, priced against income it does not produce, which you
+-- either empty in one pass or stare at. The structure track is gated too, so
+-- keying this on `TrackUnlock` swept it in — and it fails, 3 of 4, for a reason
+-- that is not a defect. The shell is deliberately three cheap rungs bought in
+-- the opening minutes; "you could afford all of them" is the DESIGN, because
+-- the thing being sold is one building in three instalments, not four
+-- interchangeable tiers of the same slot. `paced` already draws exactly this
+-- line and it is the honest key.
+--
+-- Raising VENDING_MACHINE_RUNGS to 3 would have made this pass. It would also
+-- have stopped the check catching a real three-rung cabinet, which is the only
+-- thing it is for.
 local VENDING_MACHINE_RUNGS = 2
 for _, track in ipairs(Config.TrackOrder) do
 	local gate = Config.TrackUnlock[track]
-	if gate then
+	if gate and Config.TrackInfo[track].paced == "side" then
 		local opensAt = trackOpensAt(track)
 		local ready = 0
 		for _, def in ipairs(Config.Tracks[track]) do

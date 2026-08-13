@@ -96,7 +96,7 @@ third value neither round had guessed.
 | add a dropper / upgrader / bat tier | a row in the relevant `Config.*Buttons` table | duplicate ids, dangling `requires`, slot collisions, upstream upgraders |
 | retune the curve | `price` values | the economy simulation: build length band, per-purchase waits, the floor's position |
 | move the belt | `Config.Layout.BeltStart/BeltCorner/BeltEnd` | `inPlot`, machine spacing, trigger dwell, drop budget |
-| change the plot's walls or roof | `INSTALLERS.Structure` in `src/server/tycoon/Installers.lua`, `Config.Layout.Roof*`, `GateCentre/GateWidth` | the doorway span, the gateway vs the belt, deck-vs-roof clearance |
+| change the plot's walls or roof | `INSTALLERS.Structure` in `src/server/tycoon/Installers.lua`, `Config.Layout.Roof*`, `GateCentre/GateWidth`; the PURCHASES are `Config.StructureButtons` | the doorway span, the gateway vs the belt, deck-vs-roof clearance |
 | change the second floor | `Config.Floors[1]` | the mezzanine family: deck vs walls, belt legs vs zone, hatch vs guard, the raise table |
 | change what a storey is lit by | `Config.Structure.Lights` | fixtures inside the ring, above the machines and the cabinet signs, `Range` under Roblox's silent 60 clamp, and a sampled coverage check |
 | change the belt's guard rails | `Config.Layout.BeltGuard` | a leg's rail may not overlap another leg's running surface — set `corner` to 0 and watch the deleted rails' bug come back |
@@ -106,6 +106,9 @@ third value neither round had guessed.
 | add a wave behaviour | `Config.Waves` | wave part budget, clear time, aggro/leash relationships |
 | add a new kind of buyable | a case in `src/server/tycoon/Installers.lua`, **and** the `kind` list in `tycoon/Tycoon.lua`'s header | `KNOWN_KINDS` in `verify_config.lua`. The header list is checked by nobody — it is the copy to do by hand |
 | reorder the factory ladder | move the ROW in `Config.FactoryButtons`; never add a `requires` | the chain-equals-table-order assertion, plus the economy simulation. The 60-minute credit cap binds before `MAX_TOTAL_MINUTES` does |
+| reorder the plot shell | move the ROW in `Config.StructureButtons` — a PARALLEL track gated on `dropper1`, not part of the factory chain | the same chain assertion, plus `roof` needs `walls` and `gates`/`windows` need `walls` |
+| gate one purchase on another ladder | `Config.ButtonUnlock` — never a cross-track `requires`, which the loader overwrites and the verifier refuses | the reachability fixpoint (it catches gate cycles the `requires` walk cannot), the gate's price order, and the roof-names-a-roof structural check |
+| add a track | a row in **each** of `TrackOrder`, `Tracks` and `TrackInfo` | `TRACK_FIELDS` completeness, `keepOnRebirth == (furniture == "cabinet")`, and `paced` — which the spine simulation and `spinePricesDescending` both read, so a track is walked or priced as a detour by that field alone. `TrackOrder` POSITION sets `TrackRank`, which is what the beacon and the HUD card rank by; nothing can assert that a beacon points somewhere useful |
 
 ---
 

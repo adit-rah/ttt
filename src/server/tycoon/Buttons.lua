@@ -246,11 +246,22 @@ end
 --- TWO WAYS A BUTTON NAMES ITS FLOOR, and this used to read only the first. A belt
 --- machine names it by `path`; a side-track button names it on its track's
 --- Layout.Tracks entry, which is how the weapons and armour columns came to stand
---- on the mezzanine. Nine pads at y = 22 are covered today only by a COINCIDENCE —
---- Config.TrackUnlock gates both cabinets on `floor2`, the same button that builds
---- the deck, so `trackUnlocked` happens to answer the same question. A cabinet
---- track gated on anything else, or a floor that stopped being what unlocked it,
---- would hang nine pads in open air and this function would have said yes.
+--- on the mezzanine.
+---
+--- THE COINCIDENCE THIS PARAGRAPH USED TO WARN ABOUT IS GONE, AND SO IS THE
+--- THING IT WAS COVERING. It said the nine cabinet pads at y = 22 were kept
+--- honest only by luck, because Config.TrackUnlock gated both cabinets on
+--- `floor2` — the same button that builds the deck — so `trackUnlocked`
+--- happened to answer the question this function is asking. Round 8 moved the
+--- cabinets back to the ground floor and the gate to `dropper3`, so neither
+--- weapons nor armour carries a `floor` on its Layout.Tracks entry any more:
+--- Config.floorTopY(nil) is 0, the pads are at ground level, and this function
+--- returning true early for a cabinet button is now correct rather than lucky.
+--- The warning stood for two rounds after it stopped being true.
+---
+--- What it warned about is still worth knowing if a track ever goes back
+--- upstairs: `floor` on a Layout.Tracks entry is the only thing that would tie
+--- those pads to a deck, and nothing derives it from the gate.
 function Tycoon:floorBuiltFor(def): boolean
 	-- A LINE BUTTON WAITS ON THE DECK IT STANDS ON. Its pedestal is at y = 22,
 	-- so before the storey lands it would hang in open air over the aisle.
@@ -292,6 +303,15 @@ function Tycoon:requirementsMet(id: string): boolean
 	-- ANDed in here rather than only in refreshButtons, so a stale Touched on a
 	-- pad that is about to be hidden cannot buy through the gate.
 	if not Config.trackUnlocked(def.track, self.owned) then
+		return false
+	end
+	-- The single-button gate, for the same reason and with one difference: a
+	-- track gate hides its pads, so the Touched race is the only way through it.
+	-- This one deliberately leaves the pad STANDING and dimmed (see the preview
+	-- branch in refreshButtons), so the pad it is guarding is one the player can
+	-- physically walk onto for as long as the gate is shut. This line is the
+	-- whole of what stops that being a purchase.
+	if not Config.buttonUnlocked(id, self.owned) then
 		return false
 	end
 	for _, req in ipairs(Config.requirementsOf(def)) do
@@ -418,6 +438,20 @@ function Tycoon:refreshButtons()
 		-- empty ground until you have earned it, and nine dimmed pads with
 		-- ghost bats standing on them is the same wall of labels with the
 		-- brightness turned down.
+		-- Config.buttonUnlocked is DELIBERATELY NOT IN `standing`, and the
+		-- difference matters. A false `standing` unparents the holder, which is
+		-- right for a gated cabinet — bare ground until you have earned it. It
+		-- would be wrong for `floor2`, whose pedestal is a hand-placed position
+		-- at the near end of the misc column in Layout.MiscButtons: hiding it
+		-- opens a gap in a line of six pads that reads as purchase order, and
+		-- the storey stops being a thing the player knows is coming.
+		--
+		-- Left out of `standing`, the existing three-state logic already does
+		-- the right thing for free. requirementsMet() is false, so `available`
+		-- is false; the button is at its track's frontier, so `preview` is true;
+		-- and it renders dimmed with the locked voice and a line naming the
+		-- roof. That is the intended behaviour, not a happy accident, which is
+		-- why it is written down here rather than discovered later.
 		local standing = self:floorBuiltFor(def) and Config.trackUnlocked(def.track, self.owned)
 		local available = (not owned) and standing and self:requirementsMet(id)
 		local preview = (not owned) and (not available) and standing
@@ -450,11 +484,27 @@ function Tycoon:refreshButtons()
 			-- order is meaningless on a pedestal and the per-track one is
 			-- ambiguous across cabinets. The requirement is right here, so say
 			-- it: "locked — buy Oak Sahur Bat first".
-			local blocker
-			for _, req in ipairs(Config.requirementsOf(def)) do
-				if not self.owned[req] then
-					blocker = Config.ButtonById[req]
-					break
+			--
+			-- THE BUTTON GATE IS CHECKED FIRST, and that ordering is the whole
+			-- reason this reads as an instruction instead of a dead end. For
+			-- `floor2` the chain requirement is `upgrader4`, which the player
+			-- has just bought — so walking `requirementsOf` alone finds nothing
+			-- unmet, leaves `blocker` nil, and the pad says the bare word
+			-- "locked" next to a nine-million price tag with no way to learn
+			-- what it is waiting for. Config.ButtonUnlock is also the SURPRISING
+			-- blocker of the two: a chain requirement is by construction the row
+			-- you just came from, while this one names a purchase on a
+			-- different ladder entirely.
+			local blocker = Config.ButtonById[Config.ButtonUnlock[id] or ""]
+			if blocker and self.owned[blocker.id] then
+				blocker = nil
+			end
+			if not blocker then
+				for _, req in ipairs(Config.requirementsOf(def)) do
+					if not self.owned[req] then
+						blocker = Config.ButtonById[req]
+						break
+					end
 				end
 			end
 			entry.effectLabel.Text = blocker

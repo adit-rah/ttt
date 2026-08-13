@@ -708,7 +708,14 @@ local function cheapestAvailable()
 		-- ranking does: a track that has not opened yet has no cabinet and no
 		-- buttons anywhere on the plot, so naming one of its rungs as your next
 		-- purchase points you at nothing.
-		if not state.owned[def.id] and Config.trackUnlocked(def.track, state.owned) then
+		-- Config.buttonUnlocked is ANDed in for the same reason, one level down.
+		-- Without it this card names `floor2` and starts filling a bar towards
+		-- 9.3M while the beacon out on the plot is glowing on the roof — the
+		-- card would be counting towards a purchase the server will refuse.
+		if not state.owned[def.id]
+			and Config.trackUnlocked(def.track, state.owned)
+			and Config.buttonUnlocked(def.id, state.owned)
+		then
 			local ok = true
 			for _, req in ipairs(Config.requirementsOf(def)) do
 				if not state.owned[req] then
