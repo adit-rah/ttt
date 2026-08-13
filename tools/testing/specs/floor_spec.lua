@@ -1034,6 +1034,78 @@ T.spec("the truss hugs its arrival lip and the landing is past it, on all four l
 	t:eq(checked, 5, "four lips and the fallback")
 end)
 
+-- ── the storey, and the line on it ──────────────────────────────────────────
+
+T.spec("the line is a second purchase, and owning a machine on it counts as owning it", function(t)
+	-- TODO.md item 4: the mezzanine arrives barren. Config.floorLineBuilt is the
+	-- sticky derivation that keeps that safe across a save written before the
+	-- split existed — a profile that owns mezz_dropper1 and no mezz_line would
+	-- otherwise get a dropper installed onto a path with no conveyor under it,
+	-- dropping its output through the deck. Same trick as Config.trackUnlocked,
+	-- and for the same reason: it costs no persisted field and no migration.
+	local w = T.world()
+	local Config = w.config
+	local floor = floorOf(Config)
+
+	t:eq(floor.lineButton, "mezz_line", "the floor no longer names the button that builds its line")
+	t:ne(floor.lineButton, floor.button, "the deck and the line are the same purchase again")
+
+	t:isFalse(Config.floorLineBuilt(floor, {}),
+		"a bare plot is reporting a conveyor it never bought")
+	t:isFalse(Config.floorLineBuilt(floor, { floor2 = true }),
+		"owning the storey is reporting the line on it — the storey is meant to arrive barren")
+	t:isTrue(Config.floorLineBuilt(floor, { mezz_line = true }))
+
+	-- THE LEGACY SAVE, which is the whole reason this is a function and not a
+	-- table lookup.
+	t:isTrue(Config.floorLineBuilt(floor, { floor2 = true, mezz_dropper1 = true }),
+		"a save from before the split owns a machine on the line and no line; its drops would fall through the deck")
+
+	-- ...and a machine on a DIFFERENT path must not vouch for this one.
+	t:isFalse(Config.floorLineBuilt(floor, { dropper1 = true, dropper10 = true }),
+		"a ground-floor dropper is vouching for the mezzanine's conveyor")
+
+	-- A floor with no lineButton at all is the pre-split shape, and it must read
+	-- as built rather than as permanently missing.
+	t:isTrue(Config.floorLineBuilt({ id = "nothing" }, {}),
+		"a floor that names no line button reads as having no line, which would build nothing forever")
+end)
+
+T.spec("a pad on the deck waits for the deck, and a pad on the belt waits for the belt", function(t)
+	-- Tycoon:floorBuiltFor is what hides a buy button standing on something that
+	-- does not exist. Its own comment used to flag that the armoury's nine pads
+	-- were correct only by COINCIDENCE — TrackUnlock named the same button that
+	-- built the deck. Round 8 broke that coincidence in both directions: the
+	-- cabinets came downstairs, and the deck stopped bringing its belt with it.
+	local w = T.world()
+	local Tycoon = w.req("Tycoon")
+	local Config = w.config
+
+	local function pad(owned, id)
+		return Tycoon.floorBuiltFor({ owned = owned }, Config.ButtonById[id])
+	end
+
+	-- The button that buys the LINE stands on the deck, so it waits on the deck.
+	t:isFalse(pad({}, "mezz_line"),
+		"the line's own buy pad is standing in open air over the aisle")
+	t:isTrue(pad({ floor2 = true }, "mezz_line"),
+		"the line cannot be bought from the storey it is built on")
+
+	-- The machine that rides the line waits on the LINE, not on the deck. This
+	-- is the half that was a coincidence.
+	t:isFalse(pad({}, "mezz_dropper1"))
+	t:isFalse(pad({ floor2 = true }, "mezz_dropper1"),
+		"a dropper pad is standing over a barren deck with no conveyor under it")
+	t:isTrue(pad({ floor2 = true, mezz_line = true }, "mezz_dropper1"))
+
+	-- The ground floor is not gated on anything, and neither is the armoury now
+	-- that it stands on the plot floor.
+	t:isTrue(pad({}, "dropper1"))
+	t:isTrue(pad({}, "batforge"), "the weapons cabinet is waiting on a floor again")
+	t:isTrue(pad({}, "armor_padded"), "the armour cabinet is waiting on a floor again")
+	t:isTrue(pad({}, "floor2"), "the button that buys the storey is waiting on the storey")
+end)
+
 -- ── a slot the shipped table does not have ──────────────────────────────────
 
 T.spec("a sixth weapons slot would stand through the front wall, and armour's fifth inside the weapons column", function(t)

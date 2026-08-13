@@ -440,24 +440,60 @@ function FloorService.build(tycoon)
 			:format(tostring(FLOOR.id), tostring(FLOOR.height)))
 	end
 
+	-- NO BELT HERE ANY MORE, AND NO DROPPER. TODO.md item 4: the storey arrives
+	-- barren. What `floor2` buys is the deck, its guards, the wall ring above it
+	-- and the ladder up — somewhere to stand. The conveyor, its corner sensors
+	-- and the hopper it ends in are FloorService.buildLine below, keyed on
+	-- Floors[n].lineButton, and the machines on it are ordinary Dropper rows
+	-- pinned to its path.
+	--
+	-- (The dropper stopped being built here for a different reason two rounds
+	-- ago: it was synthesised in this file and installed straight through
+	-- buildDropperMachine/startDropLoop, bypassing Tycoon:install, so it
+	-- appeared in neither Config.ButtonById nor `owned` and every income readout
+	-- under-reported a plot that had one.)
+
+	FloorService.buildLadder(tycoon, entry.folder)
+	entry.built = true
+end
+
+--- The conveyor on the deck, and the hopper it ends in.
+---
+--- ITS OWN FOLDER, INSIDE THE DECK'S. Nested rather than beside it so that
+--- tearing the storey down takes the line with it — there is no state in which
+--- a plot has a conveyor and no floor under it — while the line can still be
+--- torn down on its own, which is what a rebirth that keeps the deck would need.
+function FloorService.buildLine(tycoon)
+	local entry = stateFor(tycoon)
+	local folder = entry.folder:FindFirstChild("Line")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "Line"
+		folder.Parent = entry.folder
+	end
+	folder:ClearAllChildren()
+
 	-- addBeltPath is idempotent by id and Tycoon.new already registered every
 	-- path in Config.BeltPaths, so this resolves rather than adds. It has to:
 	-- the mezzanine's buy buttons were built on first claim, and they took
 	-- their height from this path existing.
 	local def, outboard = deckPath()
 	local pathIndex = tycoon:addBeltPath(def, outboard)
-	tycoon:buildBelt(pathIndex, entry.folder)
-	tycoon:buildCollector(pathIndex, entry.folder, false)
+	tycoon:buildBelt(pathIndex, folder)
+	tycoon:buildCollector(pathIndex, folder, false)
+	entry.lineBuilt = true
+end
 
-	-- NO DROPPER HERE ANY MORE. It used to be synthesised in this file and
-	-- installed straight through buildDropperMachine/startDropLoop, bypassing
-	-- Tycoon:install — which is why it appeared in neither Config.ButtonById
-	-- nor `owned`, and why every income readout in the game under-reported a
-	-- plot that had one. It is Config.FactoryButtons.mezz_dropper1 now, an
-	-- ordinary Dropper row pinned to this path, installed like everything else.
-
-	FloorService.buildLadder(tycoon, entry.folder)
-	entry.built = true
+function FloorService.teardownLine(tycoon)
+	local entry = state[tycoon]
+	if not entry then
+		return
+	end
+	local folder = entry.folder:FindFirstChild("Line")
+	if folder then
+		folder:ClearAllChildren()
+	end
+	entry.lineBuilt = false
 end
 
 function FloorService.teardown(tycoon)
@@ -471,6 +507,10 @@ function FloorService.teardown(tycoon)
 	-- than stacking a second path onto the plot.
 	entry.folder:ClearAllChildren()
 	entry.built = false
+	-- The Line folder was a child of the one just cleared, so the belt has gone
+	-- with the deck. Say so, or sync would believe a conveyor is standing on a
+	-- storey that no longer exists and never rebuild it.
+	entry.lineBuilt = false
 end
 
 --- Builds or tears down a plot's floors to match what it owns right now.
@@ -483,6 +523,14 @@ function FloorService.sync(tycoon)
 	local entry = state[tycoon]
 	local built = entry ~= nil and entry.built
 
+	-- TWO THINGS TO KEEP IN STEP, NOT ONE. The deck and the line on it are
+	-- separate purchases (TODO.md item 4), so this is four transitions rather
+	-- than two — and the line's is ANDed with the deck's, because a conveyor in
+	-- mid-air is worse than no conveyor. The chain makes that unreachable by
+	-- purchase, but assign() replays owned ids by `order` and a save can present
+	-- them in any state at all.
+	local wantsLine = unlocked and Config.floorLineBuilt(FLOOR, tycoon.owned)
+
 	if unlocked and not built then
 		FloorService.build(tycoon)
 		-- THE BEAT THAT RAISES THE BUILDING. The roof was sitting on the ground
@@ -494,6 +542,17 @@ function FloorService.sync(tycoon)
 	elseif built and not unlocked then
 		FloorService.teardown(tycoon)
 		tycoon:refreshRoof()
+	end
+
+	-- Re-read: build() and teardown() above both move `lineBuilt`.
+	local entry2 = state[tycoon]
+	local lineBuilt = entry2 ~= nil and entry2.lineBuilt
+	local deckStanding = entry2 ~= nil and entry2.built
+
+	if wantsLine and deckStanding and not lineBuilt then
+		FloorService.buildLine(tycoon)
+	elseif lineBuilt and not (wantsLine and deckStanding) then
+		FloorService.teardownLine(tycoon)
 	end
 end
 

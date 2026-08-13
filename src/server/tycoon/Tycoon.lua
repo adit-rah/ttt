@@ -9,15 +9,20 @@
 		kind = "Upgrader"  -> needs slot, variant, multiplier
 		kind = "Belt"      -> needs speedBonus
 		kind = "Power"     -> needs factor (cumulative), variant, and NO slot
-		kind = "Structure" -> needs structure ("walls" | "roof")
+		kind = "Structure" -> needs structure ("walls" | "gates" | "windows" | "roof")
 		kind = "Gear"      -> needs grants (a Config.Bats id)
 		kind = "Armor"     -> needs grants (a Config.Armor id)
 		kind = "Floor"     -> needs a Config.Floors entry naming this button
+		kind = "Line"      -> needs a Config.Floors entry naming this button as
+		                      its lineButton. The conveyor ON a floor, which is a
+		                      different purchase from the floor: the storey
+		                      arrives barren and you buy the belt for it.
 
-	EIGHT KINDS, IN THREE PLACES. Add a case to tycoon/Installers.lua to invent
+	NINE KINDS, IN THREE PLACES. Add a case to tycoon/Installers.lua to invent
 	one, add it to KNOWN_KINDS in tools/verify_config.lua, and add it to the list
 	above. This list is the copy that fell behind: it said five while INSTALLERS
-	and KNOWN_KINDS carried Power, Armor and Floor as well.
+	and KNOWN_KINDS carried Power, Armor and Floor as well. Nothing checks it,
+	which is why it is named here and in CLAUDE.md as the one to do by hand.
 
 	THIS FILE IS THE AGGREGATOR AND NOTHING ELSE. Req searches one level of
 	folder nesting (Req.lua:54-62), so Req("Tycoon") resolves here and this is

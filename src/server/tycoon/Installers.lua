@@ -396,6 +396,14 @@ end
 Tycoon.INSTALLERS.Floor = function(self, def, silent)
 end
 
+--- The conveyor on a floor. A DOCUMENTED NO-OP, for exactly the reason
+--- INSTALLERS.Floor is one: the belt outlives the purchase. FloorService builds
+--- it off onOwnedChanged, which is the one signal that fires on purchase,
+--- release, rebirth AND re-claim — an installer runs once and none of the other
+--- three go through install().
+Tycoon.INSTALLERS.Line = function(self, def, silent)
+end
+
 --- Every gate leaf one storey's openings carry: what to build, where it hangs
 --- closed, and where it slides to.
 ---

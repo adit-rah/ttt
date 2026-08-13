@@ -62,6 +62,15 @@ function Tycoon:buttonPosition(def): Vector3
 	-- and the wrong one for a row of generators on a slab behind it — and
 	-- Layout.Tracks has no `power` entry, so it would have indexed nil and
 	-- taken the whole plot's construction down with it.
+	-- A Line button stands on the deck whose conveyor it buys, so its position
+	-- comes from the floor rather than from Layout.MiscButtons — which asserts
+	-- y = 0 and would put this pedestal on the ground floor under its own deck.
+	if def.kind == "Line" then
+		local floor = Config.floorForLineButton(def.id)
+		if floor then
+			return Config.floorLineButtonPosition(floor)
+		end
+	end
 	local furniture = def.track and Config.TrackInfo[def.track].furniture
 	if furniture == "cabinet" then
 		return Config.trackButtonPosition(def.track, def.trackOrder)
@@ -243,6 +252,13 @@ end
 --- track gated on anything else, or a floor that stopped being what unlocked it,
 --- would hang nine pads in open air and this function would have said yes.
 function Tycoon:floorBuiltFor(def): boolean
+	-- A LINE BUTTON WAITS ON THE DECK IT STANDS ON. Its pedestal is at y = 22,
+	-- so before the storey lands it would hang in open air over the aisle.
+	if def.kind == "Line" then
+		local floor = Config.floorForLineButton(def.id)
+		return floor == nil or self.owned[floor.button] == true
+	end
+
 	local track = def.track and Config.Layout.Tracks[def.track]
 	local floorId = def.path or (track and track.floor)
 	if not floorId then
@@ -250,6 +266,18 @@ function Tycoon:floorBuiltFor(def): boolean
 	end
 	for _, floor in ipairs(Config.Floors) do
 		if floor.id == floorId then
+			-- A MACHINE ON A BELT WAITS ON THE BELT, NOT ON THE STOREY. These
+			-- used to be the same question — buying the floor built the deck and
+			-- the conveyor together — and this function's own comment above
+			-- flagged that as a coincidence it was banking on. TODO.md item 4
+			-- split them, so a plot can own a barren deck for the rest of the
+			-- build; `mezz_dropper1` revealed there would be a pad standing over
+			-- a slab with no conveyor under it, dropping its output through the
+			-- floor.
+			if def.path == floor.id then
+				return self.owned[floor.button] == true
+					and Config.floorLineBuilt(floor, self.owned)
+			end
 			return self.owned[floor.button] == true
 		end
 	end
