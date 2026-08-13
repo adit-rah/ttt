@@ -712,10 +712,35 @@ __MODULES["Config"] = function()
 			pill = 44,
 		},
 
+		-- WHAT IS RESERVED FOR ROBLOX'S OWN CONTROLS, and the one number in this
+		-- table that is about a rectangle nothing in this repo draws.
+		--
+		-- On a touch device the engine puts the movement thumbstick in the BOTTOM
+		-- LEFT and the jump button in the BOTTOM RIGHT, on a layer above ours, and
+		-- there is no API a LocalScript can ask for either rectangle. The action
+		-- stack shipped anchored at (1,-Margin),(1,-Margin) — 200x112 in exactly the
+		-- corner the jump button occupies — so on four out of five sessions REBIRTH
+		-- and the jump button were the same pixels. It looked fine on the machine it
+		-- was written on, which is the failure mode this whole table exists for.
+		--
+		-- So both bottom corners belong to the engine and the HUD keeps off them.
+		-- The number is a guess at the tallest those controls get, and it errs
+		-- generous for the same reason SafeAreaPad does: being wrong should cost
+		-- empty screen, not an unpressable button. Only Studio on a real phone can
+		-- settle it — see docs/dev/HANDOFF_v8.md.
+		TouchReserve = {
+			Bottom = 170,
+		},
+
 		-- THE TOP-LEFT COLUMN. The status card, then the session panel, both one
-		-- width, stacked from the top margin down. The Y of each is derived below
-		-- rather than written, because the bug this table exists to catch was two
-		-- files disagreeing about where this column ends.
+		-- width, stacked from the top margin down.
+		--
+		-- THE Y OF EACH PANEL IS NO LONGER A NUMBER AT ALL. It was derived here and
+		-- read by two files; it is now a UIListLayout in HUD.column(), so the two
+		-- panels cannot disagree about where the column starts because neither of
+		-- them is told. What survives here is ColumnBottom — derived below, and the
+		-- budget the verifier holds the column to, since a list layout will happily
+		-- lay a panel out past the bottom of the screen.
 		ColumnWidth = 280,
 
 		-- ONE STATUS CARD, WHERE THERE WERE TWO PANELS. It replaces CashPanel
@@ -737,24 +762,33 @@ __MODULES["Config"] = function()
 		-- against MinTextPx, and it can only assert what it can read.
 		StatusCard = {
 			Width  = 280,
-			Height = 238,
+			Height = 208,
 
 			Pad     = 14,   -- the gutter inside the card, all four sides
 			RowGap  = 6,    -- between two lines of the same group
 			GroupGap = 14,  -- between the balance group and the next-purchase group
 
-			-- the balance group: the coin, the number, and what multiplies it
-			IconSize = 56,
+			-- THE BALANCE GROUP IS THREE LINES: the number, what it multiplies to,
+			-- and the terms that got it there. The coin sits beside the first two.
+			--
+			-- THE CARD HAS NO BUTTON ON IT ANY MORE. There was an INVITE pill on a
+			-- friend row here, and four keys plus five derived Xs and Ys existed to
+			-- fit it. A control on the one surface whose whole job is to be read at a
+			-- glance is a control competing with the number the game is about; the
+			-- invite is a rail item now (see UI.Rail) and the friend bonus is what it
+			-- always was arithmetically — a term in the multiplier, printed on the
+			-- terms line with the others.
+			IconSize = 48,
 			IconGap  = 10,
 			BalanceHeight = 46, BalanceTextPx = 38,
-			MultHeight    = 24, MultTextPx    = 15,
-			-- The friend row is as tall as the INVITE pill inside it, because the
-			-- pill is the tallest thing in it. It shipped at 26, which is 16 physical
-			-- pixels at MinScale — a thumb target under half the floor this file
-			-- already declares. The pill's own height still comes from UI.Button.
-			FriendRowHeight  = 44,
-			FriendTextHeight = 22, FriendTextPx = 14,
-			InviteWidth = 72,
+			MultHeight    = 22, MultTextPx    = 15,
+			-- FULL WIDTH, UNLIKE THE TWO LINES ABOVE IT, which are indented past the
+			-- coin. "x1.30 • 2 rebirths • 0 KOs • +20% friends" is 40 characters and
+			-- the indented lines get 194 design px; at MultTextPx that truncates the
+			-- moment a player has a friend in the server, which is the moment the
+			-- line has something to say. A row that fits only until its feature turns
+			-- on is not a row, so the terms get the card's whole content width.
+			TermsHeight = 18, TermsTextPx = 13,
 
 			-- a rule between the two groups: one card, two things to read
 			DividerHeight = 2,
@@ -774,16 +808,83 @@ __MODULES["Config"] = function()
 			DetailHeight = 18, DetailTextPx = 13,
 		},
 
-		-- Height is the ordinary panel; TallHeight adds the pending-offline row.
+		-- THE SESSION PANEL, ROW BY ROW — and BOTH ITS HEIGHTS ARE DERIVED NOW.
 		--
-		-- There used to be a third, CompactHeight = 88: the panel a build with
-		-- Prototypes.Sessions OFF collapsed to, showing the offline row alone. That
-		-- flag graduated in #50 and the local that chose between the two heights was
+		-- Height is the ordinary panel; TallHeight is the panel with its whole
+		-- optional tail showing. There used to be a third, CompactHeight = 88: the
+		-- panel a build with Prototypes.Sessions OFF collapsed to. That flag
+		-- graduated in #50 and the local that chose between the two heights was
 		-- deleted with it — but both READS of that local were left behind, in a file
-		-- that had also lost its `Req("Config")`. The number outlived the only state
-		-- that could select it, so it is gone: a height nothing can reach is a
-		-- height that reads as a supported layout and is not one.
-		SessionPanel = { Width = 280, Height = 216, TallHeight = 258 },
+		-- that had also lost its `Req("Config")`. A height nothing can reach reads as
+		-- a supported layout and is not one, so it is gone and asserted absent.
+		--
+		-- TALLHEIGHT SHIPPED AT 258 AND THE PANEL COULD REACH 310. 258 is the
+		-- one-optional-row case, and there are two optional rows: the Vault Timer
+		-- (gone at the top of the ladder) and the pending-offline row. Both are
+		-- visible at once for any returning player who has not maxed the vault, and
+		-- SessionUI.layoutTail() sized the panel from its own literals, so the number
+		-- ColumnBottom was measured against had already been left behind by the code.
+		-- OptionalRows is the input now and both heights come out of it.
+		--
+		-- The row geometry below was eleven literals in src/client/SessionUI.lua,
+		-- three of which (STACK_TOP, ROW_HEIGHT/ROW_GAP, PANEL_BASE_HEIGHT) were
+		-- hand-copies of numbers that already lived here.
+		SessionPanel = {
+			Width = 280,
+			Pad = 14,          -- the gutter inside the panel
+			RowGap = 6,        -- between two stacked rows
+			TailPad = 12,      -- what the panel keeps under its last row
+
+			-- the panel's own heading, and the weekend badge opposite it
+			HeadHeight = 16, HeadTextPx = 13,
+			BadgeWidth = 110,
+			HeadPad = 8,       -- the heading's own inset from the panel's top
+
+			-- a row: a title, a sub-line under it, and a claim pill on the right
+			RowPad = 12,
+			RowTitleHeight = 18, RowTitleTextPx = 15,
+			RowSubHeight   = 16, RowSubTextPx   = 13,
+			RowPadY = 8,
+			ActionWidth = 66, ActionTextPx = 14,
+			-- 12 shipped on the heading, the sub-lines and the badge — 7.4 physical
+			-- pixels at MinScale, under both floors this file declares. It is the
+			-- same defect the NEXT UPGRADE heading had, for the same reason: it was a
+			-- literal in a builder and nothing could read it to say so.
+
+			-- the fixed stack, top to bottom
+			DailyY = 28, DailyHeight = 50,
+			PlaytimeHeight = 56,
+			BarHeight = 4, BarY = 44,   -- the playtime gauge, inside the playtime row
+			BoostTextPx = 18,
+
+			-- the optional tail
+			RowHeight = 46,
+			OptionalRows = 2,
+		},
+
+		-- THE TOP-RIGHT UTILITY RAIL. One item wide today and built to hold more:
+		-- an icon over a caption, docked to the top-right corner, with the toast
+		-- column derived to start below it rather than on top of it.
+		--
+		-- WHY THE INVITE IS HERE AND NOT ON THE STATUS CARD. It was a pill on the
+		-- card's friend row, which put the game's only social control inside the
+		-- surface a player reads to answer "can I afford the next thing yet". The
+		-- rail is where a control that acts on the world outside this server belongs,
+		-- and the top-right corner is reachable and out of the way of both thumbs.
+		--
+		-- THE CAPTION IS THE PRICE TAG. The friend row's zero state was the whole
+		-- point of it — "+0% • no friends here yet" is what turns an invite into an
+		-- offer — and that argument survives the move: the badge under the glyph
+		-- reads what you would gain when you have nobody here, and what you are
+		-- getting once you do.
+		Rail = {
+			ItemWidth = 56,
+			ItemHeight = 72,
+			Pad = 6,
+			GlyphSize = 40,
+			GlyphGap = 2,
+			BadgeHeight = 16, BadgeTextPx = 13,
+		},
 
 		-- THE UPGRADE SHOP IS A SECOND COLUMN, not the bottom of the first. It is
 		-- bottom-anchored and proportionally tall, so on a short screen it grows
@@ -799,30 +900,65 @@ __MODULES["Config"] = function()
 			RowHeight = 62,      -- the whole row is the hit target, so this is a touch size
 		},
 
-		Toast  = { Width = 320, ListHeight = 500, CardHeight = 66 },
-		-- Rebirth over leave-plot, bottom right: primary + Gap + secondary.
+		-- THE NOTIFICATION COLUMN, under the rail on the same right edge.
+		--
+		-- MaxCards IS ENFORCED, NOT DESCRIBED. ListHeight shipped at 500 with nothing
+		-- bounding how many cards went into the frame, so a burst of toasts simply
+		-- drew past the bottom of their own container — which meant ListHeight was a
+		-- number no assertion could be built on. HUD.toast destroys the oldest card
+		-- past this count now, so ListHeight is derived from it and the clearance
+		-- against the action stack below means something.
+		Toast = {
+			Width = 320,
+			CardHeight = 66,
+			MaxCards = 4,
+			-- the card's own insides, which were six literals in HUD.lua
+			Pad = 8,
+			BarWidth = 5,
+			BarInset = 10,
+			TextX = 24,
+			TitleHeight = 22, TitleTextPx = 17,
+			BodyHeight  = 30, BodyTextPx  = 13,
+		},
+
+		-- Rebirth over leave-plot: primary + Gap + secondary. Right edge, and raised
+		-- clear of TouchReserve.Bottom rather than sitting in the corner — see that
+		-- table for what is down there.
 		Action = { Width = 200, Height = 112 },
 
 		-- Modals are centred and live on the overlay layer, which is unpadded on
 		-- purpose: a dimming shade SHOULD cover the notch.
+		--
+		-- Each card's insides are named here for the same reason every other number
+		-- in this table is. Both modals were a ladder of hand-typed Ys — the offline
+		-- one had seven — and a hand-typed ladder is one where growing the third row
+		-- means finding the four below it by eye.
 		Modal = {
 			MinWidth = 300,
 			MaxWidth = 470,
 			MaxHeight = 330,
-			Offline = { Width = 470, Height = 330 },
-			Rebirth = { Width = 430, Height = 250 },
+			Offline = {
+				Width = 470, Height = 330,
+				Pad = 22, TopPad = 18, RowGap = 6,
+				TitleHeight  = 34, TitleTextPx  = 28,
+				AwayHeight   = 20, AwayTextPx   = 14,
+				AmountHeight = 60, AmountTextPx = 46,
+				RateHeight   = 20, RateTextPx   = 13,
+				CapHeight    = 50, CapTextPx    = 13,
+				ButtonTextPx = 22,
+			},
+			Rebirth = {
+				Width = 430, Height = 250,
+				Pad = 20, TopPad = 18, RowGap = 6,
+				TitleHeight = 34, TitleTextPx = 28,
+				BodyHeight  = 96, BodyTextPx  = 15,
+				ButtonTextPx = 20,
+			},
 		},
 	}
 
 	do
 		local ui = Config.UI
-
-		-- the left column, top to bottom
-		ui.StatusCard.Y = ui.Margin
-		ui.SessionPanel.Y = ui.StatusCard.Y + ui.StatusCard.Height + ui.Gap
-		-- measured at the session panel's TALLEST, because "it fits unless you have
-		-- offline earnings waiting" is not a layout that fits
-		ui.ColumnBottom = ui.SessionPanel.Y + ui.SessionPanel.TallHeight
 
 		-- THE STATUS CARD, ROW BY ROW. Every Y below is an accumulation of the row
 		-- heights above it, so a row that grows pushes everything under it down and
@@ -845,18 +981,14 @@ __MODULES["Config"] = function()
 		-- the coin is centred on the two lines it belongs to, not on either one
 		ui.StatusCard.IconY = sc.BalanceY
 			+ math.floor((sc.BalanceHeight + sc.MultHeight - sc.IconSize) / 2)
-		ui.StatusCard.FriendRowY = sc.MultY + sc.MultHeight + sc.RowGap
-		ui.StatusCard.FriendTextY = sc.FriendRowY
-			+ math.floor((sc.FriendRowHeight - sc.FriendTextHeight) / 2)
-		ui.StatusCard.InviteX = sc.Width - sc.Pad - sc.InviteWidth
-		ui.StatusCard.InviteY = sc.FriendRowY
-			+ math.floor((sc.FriendRowHeight - ui.Button.pill) / 2)
-		ui.StatusCard.FriendTextWidth = sc.InviteX - sc.Pad - ui.Gap
+		-- The terms line closes the balance group and gets the card's full width; the
+		-- two lines above it are indented past the coin.
+		ui.StatusCard.TermsY = sc.MultY + sc.MultHeight
 		-- the rule, centred in the gap between the two groups
-		ui.StatusCard.DividerY = sc.FriendRowY + sc.FriendRowHeight
+		ui.StatusCard.DividerY = sc.TermsY + sc.TermsHeight
 			+ math.floor((sc.GroupGap - sc.DividerHeight) / 2)
 		-- the next-purchase group
-		ui.StatusCard.HeadingY = sc.FriendRowY + sc.FriendRowHeight + sc.GroupGap
+		ui.StatusCard.HeadingY = sc.TermsY + sc.TermsHeight + sc.GroupGap
 		ui.StatusCard.NameY = sc.HeadingY + sc.HeadingHeight
 		ui.StatusCard.BarY = sc.NameY + sc.NameHeight
 		ui.StatusCard.DetailY = sc.BarY + sc.BarHeight + sc.RowGap
@@ -865,12 +997,96 @@ __MODULES["Config"] = function()
 		-- this sum would fit by construction and catch nothing.
 		ui.StatusCard.ContentHeight = sc.DetailY + sc.DetailHeight + sc.Pad
 
+		-- ── THE SESSION PANEL, ROW BY ROW, and both of its heights ───────────────
+		local sp = ui.SessionPanel
+		ui.SessionPanel.RowWidth = sp.Width - sp.Pad * 2
+		-- a row's insides
+		ui.SessionPanel.RowSubY = sp.RowPadY + sp.RowTitleHeight
+		ui.SessionPanel.ActionX = sp.RowWidth - sp.RowPad - sp.ActionWidth
+		ui.SessionPanel.ActionTextWidth = sp.ActionX - sp.RowPad - ui.Gap
+		ui.SessionPanel.BarWidth = sp.RowWidth - sp.RowPad * 2
+		-- the heading and the badge opposite it
+		ui.SessionPanel.BadgeX = sp.Width - sp.Pad - sp.BadgeWidth
+		-- the fixed stack
+		ui.SessionPanel.PlaytimeY = sp.DailyY + sp.DailyHeight + sp.RowGap
+		ui.SessionPanel.BoostY = sp.PlaytimeY + sp.PlaytimeHeight + sp.RowGap
+		-- WHERE THE OPTIONAL TAIL STARTS, which SessionUI used to type as 200.
+		ui.SessionPanel.StackTop = sp.BoostY + ui.Button.secondary + sp.RowGap
+		-- ...and the two heights that fall out of it. Both derived: the panel is laid
+		-- out at render time from whichever optional rows are showing, so a chosen
+		-- Height would be a claim about code rather than an input to it. The number
+		-- the verifier holds this to is ColumnBottom, above.
+		ui.SessionPanel.Height = sp.StackTop + sp.TailPad
+		ui.SessionPanel.TallHeight = sp.StackTop
+			+ sp.OptionalRows * (sp.RowHeight + sp.RowGap) - sp.RowGap + sp.TailPad
+
+		-- THE LEFT COLUMN'S BUDGET, and no panel Y anywhere any more.
+		--
+		-- ui.StatusCard.Y and ui.SessionPanel.Y used to live here and be read by two
+		-- files. HUD.column() is a UIListLayout now, so the runtime stacks the panels
+		-- and neither file is told a Y — but a list layout will lay its children out
+		-- past the bottom of the screen just as happily as two hand-typed Ys would,
+		-- so the budget stays, measured at the session panel's TALLEST. "It fits
+		-- unless you have offline earnings waiting" is not a layout that fits.
+		ui.ColumnBottom = ui.Margin + ui.StatusCard.Height + ui.Gap
+			+ ui.SessionPanel.TallHeight
+
+		-- ── THE TOP-RIGHT RAIL, and the notification column under it ─────────────
+		local rail = ui.Rail
+		ui.Rail.GlyphX = math.floor((rail.ItemWidth - rail.GlyphSize) / 2)
+		ui.Rail.GlyphY = rail.Pad
+		ui.Rail.BadgeY = rail.Pad + rail.GlyphSize + rail.GlyphGap
+		ui.Rail.BadgeWidth = rail.ItemWidth - rail.Pad * 2
+		ui.Rail.ContentHeight = rail.BadgeY + rail.BadgeHeight + rail.Pad
+		ui.Rail.Bottom = ui.Margin + rail.ItemHeight
+
+		local toast = ui.Toast
+		ui.Toast.Y = ui.Rail.Bottom + ui.Gap
+		ui.Toast.ListHeight = toast.MaxCards * toast.CardHeight
+			+ (toast.MaxCards - 1) * ui.Gap
+		ui.Toast.Bottom = toast.Y + toast.ListHeight
+		-- the card's insides
+		ui.Toast.BarHeight = toast.CardHeight - toast.Pad * 2
+		ui.Toast.TitleY = toast.Pad
+		ui.Toast.BodyY = toast.Pad + toast.TitleHeight
+		ui.Toast.TextWidth = toast.Width - toast.TextX - toast.BarInset
+
+		-- ── THE ACTION STACK, raised clear of the engine's own controls ──────────
+		ui.Action.BottomGap = ui.TouchReserve.Bottom
+		ui.Action.Top = ui.ReferenceHeight - ui.Action.BottomGap - ui.Action.Height
+
 		-- the shop's own column, starting one gap clear of the left one
 		ui.ShopPanel.X = ui.Margin + ui.ColumnWidth + ui.Gap
 		-- What the shop leaves below itself: the toggle button always, plus the
 		-- utility chip when that prototype is on.
+		--
+		-- NOT YET MEASURED FROM TouchReserve, and deliberately so: the shop is behind
+		-- two Prototypes flags that both ship false, so it draws nothing and moving a
+		-- surface nobody can see is a change nobody can check. When PlayerUpgrades
+		-- graduates, this is the number that has to start at ui.TouchReserve.Bottom
+		-- rather than at ui.Margin — see docs/dev/HANDOFF_v8.md.
 		ui.ShopPanel.BottomGapNoUtility = ui.Margin + ui.Button.pill + ui.Gap
 		ui.ShopPanel.BottomGap = ui.ShopPanel.BottomGapNoUtility + ui.Button.pill + ui.Gap
+
+		-- ── THE TWO MODAL CARDS, row by row ──────────────────────────────────────
+		local reb = ui.Modal.Rebirth
+		ui.Modal.Rebirth.ContentWidth = reb.Width - reb.Pad * 2
+		ui.Modal.Rebirth.TitleY = reb.TopPad
+		ui.Modal.Rebirth.BodyY = reb.TopPad + reb.TitleHeight + reb.RowGap
+		ui.Modal.Rebirth.ButtonWidth = math.floor((reb.ContentWidth - ui.Gap) / 2)
+		ui.Modal.Rebirth.ButtonY = reb.Height - reb.Pad - ui.Button.primary
+		ui.Modal.Rebirth.CancelX = reb.Pad + reb.ButtonWidth + ui.Gap
+		ui.Modal.Rebirth.ContentHeight = reb.BodyY + reb.BodyHeight
+
+		local off = ui.Modal.Offline
+		ui.Modal.Offline.ContentWidth = off.Width - off.Pad * 2
+		ui.Modal.Offline.TitleY = off.TopPad
+		ui.Modal.Offline.AwayY = off.TopPad + off.TitleHeight
+		ui.Modal.Offline.AmountY = off.AwayY + off.AwayHeight + off.RowGap
+		ui.Modal.Offline.RateY = off.AmountY + off.AmountHeight
+		ui.Modal.Offline.CapY = off.RateY + off.RateHeight + off.RowGap
+		ui.Modal.Offline.ButtonY = off.Height - off.Pad - ui.Button.primary
+		ui.Modal.Offline.ContentHeight = off.CapY + off.CapHeight
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -5613,6 +5829,20 @@ __MODULES["HUD"] = function()
 		undimmed strip down the side of it. Panels ask for HUD.root() or
 		HUD.overlay(); nothing outside this file makes a ScreenGui, and tools/
 		verify.py fails the build if anything tries.
+
+		AND FOUR DOCKED REGIONS INSIDE Root, one per corner it uses:
+
+		  Column    top-left, a UIListLayout — the status card, then whatever else
+		            belongs in the stack under it. HUD.column() hands it out.
+		  Rail      top-right, the utility icons. One item today, the invite.
+		  Toasts    top-right under the rail, derived to clear it.
+		  Actions   bottom-right, RAISED off the bottom edge by
+		            Config.UI.TouchReserve.Bottom — see buildActions.
+
+		Every one of them is a UiKit.dock call naming a corner. They were four
+		hand-written AnchorPoint/UDim2 pairs, in this file and in SessionUI, and the
+		left column's two panels were positioned by two files reading the same Config
+		keys separately.
 	]]
 
 	local Req = __Req
@@ -5639,6 +5869,9 @@ __MODULES["HUD"] = function()
 	-- `X.key` against Config, and a `local CARD = UI.StatusCard` would be a name it
 	-- has no way to follow. Every number on the status card is read through here.
 	local CARD = Config.UI.StatusCard
+	local RAIL = Config.UI.Rail
+	local TOAST = Config.UI.Toast
+	local REBIRTH = Config.UI.Modal.Rebirth
 	local PALETTE = UiKit.PALETTE
 
 	local KIND_COLOR = {
@@ -5671,7 +5904,8 @@ __MODULES["HUD"] = function()
 	}
 
 	local gui, root, overlay, rootScale, overlayScale, rootPadding
-	local cashLabel, multLabel, friendLabel, inviteButton
+	local column, cashLabel, multLabel, termsLabel
+	local inviteButton, inviteCaption
 	local waveFrame, waveLabel, toastList, rebirthButton
 	-- the next-purchase half of the status card: name, bar fill, "N to go". The bar's
 	-- TRACK is not kept — it is drawn once and never written to again, and a module
@@ -5700,11 +5934,17 @@ __MODULES["HUD"] = function()
 	--- multiplies it: the multiplier itself, rebirths, KOs.
 	---
 	--- THE FRIEND BONUS IS A TERM IN THAT MULTIPLIER, not a separate feature, which
-	--- is why it is the line directly under it rather than a panel of its own.
-	--- `multLabel` prints the product; this prints the part of it another human being
-	--- is responsible for. The ZERO state is the important one — "+0% • no friends
-	--- here yet" with an INVITE pill beside it: the moment the number is legible is
-	--- the moment the ask has a price tag on it.
+	--- is why it prints on the terms line with the rebirths and the KOs rather than
+	--- getting a row of its own. `multLabel` prints the product; `termsLabel` prints
+	--- what went into it.
+	---
+	--- THERE IS NO BUTTON ON THIS CARD. There was an INVITE pill on a friend row
+	--- here, and the argument for it was that the zero state — "+0% • no friends
+	--- here yet" — is what turns an invite into an offer. That argument was right
+	--- and it moved with the pill: the rail item carries the same number as its
+	--- caption, on the control that acts on it. What is left behind is a card with
+	--- nothing on it to press, which is what a surface you read at a glance should
+	--- be.
 	---
 	--- THE BAR IS THE NEW PART, and it is a bar AND a line of text on purpose. A bar
 	--- alone cannot say what you are saving for or how much is left; the text alone
@@ -5720,10 +5960,13 @@ __MODULES["HUD"] = function()
 	--- their own because those Ys were derived; the rows INSIDE the panel were eight
 	--- literals that had to be found by eye. This is the same fix one level down.
 	local function buildStatusCard(parent: Instance)
+		-- NO POSITION. The parent is HUD.column(), which is a UIListLayout; the only
+		-- thing this card says about where it goes is that it is first.
 		local frame = panel(parent,
 			UDim2.fromOffset(CARD.Width, CARD.Height),
-			UDim2.fromOffset(UI.Margin, CARD.Y))
+			UDim2.fromOffset(0, 0))
 		frame.Name = "Status"
+		frame.LayoutOrder = 1
 
 		local icon = Instance.new("TextLabel")
 		icon.Size = UDim2.fromOffset(CARD.IconSize, CARD.IconSize)
@@ -5750,30 +5993,24 @@ __MODULES["HUD"] = function()
 			Size = UDim2.fromOffset(CARD.TextWidth, CARD.MultHeight),
 			Position = UDim2.fromOffset(CARD.TextX, CARD.MultY),
 			Font = Style.Font.body,
-			Text = "x1.00  •  0 rebirths",
+			Text = "x1.00",
 			TextSize = CARD.MultTextPx,
 			TextColor3 = PALETTE.muted,
 		})
 
-		friendLabel = text(frame, {
-			Size = UDim2.fromOffset(CARD.FriendTextWidth, CARD.FriendTextHeight),
-			Position = UDim2.fromOffset(CARD.Pad, CARD.FriendTextY),
+		-- THE TERMS, FULL WIDTH, where the two lines above it are indented past the
+		-- coin. Everything that went into the product on the line above: the
+		-- rebirths, the KOs and the friends. See renderTerms for why one function
+		-- writes all three.
+		termsLabel = text(frame, {
+			Size = UDim2.fromOffset(CARD.ContentWidth, CARD.TermsHeight),
+			Position = UDim2.fromOffset(CARD.Pad, CARD.TermsY),
 			Font = Style.Font.body,
-			Text = "+0%  •  no friends here yet",
-			TextSize = CARD.FriendTextPx,
+			Text = "",
+			TextSize = CARD.TermsTextPx,
 			TextColor3 = PALETTE.muted,
+			TextTruncate = Enum.TextTruncate.AtEnd,
 		})
-
-		-- A PILL, from the button ladder, like every other thing in this game a thumb
-		-- has to hit. It was a 72x26 button built from literals — 16 physical pixels
-		-- tall at MinScale, on the one control whose entire job is to be pressed by a
-		-- child. UI.Button.pill is the floor the verifier already asserts.
-		inviteButton = button(frame, "INVITE", PALETTE.good, {
-			Size = UDim2.fromOffset(CARD.InviteWidth, UI.Button.pill),
-			Position = UDim2.fromOffset(CARD.InviteX, CARD.InviteY),
-			Visible = false,
-		})
-		inviteButton.Activated:Connect(HUD.promptInvite)
 
 		-- A rule, not a second card. It says "two things to read" without spending a
 		-- gutter, an outline and a shadow to say it.
@@ -5913,44 +6150,91 @@ __MODULES["HUD"] = function()
 		corner(bossFill, 3)
 	end
 
-	local function buildToasts(parent: Instance)
-		toastList = Instance.new("Frame")
-		toastList.Name = "Toasts"
-		toastList.AnchorPoint = Vector2.new(1, 0)
-		toastList.Position = UDim2.new(1, -UI.Margin, 0, UI.Margin)
-		toastList.Size = UDim2.fromOffset(UI.Toast.Width, UI.Toast.ListHeight)
-		toastList.BackgroundTransparency = 1
-		toastList.Parent = parent
-
-		local layout = Instance.new("UIListLayout")
-		layout.Padding = UDim.new(0, UI.Gap)
-		layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-		layout.SortOrder = Enum.SortOrder.LayoutOrder
-		layout.Parent = toastList
+	--- THE LEFT COLUMN, as one region rather than as two panels that agree.
+	---
+	--- The status card and the session panel are one width stacked from the top
+	--- margin down, and they used to say so twice: this file positioned the first
+	--- from Config.UI.StatusCard.Y and SessionUI positioned the second from
+	--- Config.UI.SessionPanel.Y. Two files reading two derived numbers is the exact
+	--- shape of the bug Config.UI's column comment says that table exists to catch —
+	--- it was one edit away at all times. Neither file is told a Y now.
+	---
+	--- HEIGHT IS THE COLUMN'S BUDGET, NOT ITS CONTENT. The frame is sized to
+	--- ColumnBottom so a panel laid out past it is visibly past it; the layout does
+	--- not clip, and the verifier holds ColumnBottom to the reference height.
+	local function buildColumn(parent: Instance)
+		column = UiKit.dock(parent, {
+			name = "Column",
+			corner = "topLeft",
+			width = UI.ColumnWidth,
+			height = UI.ColumnBottom - UI.Margin,
+			direction = "Vertical",
+		})
 	end
 
-	local function buildActions(parent: Instance)
-		local holder = Instance.new("Frame")
-		holder.Name = "Actions"
-		holder.AnchorPoint = Vector2.new(1, 1)
-		holder.Position = UDim2.new(1, -UI.Margin, 1, -UI.Margin)
-		holder.Size = UDim2.fromOffset(UI.Action.Width, UI.Action.Height)
-		holder.BackgroundTransparency = 1
-		holder.Parent = parent
+	--- THE TOP-RIGHT RAIL. One item today, and the reason it is a region rather than
+	--- a button is that the toast column below it is derived from its height: a
+	--- second item makes the rail wider, not taller, and nothing under it moves.
+	local function buildUtilityRail(parent: Instance)
+		local rail = UiKit.dock(parent, {
+			name = "Rail",
+			corner = "topRight",
+			width = RAIL.ItemWidth,
+			height = RAIL.ItemHeight,
+			direction = "Horizontal",
+		})
 
-		local layout = Instance.new("UIListLayout")
-		layout.Padding = UDim.new(0, UI.Gap)
-		layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-		layout.Parent = holder
+		local slot
+		inviteButton, slot, inviteCaption = UiKit.railItem(rail, "Invite", PALETTE.good)
+		UiKit.personPlus(slot, RAIL.GlyphSize, UiKit.INK, PALETTE.good)
+		-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
+		-- control does not exist. See refreshInvite.
+		inviteButton.Visible = false
+		inviteButton.Activated:Connect(HUD.promptInvite)
+	end
+
+	local function buildToasts(parent: Instance)
+		toastList = UiKit.dock(parent, {
+			name = "Toasts",
+			corner = "topRight",
+			width = UI.Toast.Width,
+			height = UI.Toast.ListHeight,
+			-- Derived to clear the rail above it. The two shared a corner before the
+			-- rail existed and the first toast of the session would have landed on
+			-- top of the invite.
+			insetY = UI.Toast.Y,
+			direction = "Vertical",
+		})
+	end
+
+	--- REBIRTH over LEAVE PLOT, on the right edge and RAISED OFF THE BOTTOM.
+	---
+	--- It was anchored (1,1) at (1,-Margin),(1,-Margin) — 200x112 in the corner the
+	--- engine draws the touch jump button in, with the movement thumbstick in the
+	--- corner opposite. Four out of five sessions are phones, so for four out of
+	--- five players REBIRTH and JUMP were the same pixels. There is no API that
+	--- returns either control's rectangle, so the clearance is a declared number:
+	--- Config.UI.TouchReserve.Bottom, which is what insetY is measured from.
+	local function buildActions(parent: Instance)
+		local holder = UiKit.dock(parent, {
+			name = "Actions",
+			corner = "bottomRight",
+			width = UI.Action.Width,
+			height = UI.Action.Height,
+			insetY = UI.Action.BottomGap,
+			direction = "Vertical",
+		})
 
 		rebirthButton = button(holder, "REBIRTH", PALETTE.accent, {
 			Size = UDim2.fromOffset(UI.Action.Width, UI.Button.primary),
 			LayoutOrder = 1,
 		})
+		-- No TextSize: UiKit.button is TextScaled, which overrides one. There was a
+		-- `TextSize = 16` here doing nothing, which is worse than no number at all —
+		-- it reads as the size this label is drawn at and it never was.
 		local leave = button(holder, "LEAVE PLOT", Color3.fromRGB(120, 110, 140), {
 			Size = UDim2.fromOffset(UI.Action.Width, UI.Button.secondary),
 			LayoutOrder = 2,
-			TextSize = 16,
 		})
 
 		rebirthButton.Activated:Connect(function()
@@ -5967,6 +6251,35 @@ __MODULES["HUD"] = function()
 
 	local toastOrder = 0
 
+	--- Destroy the oldest cards until the column holds no more than it is sized for.
+	---
+	--- WITHOUT THIS, UI.Toast.ListHeight IS DECORATION. A UIListLayout does not clip
+	--- and does not stop: a burst of six toasts drew two of them out of the bottom of
+	--- a frame that claimed to be five cards tall, and no assertion could be built on
+	--- a height the runtime treated as advisory. The column has a real ceiling now,
+	--- so the clearance against the action stack below it means something.
+	---
+	--- Oldest first, by LayoutOrder, because that is the order the layout draws them
+	--- in and the one at the top is the one that has been readable the longest.
+	local function trimToasts()
+		local cards = toastList:GetChildren()
+		local live = {}
+		for _, child in ipairs(cards) do
+			if child:IsA("Frame") then
+				table.insert(live, child)
+			end
+		end
+		if #live <= TOAST.MaxCards then
+			return
+		end
+		table.sort(live, function(a, b)
+			return a.LayoutOrder < b.LayoutOrder
+		end)
+		for index = 1, #live - TOAST.MaxCards do
+			live[index]:Destroy()
+		end
+	end
+
 	function HUD.toast(payload)
 		if not toastList then
 			return
@@ -5976,7 +6289,7 @@ __MODULES["HUD"] = function()
 		local color = KIND_COLOR[payload.kind] or PALETTE.accent
 
 		local card = Instance.new("Frame")
-		card.Size = UDim2.fromOffset(UI.Toast.Width, UI.Toast.CardHeight)
+		card.Size = UDim2.fromOffset(TOAST.Width, TOAST.CardHeight)
 		card.BackgroundColor3 = PALETTE.panel
 		card.BackgroundTransparency = 0.08
 		card.BorderSizePixel = 0
@@ -5984,36 +6297,37 @@ __MODULES["HUD"] = function()
 		card.Parent = toastList
 		corner(card, 12)
 		stroke(card, color, 2)
+		trimToasts()
 
 		local bar = Instance.new("Frame")
-		bar.Size = UDim2.fromOffset(5, 50)
-		bar.Position = UDim2.fromOffset(10, 8)
+		bar.Size = UDim2.fromOffset(TOAST.BarWidth, TOAST.BarHeight)
+		bar.Position = UDim2.fromOffset(TOAST.BarInset, TOAST.Pad)
 		bar.BackgroundColor3 = color
 		bar.BorderSizePixel = 0
 		bar.Parent = card
-		corner(bar, 3)
+		corner(bar, math.floor(TOAST.BarWidth / 2))
 
 		text(card, {
-			Size = UDim2.fromOffset(280, 22),
-			Position = UDim2.fromOffset(24, 8),
+			Size = UDim2.fromOffset(TOAST.TextWidth, TOAST.TitleHeight),
+			Position = UDim2.fromOffset(TOAST.TextX, TOAST.TitleY),
 			Font = Style.Font.title,
 			Text = payload.title or "",
-			TextSize = 17,
+			TextSize = TOAST.TitleTextPx,
 			TextColor3 = color,
 			TextTruncate = Enum.TextTruncate.AtEnd,
 		})
 		text(card, {
-			Size = UDim2.fromOffset(280, 30),
-			Position = UDim2.fromOffset(24, 30),
+			Size = UDim2.fromOffset(TOAST.TextWidth, TOAST.BodyHeight),
+			Position = UDim2.fromOffset(TOAST.TextX, TOAST.BodyY),
 			Font = Style.Font.body,
 			Text = payload.body or "",
-			TextSize = 13,
+			TextSize = TOAST.BodyTextPx,
 			TextColor3 = PALETTE.muted,
 			TextWrapped = true,
 		})
 
 		-- starts one card-width plus a hair off the right edge, and slides in
-		card.Position = UDim2.fromOffset(UI.Toast.Width + UI.Gap, 0)
+		card.Position = UDim2.fromOffset(TOAST.Width + UI.Gap, 0)
 		TweenService:Create(card, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 			Position = UDim2.fromOffset(0, 0),
 		}):Play()
@@ -6034,14 +6348,56 @@ __MODULES["HUD"] = function()
 	-- the friend bonus
 	-- ─────────────────────────────────────────────────────────────────────────────
 
+	--- What the friend bonus is worth right now, as a percentage.
+	local function friendPercent(friends: number): number
+		return math.floor(math.min(friends, state.friendCap) * state.friendBonus * 100)
+	end
+
 	--- Visible only when there is room under the cap and the account is allowed to
 	--- send invites at all. Nobody is asked to invite a fourth friend who would be
 	--- worth nothing.
+	---
+	--- THE CAPTION IS THE OLD FRIEND ROW'S ZERO STATE, moved onto the control it was
+	--- always about. With nobody here it reads what ONE friend would be worth, which
+	--- is the offer; with somebody here it reads what you are already getting, in the
+	--- good colour, which is the receipt. An icon with no number is a button a child
+	--- presses to find out what it does.
 	local function refreshInvite()
 		if not inviteButton then
 			return
 		end
 		inviteButton.Visible = state.canInvite and state.friends < state.friendCap
+		if state.friends > 0 then
+			inviteCaption.Text = ("+%d%%"):format(friendPercent(state.friends))
+			inviteCaption.TextColor3 = UiKit.INK
+		else
+			-- One friend's worth, not zero: zero is what you have, and what you have
+			-- is not what a button is offering you.
+			inviteCaption.Text = ("+%d%%"):format(friendPercent(1))
+			inviteCaption.TextColor3 = UiKit.INK
+		end
+	end
+
+	--- THE TERMS LINE HAS ONE WRITER, and that is the whole reason it exists as a
+	--- function. It prints three things that arrive on two different remotes — the
+	--- rebirths and the KOs on Stats, the friends on SocialState — and the obvious
+	--- implementation is for each handler to rewrite the label with what it knows.
+	--- That is a line that is correct until the two packets disagree about which
+	--- arrived last, at which point it silently drops whichever term the loser owned.
+	--- Both handlers write `state` and call this.
+	local function renderTerms()
+		if not termsLabel then
+			return
+		end
+		local parts = {
+			("%d rebirth%s"):format(state.rebirths, state.rebirths == 1 and "" or "s"),
+			("%d KO%s"):format(state.kills, state.kills == 1 and "" or "s"),
+		}
+		if state.friends > 0 then
+			table.insert(parts, ("+%d%% friends"):format(friendPercent(state.friends)))
+		end
+		termsLabel.Text = table.concat(parts, "  •  ")
+		termsLabel.TextColor3 = state.friends > 0 and PALETTE.good or PALETTE.muted
 	end
 
 	--- BOTH SocialService calls YIELD, so neither may run on the signal thread —
@@ -6076,16 +6432,7 @@ __MODULES["HUD"] = function()
 		state.friendCap = payload.cap or state.friendCap
 		state.friendBonus = payload.bonus or state.friendBonus
 
-		local capped = math.min(state.friends, state.friendCap)
-		local percent = math.floor(capped * state.friendBonus * 100)
-		if state.friends > 0 then
-			friendLabel.Text = ("+%d%%  •  %d friend%s here"):format(
-				percent, state.friends, state.friends == 1 and "" or "s")
-			friendLabel.TextColor3 = PALETTE.good
-		else
-			friendLabel.Text = "+0%  •  no friends here yet"
-			friendLabel.TextColor3 = PALETTE.muted
-		end
+		renderTerms()
 		refreshInvite()
 	end
 
@@ -6107,7 +6454,7 @@ __MODULES["HUD"] = function()
 		shade.Parent = overlay
 
 		local card = panel(shade,
-			UDim2.fromOffset(UI.Modal.Rebirth.Width, UI.Modal.Rebirth.Height),
+			UDim2.fromOffset(REBIRTH.Width, REBIRTH.Height),
 			UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		card.ZIndex = 21
 		for _, child in ipairs(card:GetDescendants()) do
@@ -6117,23 +6464,23 @@ __MODULES["HUD"] = function()
 		end
 
 		text(card, {
-			Size = UDim2.fromOffset(390, 34),
-			Position = UDim2.fromOffset(20, 18),
+			Size = UDim2.fromOffset(REBIRTH.ContentWidth, REBIRTH.TitleHeight),
+			Position = UDim2.fromOffset(REBIRTH.Pad, REBIRTH.TitleY),
 			Font = Style.Font.title,
 			Text = "SAHUR REBIRTH",
-			TextSize = 28,
+			TextSize = REBIRTH.TitleTextPx,
 			TextColor3 = PALETTE.accent,
 			ZIndex = 22,
 		})
 
 		local affordable = state.cash >= cost
 		text(card, {
-			Size = UDim2.fromOffset(390, 96),
-			Position = UDim2.fromOffset(20, 58),
+			Size = UDim2.fromOffset(REBIRTH.ContentWidth, REBIRTH.BodyHeight),
+			Position = UDim2.fromOffset(REBIRTH.Pad, REBIRTH.BodyY),
 			Font = Style.Font.body,
 			Text = ("Cost: <b>%s Tung</b>\n\nYour factory and cash are wiped, but every payout after this is permanently multiplied.\n\nNext multiplier: <b>x%.2f</b>")
 				:format(Util.abbreviate(cost), Config.Rebirth.MultiplierPerRebirth ^ (state.rebirths + 1)),
-			TextSize = 15,
+			TextSize = REBIRTH.BodyTextPx,
 			TextColor3 = affordable and PALETTE.text or PALETTE.muted,
 			TextWrapped = true,
 			ZIndex = 22,
@@ -6141,16 +6488,16 @@ __MODULES["HUD"] = function()
 
 		local confirm = button(card, affordable and "DO IT" or "NOT ENOUGH TUNG",
 			affordable and PALETTE.accent or PALETTE.dead, {
-				Size = UDim2.fromOffset(190, UI.Button.primary),
-				Position = UDim2.fromOffset(20, 180),
+				Size = UDim2.fromOffset(REBIRTH.ButtonWidth, UI.Button.primary),
+				Position = UDim2.fromOffset(REBIRTH.Pad, REBIRTH.ButtonY),
 				ZIndex = 22,
-				TextSize = 20,
+				TextSize = REBIRTH.ButtonTextPx,
 			})
 		local cancel = button(card, "CANCEL", Color3.fromRGB(120, 110, 140), {
-			Size = UDim2.fromOffset(190, UI.Button.primary),
-			Position = UDim2.fromOffset(220, 180),
+			Size = UDim2.fromOffset(REBIRTH.ButtonWidth, UI.Button.primary),
+			Position = UDim2.fromOffset(REBIRTH.CancelX, REBIRTH.ButtonY),
 			ZIndex = 22,
-			TextSize = 20,
+			TextSize = REBIRTH.ButtonTextPx,
 		})
 
 		confirm.Activated:Connect(function()
@@ -6261,9 +6608,9 @@ __MODULES["HUD"] = function()
 		state.rebirthCost = payload.rebirthCost or state.rebirthCost
 		hasStats = true
 
-		multLabel.Text = ("x%.2f  •  %d rebirth%s  •  %d KO%s"):format(
-			state.multiplier, state.rebirths, state.rebirths == 1 and "" or "s",
-			state.kills, state.kills == 1 and "" or "s")
+		-- The product on one line, and what went into it on the next.
+		multLabel.Text = ("x%.2f"):format(state.multiplier)
+		renderTerms()
 
 		local next_ = cheapestAvailable()
 		if next_ then
@@ -6491,11 +6838,15 @@ __MODULES["HUD"] = function()
 		workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(watchCamera)
 		watchCamera()
 
-		buildStatusCard(root)
-		-- no layer: this one hangs in the world, not on the screen
-		buildWaveBanner()
+		-- The four docked regions, then the one thing that is not on the screen at
+		-- all. Column first: buildStatusCard parents into it.
+		buildColumn(root)
+		buildStatusCard(column)
+		buildUtilityRail(root)
 		buildToasts(root)
 		buildActions(root)
+		-- no layer: this one hangs in the world, not on the screen
+		buildWaveBanner()
 
 		Net.event("Notify").OnClientEvent:Connect(function(payload)
 			if payload.kind == "rebirthPrompt" then
@@ -6571,6 +6922,19 @@ __MODULES["HUD"] = function()
 		return overlay
 	end
 
+	--- The top-left column, for a panel that belongs in the stack under the status
+	--- card. Set a LayoutOrder; do not set a Position.
+	---
+	--- THIS IS NOT THE ESCAPE HATCH HUD.screenGui() WAS. That accessor handed out
+	--- the raw ScreenGui, which is outside the UIScale AND outside the safe-area
+	--- padding, and the one-ScreenGui lint could not see anything wrong because
+	--- nothing had to make a second one. This is a child of Root: strictly inside
+	--- both, and strictly narrower than root() — a panel that takes it gets the
+	--- column's width and the column's stacking, which is the whole point.
+	function HUD.column(): Frame
+		return column
+	end
+
 	return HUD
 end
 
@@ -6582,7 +6946,13 @@ __MODULES["SessionUI"] = function()
 
 		Built into HUD's layers rather than a second ScreenGui so there is one place
 		the game's UI lives, one ZIndex space, one UIScale and one thing to hide:
-		the panel goes on HUD.root(), the welcome-back modal on HUD.overlay().
+		the panel goes in HUD.column(), the welcome-back modal on HUD.overlay().
+
+		IT NO LONGER KNOWS WHERE IT IS. The panel used to position itself at
+		(Config.UI.Margin, Config.UI.SessionPanel.Y) while HUD.lua positioned the
+		status card above it from Config.UI.StatusCard.Y — one column, two files, two
+		reads. HUD.column() is a UIListLayout; this file sets a LayoutOrder and every
+		remaining number in it is a row height from Config.UI.SessionPanel.
 
 		The palette and the panel/text/button helpers used to be re-stated here, on
 		the argument that a prototype which widens another module's public API is a
@@ -6613,23 +6983,23 @@ __MODULES["SessionUI"] = function()
 
 	local UI = Config.UI
 	local PALETTE = UiKit.PALETTE
-
-	local PANEL_X, PANEL_Y, PANEL_W = UI.Margin, UI.SessionPanel.Y, UI.SessionPanel.Width
+	-- Spelled from `Config`, like HUD.lua's CARD, because verify.py's config-path
+	-- pass follows exactly one alias hop. Every number in this file comes from here
+	-- now; there is no X and no Y among them, because HUD.column() places the panel.
+	local PANEL = Config.UI.SessionPanel
+	local OFFLINE = Config.UI.Modal.Offline
 
 	local state = {
 		payload = nil :: any,
 		receivedAt = 0,
 	}
 
-	local root, overlay, panel, dailyRow, playtimeRow, boostButton, vaultRow, offlineRow, weekendBadge
+	local column, overlay, panel, dailyRow, playtimeRow, boostButton, vaultRow, offlineRow, weekendBadge
 	local playtimeFill, modalOpen = nil, false
-
-	-- The panel is a fixed stack down to the boost button; everything below it is
-	-- optional (the Vault Timer disappears at the top of the ladder, the offline row
-	-- only exists while a grant is pending), so the tail is laid out at render time.
-	local STACK_TOP = 200
-	local ROW_HEIGHT, ROW_GAP = 46, 6
-	local PANEL_BASE_HEIGHT = 216
+	-- The optional rows, in the order layoutTail() stacks them, and the list
+	-- Config.UI.SessionPanel.OptionalRows counts. Filled by buildPanel; see
+	-- layoutTail for why the two have to agree.
+	local TAIL_ROWS = nil :: any
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- builders
@@ -6725,7 +7095,7 @@ __MODULES["SessionUI"] = function()
 		shade.Parent = overlay
 
 		local card = frame(shade,
-			UDim2.fromOffset(UI.Modal.Offline.Width, UI.Modal.Offline.Height),
+			UDim2.fromOffset(OFFLINE.Width, OFFLINE.Height),
 			UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		card.ZIndex = 31
 		for _, child in ipairs(card:GetDescendants()) do
@@ -6735,44 +7105,44 @@ __MODULES["SessionUI"] = function()
 		end
 
 		text(card, {
-			Size = UDim2.fromOffset(430, 34),
-			Position = UDim2.fromOffset(22, 18),
+			Size = UDim2.fromOffset(OFFLINE.ContentWidth, OFFLINE.TitleHeight),
+			Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.TitleY),
 			Font = Style.Font.title,
 			Text = "WELCOME BACK",
-			TextSize = 28,
+			TextSize = OFFLINE.TitleTextPx,
 			TextColor3 = PALETTE.accent,
 			ZIndex = 32,
 		})
 
 		text(card, {
-			Size = UDim2.fromOffset(430, 20),
-			Position = UDim2.fromOffset(22, 54),
+			Size = UDim2.fromOffset(OFFLINE.ContentWidth, OFFLINE.AwayHeight),
+			Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.AwayY),
 			Font = Style.Font.body,
 			Text = ("Away for <b>%s</b> — your factory kept running."):format(describe(offline.seconds)),
-			TextSize = 14,
+			TextSize = OFFLINE.AwayTextPx,
 			TextColor3 = PALETTE.muted,
 			ZIndex = 32,
 		})
 
 		local amount = text(card, {
-			Size = UDim2.fromOffset(430, 60),
-			Position = UDim2.fromOffset(22, 82),
+			Size = UDim2.fromOffset(OFFLINE.ContentWidth, OFFLINE.AmountHeight),
+			Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.AmountY),
 			Font = Style.Font.title,
 			Text = "0",
-			TextSize = 46,
+			TextSize = OFFLINE.AmountTextPx,
 			TextColor3 = PALETTE.gold,
 			ZIndex = 32,
 		})
 
 		text(card, {
-			Size = UDim2.fromOffset(430, 20),
-			Position = UDim2.fromOffset(22, 142),
+			Size = UDim2.fromOffset(OFFLINE.ContentWidth, OFFLINE.RateHeight),
+			Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.RateY),
 			Font = Style.Font.body,
 			Text = ("%d%% of %s/sec for %s"):format(
 				math.floor((offline.rate or 0) * 100 + 0.5),
 				Util.abbreviate(offline.perSecond or 0),
 				describe(offline.creditedSeconds or offline.seconds)),
-			TextSize = 13,
+			TextSize = OFFLINE.RateTextPx,
 			TextColor3 = PALETTE.muted,
 			ZIndex = 32,
 		})
@@ -6798,20 +7168,20 @@ __MODULES["SessionUI"] = function()
 		end
 
 		text(card, {
-			Size = UDim2.fromOffset(430, 50),
-			Position = UDim2.fromOffset(22, 166),
+			Size = UDim2.fromOffset(OFFLINE.ContentWidth, OFFLINE.CapHeight),
+			Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.CapY),
 			Font = Style.Font.body,
 			Text = capText,
-			TextSize = 13,
+			TextSize = OFFLINE.CapTextPx,
 			TextColor3 = capColor,
 			TextWrapped = true,
 			ZIndex = 32,
 		})
 
 		local collect = button(card, ("COLLECT %s"):format(Util.abbreviate(offline.earned)), PALETTE.good, {
-			Size = UDim2.fromOffset(426, UI.Button.primary),
-			Position = UDim2.fromOffset(22, 250),
-			TextSize = 22,
+			Size = UDim2.fromOffset(OFFLINE.ContentWidth, UI.Button.primary),
+			Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.ButtonY),
+			TextSize = OFFLINE.ButtonTextPx,
 			ZIndex = 32,
 		})
 
@@ -6852,8 +7222,8 @@ __MODULES["SessionUI"] = function()
 
 	local function buildRow(parent: Instance, y: number, height: number, title: string)
 		local row = Instance.new("Frame")
-		row.Size = UDim2.fromOffset(PANEL_W - 28, height)
-		row.Position = UDim2.fromOffset(14, y)
+		row.Size = UDim2.fromOffset(PANEL.RowWidth, height)
+		row.Position = UDim2.fromOffset(PANEL.Pad, y)
 		row.BackgroundColor3 = PALETTE.panel2
 		row.BackgroundTransparency = 0.25
 		row.BorderSizePixel = 0
@@ -6861,67 +7231,73 @@ __MODULES["SessionUI"] = function()
 		corner(row, 10)
 
 		local titleLabel = text(row, {
-			Size = UDim2.fromOffset(150, 18),
-			Position = UDim2.fromOffset(12, 8),
+			Size = UDim2.fromOffset(PANEL.ActionTextWidth, PANEL.RowTitleHeight),
+			Position = UDim2.fromOffset(PANEL.RowPad, PANEL.RowPadY),
 			Font = Style.Font.title,
 			Text = title,
-			TextSize = 15,
+			TextSize = PANEL.RowTitleTextPx,
 			TextColor3 = PALETTE.text,
 		})
 		local subLabel = text(row, {
-			Size = UDim2.fromOffset(170, 16),
-			Position = UDim2.fromOffset(12, 27),
+			Size = UDim2.fromOffset(PANEL.ActionTextWidth, PANEL.RowSubHeight),
+			Position = UDim2.fromOffset(PANEL.RowPad, PANEL.RowSubY),
 			Font = Style.Font.body,
 			Text = "",
-			TextSize = 12,
+			TextSize = PANEL.RowSubTextPx,
 			TextColor3 = PALETTE.muted,
 		})
 		-- A 66x30 pill was a 41x19 physical target at MinScale, which is a coin
 		-- flip with a thumb. Full touch height, vertically centred in whatever row
 		-- it lands in — the rows are 46, 50 and 56 tall.
 		local action = button(row, "CLAIM", PALETTE.good, {
-			Size = UDim2.fromOffset(66, UI.Button.pill),
-			Position = UDim2.fromOffset(PANEL_W - 28 - 78, math.round((height - UI.Button.pill) / 2)),
-			TextSize = 14,
+			Size = UDim2.fromOffset(PANEL.ActionWidth, UI.Button.pill),
+			Position = UDim2.fromOffset(PANEL.ActionX, math.round((height - UI.Button.pill) / 2)),
+			TextSize = PANEL.ActionTextPx,
 			Visible = false,
 		})
 
 		return { row = row, title = titleLabel, sub = subLabel, action = action }
 	end
 
+	--- NO POSITION, AND NO PANEL_X / PANEL_Y ANY MORE. The parent is HUD.column(),
+	--- which stacks it under the status card; this file used to read
+	--- Config.UI.SessionPanel.Y and HUD.lua used to read Config.UI.StatusCard.Y, and
+	--- two files deriving where one column goes is the disagreement Config.UI's
+	--- column comment says that table exists to prevent.
 	local function buildPanel()
-		panel = frame(root, UDim2.fromOffset(PANEL_W, UI.SessionPanel.Height), UDim2.fromOffset(PANEL_X, PANEL_Y))
+		panel = frame(column, UDim2.fromOffset(PANEL.Width, PANEL.Height), UDim2.fromOffset(0, 0))
 		panel.Name = "Session"
+		panel.LayoutOrder = 2
 		panel.Visible = false
 
 		text(panel, {
-			Size = UDim2.fromOffset(150, 16),
-			Position = UDim2.fromOffset(14, 8),
+			Size = UDim2.fromOffset(PANEL.ActionTextWidth, PANEL.HeadHeight),
+			Position = UDim2.fromOffset(PANEL.Pad, PANEL.HeadPad),
 			Font = Style.Font.body,
 			Text = "SESSION",
-			TextSize = 12,
+			TextSize = PANEL.HeadTextPx,
 			TextColor3 = PALETTE.muted,
 		})
 
 		-- the weekend bonus is server-wide and invisible unless something says so
 		weekendBadge = text(panel, {
-			Size = UDim2.fromOffset(110, 16),
-			Position = UDim2.fromOffset(PANEL_W - 124, 8),
+			Size = UDim2.fromOffset(PANEL.BadgeWidth, PANEL.HeadHeight),
+			Position = UDim2.fromOffset(PANEL.BadgeX, PANEL.HeadPad),
 			Font = Style.Font.body,
 			Text = "",
-			TextSize = 12,
+			TextSize = PANEL.HeadTextPx,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			TextColor3 = PALETTE.gold,
 		})
 
-		dailyRow = buildRow(panel, 28, 50, "DAILY STREAK")
-		playtimeRow = buildRow(panel, 84, 56, "PLAYTIME")
+		dailyRow = buildRow(panel, PANEL.DailyY, PANEL.DailyHeight, "DAILY STREAK")
+		playtimeRow = buildRow(panel, PANEL.PlaytimeY, PANEL.PlaytimeHeight, "PLAYTIME")
 
 		-- a thin progress bar along the bottom of the playtime row: the ladder is
 		-- the only part of this panel with a "how far to go" answer
 		local track = Instance.new("Frame")
-		track.Size = UDim2.fromOffset(PANEL_W - 52, 4)
-		track.Position = UDim2.fromOffset(12, 44)
+		track.Size = UDim2.fromOffset(PANEL.BarWidth, PANEL.BarHeight)
+		track.Position = UDim2.fromOffset(PANEL.RowPad, PANEL.BarY)
 		track.BackgroundColor3 = PALETTE.panel
 		track.BorderSizePixel = 0
 		track.Parent = playtimeRow.row
@@ -6935,18 +7311,19 @@ __MODULES["SessionUI"] = function()
 		corner(playtimeFill, 2)
 
 		boostButton = button(panel, "BOOST", PALETTE.gold, {
-			Size = UDim2.fromOffset(PANEL_W - 28, UI.Button.secondary),
-			Position = UDim2.fromOffset(14, 148),
-			TextSize = 18,
+			Size = UDim2.fromOffset(PANEL.RowWidth, UI.Button.secondary),
+			Position = UDim2.fromOffset(PANEL.Pad, PANEL.BoostY),
+			TextSize = PANEL.BoostTextPx,
 		})
 
 		-- Both of these are positioned by layoutTail() rather than here: they come
 		-- and go independently and a fixed y for each leaves a hole in the panel.
-		vaultRow = buildRow(panel, STACK_TOP, ROW_HEIGHT, "VAULT TIMER")
+		vaultRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "VAULT TIMER")
 		vaultRow.row.Visible = false
 		vaultRow.action.BackgroundColor3 = PALETTE.gold
 
-		offlineRow = buildRow(panel, STACK_TOP, ROW_HEIGHT, "OFFLINE TUNG")
+		offlineRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "OFFLINE TUNG")
+		TAIL_ROWS = { vaultRow, offlineRow }
 		offlineRow.row.Visible = false
 		offlineRow.action.Text = "OPEN"
 		offlineRow.action.BackgroundColor3 = PALETTE.gold
@@ -7115,19 +7492,34 @@ __MODULES["SessionUI"] = function()
 	end
 
 	--- Stack whichever optional rows are showing, and size the panel to them.
+	---
+	--- THE PANEL'S HEIGHT HAS ONE OWNER NOW, AND IT IS THIS FUNCTION. render() set
+	--- it too — Height or TallHeight, depending on whether an offline grant was
+	--- pending — and then called this, which overwrote it two lines later. A write
+	--- nothing can observe is a write nobody checks, and it was wrong:
+	--- Config.UI.SessionPanel.TallHeight was the ONE-optional-row height, and both
+	--- optional rows show at once for any returning player who has not maxed the
+	--- vault. The panel reached 310 design px against a column budget measured at
+	--- 258. It fitted by luck.
+	---
+	--- THE ARITHMETIC BELOW IS THE ARITHMETIC Config DERIVES TallHeight FROM, so a
+	--- full tail produces exactly TallHeight and the number the verifier holds the
+	--- column to is a number this function can actually reach. TAIL_ROWS is what
+	--- OptionalRows counts: adding a third row here without adding it there is a
+	--- panel that grows past the budget again, and tools/testing/specs/hud_spec.lua
+	--- is what says so.
 	local function layoutTail()
-		local y = STACK_TOP
-		for _, row in ipairs({ vaultRow, offlineRow }) do
+		local y = PANEL.StackTop
+		local shown = 0
+		for _, row in ipairs(TAIL_ROWS) do
 			if row.row.Visible then
-				row.row.Position = UDim2.fromOffset(14, y)
-				y += ROW_HEIGHT + ROW_GAP
+				row.row.Position = UDim2.fromOffset(PANEL.Pad, y)
+				y += PANEL.RowHeight + PANEL.RowGap
+				shown += 1
 			end
 		end
-		if y == STACK_TOP then
-			panel.Size = UDim2.fromOffset(PANEL_W, PANEL_BASE_HEIGHT)
-		else
-			panel.Size = UDim2.fromOffset(PANEL_W, y - ROW_GAP + 12)
-		end
+		local height = shown == 0 and PANEL.Height or (y - PANEL.RowGap + PANEL.TailPad)
+		panel.Size = UDim2.fromOffset(PANEL.Width, height)
 	end
 
 	local function render()
@@ -7148,30 +7540,33 @@ __MODULES["SessionUI"] = function()
 				Util.abbreviate(payload.offline.earned), describe(payload.offline.seconds))
 			offlineRow.sub.TextColor3 = PALETTE.gold
 			offlineRow.action.Visible = true
-			panel.Size = UDim2.fromOffset(PANEL_W, UI.SessionPanel.TallHeight)
 		else
 			offlineRow.row.Visible = false
-			panel.Size = UDim2.fromOffset(PANEL_W, UI.SessionPanel.Height)
 		end
 
+		-- ...and layoutTail owns the height. There were two sizes written here and
+		-- both were dead: this function set one and the next line overwrote it.
 		layoutTail()
 	end
 
 	function SessionUI.start()
-		root = HUD.root()
-		if not root then
+		-- HUD.column(), not HUD.root(): this panel belongs in the left column's
+		-- stack, and taking the column rather than the layer is what stops it having
+		-- an opinion about where that column starts.
+		column = HUD.column()
+		if not column then
 			-- HUD.start() runs first in Main.client.lua, but a prototype that
 			-- assumes boot order is a prototype that breaks when the boot order
 			-- changes
 			for _ = 1, 100 do
 				task.wait(0.1)
-				root = HUD.root()
-				if root then
+				column = HUD.column()
+				if column then
 					break
 				end
 			end
-			if not root then
-				warn("[Tung] SessionUI: no HUD layer to build into")
+			if not column then
+				warn("[Tung] SessionUI: no HUD column to build into")
 				return
 			end
 		end
@@ -7229,6 +7624,14 @@ __MODULES["UiKit"] = function()
 		different purples, and the one that drifts first is always the one nobody
 		opens.
 
+		IT ALSO OWNS WHERE A REGION GOES, not just what it looks like. `dock` names
+		the four corners of the design canvas; before it, five call sites in three
+		files each spelled out their own AnchorPoint and their own
+		`UDim2.new(1, -UI.Margin, 1, -UI.Margin)`, and the left column's two panels
+		were placed by two files reading the same Config keys separately. A panel
+		asks for a corner now and gets the anchor, the inset and the list alignment
+		that agree with it.
+
 		ONE DIVERGENCE SURVIVED THE MERGE, and it is the only interesting thing in
 		this file. HUD and UpgradeUI build TextScaled buttons with no TextSize;
 		SessionUI's are sized text (TextScaled = false, TextSize = 15). `button` here
@@ -7244,6 +7647,10 @@ __MODULES["UiKit"] = function()
 	local GuiService = game:GetService("GuiService")
 
 	local UI = Config.UI
+	-- Spelled from `Config` rather than from `UI`, exactly like HUD.lua's CARD, so
+	-- verify.py's config-path pass can resolve it: it follows ONE alias hop, and a
+	-- `local RAIL = UI.Rail` would be a name it has no way to check reads against.
+	local RAIL = Config.UI.Rail
 
 	local UiKit = {}
 
@@ -7348,6 +7755,193 @@ __MODULES["UiKit"] = function()
 		b.Parent = parent
 		UiKit.corner(b, 10)
 		return b
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- putting a region against an edge
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- THE FOUR CORNERS, and the AnchorPoint and list alignment each one implies.
+	---
+	--- A dock is (anchor, position, alignment) and the three have to agree: a frame
+	--- anchored (1,0) and positioned from the LEFT edge is off the right side of the
+	--- screen, and a right-hand column whose list layout aligns Left grows away from
+	--- the edge it is docked to. Naming the corner once is what stops a call site
+	--- getting two of the three right.
+	local DOCKS = {
+		topLeft     = { x = 0, y = 0, alignX = "Left",  alignY = "Top" },
+		topRight    = { x = 1, y = 0, alignX = "Right", alignY = "Top" },
+		bottomLeft  = { x = 0, y = 1, alignX = "Left",  alignY = "Bottom" },
+		bottomRight = { x = 1, y = 1, alignX = "Right", alignY = "Bottom" },
+	}
+
+	--- A transparent region pinned to one corner of the design canvas.
+	---
+	--- WHY THIS EXISTS. Five call sites across three files each spelled out their
+	--- own `AnchorPoint` and their own `UDim2.new(1, -UI.Margin, 1, -UI.Margin)`,
+	--- which is five chances to disagree about what "against the edge" means — and
+	--- they did: the left column's two panels were positioned by two different files
+	--- from two different reads of the same Config keys. A corner is a name now.
+	---
+	--- `insetX` / `insetY` default to UI.Margin and are the distance from that edge,
+	--- always measured INWARD whichever corner it is, so a caller never writes the
+	--- sign. UI.Action passes an insetY of TouchReserve.Bottom to sit above the
+	--- engine's own controls; everything else takes the margin.
+	---
+	--- `direction` is "Vertical" or "Horizontal", and attaches a UIListLayout that
+	--- stacks children away from the docked corner with UI.Gap between them. Omit it
+	--- for a region that positions its own children.
+	function UiKit.dock(parent: Instance, opts): Frame
+		local spot = DOCKS[opts.corner]
+		if not spot then
+			-- Loud, like Style.distance: a typo'd corner that fell back to top-left
+			-- would be a panel silently drawn on top of the status card.
+			error(("[Tung] unknown dock corner %q; expected topLeft/topRight/bottomLeft/bottomRight")
+				:format(tostring(opts.corner)), 2)
+		end
+
+		local insetX = opts.insetX or UI.Margin
+		local insetY = opts.insetY or UI.Margin
+
+		local frame = Instance.new("Frame")
+		frame.Name = opts.name
+		frame.AnchorPoint = Vector2.new(spot.x, spot.y)
+		-- The scale term picks the edge and the offset term steps inward from it, so
+		-- the same expression serves all four corners.
+		frame.Position = UDim2.new(
+			spot.x, spot.x == 0 and insetX or -insetX,
+			spot.y, spot.y == 0 and insetY or -insetY)
+		frame.Size = UDim2.fromOffset(opts.width, opts.height)
+		frame.BackgroundTransparency = 1
+		frame.BorderSizePixel = 0
+		frame.Parent = parent
+
+		if opts.direction then
+			local layout = Instance.new("UIListLayout")
+			layout.FillDirection = (Enum.FillDirection :: any)[opts.direction]
+			layout.Padding = UDim.new(0, UI.Gap)
+			layout.HorizontalAlignment = (Enum.HorizontalAlignment :: any)[spot.alignX]
+			layout.VerticalAlignment = (Enum.VerticalAlignment :: any)[spot.alignY]
+			layout.SortOrder = Enum.SortOrder.LayoutOrder
+			layout.Parent = frame
+		end
+
+		return frame
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- the rail, and the one glyph on it
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- A person with a plus, drawn out of rounded rectangles.
+	---
+	--- DRAWN RATHER THAN UPLOADED because that is the rule this whole game is built
+	--- under: every model, face and UI element is generated in code and no asset id
+	--- is ever referenced. A head, a domed torso clipped at the container's bottom
+	--- edge, and a plus in a disc over its shoulder.
+	---
+	--- `ink` is the glyph and `cut` is the colour showing THROUGH the plus — pass
+	--- the button's own background for that, and the plus reads as a hole punched in
+	--- the disc rather than as a third colour competing with the first two.
+	---
+	--- Every number is a fraction of `size`. They are here rather than in Config
+	--- because they are the shape of a drawing, not the layout of a card: nothing
+	--- else on screen is measured against them and the verifier has nothing to
+	--- compare them to. The one number that IS layout, how big the glyph is drawn,
+	--- is UI.Rail.GlyphSize and comes in as `size`.
+	function UiKit.personPlus(parent: Instance, size: number, ink: Color3, cut: Color3): Frame
+		local holder = Instance.new("Frame")
+		holder.Name = "Glyph"
+		holder.Size = UDim2.fromOffset(size, size)
+		holder.BackgroundTransparency = 1
+		holder.BorderSizePixel = 0
+		-- The torso is a full rounded rectangle whose bottom half is meant to be off
+		-- the picture; without this it is a pill floating under a head.
+		holder.ClipsDescendants = true
+		holder.Parent = parent
+
+		local function block(name: string, w: number, h: number, x: number, y: number, colour: Color3, radius: number)
+			local part = Instance.new("Frame")
+			part.Name = name
+			part.Size = UDim2.fromOffset(w, h)
+			part.Position = UDim2.fromOffset(x, y)
+			part.BackgroundColor3 = colour
+			part.BorderSizePixel = 0
+			part.Parent = holder
+			if radius > 0 then
+				UiKit.corner(part, radius)
+			end
+			return part
+		end
+
+		-- The person is pushed left of centre to leave the lower right for the disc.
+		local head = math.floor(size * 0.34)
+		local torsoW, torsoH = math.floor(size * 0.60), math.floor(size * 0.46)
+		local centre = math.floor(size * 0.39)
+		block("Head", head, head, centre - math.floor(head / 2), math.floor(size * 0.08),
+			ink, math.floor(head / 2))
+		block("Torso", torsoW, torsoH, centre - math.floor(torsoW / 2), math.floor(size * 0.48),
+			ink, math.floor(torsoW / 2))
+
+		local disc = math.floor(size * 0.46)
+		local discX, discY = size - disc, size - disc
+		block("Plus", disc, disc, discX, discY, ink, math.floor(disc / 2))
+
+		-- The two bars are children of the holder, not of the disc, so they are
+		-- positioned in one coordinate space; the disc is behind them by creation
+		-- order under ZIndexBehavior.Sibling.
+		local barLong, barShort = math.floor(disc * 0.52), math.max(2, math.floor(disc * 0.16))
+		local barX = discX + math.floor((disc - barLong) / 2)
+		local barY = discY + math.floor((disc - barShort) / 2)
+		block("PlusH", barLong, barShort, barX, barY, cut, 0)
+		block("PlusV", barShort, barLong, discX + math.floor((disc - barShort) / 2),
+			discY + math.floor((disc - barLong) / 2), cut, 0)
+
+		return holder
+	end
+
+	--- A rail item: a glyph over a caption, the whole thing one hit target.
+	---
+	--- The caption is not decoration. This is the only control in the game that asks
+	--- a player to do something outside the server, and the number under the glyph
+	--- is what the ask is worth — an icon on its own is a button a child has to
+	--- press to find out what it does.
+	---
+	--- Returns the button and its caption label; the caller draws into the glyph
+	--- slot and writes the caption.
+	function UiKit.railItem(parent: Instance, name: string, colour: Color3): (TextButton, Frame, TextLabel)
+		local b = Instance.new("TextButton")
+		b.Name = name
+		b.Size = UDim2.fromOffset(RAIL.ItemWidth, RAIL.ItemHeight)
+		b.BackgroundColor3 = colour
+		b.BackgroundTransparency = 0.1
+		b.BorderSizePixel = 0
+		b.AutoButtonColor = true
+		b.Font = Style.Font.title
+		b.Text = ""
+		b.Parent = parent
+		UiKit.corner(b, 12)
+
+		local slot = Instance.new("Frame")
+		slot.Name = "GlyphSlot"
+		slot.Size = UDim2.fromOffset(RAIL.GlyphSize, RAIL.GlyphSize)
+		slot.Position = UDim2.fromOffset(RAIL.GlyphX, RAIL.GlyphY)
+		slot.BackgroundTransparency = 1
+		slot.BorderSizePixel = 0
+		slot.Parent = b
+
+		local caption = UiKit.text(b, {
+			Name = "Caption",
+			Size = UDim2.fromOffset(RAIL.BadgeWidth, RAIL.BadgeHeight),
+			Position = UDim2.fromOffset(RAIL.Pad, RAIL.BadgeY),
+			Font = Style.Font.title,
+			Text = "",
+			TextSize = RAIL.BadgeTextPx,
+			TextColor3 = UiKit.INK,
+			TextXAlignment = Enum.TextXAlignment.Center,
+		})
+
+		return b, slot, caption
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────

@@ -3484,9 +3484,9 @@ check(UI.ShopPanel.RowHeight >= UI.MinTouchPx,
 
 -- THE STATUS CARD.
 --
--- One card carrying the balance, the multiplier, the friend bonus and the next
--- purchase with a progress bar under it — where there were two panels, and where
--- "how far are we from it" was text alone. Its rows are named heights in
+-- One card carrying the balance, the multiplier, the terms that built it and the
+-- next purchase with a progress bar under it — where there were two panels, and
+-- where "how far are we from it" was text alone. Its rows are named heights in
 -- Config.UI and its Ys are accumulated from them, so everything below is a
 -- relationship between two numbers in this file rather than between a number
 -- here and a literal in a builder. That is the whole reason the geometry lives
@@ -3498,9 +3498,9 @@ local CARD = UI.StatusCard
 -- edit that happened last time (the friend row took the old cash panel from 96
 -- to 126) and will happen again.
 check(CARD.Height >= CARD.ContentHeight,
-	("the status card is %d tall but its rows need %d: pad %d, balance %d, multiplier %d, friend row %d, group gap %d, heading %d, name %d, bar %d, detail %d, pad %d")
+	("the status card is %d tall but its rows need %d: pad %d, balance %d, multiplier %d, terms %d, group gap %d, heading %d, name %d, bar %d, detail %d, pad %d")
 		:format(CARD.Height, CARD.ContentHeight, CARD.Pad, CARD.BalanceHeight,
-			CARD.MultHeight, CARD.FriendRowHeight, CARD.GroupGap, CARD.HeadingHeight,
+			CARD.MultHeight, CARD.TermsHeight, CARD.GroupGap, CARD.HeadingHeight,
 			CARD.NameHeight, CARD.BarHeight, CARD.DetailHeight, CARD.Pad))
 
 -- EVERY TEXT SIZE ON THE CARD, AGAINST THE FLOOR, IN PHYSICAL PIXELS. The card
@@ -3511,7 +3511,7 @@ check(CARD.Height >= CARD.ContentHeight,
 local cardText = {
 	{ "balance", CARD.BalanceTextPx },
 	{ "multiplier line", CARD.MultTextPx },
-	{ "friend line", CARD.FriendTextPx },
+	{ "terms line", CARD.TermsTextPx },
 	{ "NEXT UPGRADE heading", CARD.HeadingTextPx },
 	{ "purchase name", CARD.NameTextPx },
 	{ "progress detail", CARD.DetailTextPx },
@@ -3545,21 +3545,25 @@ check(CARD.BarHeight < UI.MinTouchPx,
 	("the progress bar is %d design px tall against a touch floor of %d; at that height it reads as a control, and pressing it does nothing")
 		:format(CARD.BarHeight, UI.MinTouchPx))
 
--- THE CARD'S ONE TOUCH TARGET IS A PILL, AND ITS ROW IS AS TALL AS THE PILL.
--- INVITE shipped as a 72x26 button drawn from literals in HUD.lua — 16 physical
--- pixels tall at MinScale, under half the floor asserted 40 lines above, on the
--- one control in the game whose whole job is to be pressed by a child. The
--- height comes from UI.Button.pill now; this is the check that the row holding it
--- did not stay at 26.
-check(CARD.FriendRowHeight >= UI.Button.pill,
-	("the status card's friend row is %d design px and the INVITE pill inside it is %d; a row shorter than its own button clips it")
-		:format(CARD.FriendRowHeight, UI.Button.pill))
--- ...and the sentence beside it gets more of the row than the one word does.
--- "+0%  •  no friends here yet" is the state that matters (see HUD.lua) and it is
--- the longest string the card draws at any size; the pill says INVITE.
-check(CARD.FriendTextWidth * 2 >= CARD.ContentWidth,
-	("the friend line gets %d of the card's %d content px and the INVITE pill takes %d; the sentence needs more of the row than the one word does")
-		:format(CARD.FriendTextWidth, CARD.ContentWidth, CARD.InviteWidth))
+-- THE CARD HAS NOTHING ON IT TO PRESS, AND THIS FILE CANNOT SAY SO.
+--
+-- Two checks stood here and both are gone with the row they described: that the
+-- friend row was at least Button.pill tall (the INVITE pill had shipped at 26 —
+-- 16 physical px at MinScale, on the one control whose whole job is to be
+-- pressed by a child) and that the sentence beside it got more of the row than
+-- the one word did. The invite is a rail item now and there is no friend row.
+--
+-- What replaces them is NOT another check here. The invariant worth keeping is
+-- that this card carries no control at all, and Config holds numbers: it cannot
+-- see a TextButton, and the obvious proxy — "no row is a touch target's height"
+-- — is false on its face, because the balance row is 46 px tall to hold 38 px of
+-- text and is not a control. That proxy was written, and it failed on the
+-- shipped config the first time it ran, which is the only reason it is being
+-- described here instead of shipped.
+--
+-- So the enforcement moved rather than shrank: tools/testing/specs/hud_spec.lua
+-- walks the card's descendants and fails on a TextButton or an ImageButton. See
+-- docs/dev/INVARIANTS.md — that entry is [spec], not [assert].
 
 -- Printed because every number on the card is derived from the ten row heights
 -- above it, and a derived layout nobody ever reads back is one nobody notices has
@@ -3594,6 +3598,54 @@ check(UI.SessionPanel.TallHeight >= UI.SessionPanel.Height,
 	"the session panel's tall height is shorter than its ordinary one")
 check(UI.SessionPanel.CompactHeight == nil,
 	"UI.SessionPanel.CompactHeight is back — nothing can select it, so it is a layout that reads as supported and is not")
+
+-- THE SESSION PANEL'S TALL HEIGHT IS THE PANEL WITH ITS WHOLE TAIL SHOWING.
+--
+-- TallHeight shipped at 258 and SessionUI.layoutTail() could build 310, because
+-- 258 was the ONE-optional-row height and there are two optional rows: the Vault
+-- Timer and the pending-offline row, both visible at once for any returning
+-- player who has not maxed the vault. ColumnBottom was measured against the
+-- number the code had already left behind, so the column fitted by luck.
+--
+-- OptionalRows is the input to both heights now. What this file cannot see is
+-- how many rows SessionUI actually stacks — that is a list in src/client, the
+-- one directory this harness is blind to — so the count is asserted to be a
+-- count (a tail of zero optional rows is a TallHeight that means nothing) and
+-- the list itself is held to it by a spec in tools/testing/specs/hud_spec.lua.
+check(UI.SessionPanel.OptionalRows >= 1,
+	("the session panel declares %d optional rows; with none of them, TallHeight is just Height under another name")
+		:format(UI.SessionPanel.OptionalRows))
+-- There is deliberately NO check here that TallHeight - Height equals the rows
+-- OptionalRows describes. One was written and it could not fail: both heights
+-- are derived from those same three numbers eight lines apart in Config, so the
+-- identity holds by construction whatever anybody types. The thing that CAN be
+-- wrong is OptionalRows disagreeing with the list SessionUI actually stacks, and
+-- that list is in src/client, which this harness cannot see. hud_spec.lua drives
+-- a SessionState with both rows up and reads the panel's height back.
+-- Every row on the panel that IS a control clears the touch floor, and the one
+-- gauge on it does not read as one.
+check(UI.SessionPanel.ActionWidth >= UI.MinTouchPx,
+	("the session panel's claim pill is %d design px wide against a touch floor of %d; height is not the only axis a thumb has")
+		:format(UI.SessionPanel.ActionWidth, UI.MinTouchPx))
+check(UI.SessionPanel.BarHeight < UI.MinTouchPx,
+	("the playtime gauge is %d design px tall against a touch floor of %d; at that height it reads as a control and pressing it does nothing")
+		:format(UI.SessionPanel.BarHeight, UI.MinTouchPx))
+-- Its text, against the same floor the status card's is held to. Three of these
+-- shipped at 12 — 7.4 physical px at MinScale — as literals in SessionUI.lua,
+-- which is the same defect the NEXT UPGRADE heading had and for the same reason.
+local panelText = {
+	{ "SESSION heading", UI.SessionPanel.HeadTextPx },
+	{ "row title", UI.SessionPanel.RowTitleTextPx },
+	{ "row sub-line", UI.SessionPanel.RowSubTextPx },
+	{ "claim pill", UI.SessionPanel.ActionTextPx },
+	{ "boost button", UI.SessionPanel.BoostTextPx },
+}
+for _, row in ipairs(panelText) do
+	check(row[2] >= UI.MinTextPx,
+		("the session panel's %s is %d design px, which is %.1f physical px at MinScale — under the %d-px floor this file declares")
+			:format(row[1], row[2], row[2] * UI.MinScale, UI.MinTextPx))
+end
+
 check(UI.ColumnBottom + UI.Margin <= UI.ReferenceHeight,
 	("the left column ends at y=%d, past the bottom of a %d-tall reference screen")
 		:format(UI.ColumnBottom, UI.ReferenceHeight))
@@ -3628,9 +3680,89 @@ check(UI.ShopPanel.X + UI.ShopPanel.Width <= UI.ReferenceWidth - UI.Margin - UI.
 	("the shop's right edge is at x=%d and the toast column starts at x=%d")
 		:format(UI.ShopPanel.X + UI.ShopPanel.Width, UI.ReferenceWidth - UI.Margin - UI.Toast.Width))
 
+-- ── THE RIGHT EDGE: the rail, the toasts under it, and the action stack ─────
+--
+-- The right side is a column too now, and it had the defect the left one had
+-- before Config could see both ends of it: the rail and the toast column were
+-- both docked to the top-right corner, and the action stack was docked to a
+-- corner the engine already draws in. Three surfaces, one edge, and until this
+-- block nothing in the repo could read more than one of them at a time.
+
+-- THE INVITE IS THE ONE CONTROL IN THIS GAME AIMED AT SOMEBODY WHO IS NOT
+-- PLAYING IT YET, and it is pressed by children. It shipped once as a 72x26
+-- literal in a builder — 16 physical px at MinScale, under half the floor this
+-- file declares — which is the whole reason UI.Button exists. A rail item is not
+-- on that ladder (it is a square, not a row), so it is held to the floor
+-- directly and on BOTH axes: a 56-wide button 20 tall is as unhittable as a
+-- 20-wide one, and only one of those two mistakes is the one already made.
+check(UI.Rail.ItemWidth >= UI.MinTouchPx and UI.Rail.ItemHeight >= UI.MinTouchPx,
+	("a rail item is %dx%d design px against a touch floor of %d — %.0fx%.0f physical at MinScale")
+		:format(UI.Rail.ItemWidth, UI.Rail.ItemHeight, UI.MinTouchPx,
+			UI.Rail.ItemWidth * UI.MinScale, UI.Rail.ItemHeight * UI.MinScale))
+check(UI.Rail.ItemHeight >= UI.Rail.ContentHeight,
+	("a rail item is %d tall but its glyph and caption need %d: pad %d, glyph %d, gap %d, badge %d, pad %d")
+		:format(UI.Rail.ItemHeight, UI.Rail.ContentHeight, UI.Rail.Pad, UI.Rail.GlyphSize,
+			UI.Rail.GlyphGap, UI.Rail.BadgeHeight, UI.Rail.Pad))
+-- The caption is the price tag the old friend row carried — "+10%" is what the
+-- ask is worth — so it is small print that has to be readable, not decoration.
+check(UI.Rail.BadgeTextPx >= UI.MinTextPx,
+	("the rail caption is %d design px, which is %.1f physical px at MinScale — under the %d-px floor this file declares")
+		:format(UI.Rail.BadgeTextPx, UI.Rail.BadgeTextPx * UI.MinScale, UI.MinTextPx))
+check(UI.Rail.GlyphSize <= UI.Rail.ItemWidth - UI.Rail.Pad * 2,
+	("the rail glyph is %d wide inside a %d item with %d of padding a side")
+		:format(UI.Rail.GlyphSize, UI.Rail.ItemWidth, UI.Rail.Pad))
+
+-- BOTH BOTTOM CORNERS BELONG TO THE ENGINE. On a touch device Roblox draws the
+-- movement thumbstick bottom-left and the jump button bottom-right, on a layer
+-- above ours, and there is no API that returns either rectangle. The action
+-- stack was anchored (1,1) at the margin — 200x112 in exactly the jump button's
+-- corner — so for four out of five players REBIRTH and JUMP were the same
+-- pixels, and it looked fine on the machine it was written on.
+--
+-- The reserve is a guess. The guard on a guess is that it is at least as big as
+-- the biggest thing we DO have a number for: a reserve under two of our own
+-- primary buttons is not clearing a thumb control, it is decorating one.
+check(UI.TouchReserve.Bottom >= UI.Button.primary * 2,
+	("the bottom touch reserve is %d design px and a primary button is %d; under two of those it is not clearing the engine's controls, it is decorating them")
+		:format(UI.TouchReserve.Bottom, UI.Button.primary))
+check(UI.Action.Top + UI.Action.Height + UI.TouchReserve.Bottom <= UI.ReferenceHeight,
+	("the action stack ends at y=%d and the bottom %d px are reserved for the engine's own controls on a %d-tall screen")
+		:format(UI.Action.Top + UI.Action.Height, UI.TouchReserve.Bottom, UI.ReferenceHeight))
+
+-- THE TOAST COLUMN CLEARS THE RAIL ABOVE IT AND THE ACTION STACK BELOW IT.
+-- Both are one-axis checks on one edge, and both are only assertable because
+-- HUD.toast destroys cards past UI.Toast.MaxCards: a UIListLayout does not clip
+-- and does not stop, so before that a burst of toasts simply drew through
+-- whatever was under them and ListHeight described nothing.
+check(UI.Toast.Y >= UI.Rail.Bottom + UI.Gap,
+	("the toast column starts at y=%d and the rail ends at y=%d; the first toast of the session would land on the invite")
+		:format(UI.Toast.Y, UI.Rail.Bottom))
+check(UI.Toast.Bottom + UI.Gap <= UI.Action.Top,
+	("the toast column runs to y=%d and the action stack starts at y=%d — %d cards of %d with a %d gap do not fit between the rail and REBIRTH")
+		:format(UI.Toast.Bottom, UI.Action.Top, UI.Toast.MaxCards, UI.Toast.CardHeight, UI.Gap))
+check(UI.Toast.MaxCards >= 2,
+	("the toast column holds %d card(s); a notification that replaces the one before it is a notification nobody reads")
+		:format(UI.Toast.MaxCards))
+-- The card's own insides, so the accent bar and the two lines stay inside it.
+check(UI.Toast.BodyY + UI.Toast.BodyHeight <= UI.Toast.CardHeight,
+	("a toast card is %d tall and its body ends at %d")
+		:format(UI.Toast.CardHeight, UI.Toast.BodyY + UI.Toast.BodyHeight))
+check(UI.Toast.TitleTextPx >= UI.MinTextPx and UI.Toast.BodyTextPx >= UI.MinTextPx,
+	("a toast prints at %d and %d design px against a %d-px floor")
+		:format(UI.Toast.TitleTextPx, UI.Toast.BodyTextPx, UI.MinTextPx))
+
+print(("right edge:        rail ends y=%d, toasts %d..%d (%d cards), actions %d..%d, reserve %d of %d")
+	:format(UI.Rail.Bottom, UI.Toast.Y, UI.Toast.Bottom, UI.Toast.MaxCards,
+		UI.Action.Top, UI.Action.Top + UI.Action.Height, UI.TouchReserve.Bottom, UI.ReferenceHeight))
+
 -- MODALS FIT THE REFERENCE FRAME. They are centred and unscaled relative to the
 -- design canvas, so a card wider than the canvas is a card with its buttons off
 -- both sides of the screen — on every device, not just a phone.
+--
+-- Each card's rows are accumulated in Config's derivation block now, so the last
+-- of them can be asserted against the button that has to sit under it. Nothing
+-- had checked that: the offline modal's cap line is two lines of wrapped text
+-- and the COLLECT button below it was at a hand-typed y.
 for name, card in pairs(UI.Modal) do
 	if type(card) == "table" then
 		check(card.Width >= UI.Modal.MinWidth,
@@ -3643,6 +3775,21 @@ for name, card in pairs(UI.Modal) do
 				and card.Height + 2 * UI.Margin <= UI.ReferenceHeight,
 			("the %s modal is %dx%d, which does not fit a %dx%d reference frame with margins")
 				:format(name, card.Width, card.Height, UI.ReferenceWidth, UI.ReferenceHeight))
+		check(card.ContentHeight + UI.Gap <= card.ButtonY,
+			("the %s modal's last row ends at y=%d and its button starts at y=%d")
+				:format(name, card.ContentHeight, card.ButtonY))
+		-- Every text size on the card, by name, against the same floor the status
+		-- card's six are held to. Walked rather than listed because the two modals
+		-- carry different rows — the offline one has an AmountTextPx of 46 and the
+		-- rebirth one has no amount at all — and a hand-written list is a list that
+		-- stops covering the row somebody adds next.
+		for key, value in pairs(card) do
+			if type(key) == "string" and key:sub(-6) == "TextPx" then
+				check(value >= UI.MinTextPx,
+					("the %s modal's %s is %d design px, which is %.1f physical px at MinScale — under the %d-px floor this file declares")
+						:format(name, key, value, value * UI.MinScale, UI.MinTextPx))
+			end
+		end
 	end
 end
 

@@ -14,7 +14,7 @@ load-bearing. The handoffs are history; those two are the contract.
 ## The three commands
 
 ```bash
-python3 tools/verify.py            # ten passes, and it regenerates build/. Run before every commit.
+python3 tools/verify.py            # eleven passes, and it regenerates build/. Run before every commit.
 python3 tools/test.py --plain      # the runtime specs alone
 python3 tools/test.py --filter X   # one spec family
 ```
@@ -98,7 +98,8 @@ third value neither round had guessed.
 | move the belt | `Config.Layout.BeltStart/BeltCorner/BeltEnd` | `inPlot`, machine spacing, trigger dwell, drop budget |
 | change the plot's walls or roof | `INSTALLERS.Structure` in `src/server/tycoon/Installers.lua`, `Config.Layout.Roof*`, `GateCentre/GateWidth` | the doorway span, the gateway vs the belt, deck-vs-roof clearance |
 | change the second floor | `Config.Floors[1]` | the mezzanine family: deck vs walls, belt legs vs zone, hatch vs guard |
-| add a UI panel | build into `HUD.root()`; geometry in `Config.UI` | one-ScreenGui, card-scale literals, the column fits at `MinScale` |
+| add a UI panel | build into `HUD.root()` — or `HUD.column()` if it belongs in the left stack — via `UiKit.dock`; geometry in `Config.UI` | one-ScreenGui, card-scale literals, the column fits at `MinScale` |
+| put anything near a screen edge | a `UiKit.dock` corner; `Config.UI.TouchReserve` if it is near the bottom | the reserve assertions — both bottom corners are the engine's thumbstick and jump button |
 | add a persisted field | **both** `defaultProfile()` and the explicit `save()` payload in `DataService` | nothing — this is in the `[nothing]` backlog. With only the first it works all session and is gone at next login |
 | add a wave behaviour | `Config.Waves` | wave part budget, clear time, aggro/leash relationships |
 | add a new kind of buyable | a case in `src/server/tycoon/Installers.lua`, **and** the `kind` list in `tycoon/Tycoon.lua`'s header | `KNOWN_KINDS` in `verify_config.lua` |
@@ -114,7 +115,11 @@ Know these before you trust a green run.
   nothing for two rounds with six Config assertions covering it.
 - `tools/test.py` runs a real subset of the game headless. **`SERVER_MODULES` in
   that file is the list**, and `NPCService`, `PlotService`, `UpgradeService`,
-  `VaultService`, `FloorService`, `AdminService` and all of `src/client` are
-  outside it. Widening it is real work and belongs in its own PR.
+  `VaultService`, `FloorService` and `AdminService` are outside it. Widening it is
+  real work and belongs in its own PR. All of `src/client` IS inside it — see
+  `CLIENT_MODULES`, which `client_sources()` fails the run to keep exhaustive —
+  but what executes there is behaviour, never layout: the GUI mock stores a
+  `UDim2` and never resolves it, so no rectangle in this game has ever been
+  measured against another one outside `verify_config.lua`.
 - A mock is a claim about Roblox that only Roblox can settle. Where the game
   depends on one, the handoff names it.

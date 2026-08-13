@@ -4,7 +4,13 @@
 
 	Built into HUD's layers rather than a second ScreenGui so there is one place
 	the game's UI lives, one ZIndex space, one UIScale and one thing to hide:
-	the panel goes on HUD.root(), the welcome-back modal on HUD.overlay().
+	the panel goes in HUD.column(), the welcome-back modal on HUD.overlay().
+
+	IT NO LONGER KNOWS WHERE IT IS. The panel used to position itself at
+	(Config.UI.Margin, Config.UI.SessionPanel.Y) while HUD.lua positioned the
+	status card above it from Config.UI.StatusCard.Y — one column, two files, two
+	reads. HUD.column() is a UIListLayout; this file sets a LayoutOrder and every
+	remaining number in it is a row height from Config.UI.SessionPanel.
 
 	The palette and the panel/text/button helpers used to be re-stated here, on
 	the argument that a prototype which widens another module's public API is a
@@ -35,23 +41,23 @@ local SessionUI = {}
 
 local UI = Config.UI
 local PALETTE = UiKit.PALETTE
-
-local PANEL_X, PANEL_Y, PANEL_W = UI.Margin, UI.SessionPanel.Y, UI.SessionPanel.Width
+-- Spelled from `Config`, like HUD.lua's CARD, because verify.py's config-path
+-- pass follows exactly one alias hop. Every number in this file comes from here
+-- now; there is no X and no Y among them, because HUD.column() places the panel.
+local PANEL = Config.UI.SessionPanel
+local OFFLINE = Config.UI.Modal.Offline
 
 local state = {
 	payload = nil :: any,
 	receivedAt = 0,
 }
 
-local root, overlay, panel, dailyRow, playtimeRow, boostButton, vaultRow, offlineRow, weekendBadge
+local column, overlay, panel, dailyRow, playtimeRow, boostButton, vaultRow, offlineRow, weekendBadge
 local playtimeFill, modalOpen = nil, false
-
--- The panel is a fixed stack down to the boost button; everything below it is
--- optional (the Vault Timer disappears at the top of the ladder, the offline row
--- only exists while a grant is pending), so the tail is laid out at render time.
-local STACK_TOP = 200
-local ROW_HEIGHT, ROW_GAP = 46, 6
-local PANEL_BASE_HEIGHT = 216
+-- The optional rows, in the order layoutTail() stacks them, and the list
+-- Config.UI.SessionPanel.OptionalRows counts. Filled by buildPanel; see
+-- layoutTail for why the two have to agree.
+local TAIL_ROWS = nil :: any
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- builders
@@ -147,7 +153,7 @@ function SessionUI.showOfflineModal(offline)
 	shade.Parent = overlay
 
 	local card = frame(shade,
-		UDim2.fromOffset(UI.Modal.Offline.Width, UI.Modal.Offline.Height),
+		UDim2.fromOffset(OFFLINE.Width, OFFLINE.Height),
 		UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 	card.ZIndex = 31
 	for _, child in ipairs(card:GetDescendants()) do
@@ -157,44 +163,44 @@ function SessionUI.showOfflineModal(offline)
 	end
 
 	text(card, {
-		Size = UDim2.fromOffset(430, 34),
-		Position = UDim2.fromOffset(22, 18),
+		Size = UDim2.fromOffset(OFFLINE.ContentWidth, OFFLINE.TitleHeight),
+		Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.TitleY),
 		Font = Style.Font.title,
 		Text = "WELCOME BACK",
-		TextSize = 28,
+		TextSize = OFFLINE.TitleTextPx,
 		TextColor3 = PALETTE.accent,
 		ZIndex = 32,
 	})
 
 	text(card, {
-		Size = UDim2.fromOffset(430, 20),
-		Position = UDim2.fromOffset(22, 54),
+		Size = UDim2.fromOffset(OFFLINE.ContentWidth, OFFLINE.AwayHeight),
+		Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.AwayY),
 		Font = Style.Font.body,
 		Text = ("Away for <b>%s</b> — your factory kept running."):format(describe(offline.seconds)),
-		TextSize = 14,
+		TextSize = OFFLINE.AwayTextPx,
 		TextColor3 = PALETTE.muted,
 		ZIndex = 32,
 	})
 
 	local amount = text(card, {
-		Size = UDim2.fromOffset(430, 60),
-		Position = UDim2.fromOffset(22, 82),
+		Size = UDim2.fromOffset(OFFLINE.ContentWidth, OFFLINE.AmountHeight),
+		Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.AmountY),
 		Font = Style.Font.title,
 		Text = "0",
-		TextSize = 46,
+		TextSize = OFFLINE.AmountTextPx,
 		TextColor3 = PALETTE.gold,
 		ZIndex = 32,
 	})
 
 	text(card, {
-		Size = UDim2.fromOffset(430, 20),
-		Position = UDim2.fromOffset(22, 142),
+		Size = UDim2.fromOffset(OFFLINE.ContentWidth, OFFLINE.RateHeight),
+		Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.RateY),
 		Font = Style.Font.body,
 		Text = ("%d%% of %s/sec for %s"):format(
 			math.floor((offline.rate or 0) * 100 + 0.5),
 			Util.abbreviate(offline.perSecond or 0),
 			describe(offline.creditedSeconds or offline.seconds)),
-		TextSize = 13,
+		TextSize = OFFLINE.RateTextPx,
 		TextColor3 = PALETTE.muted,
 		ZIndex = 32,
 	})
@@ -220,20 +226,20 @@ function SessionUI.showOfflineModal(offline)
 	end
 
 	text(card, {
-		Size = UDim2.fromOffset(430, 50),
-		Position = UDim2.fromOffset(22, 166),
+		Size = UDim2.fromOffset(OFFLINE.ContentWidth, OFFLINE.CapHeight),
+		Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.CapY),
 		Font = Style.Font.body,
 		Text = capText,
-		TextSize = 13,
+		TextSize = OFFLINE.CapTextPx,
 		TextColor3 = capColor,
 		TextWrapped = true,
 		ZIndex = 32,
 	})
 
 	local collect = button(card, ("COLLECT %s"):format(Util.abbreviate(offline.earned)), PALETTE.good, {
-		Size = UDim2.fromOffset(426, UI.Button.primary),
-		Position = UDim2.fromOffset(22, 250),
-		TextSize = 22,
+		Size = UDim2.fromOffset(OFFLINE.ContentWidth, UI.Button.primary),
+		Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.ButtonY),
+		TextSize = OFFLINE.ButtonTextPx,
 		ZIndex = 32,
 	})
 
@@ -274,8 +280,8 @@ end
 
 local function buildRow(parent: Instance, y: number, height: number, title: string)
 	local row = Instance.new("Frame")
-	row.Size = UDim2.fromOffset(PANEL_W - 28, height)
-	row.Position = UDim2.fromOffset(14, y)
+	row.Size = UDim2.fromOffset(PANEL.RowWidth, height)
+	row.Position = UDim2.fromOffset(PANEL.Pad, y)
 	row.BackgroundColor3 = PALETTE.panel2
 	row.BackgroundTransparency = 0.25
 	row.BorderSizePixel = 0
@@ -283,67 +289,73 @@ local function buildRow(parent: Instance, y: number, height: number, title: stri
 	corner(row, 10)
 
 	local titleLabel = text(row, {
-		Size = UDim2.fromOffset(150, 18),
-		Position = UDim2.fromOffset(12, 8),
+		Size = UDim2.fromOffset(PANEL.ActionTextWidth, PANEL.RowTitleHeight),
+		Position = UDim2.fromOffset(PANEL.RowPad, PANEL.RowPadY),
 		Font = Style.Font.title,
 		Text = title,
-		TextSize = 15,
+		TextSize = PANEL.RowTitleTextPx,
 		TextColor3 = PALETTE.text,
 	})
 	local subLabel = text(row, {
-		Size = UDim2.fromOffset(170, 16),
-		Position = UDim2.fromOffset(12, 27),
+		Size = UDim2.fromOffset(PANEL.ActionTextWidth, PANEL.RowSubHeight),
+		Position = UDim2.fromOffset(PANEL.RowPad, PANEL.RowSubY),
 		Font = Style.Font.body,
 		Text = "",
-		TextSize = 12,
+		TextSize = PANEL.RowSubTextPx,
 		TextColor3 = PALETTE.muted,
 	})
 	-- A 66x30 pill was a 41x19 physical target at MinScale, which is a coin
 	-- flip with a thumb. Full touch height, vertically centred in whatever row
 	-- it lands in — the rows are 46, 50 and 56 tall.
 	local action = button(row, "CLAIM", PALETTE.good, {
-		Size = UDim2.fromOffset(66, UI.Button.pill),
-		Position = UDim2.fromOffset(PANEL_W - 28 - 78, math.round((height - UI.Button.pill) / 2)),
-		TextSize = 14,
+		Size = UDim2.fromOffset(PANEL.ActionWidth, UI.Button.pill),
+		Position = UDim2.fromOffset(PANEL.ActionX, math.round((height - UI.Button.pill) / 2)),
+		TextSize = PANEL.ActionTextPx,
 		Visible = false,
 	})
 
 	return { row = row, title = titleLabel, sub = subLabel, action = action }
 end
 
+--- NO POSITION, AND NO PANEL_X / PANEL_Y ANY MORE. The parent is HUD.column(),
+--- which stacks it under the status card; this file used to read
+--- Config.UI.SessionPanel.Y and HUD.lua used to read Config.UI.StatusCard.Y, and
+--- two files deriving where one column goes is the disagreement Config.UI's
+--- column comment says that table exists to prevent.
 local function buildPanel()
-	panel = frame(root, UDim2.fromOffset(PANEL_W, UI.SessionPanel.Height), UDim2.fromOffset(PANEL_X, PANEL_Y))
+	panel = frame(column, UDim2.fromOffset(PANEL.Width, PANEL.Height), UDim2.fromOffset(0, 0))
 	panel.Name = "Session"
+	panel.LayoutOrder = 2
 	panel.Visible = false
 
 	text(panel, {
-		Size = UDim2.fromOffset(150, 16),
-		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.fromOffset(PANEL.ActionTextWidth, PANEL.HeadHeight),
+		Position = UDim2.fromOffset(PANEL.Pad, PANEL.HeadPad),
 		Font = Style.Font.body,
 		Text = "SESSION",
-		TextSize = 12,
+		TextSize = PANEL.HeadTextPx,
 		TextColor3 = PALETTE.muted,
 	})
 
 	-- the weekend bonus is server-wide and invisible unless something says so
 	weekendBadge = text(panel, {
-		Size = UDim2.fromOffset(110, 16),
-		Position = UDim2.fromOffset(PANEL_W - 124, 8),
+		Size = UDim2.fromOffset(PANEL.BadgeWidth, PANEL.HeadHeight),
+		Position = UDim2.fromOffset(PANEL.BadgeX, PANEL.HeadPad),
 		Font = Style.Font.body,
 		Text = "",
-		TextSize = 12,
+		TextSize = PANEL.HeadTextPx,
 		TextXAlignment = Enum.TextXAlignment.Right,
 		TextColor3 = PALETTE.gold,
 	})
 
-	dailyRow = buildRow(panel, 28, 50, "DAILY STREAK")
-	playtimeRow = buildRow(panel, 84, 56, "PLAYTIME")
+	dailyRow = buildRow(panel, PANEL.DailyY, PANEL.DailyHeight, "DAILY STREAK")
+	playtimeRow = buildRow(panel, PANEL.PlaytimeY, PANEL.PlaytimeHeight, "PLAYTIME")
 
 	-- a thin progress bar along the bottom of the playtime row: the ladder is
 	-- the only part of this panel with a "how far to go" answer
 	local track = Instance.new("Frame")
-	track.Size = UDim2.fromOffset(PANEL_W - 52, 4)
-	track.Position = UDim2.fromOffset(12, 44)
+	track.Size = UDim2.fromOffset(PANEL.BarWidth, PANEL.BarHeight)
+	track.Position = UDim2.fromOffset(PANEL.RowPad, PANEL.BarY)
 	track.BackgroundColor3 = PALETTE.panel
 	track.BorderSizePixel = 0
 	track.Parent = playtimeRow.row
@@ -357,18 +369,19 @@ local function buildPanel()
 	corner(playtimeFill, 2)
 
 	boostButton = button(panel, "BOOST", PALETTE.gold, {
-		Size = UDim2.fromOffset(PANEL_W - 28, UI.Button.secondary),
-		Position = UDim2.fromOffset(14, 148),
-		TextSize = 18,
+		Size = UDim2.fromOffset(PANEL.RowWidth, UI.Button.secondary),
+		Position = UDim2.fromOffset(PANEL.Pad, PANEL.BoostY),
+		TextSize = PANEL.BoostTextPx,
 	})
 
 	-- Both of these are positioned by layoutTail() rather than here: they come
 	-- and go independently and a fixed y for each leaves a hole in the panel.
-	vaultRow = buildRow(panel, STACK_TOP, ROW_HEIGHT, "VAULT TIMER")
+	vaultRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "VAULT TIMER")
 	vaultRow.row.Visible = false
 	vaultRow.action.BackgroundColor3 = PALETTE.gold
 
-	offlineRow = buildRow(panel, STACK_TOP, ROW_HEIGHT, "OFFLINE TUNG")
+	offlineRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "OFFLINE TUNG")
+	TAIL_ROWS = { vaultRow, offlineRow }
 	offlineRow.row.Visible = false
 	offlineRow.action.Text = "OPEN"
 	offlineRow.action.BackgroundColor3 = PALETTE.gold
@@ -537,19 +550,34 @@ local function renderBoost(boost)
 end
 
 --- Stack whichever optional rows are showing, and size the panel to them.
+---
+--- THE PANEL'S HEIGHT HAS ONE OWNER NOW, AND IT IS THIS FUNCTION. render() set
+--- it too — Height or TallHeight, depending on whether an offline grant was
+--- pending — and then called this, which overwrote it two lines later. A write
+--- nothing can observe is a write nobody checks, and it was wrong:
+--- Config.UI.SessionPanel.TallHeight was the ONE-optional-row height, and both
+--- optional rows show at once for any returning player who has not maxed the
+--- vault. The panel reached 310 design px against a column budget measured at
+--- 258. It fitted by luck.
+---
+--- THE ARITHMETIC BELOW IS THE ARITHMETIC Config DERIVES TallHeight FROM, so a
+--- full tail produces exactly TallHeight and the number the verifier holds the
+--- column to is a number this function can actually reach. TAIL_ROWS is what
+--- OptionalRows counts: adding a third row here without adding it there is a
+--- panel that grows past the budget again, and tools/testing/specs/hud_spec.lua
+--- is what says so.
 local function layoutTail()
-	local y = STACK_TOP
-	for _, row in ipairs({ vaultRow, offlineRow }) do
+	local y = PANEL.StackTop
+	local shown = 0
+	for _, row in ipairs(TAIL_ROWS) do
 		if row.row.Visible then
-			row.row.Position = UDim2.fromOffset(14, y)
-			y += ROW_HEIGHT + ROW_GAP
+			row.row.Position = UDim2.fromOffset(PANEL.Pad, y)
+			y += PANEL.RowHeight + PANEL.RowGap
+			shown += 1
 		end
 	end
-	if y == STACK_TOP then
-		panel.Size = UDim2.fromOffset(PANEL_W, PANEL_BASE_HEIGHT)
-	else
-		panel.Size = UDim2.fromOffset(PANEL_W, y - ROW_GAP + 12)
-	end
+	local height = shown == 0 and PANEL.Height or (y - PANEL.RowGap + PANEL.TailPad)
+	panel.Size = UDim2.fromOffset(PANEL.Width, height)
 end
 
 local function render()
@@ -570,30 +598,33 @@ local function render()
 			Util.abbreviate(payload.offline.earned), describe(payload.offline.seconds))
 		offlineRow.sub.TextColor3 = PALETTE.gold
 		offlineRow.action.Visible = true
-		panel.Size = UDim2.fromOffset(PANEL_W, UI.SessionPanel.TallHeight)
 	else
 		offlineRow.row.Visible = false
-		panel.Size = UDim2.fromOffset(PANEL_W, UI.SessionPanel.Height)
 	end
 
+	-- ...and layoutTail owns the height. There were two sizes written here and
+	-- both were dead: this function set one and the next line overwrote it.
 	layoutTail()
 end
 
 function SessionUI.start()
-	root = HUD.root()
-	if not root then
+	-- HUD.column(), not HUD.root(): this panel belongs in the left column's
+	-- stack, and taking the column rather than the layer is what stops it having
+	-- an opinion about where that column starts.
+	column = HUD.column()
+	if not column then
 		-- HUD.start() runs first in Main.client.lua, but a prototype that
 		-- assumes boot order is a prototype that breaks when the boot order
 		-- changes
 		for _ = 1, 100 do
 			task.wait(0.1)
-			root = HUD.root()
-			if root then
+			column = HUD.column()
+			if column then
 				break
 			end
 		end
-		if not root then
-			warn("[Tung] SessionUI: no HUD layer to build into")
+		if not column then
+			warn("[Tung] SessionUI: no HUD column to build into")
 			return
 		end
 	end

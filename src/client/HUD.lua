@@ -11,6 +11,20 @@
 	undimmed strip down the side of it. Panels ask for HUD.root() or
 	HUD.overlay(); nothing outside this file makes a ScreenGui, and tools/
 	verify.py fails the build if anything tries.
+
+	AND FOUR DOCKED REGIONS INSIDE Root, one per corner it uses:
+
+	  Column    top-left, a UIListLayout — the status card, then whatever else
+	            belongs in the stack under it. HUD.column() hands it out.
+	  Rail      top-right, the utility icons. One item today, the invite.
+	  Toasts    top-right under the rail, derived to clear it.
+	  Actions   bottom-right, RAISED off the bottom edge by
+	            Config.UI.TouchReserve.Bottom — see buildActions.
+
+	Every one of them is a UiKit.dock call naming a corner. They were four
+	hand-written AnchorPoint/UDim2 pairs, in this file and in SessionUI, and the
+	left column's two panels were positioned by two files reading the same Config
+	keys separately.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
@@ -37,6 +51,9 @@ local UI = Config.UI
 -- `X.key` against Config, and a `local CARD = UI.StatusCard` would be a name it
 -- has no way to follow. Every number on the status card is read through here.
 local CARD = Config.UI.StatusCard
+local RAIL = Config.UI.Rail
+local TOAST = Config.UI.Toast
+local REBIRTH = Config.UI.Modal.Rebirth
 local PALETTE = UiKit.PALETTE
 
 local KIND_COLOR = {
@@ -69,7 +86,8 @@ local state = {
 }
 
 local gui, root, overlay, rootScale, overlayScale, rootPadding
-local cashLabel, multLabel, friendLabel, inviteButton
+local column, cashLabel, multLabel, termsLabel
+local inviteButton, inviteCaption
 local waveFrame, waveLabel, toastList, rebirthButton
 -- the next-purchase half of the status card: name, bar fill, "N to go". The bar's
 -- TRACK is not kept — it is drawn once and never written to again, and a module
@@ -98,11 +116,17 @@ local corner, stroke, panel, text, button =
 --- multiplies it: the multiplier itself, rebirths, KOs.
 ---
 --- THE FRIEND BONUS IS A TERM IN THAT MULTIPLIER, not a separate feature, which
---- is why it is the line directly under it rather than a panel of its own.
---- `multLabel` prints the product; this prints the part of it another human being
---- is responsible for. The ZERO state is the important one — "+0% • no friends
---- here yet" with an INVITE pill beside it: the moment the number is legible is
---- the moment the ask has a price tag on it.
+--- is why it prints on the terms line with the rebirths and the KOs rather than
+--- getting a row of its own. `multLabel` prints the product; `termsLabel` prints
+--- what went into it.
+---
+--- THERE IS NO BUTTON ON THIS CARD. There was an INVITE pill on a friend row
+--- here, and the argument for it was that the zero state — "+0% • no friends
+--- here yet" — is what turns an invite into an offer. That argument was right
+--- and it moved with the pill: the rail item carries the same number as its
+--- caption, on the control that acts on it. What is left behind is a card with
+--- nothing on it to press, which is what a surface you read at a glance should
+--- be.
 ---
 --- THE BAR IS THE NEW PART, and it is a bar AND a line of text on purpose. A bar
 --- alone cannot say what you are saving for or how much is left; the text alone
@@ -118,10 +142,13 @@ local corner, stroke, panel, text, button =
 --- their own because those Ys were derived; the rows INSIDE the panel were eight
 --- literals that had to be found by eye. This is the same fix one level down.
 local function buildStatusCard(parent: Instance)
+	-- NO POSITION. The parent is HUD.column(), which is a UIListLayout; the only
+	-- thing this card says about where it goes is that it is first.
 	local frame = panel(parent,
 		UDim2.fromOffset(CARD.Width, CARD.Height),
-		UDim2.fromOffset(UI.Margin, CARD.Y))
+		UDim2.fromOffset(0, 0))
 	frame.Name = "Status"
+	frame.LayoutOrder = 1
 
 	local icon = Instance.new("TextLabel")
 	icon.Size = UDim2.fromOffset(CARD.IconSize, CARD.IconSize)
@@ -148,30 +175,24 @@ local function buildStatusCard(parent: Instance)
 		Size = UDim2.fromOffset(CARD.TextWidth, CARD.MultHeight),
 		Position = UDim2.fromOffset(CARD.TextX, CARD.MultY),
 		Font = Style.Font.body,
-		Text = "x1.00  •  0 rebirths",
+		Text = "x1.00",
 		TextSize = CARD.MultTextPx,
 		TextColor3 = PALETTE.muted,
 	})
 
-	friendLabel = text(frame, {
-		Size = UDim2.fromOffset(CARD.FriendTextWidth, CARD.FriendTextHeight),
-		Position = UDim2.fromOffset(CARD.Pad, CARD.FriendTextY),
+	-- THE TERMS, FULL WIDTH, where the two lines above it are indented past the
+	-- coin. Everything that went into the product on the line above: the
+	-- rebirths, the KOs and the friends. See renderTerms for why one function
+	-- writes all three.
+	termsLabel = text(frame, {
+		Size = UDim2.fromOffset(CARD.ContentWidth, CARD.TermsHeight),
+		Position = UDim2.fromOffset(CARD.Pad, CARD.TermsY),
 		Font = Style.Font.body,
-		Text = "+0%  •  no friends here yet",
-		TextSize = CARD.FriendTextPx,
+		Text = "",
+		TextSize = CARD.TermsTextPx,
 		TextColor3 = PALETTE.muted,
+		TextTruncate = Enum.TextTruncate.AtEnd,
 	})
-
-	-- A PILL, from the button ladder, like every other thing in this game a thumb
-	-- has to hit. It was a 72x26 button built from literals — 16 physical pixels
-	-- tall at MinScale, on the one control whose entire job is to be pressed by a
-	-- child. UI.Button.pill is the floor the verifier already asserts.
-	inviteButton = button(frame, "INVITE", PALETTE.good, {
-		Size = UDim2.fromOffset(CARD.InviteWidth, UI.Button.pill),
-		Position = UDim2.fromOffset(CARD.InviteX, CARD.InviteY),
-		Visible = false,
-	})
-	inviteButton.Activated:Connect(HUD.promptInvite)
 
 	-- A rule, not a second card. It says "two things to read" without spending a
 	-- gutter, an outline and a shadow to say it.
@@ -311,44 +332,91 @@ local function buildWaveBanner()
 	corner(bossFill, 3)
 end
 
-local function buildToasts(parent: Instance)
-	toastList = Instance.new("Frame")
-	toastList.Name = "Toasts"
-	toastList.AnchorPoint = Vector2.new(1, 0)
-	toastList.Position = UDim2.new(1, -UI.Margin, 0, UI.Margin)
-	toastList.Size = UDim2.fromOffset(UI.Toast.Width, UI.Toast.ListHeight)
-	toastList.BackgroundTransparency = 1
-	toastList.Parent = parent
-
-	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, UI.Gap)
-	layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Parent = toastList
+--- THE LEFT COLUMN, as one region rather than as two panels that agree.
+---
+--- The status card and the session panel are one width stacked from the top
+--- margin down, and they used to say so twice: this file positioned the first
+--- from Config.UI.StatusCard.Y and SessionUI positioned the second from
+--- Config.UI.SessionPanel.Y. Two files reading two derived numbers is the exact
+--- shape of the bug Config.UI's column comment says that table exists to catch —
+--- it was one edit away at all times. Neither file is told a Y now.
+---
+--- HEIGHT IS THE COLUMN'S BUDGET, NOT ITS CONTENT. The frame is sized to
+--- ColumnBottom so a panel laid out past it is visibly past it; the layout does
+--- not clip, and the verifier holds ColumnBottom to the reference height.
+local function buildColumn(parent: Instance)
+	column = UiKit.dock(parent, {
+		name = "Column",
+		corner = "topLeft",
+		width = UI.ColumnWidth,
+		height = UI.ColumnBottom - UI.Margin,
+		direction = "Vertical",
+	})
 end
 
-local function buildActions(parent: Instance)
-	local holder = Instance.new("Frame")
-	holder.Name = "Actions"
-	holder.AnchorPoint = Vector2.new(1, 1)
-	holder.Position = UDim2.new(1, -UI.Margin, 1, -UI.Margin)
-	holder.Size = UDim2.fromOffset(UI.Action.Width, UI.Action.Height)
-	holder.BackgroundTransparency = 1
-	holder.Parent = parent
+--- THE TOP-RIGHT RAIL. One item today, and the reason it is a region rather than
+--- a button is that the toast column below it is derived from its height: a
+--- second item makes the rail wider, not taller, and nothing under it moves.
+local function buildUtilityRail(parent: Instance)
+	local rail = UiKit.dock(parent, {
+		name = "Rail",
+		corner = "topRight",
+		width = RAIL.ItemWidth,
+		height = RAIL.ItemHeight,
+		direction = "Horizontal",
+	})
 
-	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, UI.Gap)
-	layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-	layout.Parent = holder
+	local slot
+	inviteButton, slot, inviteCaption = UiKit.railItem(rail, "Invite", PALETTE.good)
+	UiKit.personPlus(slot, RAIL.GlyphSize, UiKit.INK, PALETTE.good)
+	-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
+	-- control does not exist. See refreshInvite.
+	inviteButton.Visible = false
+	inviteButton.Activated:Connect(HUD.promptInvite)
+end
+
+local function buildToasts(parent: Instance)
+	toastList = UiKit.dock(parent, {
+		name = "Toasts",
+		corner = "topRight",
+		width = UI.Toast.Width,
+		height = UI.Toast.ListHeight,
+		-- Derived to clear the rail above it. The two shared a corner before the
+		-- rail existed and the first toast of the session would have landed on
+		-- top of the invite.
+		insetY = UI.Toast.Y,
+		direction = "Vertical",
+	})
+end
+
+--- REBIRTH over LEAVE PLOT, on the right edge and RAISED OFF THE BOTTOM.
+---
+--- It was anchored (1,1) at (1,-Margin),(1,-Margin) — 200x112 in the corner the
+--- engine draws the touch jump button in, with the movement thumbstick in the
+--- corner opposite. Four out of five sessions are phones, so for four out of
+--- five players REBIRTH and JUMP were the same pixels. There is no API that
+--- returns either control's rectangle, so the clearance is a declared number:
+--- Config.UI.TouchReserve.Bottom, which is what insetY is measured from.
+local function buildActions(parent: Instance)
+	local holder = UiKit.dock(parent, {
+		name = "Actions",
+		corner = "bottomRight",
+		width = UI.Action.Width,
+		height = UI.Action.Height,
+		insetY = UI.Action.BottomGap,
+		direction = "Vertical",
+	})
 
 	rebirthButton = button(holder, "REBIRTH", PALETTE.accent, {
 		Size = UDim2.fromOffset(UI.Action.Width, UI.Button.primary),
 		LayoutOrder = 1,
 	})
+	-- No TextSize: UiKit.button is TextScaled, which overrides one. There was a
+	-- `TextSize = 16` here doing nothing, which is worse than no number at all —
+	-- it reads as the size this label is drawn at and it never was.
 	local leave = button(holder, "LEAVE PLOT", Color3.fromRGB(120, 110, 140), {
 		Size = UDim2.fromOffset(UI.Action.Width, UI.Button.secondary),
 		LayoutOrder = 2,
-		TextSize = 16,
 	})
 
 	rebirthButton.Activated:Connect(function()
@@ -365,6 +433,35 @@ end
 
 local toastOrder = 0
 
+--- Destroy the oldest cards until the column holds no more than it is sized for.
+---
+--- WITHOUT THIS, UI.Toast.ListHeight IS DECORATION. A UIListLayout does not clip
+--- and does not stop: a burst of six toasts drew two of them out of the bottom of
+--- a frame that claimed to be five cards tall, and no assertion could be built on
+--- a height the runtime treated as advisory. The column has a real ceiling now,
+--- so the clearance against the action stack below it means something.
+---
+--- Oldest first, by LayoutOrder, because that is the order the layout draws them
+--- in and the one at the top is the one that has been readable the longest.
+local function trimToasts()
+	local cards = toastList:GetChildren()
+	local live = {}
+	for _, child in ipairs(cards) do
+		if child:IsA("Frame") then
+			table.insert(live, child)
+		end
+	end
+	if #live <= TOAST.MaxCards then
+		return
+	end
+	table.sort(live, function(a, b)
+		return a.LayoutOrder < b.LayoutOrder
+	end)
+	for index = 1, #live - TOAST.MaxCards do
+		live[index]:Destroy()
+	end
+end
+
 function HUD.toast(payload)
 	if not toastList then
 		return
@@ -374,7 +471,7 @@ function HUD.toast(payload)
 	local color = KIND_COLOR[payload.kind] or PALETTE.accent
 
 	local card = Instance.new("Frame")
-	card.Size = UDim2.fromOffset(UI.Toast.Width, UI.Toast.CardHeight)
+	card.Size = UDim2.fromOffset(TOAST.Width, TOAST.CardHeight)
 	card.BackgroundColor3 = PALETTE.panel
 	card.BackgroundTransparency = 0.08
 	card.BorderSizePixel = 0
@@ -382,36 +479,37 @@ function HUD.toast(payload)
 	card.Parent = toastList
 	corner(card, 12)
 	stroke(card, color, 2)
+	trimToasts()
 
 	local bar = Instance.new("Frame")
-	bar.Size = UDim2.fromOffset(5, 50)
-	bar.Position = UDim2.fromOffset(10, 8)
+	bar.Size = UDim2.fromOffset(TOAST.BarWidth, TOAST.BarHeight)
+	bar.Position = UDim2.fromOffset(TOAST.BarInset, TOAST.Pad)
 	bar.BackgroundColor3 = color
 	bar.BorderSizePixel = 0
 	bar.Parent = card
-	corner(bar, 3)
+	corner(bar, math.floor(TOAST.BarWidth / 2))
 
 	text(card, {
-		Size = UDim2.fromOffset(280, 22),
-		Position = UDim2.fromOffset(24, 8),
+		Size = UDim2.fromOffset(TOAST.TextWidth, TOAST.TitleHeight),
+		Position = UDim2.fromOffset(TOAST.TextX, TOAST.TitleY),
 		Font = Style.Font.title,
 		Text = payload.title or "",
-		TextSize = 17,
+		TextSize = TOAST.TitleTextPx,
 		TextColor3 = color,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	})
 	text(card, {
-		Size = UDim2.fromOffset(280, 30),
-		Position = UDim2.fromOffset(24, 30),
+		Size = UDim2.fromOffset(TOAST.TextWidth, TOAST.BodyHeight),
+		Position = UDim2.fromOffset(TOAST.TextX, TOAST.BodyY),
 		Font = Style.Font.body,
 		Text = payload.body or "",
-		TextSize = 13,
+		TextSize = TOAST.BodyTextPx,
 		TextColor3 = PALETTE.muted,
 		TextWrapped = true,
 	})
 
 	-- starts one card-width plus a hair off the right edge, and slides in
-	card.Position = UDim2.fromOffset(UI.Toast.Width + UI.Gap, 0)
+	card.Position = UDim2.fromOffset(TOAST.Width + UI.Gap, 0)
 	TweenService:Create(card, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		Position = UDim2.fromOffset(0, 0),
 	}):Play()
@@ -432,14 +530,56 @@ end
 -- the friend bonus
 -- ─────────────────────────────────────────────────────────────────────────────
 
+--- What the friend bonus is worth right now, as a percentage.
+local function friendPercent(friends: number): number
+	return math.floor(math.min(friends, state.friendCap) * state.friendBonus * 100)
+end
+
 --- Visible only when there is room under the cap and the account is allowed to
 --- send invites at all. Nobody is asked to invite a fourth friend who would be
 --- worth nothing.
+---
+--- THE CAPTION IS THE OLD FRIEND ROW'S ZERO STATE, moved onto the control it was
+--- always about. With nobody here it reads what ONE friend would be worth, which
+--- is the offer; with somebody here it reads what you are already getting, in the
+--- good colour, which is the receipt. An icon with no number is a button a child
+--- presses to find out what it does.
 local function refreshInvite()
 	if not inviteButton then
 		return
 	end
 	inviteButton.Visible = state.canInvite and state.friends < state.friendCap
+	if state.friends > 0 then
+		inviteCaption.Text = ("+%d%%"):format(friendPercent(state.friends))
+		inviteCaption.TextColor3 = UiKit.INK
+	else
+		-- One friend's worth, not zero: zero is what you have, and what you have
+		-- is not what a button is offering you.
+		inviteCaption.Text = ("+%d%%"):format(friendPercent(1))
+		inviteCaption.TextColor3 = UiKit.INK
+	end
+end
+
+--- THE TERMS LINE HAS ONE WRITER, and that is the whole reason it exists as a
+--- function. It prints three things that arrive on two different remotes — the
+--- rebirths and the KOs on Stats, the friends on SocialState — and the obvious
+--- implementation is for each handler to rewrite the label with what it knows.
+--- That is a line that is correct until the two packets disagree about which
+--- arrived last, at which point it silently drops whichever term the loser owned.
+--- Both handlers write `state` and call this.
+local function renderTerms()
+	if not termsLabel then
+		return
+	end
+	local parts = {
+		("%d rebirth%s"):format(state.rebirths, state.rebirths == 1 and "" or "s"),
+		("%d KO%s"):format(state.kills, state.kills == 1 and "" or "s"),
+	}
+	if state.friends > 0 then
+		table.insert(parts, ("+%d%% friends"):format(friendPercent(state.friends)))
+	end
+	termsLabel.Text = table.concat(parts, "  •  ")
+	termsLabel.TextColor3 = state.friends > 0 and PALETTE.good or PALETTE.muted
 end
 
 --- BOTH SocialService calls YIELD, so neither may run on the signal thread —
@@ -474,16 +614,7 @@ function HUD.applySocial(payload)
 	state.friendCap = payload.cap or state.friendCap
 	state.friendBonus = payload.bonus or state.friendBonus
 
-	local capped = math.min(state.friends, state.friendCap)
-	local percent = math.floor(capped * state.friendBonus * 100)
-	if state.friends > 0 then
-		friendLabel.Text = ("+%d%%  •  %d friend%s here"):format(
-			percent, state.friends, state.friends == 1 and "" or "s")
-		friendLabel.TextColor3 = PALETTE.good
-	else
-		friendLabel.Text = "+0%  •  no friends here yet"
-		friendLabel.TextColor3 = PALETTE.muted
-	end
+	renderTerms()
 	refreshInvite()
 end
 
@@ -505,7 +636,7 @@ function HUD.showRebirthModal(cost: number)
 	shade.Parent = overlay
 
 	local card = panel(shade,
-		UDim2.fromOffset(UI.Modal.Rebirth.Width, UI.Modal.Rebirth.Height),
+		UDim2.fromOffset(REBIRTH.Width, REBIRTH.Height),
 		UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 	card.ZIndex = 21
 	for _, child in ipairs(card:GetDescendants()) do
@@ -515,23 +646,23 @@ function HUD.showRebirthModal(cost: number)
 	end
 
 	text(card, {
-		Size = UDim2.fromOffset(390, 34),
-		Position = UDim2.fromOffset(20, 18),
+		Size = UDim2.fromOffset(REBIRTH.ContentWidth, REBIRTH.TitleHeight),
+		Position = UDim2.fromOffset(REBIRTH.Pad, REBIRTH.TitleY),
 		Font = Style.Font.title,
 		Text = "SAHUR REBIRTH",
-		TextSize = 28,
+		TextSize = REBIRTH.TitleTextPx,
 		TextColor3 = PALETTE.accent,
 		ZIndex = 22,
 	})
 
 	local affordable = state.cash >= cost
 	text(card, {
-		Size = UDim2.fromOffset(390, 96),
-		Position = UDim2.fromOffset(20, 58),
+		Size = UDim2.fromOffset(REBIRTH.ContentWidth, REBIRTH.BodyHeight),
+		Position = UDim2.fromOffset(REBIRTH.Pad, REBIRTH.BodyY),
 		Font = Style.Font.body,
 		Text = ("Cost: <b>%s Tung</b>\n\nYour factory and cash are wiped, but every payout after this is permanently multiplied.\n\nNext multiplier: <b>x%.2f</b>")
 			:format(Util.abbreviate(cost), Config.Rebirth.MultiplierPerRebirth ^ (state.rebirths + 1)),
-		TextSize = 15,
+		TextSize = REBIRTH.BodyTextPx,
 		TextColor3 = affordable and PALETTE.text or PALETTE.muted,
 		TextWrapped = true,
 		ZIndex = 22,
@@ -539,16 +670,16 @@ function HUD.showRebirthModal(cost: number)
 
 	local confirm = button(card, affordable and "DO IT" or "NOT ENOUGH TUNG",
 		affordable and PALETTE.accent or PALETTE.dead, {
-			Size = UDim2.fromOffset(190, UI.Button.primary),
-			Position = UDim2.fromOffset(20, 180),
+			Size = UDim2.fromOffset(REBIRTH.ButtonWidth, UI.Button.primary),
+			Position = UDim2.fromOffset(REBIRTH.Pad, REBIRTH.ButtonY),
 			ZIndex = 22,
-			TextSize = 20,
+			TextSize = REBIRTH.ButtonTextPx,
 		})
 	local cancel = button(card, "CANCEL", Color3.fromRGB(120, 110, 140), {
-		Size = UDim2.fromOffset(190, UI.Button.primary),
-		Position = UDim2.fromOffset(220, 180),
+		Size = UDim2.fromOffset(REBIRTH.ButtonWidth, UI.Button.primary),
+		Position = UDim2.fromOffset(REBIRTH.CancelX, REBIRTH.ButtonY),
 		ZIndex = 22,
-		TextSize = 20,
+		TextSize = REBIRTH.ButtonTextPx,
 	})
 
 	confirm.Activated:Connect(function()
@@ -659,9 +790,9 @@ function HUD.applyStats(payload)
 	state.rebirthCost = payload.rebirthCost or state.rebirthCost
 	hasStats = true
 
-	multLabel.Text = ("x%.2f  •  %d rebirth%s  •  %d KO%s"):format(
-		state.multiplier, state.rebirths, state.rebirths == 1 and "" or "s",
-		state.kills, state.kills == 1 and "" or "s")
+	-- The product on one line, and what went into it on the next.
+	multLabel.Text = ("x%.2f"):format(state.multiplier)
+	renderTerms()
 
 	local next_ = cheapestAvailable()
 	if next_ then
@@ -889,11 +1020,15 @@ function HUD.start()
 	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(watchCamera)
 	watchCamera()
 
-	buildStatusCard(root)
-	-- no layer: this one hangs in the world, not on the screen
-	buildWaveBanner()
+	-- The four docked regions, then the one thing that is not on the screen at
+	-- all. Column first: buildStatusCard parents into it.
+	buildColumn(root)
+	buildStatusCard(column)
+	buildUtilityRail(root)
 	buildToasts(root)
 	buildActions(root)
+	-- no layer: this one hangs in the world, not on the screen
+	buildWaveBanner()
 
 	Net.event("Notify").OnClientEvent:Connect(function(payload)
 		if payload.kind == "rebirthPrompt" then
@@ -967,6 +1102,19 @@ end
 --- here dims the safe area too, which is what a shade is for.
 function HUD.overlay(): Frame
 	return overlay
+end
+
+--- The top-left column, for a panel that belongs in the stack under the status
+--- card. Set a LayoutOrder; do not set a Position.
+---
+--- THIS IS NOT THE ESCAPE HATCH HUD.screenGui() WAS. That accessor handed out
+--- the raw ScreenGui, which is outside the UIScale AND outside the safe-area
+--- padding, and the one-ScreenGui lint could not see anything wrong because
+--- nothing had to make a second one. This is a child of Root: strictly inside
+--- both, and strictly narrower than root() — a panel that takes it gets the
+--- column's width and the column's stacking, which is the whole point.
+function HUD.column(): Frame
+	return column
 end
 
 return HUD

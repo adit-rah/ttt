@@ -287,13 +287,173 @@ T.spec("CombatClient, UpgradeUI and SessionUI all start after HUD, in boot order
 	local root = HUD.root()
 	t:notNil(root:FindFirstChild("Hitmarker"), "CombatClient built no hitmarker into the HUD's root layer")
 	t:notNil(root:FindFirstChild("UpgradeShop"), "UpgradeUI built no shop into the HUD's root layer")
-	t:notNil(root:FindFirstChild("Session"), "SessionUI built no session panel into the HUD's root layer")
 	t:notNil(world.renderBindings["TungCameraShake"], "CombatClient bound no camera shake")
+
+	-- THE SESSION PANEL IS A GRANDCHILD NOW, not a child. It builds into
+	-- HUD.column() — the top-left UIListLayout — rather than positioning itself
+	-- on the root layer from Config.UI.SessionPanel.Y, so a non-recursive find
+	-- would report it missing. Asserted through the column rather than with a
+	-- recursive search, because WHERE it landed is the point: a panel that ended
+	-- up anywhere else in the tree is a panel that is not in the column.
+	local column = HUD.column()
+	t:notNil(column, "HUD built no left column")
+	t:notNil(column:FindFirstChild("Status"), "the status card is not in the left column")
+	t:notNil(column:FindFirstChild("Session"), "SessionUI built no session panel into the HUD's column")
 
 	-- The whole reason the three of them are here rather than in ScreenGuis of
 	-- their own.
 	t:eq(screenGuis(world), 1, "a panel built its own ScreenGui")
 	quiet(t, world, "a panel raised while starting")
+end)
+
+-- ── the invite, and the card it came off ────────────────────────────────────
+
+--- The rail's invite item, wherever it ended up.
+local function inviteItem(HUD)
+	local rail = HUD.root():FindFirstChild("Rail")
+	return rail and rail:FindFirstChild("Invite"), rail
+end
+
+T.spec("the invite is a rail item, and account policy decides whether it exists at all", function(t)
+	-- POLICY SAYS NO. CanSendGameInviteAsync can return false as well as throw,
+	-- and both answers hide the button: the audience here is largely children and
+	-- the failure they must never see is an error where a button used to be.
+	-- HANDOFF_v6 lists this path as one nobody has ever seen; it is seen here.
+	local refused = clientWorld()
+	refused.socialService.canInvite = false
+	local HUD = refused.req("HUD")
+	HUD.start()
+
+	local invite, rail = inviteItem(HUD)
+	t:notNil(rail, "HUD built no top-right rail")
+	t:notNil(invite, "the invite is not on the rail")
+	t:eq(invite.Visible, false, "a policy-refused account was still shown an invite button")
+	quiet(t, refused, "building the rail raised")
+
+	-- POLICY SAYS YES, which is the other half of a branch that had neither.
+	local allowed = clientWorld()
+	allowed.socialService.canInvite = true
+	local HUD2 = allowed.req("HUD")
+	HUD2.start()
+	local invite2 = inviteItem(HUD2)
+	t:eq(invite2.Visible, true, "an account that may invite was shown nothing")
+
+	-- THE CAPTION IS THE PRICE TAG. The friend row this replaced argued that the
+	-- ZERO state is the one that matters — the moment the number is legible is
+	-- the moment the ask has a price tag on it — and with nobody here the caption
+	-- reads what ONE friend would be worth, not the nothing you currently have.
+	local Config = allowed.req("Config")
+	local caption = invite2:FindFirstChild("Caption")
+	t:notNil(caption, "the rail item has no caption")
+	t:eq(caption.Text, ("+%d%%"):format(math.floor(Config.Social.BonusPerFriend * 100)),
+		"with no friends here the invite does not say what one would be worth")
+	quiet(t, allowed, "building the rail raised")
+end)
+
+T.spec("the status card has nothing on it to press", function(t)
+	local world = clientWorld()
+	local HUD = world.req("HUD")
+	HUD.start()
+
+	-- THE REGRESSION GUARD FOR THE PILL COMING BACK. The card carries the
+	-- balance, what multiplies it and the next purchase; it is read at a glance
+	-- and there is nothing on it to press. verify_config asserts that no ROW on
+	-- the card is a touch target's height, which is as close as Config can get to
+	-- saying this. This is the other half, and it is the half that sees a widget.
+	local card = HUD.column():FindFirstChild("Status")
+	t:notNil(card, "no status card")
+	local pressable = {}
+	for _, instance in ipairs(descend(card, {})) do
+		if instance.ClassName == "TextButton" or instance.ClassName == "ImageButton" then
+			table.insert(pressable, instance.Name)
+		end
+	end
+	t:eq(#pressable, 0, ("there is a button on the status card again: %s")
+		:format(table.concat(pressable, ", ")))
+end)
+
+-- ── the session panel's tail ────────────────────────────────────────────────
+
+--- A SessionState the panel can render, with or without its optional tail.
+---
+--- The fixed rows need every field their formatters read — a nil graceHours is a
+--- format error inside a signal handler, which the Signal mock swallows and which
+--- would read as a panel that simply did not resize.
+local function withTail(tail: boolean)
+	local payload = {
+		enabled = { rebirth = false },
+		daily = {
+			available = false, streak = 3, nextStreak = 4, dayIndex = 4, ladder = 7,
+			reward = 500, milestone = nil, graceHours = 6, resetIn = 3600,
+		},
+		playtime = { activeSeconds = 120, resetIn = 3600, rungs = {} },
+		boost = {
+			multiplier = 2, duration = 600, secondsLeft = 0, cooldownLeft = 0,
+			weekend = false, weekendMultiplier = 2,
+		},
+	}
+	if tail then
+		-- The two optional rows, both up at once: a returning player who has not
+		-- maxed the vault. capUpgrade nil is the top of the ladder, which is what
+		-- makes the Vault Timer row disappear.
+		-- Every field the welcome-back modal formats, because pushing an offline
+		-- grant is what auto-opens it. A missing one raises inside the signal
+		-- handler and the panel behind it never gets resized.
+		payload.offline = {
+			earned = 1000, seconds = 3600, creditedSeconds = 3600,
+			rate = 0.5, perSecond = 10, clipped = false, capHours = 4,
+		}
+		payload.capUpgrade = { name = "Vault Timer II", hours = 8, cost = 5000 }
+		payload.capHours = 4
+	end
+	return payload
+end
+
+T.spec("the session panel never outgrows the height the column is budgeted for", function(t)
+	local world = clientWorld()
+	local Config = world.req("Config")
+	local HUD = world.req("HUD")
+	local SessionUI = world.req("SessionUI")
+	HUD.start()
+	SessionUI.start()
+
+	local panel = HUD.column():FindFirstChild("Session")
+	t:notNil(panel, "no session panel")
+
+	-- BOTH OPTIONAL ROWS AT ONCE, which is the state the shipped numbers had
+	-- already been left behind by: TallHeight was 258, the one-row height, and
+	-- layoutTail built 310 with the Vault Timer and a pending offline grant both
+	-- up. That is every returning player who has not maxed the vault. It fitted
+	-- the screen by luck, and Config.UI.ColumnBottom was measured against the
+	-- smaller number, so nothing would have said anything until it did not fit.
+	-- PUSHED TWICE, AND THE SECOND ONE IS THE ONE THIS SPEC READS. The first
+	-- sight of a pending grant also opens the welcome-back modal, which tweens —
+	-- and mock/gui.lua claim 7 deliberately implements no TweenInfo, so that path
+	-- raises. It raises AFTER render() has sized the panel, so the first push is
+	-- still what puts both rows up; the second one finds `hadOffline` already set
+	-- and leaves the modal alone, which is what lets quiet() below mean something.
+	toClient(world, "SessionState", withTail(true))
+	world.handlerErrors()
+	toClient(world, "SessionState", withTail(true))
+
+	t:eq(panel.Visible, true, "the session panel stayed hidden after a SessionState")
+	local grown = panel.Size.Y.Offset
+	t:eq(grown, Config.UI.SessionPanel.TallHeight,
+		("both optional rows showing built a %d-px panel; TallHeight says %d")
+			:format(grown, Config.UI.SessionPanel.TallHeight))
+	-- ...and the budget the verifier holds the whole column to is the budget the
+	-- runtime can actually reach.
+	t:eq(Config.UI.Margin + Config.UI.StatusCard.Height + Config.UI.Gap + grown,
+		Config.UI.ColumnBottom,
+		"the column's tallest real layout is not the one Config.UI.ColumnBottom describes")
+
+	-- ...and with no tail at all it is back to the ordinary height, so the two
+	-- are two reachable states rather than one number and one guess.
+	toClient(world, "SessionState", withTail(false))
+	t:eq(panel.Size.Y.Offset, Config.UI.SessionPanel.Height,
+		"with no optional rows the panel is not at its ordinary height")
+
+	quiet(t, world, "a SessionState payload raised")
 end)
 
 -- ── the balance ─────────────────────────────────────────────────────────────
