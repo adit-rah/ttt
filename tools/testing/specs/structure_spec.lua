@@ -675,4 +675,105 @@ T.spec("glass stays at or above PopperCam's 0.25 occlusion threshold", function(
 	t:lt(window.transparency, 1, "a fully invisible pane is not a window")
 end)
 
+-- ── the shell as three purchases ────────────────────────────────────────────
+
+T.spec("the shell is walls, then gates, then windows, and each one needs the last", function(t)
+	-- TODO.md item 3. All three are Structure rows on the factory track, so the
+	-- ORDER IS THE TABLE ORDER — the loader derives `requires` from it and
+	-- nothing else states the dependency. INVARIANTS.md marks that [nothing],
+	-- and this is half of what closes it; the other half is a config check.
+	local w = T.world()
+	local Config = w.config
+
+	local seen = {}
+	local structures = 0
+	for _, def in ipairs(Config.Tracks.factory) do
+		if def.kind == "Structure" then
+			seen[def.structure] = def.trackOrder
+			structures += 1
+		end
+	end
+	t:eq(structures, 4, "walls, gates, windows and the roof")
+
+	t:notNil(seen.walls)
+	t:gt(seen.gates, seen.walls, "gates hang on the wall ring, so they cannot precede it")
+	t:gt(seen.windows, seen.walls, "glass is set into the bay course, so it cannot precede it")
+	t:gt(seen.roof, seen.windows, "the roof is still the last piece of the shell")
+
+	-- The chain the loader derives, end to end: each of the three names the one
+	-- before it without any of them saying so in Config.
+	t:eq(Config.ButtonById.gates.requires, "walls",
+		"the derived chain no longer runs walls -> gates")
+	t:eq(Config.ButtonById.windows.requires, "gates",
+		"the derived chain no longer runs gates -> windows")
+end)
+
+T.spec("splitting the shell costs no parts, because an unglazed bay is still a wall", function(t)
+	-- THE DESIGN DECISION, AS AN ASSERTION. `walls` could have left the bays as
+	-- holes for `windows` to fill, and that reading is refused: a purchase
+	-- called "Plot Walls" that does not keep a raider out is not walls. So a bay
+	-- is built solid and glazing restyles it.
+	--
+	-- The consequence worth pinning is that Config.shellPartCount — and
+	-- therefore the whole PartBudget argument — is measuring the same shell it
+	-- measured before the split. If someone later makes `windows` emit its own
+	-- parts, this is what says the budget has to be re-derived.
+	local w = T.world()
+	local Config = w.config
+
+	local panes, piers = 0, 0
+	for _, side in ipairs(Config.Structure.Sides) do
+		for _, segment in ipairs(Config.wallSegments(side, "ground")) do
+			if segment.kind == "solid" then
+				for _, bay in ipairs(Config.wallBays(segment.from, segment.to)) do
+					if bay.kind == "pane" then panes += 1 else piers += 1 end
+				end
+			end
+		end
+	end
+	t:gt(panes, 0, "a shell with no bays cannot demonstrate anything about glazing")
+	t:gt(piers, 0, "a bay course with no piers is one continuous window")
+
+	-- Both kinds are boxes in the same course, and shellPartCount counts a bay
+	-- as one part whichever it is — which is what makes the glass free.
+	local counted = Config.shellPartCount(false)
+	Config.Structure.Window.transparency = 1
+	t:eq(Config.shellPartCount(false), counted,
+		"the part count moved with the glass; glazing is a material change, not a part")
+end)
+
+T.spec("a plot owns the glass only while it owns the wall the glass is in", function(t)
+	-- Tycoon:hasStructure is derived from `owned` rather than stored, and this is
+	-- the reason: rebirth wipes the factory track, so it takes `walls` AND
+	-- `windows` together. A stored flag would survive it and leave a plot
+	-- claiming to be glazed with no shell to be glazed in — the same failure the
+	-- sticky cabinet gate exists to prevent, one purchase over.
+	local w = T.world()
+	local Tycoon = w.req("Tycoon")
+
+	local bare = { owned = {} }
+	t:isFalse(Tycoon.hasStructure(bare, "walls"))
+	t:isFalse(Tycoon.hasStructure(bare, "gates"))
+	t:isFalse(Tycoon.hasStructure(bare, "windows"))
+
+	local glazed = { owned = { walls = true, gates = true, windows = true } }
+	t:isTrue(Tycoon.hasStructure(glazed, "walls"))
+	t:isTrue(Tycoon.hasStructure(glazed, "gates"))
+	t:isTrue(Tycoon.hasStructure(glazed, "windows"))
+	t:isFalse(Tycoon.hasStructure(glazed, "roof"),
+		"owning the other three must not imply the roof")
+
+	-- It answers about the STRUCTURE, not the id, so a plot that owns a dropper
+	-- of the same name would not be glazed by it.
+	local partial = { owned = { walls = true, dropper1 = true } }
+	t:isTrue(Tycoon.hasStructure(partial, "walls"))
+	t:isFalse(Tycoon.hasStructure(partial, "windows"),
+		"a plot with walls and no windows is reporting glass it never bought")
+
+	-- An id that is not a button at all must not answer true for anything.
+	local junk = { owned = { not_a_button = true } }
+	t:isFalse(Tycoon.hasStructure(junk, "walls"),
+		"an owned id with no Config row is being treated as a structure")
+end)
+
 end

@@ -305,16 +305,31 @@ __MODULES["Config"] = function()
 
 		-- Buttons with no machine on the belt stand in a row down the middle of the
 		-- open floor, in purchase order, so the aisle you walk reads as a queue.
+		-- THE SPINE COLUMN MOVED FROM x = 8 TO x = 0, because it grew by two.
+		--
+		-- Splitting the shell into walls, gates and windows (TODO.md item 3) makes
+		-- this six pedestals rather than four, and the column is bounded at BOTH
+		-- ends: belt leg 1's buy-button row runs across z -47.5..-42.5 at every x
+		-- from -46.5 to 48.5, so nothing can go behind z = -38, and six at the
+		-- 14-stud pitch then reaches z = 36. At x = 8 that last pedestal lands 10
+		-- studs from OwnerSpawnAt (14, 44) — you would respawn standing on the
+		-- button that buys the storey.
+		--
+		-- Sliding the whole column to x = 0 buys the six studs: the same pedestal is
+		-- then 16.1 from the spawn. It is also, incidentally, where a spine down the
+		-- middle of an open floor belongs — x = 8 was chosen when the right half of
+		-- the plot was empty and the column was the only thing in it.
 		MiscButtons = {
-			floor2    = Vector3.new(8, 0,  22),
-			walls     = Vector3.new(8, 0, -34),
-			belt1     = Vector3.new(8, 0,  -6),
-			roof      = Vector3.new(8, 0,   8),
+			walls     = Vector3.new(0, 0, -34),
+			gates     = Vector3.new(0, 0, -20),
+			windows   = Vector3.new(0, 0,  -6),
+			belt1     = Vector3.new(0, 0,   8),
+			roof      = Vector3.new(0, 0,  22),
+			floor2    = Vector3.new(0, 0,  36),
 			-- The column runs in purchase order with the later steps nearer the
 			-- gate, so the floor goes at the near end. A button with no entry here
 			-- gets built at the plot origin, on top of the belt — buttonPosition
 			-- falls back to (0,0,0) and says nothing about it.
-
 		},
 		MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
 
@@ -1456,10 +1471,30 @@ __MODULES["Config"] = function()
 			dropValue = 12, dropRate = 1.4,
 			blurb = "tung tung tung.",
 		},
+		-- THE SHELL, IN THREE RUNGS. TODO.md item 3 asks for walls, then gates, then
+		-- windows, and they are in that order because each one is only worth
+		-- anything once the one before it is standing.
+		--
+		-- The wall arrives SOLID and CLOSED — bays included, glazed later. The
+		-- alternative reading, where `walls` leaves the bays as holes and `windows`
+		-- fills them, gives you a purchase called "Plot Walls" that does not keep a
+		-- raider out; and INSTALLERS.Structure builds a bay as a box either way, so
+		-- glazing is a material change on a part that already exists rather than
+		-- sixty new ones. The part count does not move between these three.
 		{
 			id = "walls", name = "Plot Walls", price = 1500,
 			kind = "Structure", structure = "walls",
 			blurb = "Keeps the raiders honest.",
+		},
+		{
+			id = "gates", name = "Sliding Gates", price = 1600,
+			kind = "Structure", structure = "gates",
+			blurb = "They know when you're coming.",
+		},
+		{
+			id = "windows", name = "Glazed Bays", price = 1700,
+			kind = "Structure", structure = "windows",
+			blurb = "Let the neighbours watch.",
 		},
 		-- THE SECOND FLOOR, and it is what the walls just made room for.
 		--
@@ -14654,14 +14689,20 @@ __MODULES["Installers"] = function()
 				local tag = ("%s_%s_%d"):format(storeyId, side, index)
 				if segment.kind == "solid" then
 					wallBox(self, model, "Sill_" .. tag, extent, segment.from, segment.to, floorY, sill)
+					-- A BAY IS BUILT SOLID AND GLAZED LATER. `windows` is its own
+					-- purchase now (TODO.md item 3), and the alternative — leaving
+					-- the bay as a hole until it is bought — would mean a wall that
+					-- does not keep a raider out, which is the one thing `walls` is
+					-- sold on. So an unglazed bay is literally a piece of wall, and
+					-- buying the windows restyles it rather than filling it.
+					--
+					-- That also means the part count does not move when the glass
+					-- arrives, so Config.shellPartCount and the PartBudget are
+					-- measuring the same shell they always were.
 					for bay, span in ipairs(Config.wallBays(segment.from, segment.to)) do
-						local part = wallBox(self, model,
+						wallBox(self, model,
 							("%s_%s_%d"):format(span.kind == "pane" and "Pane" or "Pier", tag, bay),
 							extent, span.from, span.to, sill, head)
-						if span.kind == "pane" then
-							part.Material = Enum.Material.Glass
-							part.Transparency = S.Window.transparency
-						end
 					end
 					wallBox(self, model, "Head_" .. tag, extent, segment.from, segment.to, head, top)
 				else
@@ -14689,13 +14730,97 @@ __MODULES["Installers"] = function()
 				extent.from, extent.to, top, TRIM_SECTION, S.WallThickness / 2)
 		end
 
-		-- THE GATE LEAVES, hung off the face `opening.face` names. They live in this
-		-- model with the walls, so release() and rebirth() take them down with
-		-- everything else — which is why GateService checks a leaf's Parent before it
-		-- moves it, rather than holding a reference and trusting it.
-		for _, leaf in ipairs(self:gateLeafSpecs(storeyId)) do
-			newPart(model, leaf.name, leaf.size, leaf.closed, WALL_COLOR, Enum.Material.WoodPlanks)
+		-- THE TWO UPGRADES THIS STOREY MAY ALREADY HAVE BEEN SOLD.
+		--
+		-- `walls`, `gates` and `windows` are three purchases and an installer runs
+		-- once, so a storey built AFTER one of them was bought has to arrive already
+		-- carrying it — the same hole `refreshRoof` exists to plug, and the reason
+		-- FloorService owns the upper ring at all. The ground ring is built at
+		-- `walls`, so these are both no-ops there; the upper ring is built whenever
+		-- the deck lands, which is after all three.
+		self:applyStructureUpgrades(model, storeyId)
+	end
+
+	--- Whether this plot owns a `Structure` button of the given kind.
+	---
+	--- Derived from `owned` rather than stored, so it survives release, rebirth and
+	--- re-claim for free — the same argument as Config.trackUnlocked. A plot that
+	--- has been rebirthed has lost `walls` too, so there is no state where the glass
+	--- outlives the wall it is set into.
+	function Tycoon:hasStructure(structure: string): boolean
+		for id in pairs(self.owned) do
+			local def = Config.ButtonById[id]
+			if def and def.kind == "Structure" and def.structure == structure then
+				return true
+			end
 		end
+		return false
+	end
+
+	--- Turn a storey's solid bays into glass. Idempotent, and it adds no parts.
+	function Tycoon:glazeStorey(model: Instance)
+		local glazed = 0
+		for _, part in ipairs(model:GetDescendants()) do
+			if part:IsA("BasePart") and part.Name:sub(1, 5) == "Pane_" then
+				part.Material = Enum.Material.Glass
+				part.Transparency = S.Window.transparency
+				glazed += 1
+			end
+		end
+		return glazed
+	end
+
+	--- Hang a storey's gate leaves, off the face `opening.face` names.
+	---
+	--- They live in the WALL's model rather than one of their own, so release() and
+	--- rebirth() take them down with everything else — which is why GateService
+	--- checks a leaf's Parent before it moves it rather than holding a reference and
+	--- trusting it. Idempotent by name: `gates` can be replayed by assign() over a
+	--- storey that already has them.
+	function Tycoon:hangGateLeaves(model: Instance, storeyId: string)
+		local hung = 0
+		for _, leaf in ipairs(self:gateLeafSpecs(storeyId)) do
+			if not model:FindFirstChild(leaf.name, true) then
+				newPart(model, leaf.name, leaf.size, leaf.closed, WALL_COLOR, Enum.Material.WoodPlanks)
+				hung += 1
+			end
+		end
+		return hung
+	end
+
+	--- Bring one storey's ring up to whatever this plot has bought.
+	function Tycoon:applyStructureUpgrades(model: Instance, storeyId: string)
+		if self:hasStructure("windows") then
+			self:glazeStorey(model)
+		end
+		if self:hasStructure("gates") then
+			self:hangGateLeaves(model, storeyId)
+		end
+	end
+
+	--- Every storey ring standing on this plot right now, as (model, storeyId).
+	---
+	--- A ring is found by its own trim bar rather than by a folder reference,
+	--- because the two rings live in DIFFERENT folders and always have: the ground
+	--- one is a `Structure_walls` model under `machines`, and the upper one is built
+	--- by FloorService into the deck's folder so that the storey arrives and leaves
+	--- as one object. `factoryFolders` is the registry both are in. This is the same
+	--- lookup GateService does for a leaf, and it is here so that `gates` and
+	--- `windows` do not have to learn where a storey lives.
+	function Tycoon:eachStoreyRing(fn)
+		local found = 0
+		for _, storey in ipairs(S.Storeys) do
+			local marker = "Trim_" .. storey.id .. "_" .. S.Sides[1]
+			for _, folder in ipairs(self.factoryFolders) do
+				local part = folder:FindFirstChild(marker, true)
+				if part and part.Parent then
+					fn(part.Parent, storey.id)
+					found += 1
+					break
+				end
+			end
+		end
+		return found
 	end
 
 	Tycoon.INSTALLERS.Structure = function(self, def, silent)
@@ -14710,6 +14835,28 @@ __MODULES["Installers"] = function()
 			-- this purchase happens around minute three, when there is nothing up there
 			-- to stand a wall on, and an installer never runs again.
 			self:buildStoreyWalls(model, S.Storeys[1].id)
+		elseif def.structure == "gates" or def.structure == "windows" then
+			-- ADDITIVE, AND ON EVERY RING THAT EXISTS — never a rebuild.
+			--
+			-- The obvious implementation is to re-emit the wall with the upgrade
+			-- included, and FloorService's header already argues at length against
+			-- exactly that: it would destroy the gate leaves GateService may be
+			-- mid-tween on and re-emit sixty parts that have not changed. Glass is a
+			-- material change on a bay that is already built and a leaf is a part
+			-- with nothing standing where it goes, so neither needs the wall touched.
+			--
+			-- `model` stays empty for these two and that is deliberate: the parts
+			-- belong to the ring they are part of, so a rebirth takes the glass down
+			-- with the wall rather than leaving panes floating in a plot with no
+			-- shell. The entry below still records the model so the object bookkeeping
+			-- is uniform.
+			self:eachStoreyRing(function(ring, storeyId)
+				if def.structure == "windows" then
+					self:glazeStorey(ring)
+				else
+					self:hangGateLeaves(ring, storeyId)
+				end
+			end)
 		elseif def.structure == "roof" then
 			self:buildRoofModel(model)
 		end

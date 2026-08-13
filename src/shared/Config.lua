@@ -273,16 +273,31 @@ Config.Layout = {
 
 	-- Buttons with no machine on the belt stand in a row down the middle of the
 	-- open floor, in purchase order, so the aisle you walk reads as a queue.
+	-- THE SPINE COLUMN MOVED FROM x = 8 TO x = 0, because it grew by two.
+	--
+	-- Splitting the shell into walls, gates and windows (TODO.md item 3) makes
+	-- this six pedestals rather than four, and the column is bounded at BOTH
+	-- ends: belt leg 1's buy-button row runs across z -47.5..-42.5 at every x
+	-- from -46.5 to 48.5, so nothing can go behind z = -38, and six at the
+	-- 14-stud pitch then reaches z = 36. At x = 8 that last pedestal lands 10
+	-- studs from OwnerSpawnAt (14, 44) — you would respawn standing on the
+	-- button that buys the storey.
+	--
+	-- Sliding the whole column to x = 0 buys the six studs: the same pedestal is
+	-- then 16.1 from the spawn. It is also, incidentally, where a spine down the
+	-- middle of an open floor belongs — x = 8 was chosen when the right half of
+	-- the plot was empty and the column was the only thing in it.
 	MiscButtons = {
-		floor2    = Vector3.new(8, 0,  22),
-		walls     = Vector3.new(8, 0, -34),
-		belt1     = Vector3.new(8, 0,  -6),
-		roof      = Vector3.new(8, 0,   8),
+		walls     = Vector3.new(0, 0, -34),
+		gates     = Vector3.new(0, 0, -20),
+		windows   = Vector3.new(0, 0,  -6),
+		belt1     = Vector3.new(0, 0,   8),
+		roof      = Vector3.new(0, 0,  22),
+		floor2    = Vector3.new(0, 0,  36),
 		-- The column runs in purchase order with the later steps nearer the
 		-- gate, so the floor goes at the near end. A button with no entry here
 		-- gets built at the plot origin, on top of the belt — buttonPosition
 		-- falls back to (0,0,0) and says nothing about it.
-
 	},
 	MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
 
@@ -1424,10 +1439,30 @@ Config.FactoryButtons = {
 		dropValue = 12, dropRate = 1.4,
 		blurb = "tung tung tung.",
 	},
+	-- THE SHELL, IN THREE RUNGS. TODO.md item 3 asks for walls, then gates, then
+	-- windows, and they are in that order because each one is only worth
+	-- anything once the one before it is standing.
+	--
+	-- The wall arrives SOLID and CLOSED — bays included, glazed later. The
+	-- alternative reading, where `walls` leaves the bays as holes and `windows`
+	-- fills them, gives you a purchase called "Plot Walls" that does not keep a
+	-- raider out; and INSTALLERS.Structure builds a bay as a box either way, so
+	-- glazing is a material change on a part that already exists rather than
+	-- sixty new ones. The part count does not move between these three.
 	{
 		id = "walls", name = "Plot Walls", price = 1500,
 		kind = "Structure", structure = "walls",
 		blurb = "Keeps the raiders honest.",
+	},
+	{
+		id = "gates", name = "Sliding Gates", price = 1600,
+		kind = "Structure", structure = "gates",
+		blurb = "They know when you're coming.",
+	},
+	{
+		id = "windows", name = "Glazed Bays", price = 1700,
+		kind = "Structure", structure = "windows",
+		blurb = "Let the neighbours watch.",
 	},
 	-- THE SECOND FLOOR, and it is what the walls just made room for.
 	--

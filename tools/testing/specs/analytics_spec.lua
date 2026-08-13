@@ -221,7 +221,7 @@ end)
 
 -- ── the shared budget ───────────────────────────────────────────────────────
 
-T.spec("the schema spends 2,340 of the experience's 8,000 combinations", function(t)
+T.spec("the schema spends 2,460 of the experience's 8,000 combinations", function(t)
 	local w = T.world()
 	local AN = w.config.Analytics
 
@@ -243,8 +243,20 @@ T.spec("the schema spends 2,340 of the experience's 8,000 combinations", functio
 
 	t:eq(total, w.config.analyticsCombinations(),
 		"the verifier and the schema disagree about what this costs, so one of them is checking the wrong number")
-	t:eq(total, 2340,
+	-- 2,340 before the shell split. `buttonId` and `milestone` are DERIVED from
+	-- the ladder, so two new factory rungs widened both sets and cost 120
+	-- combinations without anyone editing Analytics.Fields — which is the
+	-- derivation working, and exactly why this number is pinned here.
+	t:eq(total, 2460,
 		"the combination cost moved; it is a shared experience-wide budget, so this is a decision and not an implementation detail")
+
+	-- THE LIMIT THAT WILL BITE FIRST, and it is not the 8,000. `milestone` is
+	-- every button plus "none", so it grows by one for every button anyone adds
+	-- of any kind, and it is the closest set to MaxFieldValues. When it lands
+	-- there the build fails with a message about facets rather than about the
+	-- button that caused it.
+	t:lte(#AN.Fields.milestone.values, AN.MaxFieldValues,
+		"milestone is every button plus `none`; past MaxFieldValues a session that stopped at a missing rung is filed at the wrong one")
 	t:gte(AN.MaxCombinations, total)
 	t:gte(AN.MaxEventNames, #AN.Events)
 	t:gte(AN.MaxEconomySkus, #w.config.Buttons,
