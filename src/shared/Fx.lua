@@ -206,6 +206,30 @@ function Fx.applyVariant(part: BasePart, variant, opts)
 	end
 end
 
+--- The ceiling fixture that lights an enclosed storey.
+---
+--- A SurfaceLight on the BOTTOM face, and both halves of that are load-bearing.
+--- Shadows are off — at eight fixtures per storey across ten plots they have to
+--- be — and a Roblox light with shadows off ignores occluders entirely, so a
+--- PointLight hung under the mezzanine deck would shine straight through a
+--- 1.6-stud slab and light the floor above it. A SurfaceLight emits from one
+--- face into a cone and cannot leak upward at all.
+---
+--- Every number comes from Config.Structure.Lights, because tools/verify_config
+--- reads Config and nothing else: a brightness typed here is a brightness no
+--- check can ever see.
+function Fx.ceilingLight(part: BasePart)
+	local spec = Config.Structure.Lights
+	local light = Instance.new("SurfaceLight")
+	light.Face = Enum.NormalId.Bottom
+	light.Range = spec.range
+	light.Brightness = spec.brightness
+	light.Angle = spec.angle
+	light.Shadows = false
+	light.Parent = part
+	return light
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- One-shot effects
 -- ─────────────────────────────────────────────────────────────────────────────

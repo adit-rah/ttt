@@ -2365,6 +2365,47 @@ __MODULES["Config"] = function()
 			-- lives in the `line` zone, which ends at z = -8.
 			lineButtonAt = Vector3.new(0, 0, 20),
 
+			-- HOW THE STOREY ARRIVES. TODO.md item 1: "we need it to happen slower."
+			--
+			-- It was one frame — ClearAllChildren, deck, walls, ladder, done — so a
+			-- purchase you spend two thirds of the build saving for produced a
+			-- building that was simply already there. Six and a half seconds of it
+			-- going up is the difference between a transaction and an event.
+			--
+			-- THE PIECES DESCEND. A slab rising from y = 0 sweeps through every
+			-- player standing on the ground floor, and Roblox's answer to an
+			-- anchored part moving through a character is to eject or wedge them.
+			-- Arriving from `lift` studs above with collision off cannot touch
+			-- anyone; collision and transparency are set on the tween's Completed.
+			--
+			-- The ladder is LAST, and not for looks: the climb must not open until
+			-- there is a floor at the top of it. Nothing guards that but the order.
+			--
+			-- `total` is asserted equal to the last stage's finish, so this table
+			-- cannot claim a duration it does not take.
+			-- THREE STAGES, NOT FIVE, and the count is the builder's rather than a
+			-- preference: FloorService.buildDeck emits the slabs, the four posts and
+			-- every guard in one call, so "posts" and "guards" as separate stages
+			-- would be stages nothing dispatches. FloorService asserts at boot that
+			-- the ids here and the ids it raises are the same set.
+			--
+			-- `at` may overlap the stage before it but must not leave a GAP — a pause
+			-- between one stage finishing and the next starting reads as a hitch
+			-- rather than as building, and the verifier refuses it. `total` is the
+			-- nominal finish (the last stage's at + time); `stagger` extends each
+			-- stage's own tail past that by stagger x however many parts it emitted,
+			-- which Config cannot know.
+			raise = {
+				lift = 16,          -- how far above its resting place a piece starts
+				fade = 0.55,        -- transparency a piece descends at
+				total = 5.2,
+				stages = {
+					{ id = "deck",   at = 0.0, time = 2.2, stagger = 0.15 },
+					{ id = "walls",  at = 2.0, time = 2.6, stagger = 0.04 },
+					{ id = "ladder", at = 4.4, time = 0.8, stagger = 0.00 },
+				},
+			},
+
 			-- belt and machines float this far over the deck: a belt base whose
 			-- underside is coplanar with the deck's top face is two surfaces at one
 			-- Y, which z-fights
@@ -2690,6 +2731,56 @@ __MODULES["Config"] = function()
 		-- times ten plots. HANDOFF_v5 §4 has listed "part budget at full scale is
 		-- still untested" for three rounds. Config.shellPartCount() models it from
 		-- this spec and the verifier asserts the result.
+		-- ── LIGHT, BECAUSE THE GROUND FLOOR IS INDOORS ───────────────────────────
+		--
+		-- TODO.md item 1, and HANDOFF_v7 §5 listed it first: "THE GROUND FLOOR IS
+		-- NOW INDOORS." Lighting.Ambient is (0,0,0) and the mezzanine deck spans
+		-- wall face to wall face, so from the minute the storey lands the ground
+		-- floor has no sky. The only artificial light down there was a PointLight on
+		-- each buy-button pad and the variant glow on higher-tier machine cores —
+		-- and classic, oak and ash carry no light at all, so the first three
+		-- droppers and the first upgrader emit nothing.
+		--
+		-- The wall's neon "light strip" is not a light. It is Material.Neon, which
+		-- in Roblox illuminates exactly nothing; its own comment calls it "the
+		-- cheapest light in an enclosed box", which is true of the look and not of
+		-- the room.
+		--
+		-- SurfaceLight ON THE BOTTOM FACE, and that is the whole design. Every light
+		-- here runs Shadows = false — at 8 fixtures x 2 storeys x 10 plots it has
+		-- to — and a Roblox light with shadows off IGNORES OCCLUDERS ENTIRELY. A
+		-- PointLight bolted under the deck would shine straight through a 1.6-stud
+		-- slab and light the mezzanine floor above it. A SurfaceLight emits from one
+		-- face into a cone and cannot leak upward at all. SpotLight makes a pool on
+		-- the floor and leaves the walls black.
+		--
+		-- A GRID, DERIVED FROM THE WALL RING, exactly like the wall spans are.
+		-- Hand-listed coordinates are coordinates that stop being under the ceiling
+		-- the first time the plot changes size.
+		--
+		-- 3x4 AT AN INSET OF 20, and the coverage assertion chose all three numbers.
+		-- 2x4 at an inset of 30 was the first guess and it fails: it puts the
+		-- darkest floor sample 46.8 studs from its nearest fixture against a range
+		-- of 55, and a light's falloff is not a cliff. The binding point is not the
+		-- corner — it is the MIDDLE OF THE BACK WALL, which two columns leave 47
+		-- studs from either of them. A third column down the centre line fixes it.
+		--
+		-- `inset` is also what keeps the +X column off the armoury: a batten at
+		-- x = 38 spans 36.5..39.5 against a cabinet at 46..50. Asserted, not
+		-- remembered.
+		Lights = {
+			columns = 3,
+			rows = 4,
+			inset = 20,
+			batten = { width = 3, length = 24, thickness = 0.6 },
+			drop = 0.3,              -- top face sunk this far into the ceiling above
+			brightness = 2,
+			-- Roblox CLAMPS a light's Range at 60 and says nothing about it, so a
+			-- number above that reads as set and is not. Asserted below.
+			range = 55,
+			angle = 150,
+		},
+
 		PartBudget = 200,
 	}
 
@@ -2836,10 +2927,53 @@ __MODULES["Config"] = function()
 	--- reported 59 against 68 actually built and 107 against 124 — a budget asserted
 	--- 13% under the truth, which is a budget that passes right up until it matters.
 	--- Both numbers were reconciled against a count taken from the real builder.
+	--- WHERE ONE STOREY'S CEILING FIXTURES HANG, in plot-local coordinates.
+	---
+	--- Derived from the wall ring and the storey, so a fixture cannot end up
+	--- outside the room or below the machines. Component arithmetic only: the
+	--- verifier's Vector3 is a bare table with no operators.
+	---
+	--- The ceiling plane never moves. Storeys[1].clear is 20.4 and
+	--- Config.roofUnderside(false) is the same 20.4 — before the mezzanine the roof
+	--- is on that line, after it the deck's underside is — so a height derived from
+	--- the storey is right in both states and needs no rebuild when the deck lands.
+	function Config.storeyLightPositions(storeyId: string): { Vector3 }
+		local L = Config.Structure.Lights
+		local storey = Config.storey(storeyId)
+		local halfX = Config.World.PlotSize.X / 2 - 1 - Config.Structure.WallThickness / 2
+		local halfZ = Config.World.PlotSize.Z / 2 - 1 - Config.Structure.WallThickness / 2
+		local y = storey.floorY + storey.clear - L.drop - L.batten.thickness / 2
+
+		local spots = {}
+		local spanZ = halfZ - L.inset
+		for column = 1, L.columns do
+			-- evenly across X, symmetric about the centre line
+			local x = -(halfX - L.inset)
+			if L.columns > 1 then
+				x += (column - 1) * (2 * (halfX - L.inset)) / (L.columns - 1)
+			else
+				x = 0
+			end
+			for row = 1, L.rows do
+				local z = -spanZ
+				if L.rows > 1 then
+					z += (row - 1) * (2 * spanZ) / (L.rows - 1)
+				else
+					z = 0
+				end
+				table.insert(spots, Vector3.new(x, y, z))
+			end
+		end
+		return spots
+	end
+
 	function Config.shellPartCount(hasFloor: boolean): number
 		local total = 0
 		local storeys = hasFloor and { "ground", "upper" } or { "ground" }
 		for _, storey in ipairs(storeys) do
+			-- the ceiling fixtures this storey hangs. They are Parts; the Lights
+			-- themselves are not, so this counts battens and not lights.
+			total += #Config.storeyLightPositions(storey)
 			for _, side in ipairs(Config.Structure.Sides) do
 				-- the neon cap along this wall's top, and the light strip inside it
 				total += 2
@@ -3811,6 +3945,30 @@ __MODULES["Fx"] = function()
 			light.Shadows = false
 			light.Parent = part
 		end
+	end
+
+	--- The ceiling fixture that lights an enclosed storey.
+	---
+	--- A SurfaceLight on the BOTTOM face, and both halves of that are load-bearing.
+	--- Shadows are off — at eight fixtures per storey across ten plots they have to
+	--- be — and a Roblox light with shadows off ignores occluders entirely, so a
+	--- PointLight hung under the mezzanine deck would shine straight through a
+	--- 1.6-stud slab and light the floor above it. A SurfaceLight emits from one
+	--- face into a cone and cannot leak upward at all.
+	---
+	--- Every number comes from Config.Structure.Lights, because tools/verify_config
+	--- reads Config and nothing else: a brightness typed here is a brightness no
+	--- check can ever see.
+	function Fx.ceilingLight(part: BasePart)
+		local spec = Config.Structure.Lights
+		local light = Instance.new("SurfaceLight")
+		light.Face = Enum.NormalId.Bottom
+		light.Range = spec.range
+		light.Brightness = spec.brightness
+		light.Angle = spec.angle
+		light.Shadows = false
+		light.Parent = part
+		return light
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -8117,14 +8275,15 @@ __MODULES["FloorService"] = function()
 		storey as a deck rectangle, two named zones and a stairwell, and that is the
 		map — you should not have to read this file to find out what is on the floor:
 
-		  zones.line     the belt, its dropper and its hopper          THIS FILE
-		  zones.armoury  the weapons and armour cabinets, their
-		                 button columns and their shelf displays        tycoon/Props,
-		                                                               tycoon/Buttons,
-		                                                               tycoon/Installers
-		                 (they stand up here because Layout.Tracks
-		                 names floor = "mezzanine"; every position
-		                 helper takes its Y from Config.floorTopY)
+		  zones.line     the belt, its dropper and its hopper          THIS FILE,
+		                 — but only once Floors[1].lineButton is bought  on its own beat
+		  zones.landing  the stairwell, its guard, the open floor you
+		                 arrive on, and the pedestal that buys the line THIS FILE,
+		                                                               tycoon/Buttons
+		                 (the armoury USED to be here. Round 8 took
+		                 both cabinets back to the ground floor —
+		                 Layout.Tracks no longer names a `floor` — so
+		                 this half of the storey is deliberately empty)
 		  hatch          the void the ladder climbs through, and the
 		                 railing round three sides of it                THIS FILE
 		  the shell      the upper storey's own walls and the roof
@@ -8165,6 +8324,7 @@ __MODULES["FloorService"] = function()
 	local Config = Req("Config")
 	local Style = Req("Style")
 	local Tycoon = Req("Tycoon")
+	local TweenService = game:GetService("TweenService")
 
 	local FloorService = {}
 
@@ -8505,16 +8665,114 @@ __MODULES["FloorService"] = function()
 		-- so a released plot doesn't leave a deck hanging over a bare claim pad
 		tycoon:registerFactoryFolder(folder)
 
-		entry = { folder = folder, built = false }
+		entry = { folder = folder, built = false, lineBuilt = false, generation = 0, tweens = {} }
 		state[tycoon] = entry
 		return entry
 	end
 
-	function FloorService.build(tycoon)
-		local entry = stateFor(tycoon)
-		entry.folder:ClearAllChildren()
+	--- Send every part built during `fn` up to its starting pose, and tween it back
+	--- down over `stage`'s window.
+	---
+	--- WHY THE BUILDERS ARE UNTOUCHED. Staging by wrapping rather than by teaching
+	--- five builders about animation keeps the geometry in one place: buildDeck
+	--- still emits a slab where a slab goes, and this moves the finished part and
+	--- puts it back. A builder that knew about tweens would be a builder the
+	--- verifier's geometry checks are one step further from.
+	---
+	--- `generation` is checked on every resume. A build takes six seconds and
+	--- onOwnedChanged fires on purchase, release, rebirth AND re-claim, so a
+	--- teardown can and will land in the middle of one — and the folder those parts
+	--- are in has been cleared by then. Cancel-then-clear, and a stale stage returns
+	--- rather than writing to a destroyed instance.
+	local function raiseStage(entry, generation, stage, fn)
+		local before = {}
+		for _, existing in ipairs(entry.folder:GetDescendants()) do
+			before[existing] = true
+		end
 
-		FloorService.buildDeck(tycoon, entry.folder)
+		fn()
+
+		local fresh = {}
+		for _, part in ipairs(entry.folder:GetDescendants()) do
+			if not before[part] and part:IsA("BasePart") then
+				table.insert(fresh, part)
+			end
+		end
+		if #fresh == 0 then
+			return
+		end
+
+		local RAISE = FLOOR.raise
+		for index, part in ipairs(fresh) do
+			local resting = part.CFrame
+			local collide, transparency = part.CanCollide, part.Transparency
+			part.CanCollide = false
+			part.Transparency = math.max(transparency, RAISE.fade)
+			part.CFrame = resting + Vector3.new(0, RAISE.lift, 0)
+
+			local delay = stage.at + (index - 1) * stage.stagger
+			task.delay(delay, function()
+				if entry.generation ~= generation or part.Parent == nil then
+					return
+				end
+				local tween = TweenService:Create(part,
+					TweenInfo.new(stage.time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+					{ CFrame = resting, Transparency = transparency })
+				table.insert(entry.tweens, tween)
+				tween.Completed:Connect(function()
+					if entry.generation == generation and part.Parent ~= nil then
+						part.CanCollide = collide
+					end
+				end)
+				tween:Play()
+			end)
+		end
+	end
+
+	--- Stop whatever is mid-flight and forget it. Cancel BEFORE clearing:
+	--- TweenService writes a property on the next frame regardless, and writing to a
+	--- destroyed instance throws.
+	local function halt(entry)
+		entry.generation = (entry.generation or 0) + 1
+		for _, tween in ipairs(entry.tweens or {}) do
+			pcall(function()
+				tween:Cancel()
+			end)
+		end
+		entry.tweens = {}
+	end
+
+	--- One stage of the raise, by id.
+	local function stageNamed(id: string)
+		for _, stage in ipairs(FLOOR.raise.stages) do
+			if stage.id == id then
+				return stage
+			end
+		end
+		error(("[Tung] FloorService: no raise stage named %q in Config.Floors"):format(id), 2)
+	end
+
+	function FloorService.build(tycoon, animate: boolean?)
+		local entry = stateFor(tycoon)
+		halt(entry)
+		entry.folder:ClearAllChildren()
+		local generation = entry.generation
+
+		-- A REBUILD IS NOT A PURCHASE. sync() runs on release, rebirth and re-claim
+		-- as well, and a player walking back onto a plot they already own should not
+		-- watch six seconds of construction before they can climb their own stairs.
+		-- The animation is a reward for buying the thing, so only the purchase gets
+		-- it; everything else builds in one frame exactly as before.
+		local stage = animate and stageNamed or function()
+			return { at = 0, time = 0, stagger = 0 }
+		end
+		local raise = animate and raiseStage or function(_, _, _, fn)
+			fn()
+		end
+
+		raise(entry, generation, stage("deck"), function()
+			FloorService.buildDeck(tycoon, entry.folder)
+		end)
 
 		-- THE UPPER STOREY'S WALLS, AND WHY THEY ARE OURS RATHER THAN THE STRUCTURE
 		-- INSTALLER'S.
@@ -8543,7 +8801,9 @@ __MODULES["FloorService"] = function()
 		-- is declared, that lookup has to widen to the plot model.
 		local storey = storeyId()
 		if storey then
-			tycoon:buildStoreyWalls(entry.folder, storey)
+			raise(entry, generation, stage("walls"), function()
+				tycoon:buildStoreyWalls(entry.folder, storey)
+			end)
 		else
 			warn(("[Tung] floor %s has no Config.Structure.Storeys entry at y=%s, so it gets no walls")
 				:format(tostring(FLOOR.id), tostring(FLOOR.height)))
@@ -8562,7 +8822,9 @@ __MODULES["FloorService"] = function()
 		-- appeared in neither Config.ButtonById nor `owned` and every income readout
 		-- under-reported a plot that had one.)
 
-		FloorService.buildLadder(tycoon, entry.folder)
+		raise(entry, generation, stage("ladder"), function()
+			FloorService.buildLadder(tycoon, entry.folder)
+		end)
 		entry.built = true
 	end
 
@@ -8614,6 +8876,7 @@ __MODULES["FloorService"] = function()
 		-- its own model's Parent. The belt PATH stays registered — it is pure maths
 		-- and addBeltPath is idempotent by id, so a rebuild rebuilds parts rather
 		-- than stacking a second path onto the plot.
+		halt(entry)
 		entry.folder:ClearAllChildren()
 		entry.built = false
 		-- The Line folder was a child of the one just cleared, so the belt has gone
@@ -8640,8 +8903,20 @@ __MODULES["FloorService"] = function()
 		-- them in any state at all.
 		local wantsLine = unlocked and Config.floorLineBuilt(FLOOR, tycoon.owned)
 
+		-- WHETHER THIS IS A PURCHASE OR A REBUILD, and only a purchase gets the six
+		-- seconds. `sync` fires on purchase, release, rebirth and re-claim, and a
+		-- player walking back onto a plot they already own should not watch their
+		-- own building go up again before they can climb their own stairs.
+		--
+		-- The signal is the owner: on the first sync after an assign, `lastOwner` is
+		-- nil and the deck arrives instantly; on any later sync for the same owner,
+		-- the only way `unlocked` can have just become true is that they bought it.
+		local entry0 = state[tycoon]
+		local sameOwner = entry0 ~= nil and entry0.lastOwner == tycoon.owner
+		local animate = unlocked and not built and sameOwner
+
 		if unlocked and not built then
-			FloorService.build(tycoon)
+			FloorService.build(tycoon, animate)
 			-- THE BEAT THAT RAISES THE BUILDING. The roof was sitting on the ground
 			-- storey's line, which is this deck's underside; rebuilt now it sits on the
 			-- upper storey's, on top of the walls build() just put up. Without this call
@@ -8663,11 +8938,42 @@ __MODULES["FloorService"] = function()
 		elseif lineBuilt and not (wantsLine and deckStanding) then
 			FloorService.teardownLine(tycoon)
 		end
+
+		-- Stamped last, so the NEXT sync can tell a purchase from a re-claim.
+		local final = state[tycoon]
+		if final then
+			final.lastOwner = tycoon.owner
+		end
 	end
+
+	--- The stage ids this file actually raises. Named here so start() can hold the
+	--- Config table to it: a stage in Config that nothing dispatches is a duration
+	--- someone tuned that does nothing, and an id this file asks for that Config
+	--- does not have takes the whole build down at the first purchase. The verifier
+	--- reads Config and cannot see either.
+	local RAISED_STAGES = { "deck", "walls", "ladder" }
 
 	function FloorService.start()
 		if not FLOOR then
 			return
+		end
+
+		do
+			local declared, dispatched = {}, {}
+			for _, stage in ipairs(FLOOR.raise and FLOOR.raise.stages or {}) do
+				declared[stage.id] = true
+			end
+			for _, id in ipairs(RAISED_STAGES) do
+				dispatched[id] = true
+				if not declared[id] then
+					warn(("[Tung] FloorService raises stage %q, which Config.Floors[1].raise does not declare"):format(id))
+				end
+			end
+			for id in pairs(declared) do
+				if not dispatched[id] then
+					warn(("[Tung] Config.Floors[1].raise declares stage %q, which nothing raises — it is a duration that does nothing"):format(id))
+				end
+			end
 		end
 		local button = Config.ButtonById[FLOOR.button]
 		if not button then
@@ -14484,6 +14790,7 @@ __MODULES["Installers"] = function()
 	-- for a shipped number: Config.shellPartCount could not count a part whose
 	-- existence it could not see, and the budget was being asserted 13% under what
 	-- the builder emits.
+	local LIGHTS = S.Lights
 	local TRIM_SECTION = S.Trim.section
 	local TRIM_PROUD = S.Trim.proud
 
@@ -14961,6 +15268,25 @@ __MODULES["Installers"] = function()
 				S.WallThickness + TRIM_PROUD, 0)
 			neonBar(self, model, "Light_" .. storeyId .. "_" .. side, extent,
 				extent.from, extent.to, top, TRIM_SECTION, S.WallThickness / 2)
+		end
+
+		-- THE CEILING FIXTURES, and they arrive with the ring rather than with the
+		-- deck that makes them necessary.
+		--
+		-- Tying them to `floor2` would be tying them to the minute the room actually
+		-- goes dark, which reads as the sharper answer and is the wrong owner:
+		-- FloorService would then be building the GROUND storey's lights, and a
+		-- second place would have to know what a storey is. buildStoreyWalls already
+		-- runs once per storey from both callers, so this is one owner, one folder,
+		-- one clearing rule and one entry in Config.shellPartCount. The cost is
+		-- three minutes of lights-on-in-daylight between `walls` and the roof, which
+		-- is what a factory looks like anyway.
+		for index, spot in ipairs(Config.storeyLightPositions(storeyId)) do
+			local batten = newPart(model, ("Fixture_%s_%d"):format(storeyId, index),
+				Vector3.new(LIGHTS.batten.width, LIGHTS.batten.thickness, LIGHTS.batten.length),
+				self:at(spot.X, spot.Y, spot.Z), Color3.fromRGB(236, 226, 202), Enum.Material.SmoothPlastic, false)
+			batten.CanQuery = false
+			Fx.ceilingLight(batten)
 		end
 
 		-- THE TWO UPGRADES THIS STOREY MAY ALREADY HAVE BEEN SOLD.

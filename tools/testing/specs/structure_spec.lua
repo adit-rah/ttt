@@ -602,6 +602,11 @@ T.spec("shellPartCount is 2n+3 a run, grows with the floor, and is stable", func
 	local function model(hasFloor: boolean)
 		local total, runs, cuts = 6, 0, 0   -- roof slab + four columns + sign anchor
 		for _, storey in ipairs(hasFloor and { "ground", "upper" } or { "ground" }) do
+			-- The ceiling fixtures this storey hangs, modelled from columns x rows
+			-- rather than from the function that places them — so this stays a
+			-- second opinion. A grid that stopped emitting its far column would
+			-- agree with itself and disagree here.
+			total += Config.Structure.Lights.columns * Config.Structure.Lights.rows
 			for _, side in ipairs(Config.Structure.Sides) do
 				total += 2   -- this wall's neon cap, and the light strip inside it
 				for _, segment in ipairs(Config.wallSegments(side, storey)) do
