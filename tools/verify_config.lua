@@ -1870,15 +1870,34 @@ do
 			-- all, which is a silent hole rather than a crash: Belt.lua drops the
 			-- part rather than emitting a negative-length one, and Roblox would
 			-- otherwise keep the previous size.
-			check(leg.along > 2 * GUARD.corner + 6,
-				("BeltPaths.%s leg %d is %.0f studs and the guard is set back %d at each end; under %d there is no rail left to build and the leg silently gets none")
-					:format(path.id, index, leg.along, GUARD.corner, 2 * GUARD.corner + 6))
+			-- Counted per END rather than doubled: an open end takes no setback, so
+			-- a short first or last leg is legal where a short middle one is not.
+			local setbacks = ((index > 1) and 1 or 0) + ((index < #legs) and 1 or 0)
+			check(leg.along > setbacks * GUARD.corner + 6,
+				("BeltPaths.%s leg %d is %.0f studs with %d setback(s) of %d; under %d there is no rail left to build and the leg silently gets none")
+					:format(path.id, index, leg.along, setbacks, GUARD.corner, setbacks * GUARD.corner + 6))
 
-			-- The rail's own box: the leg's span pulled in at both ends, offset
-			-- laterally, on whichever side.
-			local midX = (leg.a.X + leg.b.X) / 2
-			local midZ = (leg.a.Z + leg.b.Z) / 2
-			local run = math.max(leg.along - 2 * GUARD.corner, 0)
+			-- The rail's own box, derived from THE SAME LEG-LOCAL SPAN Belt.lua
+			-- builds from rather than from an approximation of it.
+			--
+			-- This used to be the leg's length minus two setbacks, centred on the
+			-- leg's own midpoint. That was two departures from the built object at
+			-- once: the surface a rail is pulled back from is not the leg — it
+			-- starts a stud early on leg 1 and overruns its bend by half a belt
+			-- width on every leg but the last — and the setback is not applied at
+			-- both ends any more. A check that models the rail differently from
+			-- the builder is measuring a rail nobody builds, which is the whole
+			-- family of defect Config.beltHalfWidth was written to end.
+			local half = L.BeltWidth / 2
+			local fromDist = (index == 1) and -1 or (half - 0.6)
+			local toDist = (index == #legs) and leg.along or (leg.along + half)
+			-- Pulled back only where the leg meets another one; see Belt.lua.
+			local guardFrom = fromDist + (index > 1 and GUARD.corner or 0)
+			local guardTo = toDist - (index < #legs and GUARD.corner or 0)
+			local run = math.max(guardTo - guardFrom, 0)
+			local alongMid = (guardFrom + guardTo) / 2
+			local midX = leg.a.X + leg.dirX * alongMid
+			local midZ = leg.a.Z + leg.dirZ * alongMid
 			for _, side in ipairs({ -1, 1 }) do
 				local nX, nZ = -leg.dirZ * side, leg.dirX * side
 				local railAt = Vector3.new(midX + nX * railLateral, 0, midZ + nZ * railLateral)
@@ -1900,9 +1919,27 @@ do
 							math.abs(otherLeg.dirX) * oLen + oNX * L.BeltWidth, 1,
 							math.abs(otherLeg.dirZ) * oLen + oNZ * L.BeltWidth)
 
+						-- TOUCHING IS NOT CROSSING, and at the shipped numbers the
+						-- rail lands exactly on the neighbour's edge.
+						--
+						-- A rail ends `corner - half` short of its bend and the
+						-- next leg's surface begins `half` short of the same bend,
+						-- so the two meet flush precisely when corner == BeltWidth
+						-- — which is what 8 and 8 are. That is the setback doing
+						-- its job to the stud: the corner square is completely
+						-- clear and the guard is as long as it can be. The bug
+						-- this check exists for is a rail lying ACROSS the
+						-- conveyor, and a shared face is not one.
+						--
+						-- The tolerance is for the float, not for the geometry:
+						-- the rail's Z max computes to -25.999999999999996 against
+						-- a surface edge of -26, so an exact touch arrives here as
+						-- 3.6e-15 of overlap. 1e-6 studs is far under anything
+						-- that could be a real crossing and far over the noise.
+						local TOUCH = 1e-6
 						local into = boxBoxOverlap(railAt, railSize, surfaceAt, surfaceSize)
-						check(into == 0,
-							("BeltPaths.%s leg %d's %s guard rail overlaps leg %d's running surface by %.1f studs — that is a solid wall straight across the conveyor, and it is exactly the bug the old full-length rails shipped. Raise Layout.BeltGuard.corner.")
+						check(into <= TOUCH,
+							("BeltPaths.%s leg %d's %s guard rail overlaps leg %d's running surface by %.2f studs — that is a solid wall straight across the conveyor, and it is exactly the bug the old full-length rails shipped. Raise Layout.BeltGuard.corner.")
 								:format(path.id, index, side < 0 and "inboard" or "outboard", other, into))
 					end
 				end
@@ -1910,6 +1947,17 @@ do
 		end
 	end
 
+	-- ...AND IT MAY NOT BE SHORTER THAN THE OVERRUN IT IS PULLING BACK FROM.
+	-- The setback is measured off the SURFACE's span, and every leg but the last
+	-- overruns its bend by half a belt width, so a rail ends `corner - half`
+	-- short of the bend while the next leg's surface begins `half` short of it.
+	-- Under BeltWidth the rail crosses the neighbour — the deleted-rails bug
+	-- exactly — and the overlap loop above would catch it, but only on a path
+	-- whose legs happen to bend the wrong way. This says the condition once, on
+	-- the number, so it holds for a path nobody has drawn yet.
+	check(GUARD.corner >= L.BeltWidth,
+		("Layout.BeltGuard.corner is %.1f against a belt %.1f wide; a leg's surface overruns its bend by half that, so under %.1f a rail reaches across the neighbouring leg")
+			:format(GUARD.corner, L.BeltWidth, L.BeltWidth))
 	-- The setback has to clear the corner square the surfaces overrun...
 	check(GUARD.corner >= L.BeltWidth / 2 + GUARD.thickness + 2,
 		("Layout.BeltGuard.corner is %.1f against a corner square %.1f deep plus a %.1f rail; a rail that reaches the bend is a rail in the corner the drops turn through")

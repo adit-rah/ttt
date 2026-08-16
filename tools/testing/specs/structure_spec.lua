@@ -840,6 +840,63 @@ T.spec("a plot owns the glass only while it owns the wall the glass is in", func
 		"an owned id with no Config row is being treated as a structure")
 end)
 
+-- ── a storey is lit when it is covered, not when it is walled ───────────────
+
+T.spec("a storey has a ceiling only once something stands over it", function(t)
+	-- THE FIXTURES USED TO ARRIVE WITH THE WALL RING, unconditionally, and the
+	-- comment defending that quoted the cost as "three minutes of
+	-- lights-on-in-daylight between `walls` and the roof". The real curve is
+	-- walls 4.8, roof 26.4, deck 35.2 — thirty minutes of lit battens hanging at
+	-- ceiling height over a plot that had no ceiling, twenty-one of them under
+	-- open sky.
+	--
+	-- The verifier cannot see this: Config.storeyLightPositions is a pure
+	-- function of the storey and shellPartCount counts every fixture whenever it
+	-- is built, so both are identical before and after. WHEN a batten exists is
+	-- runtime, and storeyHasCeiling is the whole of the decision.
+	local w = T.world()
+	local Config = w.config
+	local Tycoon = w.req("Tycoon")
+
+	local ground = Config.Structure.Storeys[1].id
+	local upper = Config.Structure.Storeys[2].id
+	local floor2 = Config.Floors[1].button
+
+	local function plot(owned)
+		return setmetatable({ owned = owned }, { __index = Tycoon })
+	end
+
+	-- A walled plot with nothing over it is not a room yet.
+	t:isFalse(plot({}):storeyHasCeiling(ground),
+		"a bare plot is lit")
+	t:isFalse(plot({ walls = true, gates = true, windows = true }):storeyHasCeiling(ground),
+		"the whole shell is bought, there is still open sky overhead, and the battens are on")
+
+	-- The roof is what covers the ground floor first, at minute 26.
+	t:isTrue(plot({ walls = true, roof = true }):storeyHasCeiling(ground),
+		"the roof is on and the room below it is dark")
+
+	-- ...and the deck covers it too, which matters because the deck is what
+	-- makes the room genuinely dark and it lands nine minutes later.
+	local decked = {}
+	decked[floor2] = true
+	t:isTrue(plot(decked):storeyHasCeiling(ground),
+		"a storey with a deck over it is uncovered")
+
+	-- THE UPPER STOREY IS COVERED BY THE ROOF AND NOT BY ITS OWN DECK. The
+	-- comparison is floor.height > storey.floorY, so the mezzanine's 22 covers
+	-- the ground storey at floorY 0 and does not cover the storey it creates at
+	-- floorY 22. Getting this backwards would light the upper ring off the deck
+	-- it is standing on.
+	local upperOnly = {}
+	upperOnly[floor2] = true
+	t:isFalse(plot(upperOnly):storeyHasCeiling(upper),
+		"the mezzanine is lit by the deck it stands on rather than by the roof above it")
+	upperOnly.roof = true
+	t:isTrue(plot(upperOnly):storeyHasCeiling(upper),
+		"the roof is over the mezzanine and the mezzanine is dark")
+end)
+
 -- ── the shell does not survive a rebirth, and must not ──────────────────────
 
 T.spec("a rebirth takes the whole shell down and every rung of it is buyable again", function(t)

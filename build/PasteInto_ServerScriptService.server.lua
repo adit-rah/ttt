@@ -13594,10 +13594,10 @@ __MODULES["Belt"] = function()
 		-- corner square completely clear — of the neighbouring leg, and of the turn
 		-- sensor whose leading face sits just past the bend.
 		--
-		-- Two parts a side: a solid kick plate at drop height's underside and a neon
-		-- top rail floating above it. The stud of air between them is deliberate —
-		-- it sits at exactly drop-body height, so the drops are still the thing you
-		-- watch rather than something you glimpse between two walls.
+		-- Two parts a side: a solid kick plate at drop height's underside with a neon
+		-- top rail sitting flush on it, so the pair reads as one guard with a lit
+		-- cap rather than as two separate bars. The kick is sized off the rail's
+		-- centre for exactly that reason — see the note in buildGuard.
 		--
 		-- NEVER COLLIDABLE. Same contract as the end cap and the flow markers, and
 		-- the long argument is in Config.Layout.BeltGuard.
@@ -13617,9 +13617,24 @@ __MODULES["Belt"] = function()
 					COLORS.frame, Enum.Material.DiamondPlate, false)
 				kick.CanQuery = false
 
+				-- `height` IS THE BAR'S CENTRE, which is what Config says it is and
+				-- what the kick plate above is sized against: kickHeight is
+				-- `height - bar/2 - kick`, so the plate's top lands at exactly the
+				-- bar's underside and the two make one continuous guard.
+				--
+				-- This read `height + bar` and three things disagreed about one
+				-- rail. Config documented the field as the centre; the kick plate's
+				-- own arithmetic assumed the centre; the verifier's clearance check
+				-- modelled the top at `BeltY + height + bar/2`. Only the builder
+				-- added the extra section, so the rail floated 0.35 studs clear of
+				-- the plate it is supposed to sit on, and every clearance check in
+				-- verify_config was measuring a rail 0.35 studs shorter than the one
+				-- being built. The comment above this block then explained the slot
+				-- as deliberate air "at exactly drop-body height" — 0.35 studs is
+				-- not a drop, and the gap was arithmetic rather than a decision.
 				local bar = newPart(folder, ("GuardRail%d_%s"):format(index, side < 0 and "in" or "out"),
 					Vector3.new(GUARD.bar, GUARD.bar, run),
-					self:segmentCF(index, mid, side * lateral, surfaceY + GUARD.height + GUARD.bar, pathIndex),
+					self:segmentCF(index, mid, side * lateral, surfaceY + GUARD.height, pathIndex),
 					COLORS.beltLine, Enum.Material.Neon, false)
 				bar.CanQuery = false
 				bar.CastShadow = false
@@ -13639,10 +13654,24 @@ __MODULES["Belt"] = function()
 			-- belt-width past the bend so there is no separate corner plate.
 			local toDist = (index == legs) and length or (length + half)
 			surfaces[index] = buildRun(index, fromDist, toDist)
-			-- The guard is the run pulled back from BOTH ends, measured off the
-			-- surface's own span rather than off the leg's, so a leg that overruns
-			-- its bend does not drag its rails over the neighbour.
-			buildGuard(index, fromDist + GUARD.corner, toDist - GUARD.corner)
+			-- The guard is the run pulled back AT EVERY END THAT MEETS ANOTHER LEG,
+			-- measured off the surface's own span rather than off the leg's, so a
+			-- leg that overruns its bend does not drag its rails over the neighbour.
+			--
+			-- PULLED BACK AT BENDS ONLY, WHICH IS WHERE THE REASON HOLDS. This set
+			-- back both ends of every leg, and the setback's whole argument is about
+			-- a neighbour: clear the corner square the surfaces overrun by half a
+			-- belt width, and clear the turn sensor's leading face just past the
+			-- bend. Leg 1 starts behind the first dropper and the last leg ends at
+			-- the collector — no neighbour, no corner square, no sensor at either.
+			-- So the ground belt ran its surface -1.0 .. 94.0 with rail only over
+			-- 7.0 .. 86.0, and the eight bare studs at each open end were the rule
+			-- being applied where its reason had run out.
+			local startsAtBend = index > 1
+			local endsAtBend = index < legs
+			buildGuard(index,
+				fromDist + (startsAtBend and GUARD.corner or 0),
+				toDist - (endsAtBend and GUARD.corner or 0))
 		end
 		path.surfaces = surfaces
 
@@ -15591,24 +15620,23 @@ __MODULES["Installers"] = function()
 				extent.from, extent.to, top, TRIM_SECTION, S.WallThickness / 2)
 		end
 
-		-- THE CEILING FIXTURES, and they arrive with the ring rather than with the
-		-- deck that makes them necessary.
+		-- THE CEILING FIXTURES ARRIVE WITH THE CEILING, not with the ring.
 		--
-		-- Tying them to `floor2` would be tying them to the minute the room actually
-		-- goes dark, which reads as the sharper answer and is the wrong owner:
-		-- FloorService would then be building the GROUND storey's lights, and a
-		-- second place would have to know what a storey is. buildStoreyWalls already
-		-- runs once per storey from both callers, so this is one owner, one folder,
-		-- one clearing rule and one entry in Config.shellPartCount. The cost is
-		-- three minutes of lights-on-in-daylight between `walls` and the roof, which
-		-- is what a factory looks like anyway.
-		for index, spot in ipairs(Config.storeyLightPositions(storeyId)) do
-			local batten = newPart(model, ("Fixture_%s_%d"):format(storeyId, index),
-				Vector3.new(LIGHTS.batten.width, LIGHTS.batten.thickness, LIGHTS.batten.length),
-				self:at(spot.X, spot.Y, spot.Z), Color3.fromRGB(236, 226, 202), Enum.Material.SmoothPlastic, false)
-			batten.CanQuery = false
-			Fx.ceilingLight(batten)
-		end
+		-- This block used to build them unconditionally, and the comment defended it
+		-- on ownership: tying them to `floor2` would put FloorService in charge of
+		-- the GROUND storey's lights and a second module would have to know what a
+		-- storey is. That argument is still right and it is still honoured — this
+		-- module owns them, one folder, one clearing rule, one entry in
+		-- shellPartCount. What was wrong was the price it quoted: "three minutes of
+		-- lights-on-in-daylight between `walls` and the roof". The real curve is
+		-- walls at 4.8, roof at 26.4, deck at 35.2, so it was thirty minutes of lit
+		-- battens hanging at ceiling height over a plot with no ceiling under the
+		-- open sky — twenty-one of them before anything was overhead at all.
+		--
+		-- So the ownership stays and the TIMING moves: refreshStoreyLights below is
+		-- idempotent and driven by whether the storey is covered, and refreshRoof
+		-- calls it on both events that can change that answer.
+		self:refreshStoreyLights(model, storeyId)
 
 		-- THE TWO UPGRADES THIS STOREY MAY ALREADY HAVE BEEN SOLD.
 		--
@@ -15619,6 +15647,63 @@ __MODULES["Installers"] = function()
 		-- `walls`, so these are both no-ops there; the upper ring is built whenever
 		-- the deck lands, which is after all three.
 		self:applyStructureUpgrades(model, storeyId)
+	end
+
+	--- Whether anything stands over `storeyId` — a deck, or failing that the roof.
+	---
+	--- DERIVED, LIKE hasStructure, so it survives release, rebirth and re-claim for
+	--- free and needs no stored flag. A storey is covered by the floor above it if
+	--- that floor has been bought; the topmost storey is covered by the roof. The
+	--- ground storey is therefore lit by the roof at minute 26 and stays lit when
+	--- the deck lands over it at 35, which is the same ceiling plane either way —
+	--- Config.storeyLightPositions says so explicitly, and it is why the fixtures
+	--- never move and this is purely a question of when they exist.
+	function Tycoon:storeyHasCeiling(storeyId: string): boolean
+		local storey = Config.storey(storeyId)
+		-- Any owned floor standing ABOVE this storey covers it. The comparison is
+		-- against `floorY` rather than against a named storey id, so a third storey
+		-- would slot in without this function learning about it: the mezzanine's
+		-- height of 22 is over the ground storey's floorY of 0 and is NOT over the
+		-- upper storey's own floorY of 22, which is exactly the answer wanted in
+		-- both cases.
+		for _, floor in ipairs(Config.Floors) do
+			if floor.height > storey.floorY and self.owned[floor.button] == true then
+				return true
+			end
+		end
+		return self:hasStructure("roof")
+	end
+
+	--- Build or remove `storeyId`'s ceiling battens to match whether it is covered.
+	---
+	--- IDEMPOTENT IN BOTH DIRECTIONS, because it is called from a purchase, from a
+	--- deck landing and from a deck being torn down, and because buildStoreyWalls
+	--- calls it for a ring that may be built after the roof already exists. Counted
+	--- by Config.shellPartCount as part of the storey, which is unchanged: every
+	--- fixture still arrives, just later.
+	function Tycoon:refreshStoreyLights(model: Instance, storeyId: string)
+		local wanted = self:storeyHasCeiling(storeyId)
+		local prefix = ("Fixture_%s_"):format(storeyId)
+		local standing = 0
+		for _, part in ipairs(model:GetChildren()) do
+			if part.Name:sub(1, #prefix) == prefix then
+				if wanted then
+					standing += 1
+				else
+					part:Destroy()
+				end
+			end
+		end
+		if not wanted or standing > 0 then
+			return
+		end
+		for index, spot in ipairs(Config.storeyLightPositions(storeyId)) do
+			local batten = newPart(model, ("Fixture_%s_%d"):format(storeyId, index),
+				Vector3.new(LIGHTS.batten.width, LIGHTS.batten.thickness, LIGHTS.batten.length),
+				self:at(spot.X, spot.Y, spot.Z), Color3.fromRGB(236, 226, 202), Enum.Material.SmoothPlastic, false)
+			batten.CanQuery = false
+			Fx.ceilingLight(batten)
+		end
 	end
 
 	--- Whether this plot owns a `Structure` button of the given kind.
@@ -15739,6 +15824,16 @@ __MODULES["Installers"] = function()
 			end)
 		elseif def.structure == "roof" then
 			self:buildRoofModel(model)
+			-- THE MOMENT THE GROUND STOREY GAINS A CEILING. Its ring was built at
+			-- `walls` some twenty minutes ago and came up unlit, because until now
+			-- there was nothing over it to hang a fixture under. Every storey that
+			-- is standing gets re-answered rather than just this one: the upper ring
+			-- cannot exist yet today (floor2 waits on this button), and hard-coding
+			-- that assumption is how the roof came to need refreshRoof in the first
+			-- place.
+			self:eachStoreyRing(function(ring, storeyId)
+				self:refreshStoreyLights(ring, storeyId)
+			end)
 		end
 
 		local entry = self.objects[def.id]
@@ -15807,9 +15902,22 @@ __MODULES["Installers"] = function()
 		self:updateSign()
 	end
 
-	--- Lifts an already-built roof onto the storey that exists now. Called when the
-	--- floor lands under it.
+	--- Lifts an already-built roof onto the storey that exists now, and re-answers
+	--- which storeys are covered. Called when the floor lands under it, when it is
+	--- torn down, and when the roof itself is bought.
+	---
+	--- THE LIGHTS RIDE ALONG BECAUSE IT IS THE SAME EVENT. Both callers of this are
+	--- "something above a storey changed", which is precisely the question
+	--- storeyHasCeiling answers — so putting the fixture refresh anywhere else would
+	--- be a second subscription to one event. Note the ordering against the early
+	--- return: the lights are refreshed FIRST and unconditionally, because a plot
+	--- that owns no roof still has a storey whose deck may have just landed, and on
+	--- that path `self.objects.roof` is nil and the old body did nothing at all.
 	function Tycoon:refreshRoof()
+		self:eachStoreyRing(function(ring, storeyId)
+			self:refreshStoreyLights(ring, storeyId)
+		end)
+
 		local entry = self.objects.roof
 		local model = entry and entry.machine
 		if model and model.Parent then
