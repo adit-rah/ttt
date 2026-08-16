@@ -4,8 +4,6 @@
 *.rbxlx.lock
 /out/
 
-# this is for me :D
-docs/ideas/
 # python bytecode from tools/
 __pycache__/
 *.pyc

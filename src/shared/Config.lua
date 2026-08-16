@@ -1241,16 +1241,12 @@ Config.Rebirth = {
 	-- doubled endgame income — the round that shipped the generator had to come
 	-- back and edit this number to keep its own comment true.
 	--
+	-- design:D-05 — why the pad is a rung rather than a number, and what the
+	-- five-rungs-still-unbought property is for.
+	--
 	-- PriceRung = 6 means the pad costs what the 6th most expensive thing on
-	-- the spine costs, which buys a property no constant can:
-	--
-	--   the minute you can afford the rebirth is at most the minute you could
-	--   afford that rung, so the FIVE rungs above it are provably still
-	--   unbought when the pad lights up.
-	--
-	-- That is "the session ends on a choice rather than on being finished",
-	-- guaranteed by construction rather than by luck, and it re-derives itself
-	-- under whatever prices the ladder lands on next.
+	-- the spine costs, so the minute you can afford the rebirth is at most the
+	-- minute you could afford that rung.
 	--
 	-- IT WAS 4, AND IT MOVED BECAUSE THE SPINE GREW BY TWO. `mezz_line` and
 	-- `mezz_dropper1` are now the two most expensive things on it (TODO.md item

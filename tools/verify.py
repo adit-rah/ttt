@@ -4,7 +4,7 @@ verify.py — full pre-flight check for Tung Tung Tycoon.
 
     python3 tools/verify.py [--luau /path/to/luau] [--analyze /path/to/luau-analyze]
 
-Runs ELEVEN passes, in order. Keep this list and main() in step -- it has said
+Runs TWELVE passes, in order. Keep this list and main() in step -- it has said
 five, seven and eight while main() ran nine, and a pass count nobody can trust
 is a pass somebody can quietly delete.
 
@@ -17,9 +17,10 @@ is a pass somebody can quietly delete.
   6. mixin folders a split class's aggregator requires every file in its folder
   7. ui geometry   no card-scale literal in src/client; it comes from Config.UI
   8. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
-  9. config        the integrity suite in tools/verify_config.lua
- 10. specs         the runtime specs in tools/testing, via tools/test.py
- 11. packed build  regenerates build/ and syntax-checks the output
+  9. design refs   every design:D-NN cited in source names a row in DECISIONS.md
+ 10. config        the integrity suite in tools/verify_config.lua
+ 11. specs         the runtime specs in tools/testing, via tools/test.py
+ 12. packed build  regenerates build/ and syntax-checks the output
 
 Exit code is non-zero if anything fails, so it drops straight into CI.
 """
@@ -269,6 +270,62 @@ def check_single_screengui(files):
             print(f"      {DIM}{text}{RESET}")
         return False
     print(f"  {GREEN}ok{RESET}  {SCREENGUI_OWNER} owns the only ScreenGui, so there is one UIScale")
+    return True
+
+
+# A CITED DESIGN DECISION MUST BE A DECISION THAT EXISTS.
+#
+# Product decisions live in GitHub issues under #72 and are mirrored in
+# docs/design/. Code that needs to explain why a value is what it is cites the
+# decision and stops:
+#
+#     -- design:D-05 -- the 6th most expensive spine price, rounded to 2 s.f.
+#     PriceRung = 6,
+#
+# docs/design/DECISIONS.md is the index every id resolves against. A citation
+# with no row behind it is the failure that actually happens -- a decision gets
+# split, renumbered or superseded and the reader following the id lands nowhere
+# -- so that one is caught. Whether a citation is APT cannot be checked by
+# anything, and this pass does not pretend to.
+#
+# It reads docs/, so it is a lint over text and costs nothing. Scope is src/ and
+# tools/: the verifier's own assertion messages carry more product policy than
+# any single source file does, and a dangling id there is worse, because it is
+# read at the moment somebody is arguing with the number.
+DECISIONS_INDEX = "docs/design/DECISIONS.md"
+DESIGN_REF = re.compile(r"design:(D-\d+)")
+DESIGN_ROW = re.compile(r"^\|\s*`(D-\d+)`\s*\|", re.M)
+
+
+def check_design_refs(files):
+    step("design refs")
+    index = ROOT / DECISIONS_INDEX
+    if not index.is_file():
+        print(f"  {RED}missing{RESET} {DECISIONS_INDEX} — every design:D-NN resolves against it")
+        return False
+    known = set(DESIGN_ROW.findall(index.read_text(encoding="utf-8")))
+    if not known:
+        print(f"  {RED}no rows{RESET} in {DECISIONS_INDEX} — the table shape changed and this lint went blind")
+        return False
+
+    findings = []
+    cited = set()
+    scanned = list(files) + sorted((ROOT / "tools").rglob("*.lua")) + sorted((ROOT / "tools").glob("*.py"))
+    for path in scanned:
+        rel = path.relative_to(ROOT).as_posix()
+        if rel == "tools/verify.py":
+            continue  # the examples in this file's own comments are not citations
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for ref in DESIGN_REF.findall(line):
+                cited.add(ref)
+                if ref not in known:
+                    findings.append((rel, number, ref))
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for rel, number, ref in findings:
+            print(f"    {rel}:{number} cites {ref}, which is not a row in {DECISIONS_INDEX}")
+        return False
+    print(f"  {GREEN}ok{RESET}  {len(cited)} citation(s) against {len(known)} decision(s) in {DECISIONS_INDEX}")
     return True
 
 
@@ -729,6 +786,7 @@ def main():
         check_mixin_folders(),
         check_ui_geometry(files),
         check_single_screengui(files),
+        check_design_refs(files),
         check_config(args.luau),
         # The config suite must report first: a broken Config makes every spec
         # fail in a confusing way, and the useful error is the one upstream.

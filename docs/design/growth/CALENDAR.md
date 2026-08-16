@@ -1,7 +1,9 @@
 # The update calendar
 
-`GROWTH-TODO.md` item 9. The ops half — the code half (weekend double cash,
-milestone codes) ships as PRs in this round.
+Written for round 6's growth half against a brief that no longer exists
+(`GROWTH-TODO.md`, deleted once it was spent — the record is
+`../../dev/HANDOFF_v6.md` §G1). The ops half; the code half (weekend double
+cash, milestone codes) shipped as PRs in that round.
 
 ---
 
