@@ -83,8 +83,8 @@ local function defaultProfile()
 		armorTier = 1,
 		kills = 0,
 		playtime = 0,
-		-- SESSION fields. reconcile() merges a saved value onto this default
-		-- only when the TYPES match, so adding a field here is what makes every
+		-- invariant: SESSION fields. reconcile() merges a saved value onto this
+		-- default only when the TYPES match, so adding a field here is what makes every
 		-- existing save keep loading: an old profile simply arrives with the
 		-- default. Every one of these must ALSO appear in the hand-listed
 		-- payload in save() below, or it is dropped on the way out.

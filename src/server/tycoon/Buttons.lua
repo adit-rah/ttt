@@ -80,24 +80,18 @@ function Tycoon:buttonPosition(def): Vector3
 	return MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
 end
 
---- Where a buy button's pedestal actually stands, height included.
+--- invariant: where a buy button's pedestal actually stands, HEIGHT INCLUDED.
 ---
---- This exists because the conversion from "button position" to "CFrame" was
---- written twice, and both copies threw the Y away — `self:at(pos.X, 0, pos.Z)`.
---- `buttonPosition` has always returned the right height for a machine on any
---- belt path (pointOnLeg bakes in `path.y`), so the floors prototype could
---- never have a purchasable thing standing on it: everything it priced would
---- have been built on the ground floor underneath the deck. One line, and it
---- was the single blocker for a real second storey.
+--- The conversion from "button position" to "CFrame" was written twice and both
+--- copies threw the Y away — `self:at(pos.X, 0, pos.Z)`. Nothing purchasable
+--- could then stand on an upper floor: everything would be built on the ground
+--- underneath the deck. One line, and it was the single blocker for a real
+--- second storey.
 ---
---- IT STOPPED BEING A NO-OP. This used to read "no-op today: every source of a
---- button position returns Y = 0 while there is one ground-level path". Two of the
---- three sources answer with a height now — Config.trackButtonPosition takes its Y
---- from Config.floorTopY, and both side tracks name floor = "mezzanine", so the
---- weapons and armour columns (nine pads, five and four) are built on the deck at
---- y = 22 by this line and nothing else. Layout.MiscButtons is still all on the
---- floor, and the mezzanine's own belt buttons come through pointOnLeg, which bakes
---- in path.y.
+--- All three sources of a button position can answer with a height.
+--- Config.trackButtonPosition takes its Y from Config.floorTopY (0 today, since
+--- neither side track names a `floor`); Layout.MiscButtons is all ground level;
+--- and belt buttons come through pointOnLeg, which bakes in `path.y`.
 ---
 --- The Studio-only half is the assertion in buildButtons below: whether the pad
 --- that got built is where buttonPosition said. No config check can reach it.
@@ -235,33 +229,22 @@ function Tycoon:buildButtons()
 	end
 end
 
---- Whether the floor a button stands on has actually been built.
+--- invariant: whether the floor a button stands on has actually been built.
+--- Buttons on an unbuilt floor are HIDDEN, and appear with the deck.
 ---
 --- A previewed button is a dimmed pad with a ghost of its machine standing
---- where it will go, which is the right answer on the ground floor and a
---- terrible one twenty-two studs up in open air: before the deck exists there
---- is nothing under it, so it reads as a bug rather than as a plan. Buttons on
---- an unbuilt floor are HIDDEN, and appear with the deck.
+--- where it will go. That is the right answer on the ground floor and a
+--- terrible one twenty-two studs up in open air, where there is nothing under
+--- it and it reads as a bug rather than as a plan.
 ---
---- TWO WAYS A BUTTON NAMES ITS FLOOR, and this used to read only the first. A belt
---- machine names it by `path`; a side-track button names it on its track's
---- Layout.Tracks entry, which is how the weapons and armour columns came to stand
---- on the mezzanine.
+--- TWO WAYS A BUTTON NAMES ITS FLOOR, and both must be read. A belt machine
+--- names it by `path`; a side-track button names it on its track's
+--- Layout.Tracks entry.
 ---
---- THE COINCIDENCE THIS PARAGRAPH USED TO WARN ABOUT IS GONE, AND SO IS THE
---- THING IT WAS COVERING. It said the nine cabinet pads at y = 22 were kept
---- honest only by luck, because Config.TrackUnlock gated both cabinets on
---- `floor2` — the same button that builds the deck — so `trackUnlocked`
---- happened to answer the question this function is asking. Round 8 moved the
---- cabinets back to the ground floor and the gate to `dropper3`, so neither
---- weapons nor armour carries a `floor` on its Layout.Tracks entry any more:
---- Config.floorTopY(nil) is 0, the pads are at ground level, and this function
---- returning true early for a cabinet button is now correct rather than lucky.
---- The warning stood for two rounds after it stopped being true.
----
---- What it warned about is still worth knowing if a track ever goes back
---- upstairs: `floor` on a Layout.Tracks entry is the only thing that would tie
---- those pads to a deck, and nothing derives it from the gate.
+--- IF A TRACK EVER GOES BACK UPSTAIRS: `floor` on a Layout.Tracks entry is the
+--- only thing that ties those pads to a deck, and nothing derives it from the
+--- track's gate. Both cabinets are on the ground floor today, so neither
+--- carries one and Config.floorTopY(nil) is 0.
 function Tycoon:floorBuiltFor(def): boolean
 	-- A LINE BUTTON WAITS ON THE DECK IT STANDS ON. Its pedestal is at y = 22,
 	-- so before the storey lands it would hang in open air over the aisle.
@@ -433,13 +416,10 @@ function Tycoon:refreshButtons()
 	for id, entry in pairs(self.objects) do
 		local def = entry.def
 		local owned = self.owned[id] == true
-		-- A gated track is HIDDEN, not previewed, and it takes no ghost: the
-		-- point of gating the cabinets is that the right half of the plot is
-		-- empty ground until you have earned it, and nine dimmed pads with
-		-- ghost bats standing on them is the same wall of labels with the
-		-- brightness turned down.
-		-- Config.buttonUnlocked is DELIBERATELY NOT IN `standing`, and the
-		-- difference matters. A false `standing` unparents the holder, which is
+		-- design:D-03 — a gated track is HIDDEN, not previewed, and takes no
+		-- ghost.
+		--
+		-- invariant: Config.buttonUnlocked is DELIBERATELY NOT IN `standing`. A false `standing` unparents the holder, which is
 		-- right for a gated cabinet — bare ground until you have earned it. It
 		-- would be wrong for `floor2`, whose pedestal is a hand-placed position
 		-- at the near end of the misc column in Layout.MiscButtons: hiding it
@@ -479,14 +459,15 @@ function Tycoon:refreshButtons()
 			entry.stroke.Color = COLORS.preview
 			entry.stepLabel.TextColor3 = COLORS.preview
 			entry.titleLabel.TextColor3 = COLORS.preview
-			-- Name the thing you have to buy, not an ordinal. "step N" meant
+			-- design:D-09 — name the thing you have to buy, not an ordinal. "step N" meant
 			-- one thing when there was one chain; with three tracks the global
 			-- order is meaningless on a pedestal and the per-track one is
 			-- ambiguous across cabinets. The requirement is right here, so say
 			-- it: "locked — buy Oak Sahur Bat first".
 			--
-			-- THE BUTTON GATE IS CHECKED FIRST, and that ordering is the whole
-			-- reason this reads as an instruction instead of a dead end. For
+			-- invariant: THE BUTTON GATE IS CHECKED FIRST, and that ordering is
+			-- the whole reason this reads as an instruction rather than a dead
+			-- end. For
 			-- `floor2` the chain requirement is `upgrader4`, which the player
 			-- has just bought — so walking `requirementsOf` alone finds nothing
 			-- unmet, leaves `blocker` nil, and the pad says the bare word

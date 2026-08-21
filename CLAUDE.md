@@ -9,6 +9,49 @@ for whoever has to change it.
 six handoff documents you would otherwise have to read to find out what is
 load-bearing. The handoffs are history; those two are the contract.
 
+**Read `docs/design/README.md` before you write a comment explaining why.** The
+product decisions are not in this repo's code; they are in
+[#72](https://github.com/adit-rah/ttt/issues/72) and its ten sub-issues, mirrored
+in `docs/design/`.
+
+---
+
+## The one rule about what goes where
+
+> **A comment may say what the code does and what will break if you change it.
+> It may not say why the game should be this way.**
+
+Every paragraph in this project has exactly one home:
+
+| Destination | What goes there |
+| --- | --- |
+| an issue under [#72](https://github.com/adit-rah/ttt/issues/72), then `docs/design/` | product intent — what the player should experience, and why |
+| `docs/dev/INVARIANTS.md` | an engineering constraint, carrying the marker naming what enforces it |
+| `docs/dev/HANDOFF_v*.md` | history — what a value used to be, and why it moved |
+| the source file | mechanism — what this value *does*, in a line or two |
+
+The test is whether the sentence would survive a rewrite of the code. "The pad
+costs what the 6th most expensive spine rung costs" describes this
+implementation and stays. "The session should end on a choice rather than on
+being finished" is true of the game however it is built — that is a design
+decision, and it lives in `D-05`.
+
+Where a value is what it is *because of* a decision, cite it and stop:
+
+```lua
+-- design:D-05 — the 6th most expensive spine price, rounded to 2 s.f.
+PriceRung = 6,
+```
+
+`docs/design/DECISIONS.md` is the index every `D-NN` resolves against, and the
+verifier fails the build on one that does not appear there.
+
+This rule exists because the intent was real and homeless, so it went to the
+four places that would take it: code comments (`Config.lua` was 53% comment),
+the verifier's assertion message strings, a gitignored research file, and two
+orphaned documents nothing linked to. A decision you can only find by reading a
+Lua table is a decision nobody can review, disagree with, or supersede.
+
 ---
 
 ## The three commands
@@ -93,6 +136,7 @@ third value neither round had guessed.
 
 | Want to… | Change | What catches a mistake |
 | --- | --- | --- |
+| decide something about the game rather than the code | a sub-issue of [#72](https://github.com/adit-rah/ttt/issues/72), then its `docs/design/` mirror and a row in `DECISIONS.md` — **never a comment** | the design-reference lint refuses a `design:D-NN` with no row behind it; nothing catches intent written into a comment except a reader |
 | add a dropper / upgrader / bat tier | a row in the relevant `Config.*Buttons` table | duplicate ids, dangling `requires`, slot collisions, upstream upgraders |
 | retune the curve | `price` values | the economy simulation: build length band, per-purchase waits, the floor's position |
 | move the belt | `Config.Layout.BeltStart/BeltCorner/BeltEnd` | `inPlot`, machine spacing, trigger dwell, drop budget |

@@ -320,7 +320,8 @@ end
 -- the ladder
 -- ─────────────────────────────────────────────────────────────────────────────
 
---- WHERE THE TRUSS STANDS: inside the hatch, against its ARRIVAL lip.
+--- invariant: WHERE THE TRUSS STANDS — inside the hatch, against its ARRIVAL
+--- lip.
 ---
 --- Derived from the void it climbs through rather than stated beside it, so the
 --- truss and the hole in the floor cannot disagree about where the climb is.
@@ -507,14 +508,14 @@ function FloorService.build(tycoon, animate: boolean?)
 		FloorService.buildDeck(tycoon, entry.folder)
 	end)
 
-	-- THE UPPER STOREY'S WALLS, AND WHY THEY ARE OURS RATHER THAN THE STRUCTURE
+	-- invariant: THE UPPER STOREY'S WALLS ARE OURS, NOT THE STRUCTURE
 	-- INSTALLER'S.
 	--
 	-- They are structure, and INSTALLERS.Structure builds the ground ring from this
-	-- same call. But the ring that stands on THIS deck cannot come from there: the
-	-- walls button is bought around minute three and this floor around minute six,
-	-- so at walls-install time there is no deck to stand an upper wall on, and
-	-- nothing re-runs an installer. That is exactly the hole the ROOF had to grow
+	-- same call. But the ring that stands on THIS deck cannot come from there:
+	-- `walls` is bought long before the deck exists, so at walls-install time
+	-- there is nothing to stand an upper wall on, and nothing re-runs an
+	-- installer. That is exactly the hole the ROOF had to grow
 	-- refreshRoof to cover, and giving the walls the same treatment would mean
 	-- rebuilding the ground ring to add a storey above it — destroying the gate
 	-- leaves GateService may be mid-tween on and re-emitting sixty parts that have

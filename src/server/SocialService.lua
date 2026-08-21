@@ -251,22 +251,19 @@ end
 -- the multiplier
 -- ─────────────────────────────────────────────────────────────────────────────
 
---- What the friend layer multiplies income by. Registered onto Economy under
---- its own key at start(), so it STACKS with the session hook rather than
---- overwriting it.
+--- invariant: what the friend layer multiplies income by. Registered onto
+--- Economy under its own key at start(), so it STACKS with the session hook
+--- rather than overwriting it.
 ---
 --- THIS RUNS ON EVERY Economy.add — up to ~10 times a second per plot at
 --- endgame, times ten plots. It is one table read and two arithmetic ops, and
 --- it must stay that way. Never a web call, never an iteration over
 --- Players:GetPlayers(); that is what `count` is maintained for.
 ---
---- IT DOES NOT BANK WHILE LOGGED OUT, and that is a decision rather than an
---- oversight. `SessionService.incomePerSecondFor` derives offline income from
---- the persisted plot and deliberately never calls `Economy.multiplier` — which
---- is what excludes the boost and the weekend bonus too (see the comment at
---- SessionService.lua:122-125). The same reasoning applies with more force
---- here: a bonus for being in a server WITH your friends must not pay out while
---- you are in no server at all. The spec pins it.
+--- IT DOES NOT BANK WHILE LOGGED OUT. design:D-08.
+--- `SessionService.incomePerSecondFor` derives offline income from the
+--- persisted plot and deliberately never calls `Economy.multiplier`, which is
+--- what excludes the boost and the weekend bonus too. The spec pins it.
 function SocialService.incomeMultiplier(player: Player): number
 	return 1 + math.min(count[player] or 0, S.MaxFriends) * S.BonusPerFriend
 end

@@ -4463,6 +4463,9 @@ check(Config.World.PlotSurfaceY > Config.World.GroundTopY,
 -- income the player actually has at that moment. This is what catches an
 -- unbuyable first dropper or a 40-minute wall in the mid game.
 
+-- design:D-04 — these four bands are product decisions that happen to be
+-- enforceable. The reason each is the number it is lives in that issue; what
+-- lives here is the check.
 local MIN_TOTAL_MINUTES = 45
 local MAX_TOTAL_MINUTES = 150
 local MAX_SINGLE_WAIT_MINUTES = 15
@@ -4651,6 +4654,7 @@ check(elapsed / 60 <= MAX_TOTAL_MINUTES,
 -- income (INVARIANTS.md §2), so `belt1` genuinely does not move the number
 -- either.
 local EARNS = { Dropper = true, Upgrader = true, Power = true }
+-- design:D-04
 local MAX_FLAT_RUN = 3
 local MAX_FLAT_MINUTES = 6
 
@@ -4690,6 +4694,8 @@ check(worstMinutes / 60 <= MAX_FLAT_MINUTES,
 -- TWO CHECKS, NOT ONE, and deliberately so. MAX_BUILD_MINUTES is an opinion
 -- someone may legitimately want to widen; CREDIT_CAP_MINUTES is a platform fact
 -- that has to keep refusing when they do.
+-- design:D-01 — a platform fact, not a preference, which is why it is a
+-- separate check from MAX_TOTAL_MINUTES rather than the same one retuned.
 local CREDIT_CAP_MINUTES = 60
 local buildMinutes = elapsed / 60
 
@@ -4710,6 +4716,8 @@ check(buildMinutes <= CREDIT_CAP_MINUTES,
 -- buying and start saving, and takes the earliest wall-clock minute the pad
 -- could be pressed. Cash is ~0 after each purchase, so the money for the pad
 -- has to be earned from that point at that point's income.
+-- design:D-05 — the window the first rebirth has to land in, and the rungs that
+-- have to be left over when it does.
 local MIN_FIRST_REBIRTH_MINUTES = 25
 local MAX_FIRST_REBIRTH_MINUTES = 50
 local MIN_REBIRTH_LEFTOVER = 2
@@ -4975,6 +4983,8 @@ end
 -- costs. Anything much past four and buying a bat means visibly stalling the
 -- factory, which is precisely the coupling this split exists to remove.
 
+-- design:D-04 — a detour is priced against what it does, not as a toll on the
+-- factory, and a cabinet must not be scenery once it has opened.
 local SIDE_MAX_DETOUR_MINUTES = 4
 local SIDE_BUDGET_FRACTION = 0.35
 local FIRST_SIDE_RUNG_BY_MINUTE = 10
@@ -5168,6 +5178,7 @@ end
 -- Raising VENDING_MACHINE_RUNGS to 3 would have made this pass. It would also
 -- have stopped the check catching a real three-rung cabinet, which is the only
 -- thing it is for.
+-- design:D-04
 local VENDING_MACHINE_RUNGS = 2
 for _, track in ipairs(Config.TrackOrder) do
 	local gate = Config.TrackUnlock[track]

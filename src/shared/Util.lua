@@ -139,18 +139,15 @@ function Util.roundedFrame(parent: Instance, radius: number): UICorner
 	return corner
 end
 
---- Device class from a bag of input flags. One of Config.Analytics.Fields
---- .platform.values, always.
+--- invariant: device class from a bag of input flags. One of
+--- Config.Analytics.Fields.platform.values, always.
 ---
---- HERE RATHER THAN IN Analytics.lua, and that is the one thing about this
---- function worth arguing over. Roblox has no server-side device API at all, so
---- the ladder has to RUN on the client — but Analytics.lua is deliberately
---- server-only (an analytics call from a client silently does nothing forever,
---- so the module must not be reachable from one). Written twice it would drift,
---- and the drift would be invisible: two ladders, both plausible, disagreeing
---- about tablets. So the pure part lives in the shared module that already
---- exists for exactly this, takes no Roblox types, and Analytics re-exports it
---- as `Analytics.platformFrom` so the specs pin the server's contract.
+--- HERE RATHER THAN IN Analytics.lua. Roblox has no server-side device API, so
+--- the ladder has to RUN on the client — and Analytics.lua is deliberately
+--- server-only, because an analytics call from a client silently does nothing
+--- forever. Written twice it would drift invisibly: two plausible ladders
+--- disagreeing about tablets. Analytics re-exports it as
+--- `Analytics.platformFrom` so the specs pin the server's contract.
 ---
 --- ORDER IS THE WHOLE FUNCTION. A VR headset and a console both report
 --- TouchEnabled in some configurations, so a `TouchEnabled` test placed first

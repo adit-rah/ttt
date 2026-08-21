@@ -96,8 +96,8 @@ end
 
 -- ── rebirth pad ──────────────────────────────────────────────────────────────
 
---- The side-track cabinets: a display case standing behind each track's column
---- of buy buttons.
+--- mechanism: the side-track cabinets — a display case standing behind each
+--- track's column of buy buttons.
 ---
 --- These carry the wayfinding that the side tracks would otherwise have to
 --- take from `pointAt`. There is exactly ONE Highlight per plot and it belongs
@@ -167,8 +167,8 @@ function Tycoon:ensureCabinets()
 	end
 end
 
---- The generator yard: a small slab behind the plot's back-right corner, with a
---- fence around three sides of it.
+--- invariant: the generator yard — a small slab behind the plot's back-right
+--- corner, with a fence around three sides of it.
 ---
 --- Permanent plot furniture in self.props, exactly like a cabinet body. The
 --- GENERATOR that stands on it goes into self.machines instead, so a rebirth
@@ -176,19 +176,15 @@ end
 --- standing — the same split the cabinets and their shelf displays already use.
 ---
 --- IDEMPOTENT AND RE-RUN FROM refreshButtons, for the same reason
---- ensureCabinets is. This used to be buildYard(), called once from the
---- constructor and never again — but release() does props:ClearAllChildren(),
---- so the first time an owner left a plot the slab and its fence went with
---- them, permanently, for the rest of the server's life. Every subsequent owner
---- bought generators that stood in mid-air. The cabinets survived that because
---- they are rebuilt from a refresh; the yard had no equivalent.
+--- ensureCabinets is. release() does props:ClearAllChildren(), so a yard built
+--- once from the constructor goes with the first owner who leaves and never
+--- comes back: every subsequent owner buys generators that stand in mid-air.
 ---
---- NO SIGN. It used to hang a "POWER YARD" billboard off the back fence and
---- store the label in self.cabinetSigns — where updateCabinetSigns rewrote it
---- with the cabinet format string, so it actually read "POWER CABINET - 0/4".
---- The pad twelve studs away already carries the track, the tier name, the
---- effect and the price; a second sign restating it is the noise this change is
---- about. If a yard sign is ever wanted it must NOT go in cabinetSigns.
+--- NO SIGN, and if one is ever wanted it must NOT go in self.cabinetSigns —
+--- updateCabinetSigns rewrites everything in there with the cabinet format
+--- string, which is how a "POWER YARD" billboard came to read
+--- "POWER CABINET - 0/4". design:D-09: the pad twelve studs away already
+--- carries the track, the tier name, the effect and the price.
 function Tycoon:ensureYard()
 	local Y = L.Yard
 	if self.props:FindFirstChild("Yard") then

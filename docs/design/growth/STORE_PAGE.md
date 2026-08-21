@@ -1,6 +1,8 @@
 # The store page
 
-Everything before a player presses Play. `GROWTH-TODO.md` items 5 and 6.
+Everything before a player presses Play. Written for round 6's growth half
+against a brief that no longer exists (`GROWTH-TODO.md`, deleted once it was
+spent — the record is `../../dev/HANDOFF_v6.md` §G1).
 
 This is the only document in the repo about work that is not code, and it exists
 because the store page is **100% of acquisition and 0% of the repo**. Thirty-three

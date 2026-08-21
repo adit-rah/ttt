@@ -260,12 +260,13 @@ __MODULES["Config"] = function()
 		return math.clamp(math.floor(cap), Config.World.MinPlots, Config.World.MaxPlots)
 	end
 
-	-- Plot-local layout. Plot origin = centre of the pad, floor top at y = 0.
-	-- +Z is "front" (faces the arena), -Z is the back where droppers live.
-	-- The belt runs as an L around the back and left edges of the plot rather than
-	-- straight through the middle. That keeps the centre of the plot as open floor,
-	-- puts every machine against a wall, and lines the buy buttons up along the
-	-- inside of the run where you actually walk.
+	-- mechanism: plot-local layout. Plot origin = centre of the pad, floor top at
+	-- y = 0. +Z is "front" (faces the arena), -Z is the back where droppers live.
+	--
+	-- The belt runs as an L around the back and left edges rather than straight
+	-- through the middle, which is what puts every machine against a wall and lines
+	-- the buy buttons up along the inside of the run. design:D-02 for what the open
+	-- centre is for, and why every upgrader is downstream of every dropper.
 	--
 	--        back edge
 	--    +---------------+
@@ -306,31 +307,22 @@ __MODULES["Config"] = function()
 		-- builder literals wanting to become Config keys. This is that move.
 		BeltBaseProud = 1.2,
 
-		-- ── THE GUARD WALLS, AND THE BUG THEY MUST NOT REPEAT ────────────────────
+		-- invariant: A RAIL IS A RUN ON ONE LEG, SET BACK FROM BOTH OF THAT LEG'S
+		-- ENDS — not "a wall down the side of the belt". `corner` is the setback and
+		-- is the whole of the rule. Set it to 0 and leg 2's inboard rail crosses
+		-- leg 1's path and vice versa: two solid walls straight across the conveyor
+		-- plus a corner block on the bend, which is what drops piled up against the
+		-- first time rails existed here. The verifier asserts the property directly
+		-- — a leg's rail box may not overlap any OTHER leg's running surface.
 		--
-		-- TODO.md item 5 asks for slightly prominent guard walls on both belts.
-		-- There were rails once and they were DELETED, for a reason worth reading
-		-- before touching any of this (Belt.lua's own block comment): each leg's
-		-- rails ran its FULL length, so leg 2's inboard rail crossed leg 1's path
-		-- and vice versa — two solid walls straight across the conveyor, plus an
-		-- 11x11 corner block sitting on the bend. That is what the drops were piling
-		-- up against.
-		--
-		-- So a rail is not "a wall down the side of the belt". It is A RUN ON ONE
-		-- LEG THAT IS SET BACK FROM BOTH OF THAT LEG'S ENDS, and `corner` is the
-		-- whole of the fix. The verifier asserts the property directly: a leg's rail
-		-- box may not overlap any OTHER leg's running surface.
-		--
-		-- NOT COLLIDABLE, and that is a decision rather than an oversight. Drops ride
-		-- a LinearVelocity in Plane mode, which pins lateral velocity to exactly
-		-- zero, so there is no force that pushes one sideways and a solid rail
-		-- catches nothing that would otherwise escape. It could only catch things
-		-- that should not have been caught: INVARIANTS.md's "nothing collidable may
+		-- NOT COLLIDABLE. Drops ride a LinearVelocity in Plane mode, which pins
+		-- lateral velocity to exactly zero, so nothing pushes a drop sideways and a
+		-- solid rail catches nothing that would otherwise escape. It could only
+		-- catch what should not be caught: INVARIANTS.md's "nothing collidable may
 		-- sit near the belt except the running surface", the buy-button walk across
 		-- the belt that BeltY = 1.4 exists to allow, and a 0.8-stud slot between the
-		-- rail and the machine row for a raider to wedge in. The prominence asked
-		-- for is visual, and whether it reads as a guard you can walk through is the
-		-- Studio question this round leaves.
+		-- rail and the machine row for a raider to wedge into. design:D-07 for what
+		-- the rails are there to do, which is visual.
 		BeltGuard = {
 			thickness = 0.8,   -- across the belt
 			bite = 0.1,        -- how far the inner face is buried in the surface, so
@@ -351,22 +343,16 @@ __MODULES["Config"] = function()
 		-- distance along leg 2 (left edge) for upgrader slot 1..6
 		UpgraderDist = { 14, 30, 46, 62, 78, 94 },
 
-		-- Buttons with no machine on the belt stand in a row down the middle of the
-		-- open floor, in purchase order, so the aisle you walk reads as a queue.
-		-- THE SPINE COLUMN MOVED FROM x = 8 TO x = 0, because it grew by two.
+		-- mechanism: buttons with no machine on the belt stand in a row down the
+		-- middle of the open floor, in purchase order. design:D-03 for why the aisle
+		-- reads as a queue.
 		--
-		-- Splitting the shell into walls, gates and windows (TODO.md item 3) makes
-		-- this six pedestals rather than four, and the column is bounded at BOTH
-		-- ends: belt leg 1's buy-button row runs across z -47.5..-42.5 at every x
-		-- from -46.5 to 48.5, so nothing can go behind z = -38, and six at the
-		-- 14-stud pitch then reaches z = 36. At x = 8 that last pedestal lands 10
-		-- studs from OwnerSpawnAt (14, 44) — you would respawn standing on the
-		-- button that buys the storey.
-		--
-		-- Sliding the whole column to x = 0 buys the six studs: the same pedestal is
-		-- then 16.1 from the spawn. It is also, incidentally, where a spine down the
-		-- middle of an open floor belongs — x = 8 was chosen when the right half of
-		-- the plot was empty and the column was the only thing in it.
+		-- THE COLUMN IS BOUNDED AT BOTH ENDS and currently runs six pedestals deep.
+		-- Belt leg 1's buy-button row occupies z -47.5..-42.5 at every x from -46.5
+		-- to 48.5, so nothing can go behind z = -38; six at the 14-stud pitch then
+		-- reaches z = 36. x = 0 is what keeps the far pedestal 16.1 studs clear of
+		-- OwnerSpawnAt (14, 44). At x = 8 it lands 10 studs away and you respawn
+		-- standing on the button that buys the storey.
 		MiscButtons = {
 			walls     = Vector3.new(0, 0, -34),
 			gates     = Vector3.new(0, 0, -20),
@@ -381,14 +367,10 @@ __MODULES["Config"] = function()
 		},
 		MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
 
-		-- THE SAME RULE FOR A CABINET COLUMN, AND A DIFFERENT NUMBER.
-		--
-		-- One constant used to police both, and that was one constant doing two
-		-- jobs. MiscButtonSpacing is about the misc COLUMN — five unrelated
-		-- purchases (the shell, the belt, the storey) standing in a line down the
-		-- middle of an open floor, where 14 studs is what stops them reading as one
-		-- object. A cabinet column is the opposite case: nine pads that are
-		-- deliberately one object, in front of one case, in track order.
+		-- mechanism: THE SAME RULE FOR A CABINET COLUMN, AND A DIFFERENT NUMBER.
+		-- MiscButtonSpacing paces unrelated purchases so they do not read as one
+		-- object; a cabinet column is nine pads that deliberately are one object, in
+		-- front of one case, in track order.
 		--
 		-- 12 is what makes the armoury a single straight file. Nine pedestals at 14
 		-- need 112 studs of run; the clear band down the right-hand side is 101.5,
@@ -396,13 +378,12 @@ __MODULES["Config"] = function()
 		-- front by the wall. At 12 the run is 96 and it fits with five studs spare.
 		--
 		-- A pedestal is 5 wide, so 12 leaves SEVEN studs of clear floor between two
-		-- pads — you cannot stand on one and wonder which one you are on, which is
-		-- the entire thing either number is protecting. Below about 10 you could.
+		-- pads — below about 10 you could stand on one and not know which.
 		CabinetSlotSpacing = 12,
 
-		-- SIDE-TRACK FURNITURE. Each cabinet is a display case standing behind a
-		-- column of its own buy buttons, so the right half of the plot reads as an
-		-- armoury aisle the way the left half reads as a production line.
+		-- mechanism: SIDE-TRACK FURNITURE. Each cabinet is a display case standing
+		-- behind a column of its own buy buttons. design:D-07 for why the right half
+		-- of the plot is an armoury aisle and the left half a production line.
 		--
 		-- Positions are DERIVED from the anchor, exactly like DropperDist: adding a
 		-- sixth bat tier should be one row in Config.WeaponButtons and nothing
@@ -413,25 +394,17 @@ __MODULES["Config"] = function()
 		-- track; the verifier asserts the track fits, which is what stops a new
 		-- tier silently stacking a pedestal on top of the one before it.
 		--
-		-- THEY STAND ON THE GROUND FLOOR, IN ONE FILE DOWN THE RIGHT-HAND SIDE, and
 		-- `floor` is ABSENT rather than set — Config.floorTopY documents nil as "the
 		-- ground floor, and a legitimate answer", so the three position helpers at
 		-- the bottom of this file take y = 0 for both tracks.
 		--
-		-- #58 moved them onto the mezzanine and this moves them back. That is a
-		-- reversal, not drift: #58's own Studio list asked "does the ground floor
-		-- read as emptier for having lost them?", and TODO.md item 2 is the answer.
-		-- The production line is the left half and the armoury is the right half,
-		-- which is the arrangement the plot had before the deck existed and the one
-		-- that survives the deck now spanning the whole storey.
-		--
-		-- ONE FILE, BOTH CASES, WHICH IS WHY THE REBIRTH PAD MOVED. Nine pedestals
-		-- on a 14-stud pitch is 112 studs of column plus 4 studs of case overhang at
-		-- each end: 120 studs of display case looking for a straight run. The pad
-		-- stood at (42, 40) with a 12x12 body and a 14-stud spacing rule around it,
-		-- which forbade any pedestal between z 26 and z 54 — room for one slot above
-		-- it and eight below, and eight below runs off the back of the plot. Moving
-		-- one pad is what makes the file straight; see RebirthPadAt.
+		-- ONE FILE, BOTH CASES, WHICH IS WHY THE REBIRTH PAD IS WHERE IT IS. Nine
+		-- pedestals on a 14-stud pitch is 112 studs of column plus 4 studs of case
+		-- overhang at each end: 120 studs of display case looking for a straight
+		-- run. A pad at (42, 40) with a 12x12 body and a 14-stud spacing rule around
+		-- it forbids any pedestal between z 26 and z 54 — one slot above it and
+		-- eight below, and eight below runs off the back of the plot. See
+		-- RebirthPadAt.
 		--
 		-- WHY x = 48 AND NOT HARD AGAINST THE WALL AT 54. Two solids stand at
 		-- x = ±54 for the full height of the ground storey, and neither can move:
@@ -479,21 +452,15 @@ __MODULES["Config"] = function()
 		GateWidth = 22,
 	}
 
-	-- The top of the tallest thing standing beside the belt: the dropper's arm,
-	-- whose centre MACHINE_MASSES puts at BeltY + 5, with half a stud of body above
-	-- that. Written here rather than left to be measured inside Tycoon.lua because
-	-- it is what the buy-button label has to clear now that the label no longer
-	-- draws through walls, and the verifier can only check a relationship it can
-	-- see. If you raise the arm, raise this.
-	--- HOW FAR THE BELT PHYSICALLY REACHES FROM ITS CENTRE LINE, rails included.
+	--- invariant: HOW FAR THE BELT PHYSICALLY REACHES FROM ITS CENTRE LINE, rails
+	--- included. ONE DERIVATION, READ BY THE BUILDER AND BY THE VERIFIER.
 	---
-	--- ONE DERIVATION, READ BY THE BUILDER AND BY THE VERIFIER. The base's width was
-	--- a literal in Belt.lua mirrored by a second literal in tools/verify_config,
-	--- and the two agreeing was luck rather than structure — that is the coupling
-	--- that put the mezzanine's hatch guard 0.1 studs inside the belt base while
-	--- every clearance check reported a stud of daylight.
+	--- The base's width was a literal in Belt.lua mirrored by a second literal in
+	--- tools/verify_config, and the two agreeing was luck rather than structure —
+	--- that is the coupling that put the mezzanine's hatch guard 0.1 studs inside
+	--- the belt base while every clearance check reported a stud of daylight.
 	---
-	--- Now the guard rails widen the belt too, so this is also what makes every
+	--- The guard rails widen the belt too, so this is also what makes every
 	--- existing clearance check — the hatch, the pillars, the misc pedestals, the
 	--- zone containment, both cabinets — measure against the real object for free.
 	function Config.beltHalfWidth(): number
@@ -504,6 +471,11 @@ __MODULES["Config"] = function()
 		return math.max(base, rail)
 	end
 
+	-- The top of the tallest thing standing beside the belt: the dropper's arm,
+	-- whose centre MACHINE_MASSES puts at BeltY + 5, with half a stud of body above
+	-- that. Written here rather than measured inside Tycoon.lua because it is what
+	-- the buy-button label has to clear, and the verifier can only check a
+	-- relationship it can see. If you raise the arm, raise this.
 	Config.Layout.MachineTopY = Config.Layout.BeltY + 5.5
 
 	-- HOW THICK A TRIGGER ON THE BELT HAS TO BE.
@@ -600,18 +572,9 @@ __MODULES["Config"] = function()
 	-- slot of every entry, and ensureCabinets builds a display case for each. A
 	-- yard at z = -89 is outside the plot on purpose, and it is not a cabinet.
 	Config.Layout.Yard = {
-		-- A SMALL CHUNK IN THE CORNER, not a second plot.
-		--
-		-- This was 108 x 40 — nearly as wide as the 120-stud plot — with three
-		-- fences, a billboard and FOUR generator stands on it, all of which
-		-- appeared the moment you claimed. Before you had bought a generator you
-		-- were looking at 4320 square studs of concrete and three buy pads for a
-		-- track you had no reason to care about yet. That is the same complaint the
-		-- cabinets answered in #30, one track over.
-		--
-		-- 28 x 28 is 784, eighteen percent of it, and twelve studs less deep. There
-		-- is one generator now and one pad in front of it, so the yard is sized for
-		-- what actually stands there rather than for four of something.
+		-- mechanism: A SMALL CHUNK IN THE CORNER, not a second plot. 28 x 28 is
+		-- sized for what actually stands there — one generator and one pad in front
+		-- of it — rather than for four of something. design:D-07 for why it shrank.
 		--
 		-- The front face overlaps the pad by a stud so the two slabs interpenetrate
 		-- rather than share a vertical plane, which is the same trick the deck's
@@ -782,7 +745,7 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- SCREEN UI
+	-- invariant: SCREEN UI. design:D-09 for what it is protecting.
 	--
 	-- Four out of five Roblox sessions are on a phone, and until this table existed
 	-- not one number in this file described the screen. Every panel size, margin
@@ -792,7 +755,7 @@ __MODULES["Config"] = function()
 	-- held one of the two numbers and UpgradeUI.lua held the other, and nothing in
 	-- the repo could read both at once. Now something can.
 	--
-	-- PLAIN NUMBERS ONLY. tools/verify_config.lua stubs Color3, Vector3 and Enum
+	-- invariant: PLAIN NUMBERS ONLY. tools/verify_config.lua stubs Color3, Vector3 and Enum
 	-- and nothing else. A single Vector2 or UDim2 in this table takes every config
 	-- check down at require time, which is a much worse failure than the one it
 	-- would be describing. Sizes are two named scalars, never a vector.
@@ -809,6 +772,8 @@ __MODULES["Config"] = function()
 	-- than MinScale * ReferenceHeight physical pixels gets a canvas shorter than
 	-- the reference, which is exactly the band the shop overlap lived in.
 	-- MaxScale is 1 because nobody asked for a HUD blown up to fill a 4K monitor.
+	-- design:D-09 for what the canvas is protecting, and the open question about
+	-- whether the short-landscape band is supported at all.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
 	Config.UI = {
@@ -843,8 +808,8 @@ __MODULES["Config"] = function()
 			pill = 44,
 		},
 
-		-- WHAT IS RESERVED FOR ROBLOX'S OWN CONTROLS, and the one number in this
-		-- table that is about a rectangle nothing in this repo draws.
+		-- invariant: WHAT IS RESERVED FOR ROBLOX'S OWN CONTROLS, and the one number
+		-- in this table that is about a rectangle nothing in this repo draws.
 		--
 		-- On a touch device the engine puts the movement thumbstick in the BOTTOM
 		-- LEFT and the jump button in the BOTTOM RIGHT, on a layer above ours, and
@@ -863,21 +828,18 @@ __MODULES["Config"] = function()
 			Bottom = 170,
 		},
 
-		-- THE TOP-LEFT COLUMN. The status card, then the session panel, both one
-		-- width, stacked from the top margin down.
+		-- mechanism: THE TOP-LEFT COLUMN. The status card, then the session panel,
+		-- both one width, stacked from the top margin down.
 		--
-		-- THE Y OF EACH PANEL IS NO LONGER A NUMBER AT ALL. It was derived here and
-		-- read by two files; it is now a UIListLayout in HUD.column(), so the two
-		-- panels cannot disagree about where the column starts because neither of
-		-- them is told. What survives here is ColumnBottom — derived below, and the
-		-- budget the verifier holds the column to, since a list layout will happily
-		-- lay a panel out past the bottom of the screen.
+		-- THE Y OF EACH PANEL IS NOT A NUMBER. A UIListLayout in HUD.column() owns
+		-- it, so the two panels cannot disagree about where the column starts
+		-- because neither of them is told. What lives here is ColumnBottom —
+		-- derived below, and the budget the verifier holds the column to, since a
+		-- list layout will happily lay a panel out past the bottom of the screen.
 		ColumnWidth = 280,
 
-		-- ONE STATUS CARD, WHERE THERE WERE TWO PANELS. It replaces CashPanel
-		-- (280x126) and NextPanel (280x74), which were always read together and
-		-- always in that order: what you have, then what you are saving for. Two
-		-- outlined cards with a gap between them said they were two subjects.
+		-- mechanism: ONE STATUS CARD — what you have, then what you are saving for.
+		-- design:D-09 for why that is one card rather than two.
 		--
 		-- THE ROW HEIGHTS ARE THE INPUT AND THE Y OF EACH ROW IS DERIVED from them,
 		-- in the block below, along with the ContentHeight they add up to. Height is
@@ -902,13 +864,9 @@ __MODULES["Config"] = function()
 			-- THE BALANCE GROUP IS THREE LINES: the number, what it multiplies to,
 			-- and the terms that got it there. The coin sits beside the first two.
 			--
-			-- THE CARD HAS NO BUTTON ON IT ANY MORE. There was an INVITE pill on a
-			-- friend row here, and four keys plus five derived Xs and Ys existed to
-			-- fit it. A control on the one surface whose whole job is to be read at a
-			-- glance is a control competing with the number the game is about; the
-			-- invite is a rail item now (see UI.Rail) and the friend bonus is what it
-			-- always was arithmetically — a term in the multiplier, printed on the
-			-- terms line with the others.
+			-- THE CARD CARRIES NO CONTROL. design:D-09. The invite is a rail item
+			-- (see UI.Rail); the friend bonus appears here only as a term on the
+			-- terms line, which is what it always was arithmetically.
 			IconSize = 48,
 			IconGap  = 10,
 			BalanceHeight = 46, BalanceTextPx = 38,
@@ -939,27 +897,14 @@ __MODULES["Config"] = function()
 			DetailHeight = 18, DetailTextPx = 13,
 		},
 
-		-- THE SESSION PANEL, ROW BY ROW — and BOTH ITS HEIGHTS ARE DERIVED NOW.
+		-- mechanism: THE SESSION PANEL, ROW BY ROW. BOTH ITS HEIGHTS ARE DERIVED.
 		--
 		-- Height is the ordinary panel; TallHeight is the panel with its whole
-		-- optional tail showing. There used to be a third, CompactHeight = 88: the
-		-- panel a build with Prototypes.Sessions OFF collapsed to. That flag
-		-- graduated in #50 and the local that chose between the two heights was
-		-- deleted with it — but both READS of that local were left behind, in a file
-		-- that had also lost its `Req("Config")`. A height nothing can reach reads as
-		-- a supported layout and is not one, so it is gone and asserted absent.
-		--
-		-- TALLHEIGHT SHIPPED AT 258 AND THE PANEL COULD REACH 310. 258 is the
-		-- one-optional-row case, and there are two optional rows: the Vault Timer
-		-- (gone at the top of the ladder) and the pending-offline row. Both are
-		-- visible at once for any returning player who has not maxed the vault, and
-		-- SessionUI.layoutTail() sized the panel from its own literals, so the number
-		-- ColumnBottom was measured against had already been left behind by the code.
-		-- OptionalRows is the input now and both heights come out of it.
-		--
-		-- The row geometry below was eleven literals in src/client/SessionUI.lua,
-		-- three of which (STACK_TOP, ROW_HEIGHT/ROW_GAP, PANEL_BASE_HEIGHT) were
-		-- hand-copies of numbers that already lived here.
+		-- optional tail showing. OptionalRows is the input and both come out of it —
+		-- there are two optional rows (the Vault Timer, gone at the top of the
+		-- ladder, and the pending-offline row) and both are visible at once for any
+		-- returning player who has not maxed the vault. A hand-typed TallHeight
+		-- describes the one-optional-row case and is short by a row.
 		SessionPanel = {
 			Width = 280,
 			Pad = 14,          -- the gutter inside the panel
@@ -1234,7 +1179,7 @@ __MODULES["Config"] = function()
 		OfflineGraceSeconds = 180,  -- keep a plot reserved this long after a disconnect
 	}
 
-	-- ADMIN CHAT COMMANDS. See src/server/AdminService.lua.
+	-- mechanism: ADMIN CHAT COMMANDS. See src/server/AdminService.lua.
 	--
 	-- DELIBERATELY NOT IN Config.Prototypes. That table is for unfinished features
 	-- and the verifier asserts every flag in it ships `false`, so a prototype flag
@@ -1264,42 +1209,19 @@ __MODULES["Config"] = function()
 	}
 
 	Config.Rebirth = {
-		-- THE PAD IS PRICED AS A RUNG, NOT AS A NUMBER. Config.rebirthBaseCost()
-		-- in the derived-lookups section fills in BaseCost once the spine exists.
+		-- design:D-05 — the pad is priced as a RUNG, not as a number, so that five
+		-- spine rungs are provably still unbought when it lights up.
 		--
-		-- The comment that used to sit here claimed BaseCost was "DERIVED from
-		-- endgame income". It was not. It was retyped by hand against whatever the
-		-- curve happened to be that week, and it drifted the moment the generator
-		-- doubled endgame income — the round that shipped the generator had to come
-		-- back and edit this number to keep its own comment true.
+		-- PriceRung = 6 means BaseCost is the 6th most expensive spine price;
+		-- Config.rebirthBaseCost() fills it in once the spine exists, and every
+		-- consumer reads it as a plain number. spinePricesDescending() derives the
+		-- list from `paced`, so re-parenting a track changes what this ranks over.
 		--
-		-- PriceRung = 6 means the pad costs what the 6th most expensive thing on
-		-- the spine costs, which buys a property no constant can:
-		--
-		--   the minute you can afford the rebirth is at most the minute you could
-		--   afford that rung, so the FIVE rungs above it are provably still
-		--   unbought when the pad lights up.
-		--
-		-- That is "the session ends on a choice rather than on being finished",
-		-- guaranteed by construction rather than by luck, and it re-derives itself
-		-- under whatever prices the ladder lands on next.
-		--
-		-- IT WAS 4, AND IT MOVED BECAUSE THE SPINE GREW BY TWO. `mezz_line` and
-		-- `mezz_dropper1` are now the two most expensive things on it (TODO.md item
-		-- 5 puts the upstairs line after the whole ground floor), so every rank
-		-- below them shifted by two: at 4 this pad would have priced itself off
-		-- `upgrader6` instead of `dropper9` and the first rebirth would have slid
-		-- five minutes later for no reason anyone chose. 6 restores the rank the
-		-- number was chosen at.
-		--
-		-- THE SHELL MOVING TO ITS OWN TRACK DID NOT MOVE THIS, and that is worth
-		-- recording so nobody has to re-derive it. spinePricesDescending() now
-		-- reads `paced`, so the four structure prices joined the list — but the
-		-- largest of them, `roof` at 690000, lands at rank 13. Rank 6 is `dropper9`
-		-- at 115000000 either way and BaseCost is 120000000 either way. The
-		-- property above also survives verbatim: the five rungs over rank 6 are
-		-- power4, upgrader6, dropper10, mezz_line and mezz_dropper1, none of which
-		-- is on a track you can decline.
+		-- THE RANK IS THE THING TO PRESERVE, not the number. If the spine grows or
+		-- shrinks, check that rank 6 still names a rung near the top of the build —
+		-- it is currently `dropper9` at 115000000, which rounds to a BaseCost of
+		-- 120000000, and the five rungs above it are power4, upgrader6, dropper10,
+		-- mezz_line and mezz_dropper1.
 		PriceRung = 6,
 		CostGrowth = 3.4,            -- cost multiplier per rebirth
 		MultiplierPerRebirth = 2.25, -- payout multiplier is this ^ rebirths
@@ -1309,7 +1231,8 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- PERSISTENCE — the numbers behind DataService's session lock.
+	-- invariant: PERSISTENCE — the numbers behind DataService's session lock. The
+	-- three relationships below are asserted, and INVARIANTS.md §1 carries them.
 	--
 	-- They live here rather than as literals in DataService for the reason
 	-- everything else in this file does: tools/verify.py can see this file and
@@ -1350,17 +1273,12 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- SOCIAL — the one number that makes another human being worth something.
+	-- mechanism: SOCIAL. design:D-08 for what the friend bonus is for and why it
+	-- is small.
 	--
-	-- Roblox scores this place on "intentional co-play days": sessions where you
-	-- played with a friend through a JOIN, an INVITE or a private server rather
-	-- than through matchmaking. The game had no social surface at all — ten plots
-	-- in a ring, ten people each watching their own number — so that metric was
-	-- structurally zero and no amount of retention work could move it.
-	--
-	-- A friend in your server is +10% income each, capped at three. Small on
-	-- purpose: it has to be legible on the HUD ("+30%") and it must never out-earn
-	-- a prestige, which the verifier asserts against MultiplierPerRebirth.
+	-- A friend in your server is +10% income each, capped at three. The cap is
+	-- asserted against MultiplierPerRebirth: a friend bonus that out-earns a
+	-- prestige has changed what the prestige is.
 	--
 	-- NOT A PROTOTYPE, and deliberately without a Config.Prototypes flag —
 	-- verify_config asserts every remaining flag ships false, and the precedent
@@ -1485,14 +1403,9 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- THE BUTTON TABLES — these ARE the tycoon.
-	--
-	-- There is one per track — FIVE now — and each track is a chain that is
-	-- ordered only against ITSELF. The factory does not gate your bat and your bat
-	-- does not gate the factory; they are separate systems that happen to share a
-	-- wallet. Before this split every button `requires`d the one before it in a
-	-- single 21-long line, so `dropper5` was unreachable until you had bought a
-	-- weapon and the weapon was unreachable until you had bought `upgrader2`.
+	-- mechanism: THE BUTTON TABLES — these ARE the tycoon. One per track, each a
+	-- chain ordered only against ITSELF. design:D-03 for what a track is and why no
+	-- requirement crosses one.
 	--
 	-- THE COUNT IN THIS BANNER HAS BEEN WRONG BEFORE. It said THREE for two rounds
 	-- after `power` was added, because a prose count is a fact stored in the one
@@ -1502,38 +1415,40 @@ __MODULES["Config"] = function()
 	--  id        unique key, also used as the save key
 	--  name      shown on the button billboard
 	--  price     cost in Tung
-	--  kind      "Dropper" | "Upgrader" | "Belt" | "Structure" | "Gear" | "Armor"
+	--  kind      "Dropper" | "Upgrader" | "Belt" | "Power" | "Structure"
+	--            | "Gear" | "Armor" | "Floor" | "Line"
+	--            Tycoon.INSTALLERS is the list; KNOWN_KINDS in verify_config.lua
+	--            is checked against it. This line is checked by nobody.
 	--  requires  id (or list of ids) that must be owned first.
 	--            OMIT IT on a track table and the loader derives it from the row
 	--            above — a chain should not have to restate that it is a chain,
 	--            and a hand-typed `requires` is the most error-prone field here.
 	--  slot      position index into Layout.DropperDist / Layout.UpgraderDist
 	--
-	--  Dropper:  variant, dropValue, dropRate (seconds between drops)
-	--  Upgrader: variant, multiplier
-	--  Belt:     speedBonus
-	--  Gear:     grants (a Config.Bats id)
-	--  Armor:    grants (a Config.Armor.Tiers id)
+	--  Dropper:   variant, dropValue, dropRate (seconds between drops)
+	--  Upgrader:  variant, multiplier
+	--  Belt:      speedBonus
+	--  Power:     factor (cumulative, not a step), variant. No slot.
+	--  Structure: structure ("walls" | "gates" | "windows" | "roof")
+	--  Gear:      grants (a Config.Bats id)
+	--  Armor:     grants (a Config.Armor.Tiers id)
+	--  Floor:     floor (a Config.Floors id)
+	--  Line:      the matching Config.Floors[].lineButton
 	--
-	-- The three tables are merged into a single Config.Buttons at the bottom of
-	-- this file, in track order, so every consumer still iterates one array.
+	-- The tables are merged into a single Config.Buttons at the bottom of this
+	-- file, in track order, so every consumer still iterates one array.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	-- NO `requires` FIELD APPEARS BELOW, and that is the point.
+	-- invariant: NO `requires` FIELD APPEARS BELOW, and that is the point. Table
+	-- order IS dependency order; the loader derives the link from the row above.
 	--
-	-- The header above has always said the loader derives it from the row above and
-	-- that a hand-typed one is the most error-prone field here. Every row restated
-	-- it anyway, and the restating hid a fork: `dropper8` required `upgrader4`
-	-- while floor2 -> mezz_dropper1 hung off `upgrader4` too, so the mezzanine was
-	-- a dead-end branch nothing downstream needed. You could finish the entire
-	-- ground floor without ever buying the floor — and since Config.TrackUnlock
-	-- gates BOTH cabinets on floor2, without ever seeing a weapon or a suit of
-	-- armour either. The verifier's chain check counts requirement-free roots, so a
-	-- fork downstream of the root was invisible to it.
-	--
-	-- Moving the floor to position 6 is what finally makes table order and
-	-- dependency order the same thing, which is what lets the derivation stand
-	-- alone. One root, no forks, and the order you read is the order you buy.
+	-- A hand-typed `requires` does not merely restate the chain, it can FORK it,
+	-- and a fork downstream of the root is invisible to the chain check — which
+	-- counts requirement-free roots. That is how the mezzanine spent two rounds as
+	-- a dead-end branch nothing downstream needed: you could finish the whole
+	-- ground floor without ever buying the floor, and both cabinets were gated on
+	-- it at the time. One root, no forks, and the order you read is the order you
+	-- buy.
 	--
 	-- THE COUNT USED TO BE HERE TOO ("twenty links"), AND IT IS GONE ON PURPOSE.
 	-- This table has been 21, 24 and now 20 rows long across three rounds and the
@@ -1615,46 +1530,20 @@ __MODULES["Config"] = function()
 			multiplier = 2.4,
 			blurb = "Melts them into money. x2.4",
 		},
-		-- THE SECOND FLOOR, and it is the building growing rather than the
-		-- enclosure it grew inside.
+		-- design:D-07 — where a second storey belongs, why it arrives barren, and
+		-- why its conveyor is sold separately.
 		--
-		-- IT HAS MOVED THREE TIMES AND THIS IS THE FIRST ONE THAT IS ABOUT THE
-		-- FLOOR. It began as a free reward for owning dropper10 — the very last
-		-- button, eighty minutes in. #29 made it a purchase at the halfway mark.
-		-- #36 moved it to minute six, and said so plainly: "the deciding fact is
-		-- not about the floor at all" — Config.TrackUnlock gated the weapons AND
-		-- armour cabinets on this button, so parking the floor parked both side
-		-- ladders behind it, and moving one button fixed three.
-		--
-		-- Round 8 moved that gate to `dropper3` and both cabinets to the ground
-		-- floor (TODO.md item 2). The floor gates nothing now. Every argument that
-		-- pinned it to minute six was an argument about the cabinets, and it left
-		-- with them — so TODO.md item 3 gets to ask the question that was never
-		-- actually asked, which is where a second storey belongs on its own merits.
-		--
-		-- AFTER THE ROOF, AND THAT IS A GATE NOW RATHER THAN A ROW POSITION.
+		-- AFTER THE ROOF, AND THAT IS A GATE RATHER THAN A ROW POSITION.
 		-- FloorService stands this storey's own wall ring up and nothing else ever
-		-- roofs it, so on the shipped ladder — floor at six, roof at twenty-seven —
-		-- every plot spent twenty-one minutes wearing upper walls open to the sky.
+		-- roofs it, so a deck bought before the roof is a room open to the sky.
+		-- While the shell was welded into this chain that was guaranteed by
+		-- ORDERING. A parallel track is one you can decline, so the guarantee moved
+		-- to Config.ButtonUnlock — a precondition on THIS PURCHASE rather than a
+		-- link in the chain. See that table for why it is not a `requires`.
 		--
-		-- Round 8 fixed that by ORDERING: put `roof` earlier in this table and the
-		-- chain makes the sky-hole unreachable. That fix died the moment the shell
-		-- moved to its own track, because a parallel track is one you can decline —
-		-- the roof is no longer upstream of anything and a player who never buys it
-		-- can still buy this. So the guarantee moved from the table to
-		-- Config.ButtonUnlock, which is a precondition on THIS PURCHASE rather than
-		-- a link in the chain. See that table for why it is not a `requires`.
-		--
-		-- Two thirds of the way in, at 67%: after the belt overdrive and after the
-		-- four ground droppers that follow it, with enough session left to buy the
-		-- line for it and a machine to stand on that. The shell is no longer part
-		-- of that count — it is bought alongside, not before.
-		--
-		-- Two buttons, not one. The deck is the purchase; the machine that stands
-		-- on it is the next purchase, and it is an ORDINARY Dropper row pinned to
-		-- the mezzanine's belt path. That is what makes the floor somewhere you
-		-- can buy things rather than scenery with a free dropper on it — and it is
-		-- why the income readout can see it, which the free one never could.
+		-- TWO BUTTONS, NOT ONE. The deck is this purchase; the machine that stands
+		-- on it is an ORDINARY Dropper row pinned to the mezzanine's belt path,
+		-- which is what lets the income readout see it.
 		{
 			id = "floor2", name = "The Mezzanine", price = 9300000,
 			kind = "Floor", floor = "mezzanine",
@@ -1734,32 +1623,14 @@ __MODULES["Config"] = function()
 		},
 	}
 
-	-- THE BUILDING, WHICH IS NO LONGER A RUNG ON THE LADDER THAT PAYS FOR IT.
+	-- design:D-07 — the building is a PARALLEL track gated on `dropper1`, so it is
+	-- something you buy alongside the line rather than instead of it.
 	--
-	-- These four rows were positions 5, 6, 7 and 14 of Config.FactoryButtons. A
-	-- track is a strict chain, so that made the shell MANDATORY AND BLOCKING: you
-	-- could not buy `dropper4` until you had bought walls, gates and windows, and
-	-- three consecutive purchases that drop, refine and multiply nothing sat on the
-	-- one ladder the player measures themselves by. The verifier's MAX_FLAT_RUN
-	-- check exists because round 8 created exactly that hazard and guarded it
-	-- instead of removing it; this removes it.
-	--
-	-- The shell is now a PARALLEL track gated on `dropper1`, so the building is
-	-- something you buy alongside the line rather than instead of it. Prices and
-	-- internal order are byte-identical to what shipped — this is a re-parenting,
-	-- not a retune, and the simulated curve is row-for-row unchanged because the
-	-- spine simulation buys the cheapest available rung and these four still fall
-	-- in exactly the same places (1500/1600/1900 under dropper4's 2600; 690000
-	-- between power2's 550000 and dropper7's 800000).
-	--
-	-- WALLS, THEN GATES, THEN WINDOWS, and they are in that order because each one
-	-- is only worth anything once the one before it is standing. The wall arrives
-	-- SOLID and CLOSED — bays included, glazed later. The alternative reading,
-	-- where `walls` leaves the bays as holes and `windows` fills them, gives you a
-	-- purchase called "Plot Walls" that does not keep a raider out; and
-	-- INSTALLERS.Structure builds a bay as a box either way, so glazing is a
-	-- material change on a part that already exists rather than sixty new ones.
-	-- The part count does not move between the first three.
+	-- mechanism: WALLS, THEN GATES, THEN WINDOWS — each is only worth anything
+	-- once the one before it is standing. The wall arrives SOLID and CLOSED, bays
+	-- included, glazed later. INSTALLERS.Structure builds a bay as a box either
+	-- way, so glazing is a material change on a part that already exists rather
+	-- than sixty new ones; the part count does not move across the first three.
 	--
 	-- THE ROOF IS ON THIS TRACK AND STILL GATES THE MEZZANINE. It is the one place
 	-- the shell reaches back into the spine — see Config.ButtonUnlock. Being last
@@ -1861,23 +1732,16 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- THE ARMOUR CABINET — the third track.
+	-- design:D-06 — a tier grants MaxHealth and nothing else, and why damage
+	-- reduction was rejected.
 	--
-	-- A tier grants MaxHealth and nothing else. Flat damage reduction was the
-	-- obvious alternative and is a worse first cut for three reasons: Roblox's
-	-- default health bar renders a MaxHealth gain for free where reduction is
-	-- invisible, the default Health script regenerates a PERCENTAGE of MaxHealth so
-	-- regen scales along for nothing, and — the deciding one — effective HP under
-	-- both stats is health/(1-dr), two variables multiplying into the single
-	-- assertion that guarantees a boss cannot burst you down. That assertion
-	-- currently passes with 0.13s of margin. One monotone stat keeps it one line
-	-- of arithmetic.
+	-- invariant: ONE MONOTONE STAT KEEPS THE BOSS ASSERTION ONE LINE OF
+	-- ARITHMETIC. Effective HP under health AND reduction is health/(1-dr) — two
+	-- variables multiplying into the single check that guarantees a boss cannot
+	-- burst you down, which currently passes with 0.13s of margin.
 	--
 	-- Reduction stays cheap to add later: CombatService.damage holds the only
 	-- TakeDamage call in the repo, so there is exactly one place to put it.
-	--
-	-- Per-tier FEEL comes from the cabinet — each tier lights its own shelf and
-	-- stands its own variant — rather than from per-tier stats.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
 	Config.Armor = {
@@ -1903,27 +1767,19 @@ __MODULES["Config"] = function()
 
 	Config.ArmorButtons = {
 		{
-			-- 12000 BEFORE THE CABINET GATE MOVED, and the two side-track bounds
-			-- squeeze from opposite ends once it does.
+			-- design:D-04 — a detour rung is priced against WHAT IT DOES, not as a
+			-- toll on the factory. `batforge` is 2500, so a first vest at a shade
+			-- under twice a first bat is the shape.
 			--
-			-- The gate is `dropper3` now rather than `floor2`, so the case opens at
-			-- minute three instead of minute six. FIRST_SIDE_RUNG_BY_MINUTE measures
-			-- from when the cabinet APPEARS, and at 12000 the factory does not bank
-			-- it until eleven minutes after that — a case you cannot buy from for
-			-- eleven minutes is the scenery that check exists to refuse. But
-			-- SIDE_MAX_DETOUR_MINUTES measures price against the income you have the
-			-- moment you can first afford it, and dropping the price makes THAT
-			-- worse, because minute-three income is small: 10000 costs 5.8 minutes
-			-- of it and 8000 costs 7.0, against a limit of 4.
-			--
-			-- There is no price between those two that satisfies both, which is the
-			-- finding rather than the problem: 12000 was priced against a cabinet
-			-- that opened at minute six with three droppers running. Against one
-			-- that opens at minute three it has to be priced the way the weapons
-			-- track already is — against what it does, not as a toll on the factory.
-			-- `batforge` is 2500, so your first vest costing a shade under twice
-			-- your first bat is the shape being asserted. At 4500 the detour is 3.6
-			-- minutes and the cabinet opens with one of four rungs in reach.
+			-- THE TWO SIDE-TRACK BOUNDS SQUEEZE FROM OPPOSITE ENDS, which is why
+			-- this number is not free. FIRST_SIDE_RUNG_BY_MINUTE measures from when
+			-- the cabinet APPEARS and refuses a case you cannot buy from for
+			-- eleven minutes; SIDE_MAX_DETOUR_MINUTES measures price against the
+			-- income you have the moment you can first afford it, and dropping the
+			-- price makes that one worse because minute-three income is small
+			-- (10000 costs 5.8 minutes of it, 8000 costs 7.0, against a limit of 4).
+			-- At 4500 the detour is 3.6 minutes and the cabinet opens with one of
+			-- four rungs in reach.
 			id = "armor_padded", name = "Padded Sahur", price = 4500,
 			kind = "Armor", grants = "padded",
 			blurb = "Take a hit and keep walking.",
@@ -1946,13 +1802,9 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- THE GENERATOR YARD — the fourth track.
+	-- invariant: THE GENERATOR SPEEDS THE DROPPERS AND THE BELT TOGETHER, at the
+	-- same rate, and that pairing is the only way the feature works at all.
 	--
-	-- A slab behind the plot with a row of generators on it. Buying a rung speeds
-	-- up production, and it does so by speeding up the DROPPERS AND THE BELT
-	-- TOGETHER, at the same rate.
-	--
-	-- That pairing is not flavour, it is the only way the feature works at all.
 	-- Income is dropValue/dropRate and does not depend on belt speed; what belt
 	-- speed decides is how CROWDED the belt is. Drops in flight are
 	-- peakRate x length / speed, so scaling rate alone is a straight multiplier on
@@ -1961,8 +1813,7 @@ __MODULES["Config"] = function()
 	-- at which point spawnDrop starts silently eating the income you just paid for.
 	-- Scaling both leaves the number in flight exactly where it was.
 	--
-	-- It is also the more honest version of the idea. A generator powers the line;
-	-- the line runs faster, belt included.
+	-- design:D-02 for the drop budget this is bounded by.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
 	Config.Power = {
@@ -2211,13 +2062,9 @@ __MODULES["Config"] = function()
 		-- reinforcements rather than as a queue.
 		MaxChasers = 8,
 
-		-- ── THE BOSS AS A SHARED OBJECTIVE ──────────────────────────────────────
-		--
-		-- Everything above this line describes a raid that six people can play in
-		-- six separate boxes. The boss is the one thing in the game that could need
-		-- another human being, and it was a bigger raider: last hit took the whole
-		-- reward, nobody could see its health, and the fight did not know how many
-		-- people were in it.
+		-- design:D-06 — the boss is the one thing in this game that couples two
+		-- players' outcomes. Everything above this line describes a raid six people
+		-- can play in six separate boxes.
 		--
 		-- SUB-LINEAR ON PURPOSE. Ten players do not deal ten players' damage to one
 		-- target: MaxChasers is 8, the boss has one hitbox and one telegraph, and on
@@ -2300,11 +2147,8 @@ __MODULES["Config"] = function()
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- BELT PATHS AND FLOORS
-	--
-	-- These lived under the PROTOTYPES banner, which was already a lie:
-	-- Tycoon.new consumes BeltPaths[1] unconditionally to build the ground floor's
-	-- conveyor. They are shipped data and they sit with the shipped data.
+	-- mechanism: BELT PATHS AND FLOORS. Shipped data — Tycoon.new consumes
+	-- BeltPaths[1] unconditionally to build the ground floor's conveyor.
 	--
 	-- A path is just a list of corners, and every piece of belt geometry derives
 	-- from leg(i), so the runtime does not care how many legs there are.
@@ -2382,32 +2226,19 @@ __MODULES["Config"] = function()
 			deckSize = Vector3.new(116, 1.6, 136),
 			deckAt = Vector3.new(0, 0, 0),
 
-			-- WHAT IS ON THE FLOOR, AS NAMED ZONES.
+			-- invariant: WHAT IS ON THE FLOOR, AS NAMED ZONES, AND THE PAIR MUST
+			-- TILE THE SLAB. Floor that belongs to neither zone is floor nothing
+			-- describes, and every containment check goes blind over it.
 			--
-			-- TODO.md item 1: "make the code clean so each floor and its contents can
-			-- be easily deciphered without extensive detailing". A deck rectangle plus
-			-- four belt margins could not say that the back of the storey is a
-			-- production line and the front is where you arrive — you had to read
-			-- FloorService and Layout.Tracks and hold both in your head.
+			-- `line` IS DELIBERATELY THE OLD DECK RECTANGLE, to the stud. The belt
+			-- derives from this zone rather than from the deck (Config.floorBeltPath
+			-- below), so widening the deck moves no belt leg, no machine and no
+			-- collector, and every belt assertion, the drop budget and the trigger
+			-- dwell go on measuring what they measured before.
 			--
-			-- `line` IS DELIBERATELY THE OLD DECK RECTANGLE, to the stud. The belt is
-			-- derived from this zone rather than from the deck (see Config.floorBeltPath
-			-- below), so widening the deck moved no belt leg, no machine and no
-			-- collector — and every belt assertion, the drop budget and the trigger
-			-- dwell all still measure exactly what they measured before.
-			--
-			-- THE FRONT ZONE WAS `armoury` AND IT IS `landing` NOW. It was named for
-			-- the two display cases #58 stood in it, and TODO.md item 2 has taken
-			-- both of them back downstairs — so the name described a thing that is no
-			-- longer there, and every check written against it was measuring an empty
-			-- rectangle and passing for that reason. Renaming it is the cheap half;
-			-- the expensive half is that the containment checks which named it are
-			-- deleted rather than left standing, because an assertion that cannot
-			-- fail is a guess with a check() around it.
-			--
-			-- What is actually in it: the stairwell, and the way onto the storey. It
-			-- keeps the full deck width because the zone pair has to tile the slab —
-			-- floor that belongs to neither zone is floor nothing describes.
+			-- `landing` is the stairwell and the way onto the storey. It keeps the
+			-- full deck width for the tiling rule above. design:D-07 — it is
+			-- deliberately barren, and whether it wants filling is open.
 			zones = {
 				line = {
 					at = Vector3.new(0, 0, -38),
@@ -2421,20 +2252,14 @@ __MODULES["Config"] = function()
 				},
 			},
 
-			-- THE STAIRWELL, a void in the slab rather than a ladder in front of it.
+			-- invariant: THE STAIRWELL IS A VOID IN THE SLAB, not a ladder in front
+			-- of it — a deck that spans the plot has no front edge to stand in front
+			-- of, so the slab is built in pieces around this rectangle and the guard
+			-- runs round three sides of it.
 			--
-			-- The deck used to end at z = -8 and the ladder stood just proud of that
-			-- edge, with a gap cut in the front guard to arrive through. A deck that
-			-- spans the plot has no front edge to stand in front of, so the slab is
-			-- built in pieces around this rectangle and the guard runs round three
-			-- sides of it.
-			--
-			-- WHERE IT IS, and it is not where two earlier attempts put it.
-			--
-			-- The obvious spot is x = Layout.GateCentre 14, in line with the gateway —
-			-- which is where the old ladder stood and where this hatch started. The
-			-- aisle at x 9..19, z -16..-6 turns out to be the most contested strip on
-			-- the storey, and it failed twice:
+			-- DO NOT MOVE IT IN LINE WITH THE GATEWAY. x = Layout.GateCentre 14 is
+			-- the obvious spot and the aisle at x 9..19, z -16..-6 is the most
+			-- contested strip on the storey. It has failed there twice:
 			--
 			--   * against the mezzanine belt's BASE. The return leg runs at z = -22
 			--     with an 8-stud running surface, but Belt.lua builds the base at
@@ -2486,14 +2311,10 @@ __MODULES["Config"] = function()
 			-- lives in the `line` zone, which ends at z = -8.
 			lineButtonAt = Vector3.new(0, 0, 20),
 
-			-- HOW THE STOREY ARRIVES. TODO.md item 1: "we need it to happen slower."
+			-- design:D-07 — HOW THE STOREY ARRIVES, and why it is staged at all
+			-- rather than appearing in one frame.
 			--
-			-- It was one frame — ClearAllChildren, deck, walls, ladder, done — so a
-			-- purchase you spend two thirds of the build saving for produced a
-			-- building that was simply already there. Six and a half seconds of it
-			-- going up is the difference between a transaction and an event.
-			--
-			-- THE PIECES DESCEND. A slab rising from y = 0 sweeps through every
+			-- invariant: THE PIECES DESCEND. A slab rising from y = 0 sweeps through every
 			-- player standing on the ground floor, and Roblox's answer to an
 			-- anchored part moving through a character is to eject or wedge them.
 			-- Arriving from `lift` studs above with collision off cannot touch
@@ -2572,25 +2393,13 @@ __MODULES["Config"] = function()
 			-- illustrative and that check is the authority.
 			pillar = { size = 2.4, insetSide = 4, insetBack = 4, insetFront = 8 },
 
-			-- A LADDER, WHERE THE TELEPORT PADS WERE.
+			-- mechanism: A TRUSS, NOT A PAIR OF TELEPORT PADS. Roblox humanoids
+			-- climb truss natively in both directions with no script at all — no
+			-- cooldown, no arrival lock, no per-frame work, and you can see where it
+			-- goes from the bottom of it. The pads it replaced were about a hundred
+			-- lines to walk up a flight of stairs.
 			--
-			-- The pads were a 9x9 pair with a cooldown, an arrival lock and a
-			-- TouchEnded sweep to stop a character resting on one from bouncing off
-			-- its own physics jitter — about a hundred lines to walk up a flight of
-			-- stairs. They also could not be made to line up: the ground end at
-			-- (40, -14) interpenetrated the armour cabinet's slot-2 pedestal, and
-			-- with the weapons and armour columns at x = 30 and 44 on a 14-stud
-			-- pitch there is no clean 9x9 anywhere on that side. It moved to the
-			-- aisle, 54 studs from the end it was paired with, and HANDOFF_v5 §5
-			-- left "does that still read as a lift or now as a teleport" as an open
-			-- question nobody answered.
-			--
-			-- A TrussPart answers it by not asking. Roblox humanoids climb truss
-			-- natively, in both directions, with no script at all — no cooldown, no
-			-- arrival lock, no per-frame work, and you can see where it goes from
-			-- the bottom of it.
-			--
-			-- WHERE IT STANDS is the tight part. The deck's front edge is at
+			-- invariant: WHERE IT STANDS is the tight part. The deck's front edge is at
 			-- z = -8, and the ladder has to be in front of it rather than under it:
 			-- coming up THROUGH the deck needs a hatch in the slab and a hole in
 			-- the guard. Along that edge x is nearly all spoken for —
@@ -2666,7 +2475,8 @@ __MODULES["Config"] = function()
 		return Vector3.new(h.at.X, 0, h.at.Z + h.size.Z / 2 + step)
 	end
 
-	--- The mezzanine's belt, as a Config.BeltPaths entry.
+	--- invariant: the mezzanine's belt, as a Config.BeltPaths entry. DERIVED FROM
+	--- THE LINE ZONE, NEVER FROM THE DECK.
 	---
 	--- Three legs around the back and left of the LINE ZONE, then a return leg back
 	--- across it to the hopper. Derived from that zone's rectangle rather than from
@@ -2717,19 +2527,11 @@ __MODULES["Config"] = function()
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- THE BUILDING SHELL — walls, windows, gates and the roof
+	-- invariant: THE BUILDING SHELL — walls, windows, gates and the roof.
 	--
 	-- It lives HERE, after Config.Floors, because the ground storey's clear height
 	-- is derived from the mezzanine deck's underside, and Config.Floors is the thing
 	-- that states where the deck is.
-	--
-	-- WHAT WAS WRONG. The walls were five boxes emitted by INSTALLERS.Structure at a
-	-- local literal `h = 13`, and the roof's underside was Layout.RoofY = 20. So
-	-- every plot had a SEVEN-STUD OPEN BAND all the way round, above the wall and
-	-- below the roof, and none of the 2309 config checks looked at wall height at
-	-- all — not the height, not the thickness, not what the openings were. The two
-	-- deliberate openings (the gateway and the yard doorway) had no doors, and there
-	-- were no windows anywhere in the game.
 	--
 	-- ONE STRUCTURAL LINE. A storey's ceiling is the floor above it. The ground
 	-- storey stops at the deck's underside whether or not the deck has been bought:
@@ -2847,25 +2649,18 @@ __MODULES["Config"] = function()
 			signLift = 6,            -- the company sign, above the roof's top face
 		},
 
-		-- A BUDGET, BECAUSE THIS IS THE FIRST CHANGE BIG ENOUGH THAT GUESSING IS NOT
-		-- GOOD ENOUGH. The shell was ~10 parts; windows and gates take it to ~115,
-		-- times ten plots. HANDOFF_v5 §4 has listed "part budget at full scale is
-		-- still untested" for three rounds. Config.shellPartCount() models it from
-		-- this spec and the verifier asserts the result.
-		-- ── LIGHT, BECAUSE THE GROUND FLOOR IS INDOORS ───────────────────────────
+		-- invariant: A BUDGET. The shell was ~10 parts; windows and gates take it to ~115,
+		-- times ten plots. Config.shellPartCount() models it from this spec and the
+		-- verifier asserts the result. Whether it holds at full scale in a real
+		-- server is open — design:D-07.
+		-- invariant: LIGHT, BECAUSE A STOREY WITH A CEILING IS INDOORS.
+		-- Lighting.Ambient is (0,0,0) and the mezzanine deck spans wall face to wall
+		-- face, so from the minute the storey lands the ground floor has no sky.
 		--
-		-- TODO.md item 1, and HANDOFF_v7 §5 listed it first: "THE GROUND FLOOR IS
-		-- NOW INDOORS." Lighting.Ambient is (0,0,0) and the mezzanine deck spans
-		-- wall face to wall face, so from the minute the storey lands the ground
-		-- floor has no sky. The only artificial light down there was a PointLight on
-		-- each buy-button pad and the variant glow on higher-tier machine cores —
-		-- and classic, oak and ash carry no light at all, so the first three
-		-- droppers and the first upgrader emit nothing.
-		--
-		-- The wall's neon "light strip" is not a light. It is Material.Neon, which
-		-- in Roblox illuminates exactly nothing; its own comment calls it "the
-		-- cheapest light in an enclosed box", which is true of the look and not of
-		-- the room.
+		-- Material.Neon ILLUMINATES NOTHING in Roblox. The wall's "light strip" is a
+		-- look, not a light, and the variant glow on machine cores is too — classic,
+		-- oak and ash carry none at all, so the first three droppers and the first
+		-- upgrader emit nothing.
 		--
 		-- SurfaceLight ON THE BOTTOM FACE, and that is the whole design. Every light
 		-- here runs Shadows = false — at 8 fixtures x 2 storeys x 10 plots it has
@@ -3034,8 +2829,8 @@ __MODULES["Config"] = function()
 		return bays
 	end
 
-	--- How many parts one plot's shell costs, modelled from the spec above so the
-	--- verifier can hold it to Config.Structure.PartBudget.
+	--- invariant: how many parts one plot's shell costs, modelled from the spec
+	--- above so the verifier can hold it to Config.Structure.PartBudget.
 	---
 	--- Per solid run: a sill course, a head course, and the bay course's piers and
 	--- panes. Per opening: a lintel course over it, plus its leaves. Per side, per
@@ -3048,7 +2843,8 @@ __MODULES["Config"] = function()
 	--- reported 59 against 68 actually built and 107 against 124 — a budget asserted
 	--- 13% under the truth, which is a budget that passes right up until it matters.
 	--- Both numbers were reconciled against a count taken from the real builder.
-	--- WHERE ONE STOREY'S CEILING FIXTURES HANG, in plot-local coordinates.
+	--- mechanism: WHERE ONE STOREY'S CEILING FIXTURES HANG, in plot-local
+	--- coordinates.
 	---
 	--- Derived from the wall ring and the storey, so a fixture cannot end up
 	--- outside the room or below the machines. Component arithmetic only: the
@@ -3115,7 +2911,7 @@ __MODULES["Config"] = function()
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- PROTOTYPES, and the graduates that used to be here
+	-- invariant: PROTOTYPES, and the graduates that used to be here
 	--
 	-- A flag in Config.Prototypes gates something UNSHIPPED, and every one of them
 	-- defaults to OFF, so a build with all the flags false is byte-for-byte the game
@@ -3128,8 +2924,8 @@ __MODULES["Config"] = function()
 	-- and session families under them ship, and are ordinary Config like
 	-- Config.Economy.
 	--
-	-- The rationale for each of these — what shipped where, and what players said
-	-- about it — is in IDEAS.md. Numbers here are first drafts, not balance.
+	-- The sourcing for these is docs/design/research/IDEAS.md. Numbers here are
+	-- first drafts, not balance.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
 	-- GRADUATING DELETES THE FLAG, IT DOES NOT SET IT TRUE. The check in
@@ -3349,8 +3145,8 @@ __MODULES["Config"] = function()
 	Config.World.PlotPlacements = Config.plotPlacements(Config.World.PlotCount)
 	Config.World.PlotRadius = Config.World.PlotPlacements[1].radius   -- inner ring
 
-	-- THE MERGE. Three track tables become one Config.Buttons, in track order, so
-	-- every consumer downstream still iterates a single array exactly as before.
+	-- invariant: THE MERGE. The five track tables become one Config.Buttons, in
+	-- track order, so every consumer downstream iterates a single array.
 	--
 	-- FACTORY FIRST IS LOAD-BEARING. It leaves every factory button with the same
 	-- `order` it had when there was only one table, which is what lets
@@ -3378,13 +3174,11 @@ __MODULES["Config"] = function()
 	-- long as ids never change — which is a rule this file already enforces for
 	-- other reasons (see the WeaponButtons banner).
 	--
-	-- What position 2 buys is the BEACON. Config.TrackRank is the TrackOrder index,
-	-- and both Tycoon:pointAt and the HUD card rank candidates by (rank, price).
-	-- Rank 5 would put `roof` behind every bat and every armour tier — so at the
-	-- moment the ladder stalls on `floor2`, the marker pointing you at the thing
-	-- that unblocks it would instead be glowing on an eclipse bat. Nothing in the
-	-- verifier can catch a beacon that points somewhere useless; it is a property
-	-- of this list and it has to be decided here.
+	-- design:D-03, design:D-09 — POSITION IN THIS LIST IS THE BEACON.
+	-- Config.TrackRank is the TrackOrder index, and both Tycoon:pointAt and the HUD
+	-- card rank candidates by (rank, price). Nothing in the verifier can catch a
+	-- beacon that points somewhere useless; it is a property of this list and it
+	-- has to be decided here.
 	Config.TrackOrder = { "factory", "structure", "weapons", "armor", "power" }
 	Config.Tracks = {
 		factory   = Config.FactoryButtons,
@@ -3394,12 +3188,14 @@ __MODULES["Config"] = function()
 		power     = Config.PowerButtons,
 	}
 
-	-- EVERYTHING THAT IS TRUE OF A TRACK RATHER THAN OF A BUTTON, in one table.
+	-- invariant: EVERYTHING THAT IS TRUE OF A TRACK RATHER THAN OF A BUTTON, in
+	-- one table.
 	--
 	-- Adding a fourth track is mostly an exercise in finding the per-track facts,
 	-- because they were scattered across five tables in three files and one of them
-	-- existed TWICE. A missing row in each fails differently and none of them fail
-	-- loudly:
+	-- existed TWICE.
+	--
+	-- invariant: A MISSING ROW IN EACH FAILS DIFFERENTLY AND NONE FAIL LOUDLY:
 	--
 	--   where its buttons stand    Layout.Tracks[track] is nil -> indexing nil ->
 	--                              buildButtons throws -> the plot fails to build
@@ -3417,15 +3213,15 @@ __MODULES["Config"] = function()
 	-- below, which deletes both copies rather than adding a third.
 	Config.TrackInfo = {
 		factory = { label = "FACTORY", preview = 3, keepOnRebirth = false, paced = "spine", furniture = "misc" },
-		-- THE SHELL. Three of its five facts are forced rather than chosen:
+		-- invariant: THE SHELL. Three of its five facts are FORCED rather than
+		-- chosen; preview is design:D-03.
 		--
-		-- paced = "spine" because the detour model prices a track against a curve
-		-- it does not change AND assumes you can decline it. The first half is true
-		-- of the shell; the second is not, since Config.ButtonUnlock puts `roof`
-		-- between the player and the mezzanine. Measured as a detour the build
-		-- reads 46 minutes against a MIN_TOTAL_MINUTES of 45 — and the four
-		-- purchases did not stop happening, the verifier just stopped counting
-		-- them, which is the kind of slack that fails honestly-looking later.
+		-- paced = "spine" because the detour model prices a track against a curve it
+		-- does not change AND assumes you can decline it. The second half stopped
+		-- being true when Config.ButtonUnlock put `roof` between the player and the
+		-- mezzanine. Measured as a detour the build reads 46 minutes against a
+		-- MIN_TOTAL_MINUTES of 45 — the four purchases did not stop happening, the
+		-- verifier just stopped counting them.
 		--
 		-- keepOnRebirth = false because rebirth() clears self.machines
 		-- unconditionally and the wall ring lives there, not in self.props. Set it
@@ -3464,51 +3260,32 @@ __MODULES["Config"] = function()
 		Config.TrackLabel[track] = Config.TrackInfo[track] and Config.TrackInfo[track].label or track:upper()
 	end
 
-	-- WHAT A WHOLE LADDER WAITS ON.
+	-- design:D-03 — WHAT A WHOLE LADDER WAITS ON, why the cabinets arrive on a gate
+	-- rather than on claim, and why `structure` opens on the very first rung.
 	--
-	-- Deliberately NOT a `requires` on each track's first rung. The loader derives
-	-- requirements within a track and the verifier asserts none ever crosses one —
-	-- that guarantee is worth more than the convenience, and a precondition on an
-	-- entire ladder is a different kind of thing from a link inside one.
+	-- invariant: DELIBERATELY NOT A `requires` ON EACH TRACK'S FIRST RUNG. The
+	-- loader derives requirements within a track and the verifier asserts none ever
+	-- crosses one; that guarantee is worth more than the convenience, and a
+	-- precondition on an entire ladder is a different kind of thing from a link
+	-- inside one.
 	--
-	-- The two cabinets stood on the plot from the moment you claimed it: two
-	-- display cases and nine pedestals, for upgrades you could not use and had no
-	-- reason to care about yet. That is most of the visual noise in the first few
-	-- minutes, and it is why they arrive on a gate rather than on claim.
+	-- A GATE MUST NAME A FACTORY BUTTON — asserted, because a side track gating a
+	-- side track can deadlock. The gate is STICKY, so a rebirth that wipes
+	-- `dropper3` does not take both cabinets with it.
 	--
-	-- THE GATE IS THE FOURTH FACTORY RUNG, NOT THE FLOOR. It was `floor2` for two
-	-- rounds, and that was only ever a proxy: the cabinets stood on the deck, so
-	-- the deck's button was the thing that could open them. With the cases back
-	-- downstairs (Layout.Tracks) the deck has nothing to do with it, and leaving
-	-- the gate on `floor2` would mean two cabinets on the ground floor appearing
-	-- when a storey lands above them — a coupling with no argument behind it.
-	--
-	-- `dropper3` is the fourth thing you buy, about three minutes in: late enough
-	-- that the opening minutes are the line and nothing else, early enough that
-	-- the first bat is a purchase you make during the first raid rather than after
-	-- it. TODO.md item 2, "after the 4th conveyor upgrade".
-	--
-	-- It must name a FACTORY button — the verifier asserts that, because a side
-	-- track gating a side track can deadlock — and the gate is sticky, so a rebirth
-	-- that wipes `dropper3` does not take both cabinets with it.
-	-- `structure` opens on the FIRST rung, which is as close to "not gated" as this
-	-- table can say while still saying something. The plot you claim is a bare slab
-	-- and the first thing anyone does is buy a dropper; offering Plot Walls in the
-	-- same breath is two ladders before there is one. One purchase later the line
-	-- exists and the building becomes a thing you can want. It is also what keeps
-	-- the "no side track's first rung is affordable at spawn" question moot for
-	-- this track — you cannot buy walls at minute zero at any price.
+	-- `structure` opening on the first rung is also what keeps the "no side track's
+	-- first rung is affordable at spawn" check meaningful for it — you cannot buy
+	-- walls at minute zero at any price.
 	Config.TrackUnlock = { weapons = "dropper3", armor = "dropper3", structure = "dropper1" }
 
-	-- WHAT A SINGLE PURCHASE WAITS ON, WHEN THE THING IT WAITS ON IS NOT ON ITS OWN
-	-- LADDER.
+	-- invariant: WHAT A SINGLE PURCHASE WAITS ON, WHEN THE THING IT WAITS ON IS NOT
+	-- ON ITS OWN LADDER. There is exactly one of these and it should stay that way.
 	--
-	-- There is exactly one of these and it should stay that way. `floor2` builds a
-	-- storey whose own wall ring FloorService stands up and nothing else ever
-	-- roofs, so a mezzanine bought before the roof is a room open to the sky. While
-	-- the shell was welded into the factory chain that was guaranteed by ORDERING —
-	-- `roof` was simply an earlier row. Moving the shell onto its own track made it
-	-- declinable and took the guarantee with it.
+	-- `floor2` builds a storey whose own wall ring FloorService stands up and
+	-- nothing else ever roofs, so a mezzanine bought before the roof is a room open
+	-- to the sky. While the shell was welded into the factory chain that was
+	-- guaranteed by ORDERING. A parallel track is declinable, which took the
+	-- guarantee with it. design:D-07.
 	--
 	-- WHY THIS IS NOT A `requires`. The loader derives `requires` from the row
 	-- above and the verifier asserts that the derived chain IS the table order, so
@@ -3638,7 +3415,7 @@ __MODULES["Config"] = function()
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- ANALYTICS
+	-- invariant: ANALYTICS
 	--
 	-- The schema lives in Config for the same reason the fonts do: the verifier can
 	-- only check what it can see, and EVERY limit below is a silent counting
@@ -3854,7 +3631,8 @@ __MODULES["Config"] = function()
 	--- Component arithmetic on purpose: tools/verify_config.lua stubs Vector3 as a
 	--- plain table with no operators, so anything that adds or scales a Vector3 at
 	--- require time takes the whole verifier down.
-	--- The top face a floor's furniture stands on, plot-local. 0 for the ground
+
+	--- invariant: the top face a floor's furniture stands on, plot-local. 0 for the
 	--- floor, the deck's top for anything naming a Config.Floors id.
 	---
 	--- A SCALAR, because the verifier's Vector3 has no arithmetic and the three
@@ -5054,7 +4832,8 @@ __MODULES["SwingAnim"] = function()
 
 	local ZERO = Vector3.new(0, 0, 0)
 
-	--- Poses are ABSOLUTE torso-space Euler angles in DEGREES: (pitch, yaw, roll),
+	--- invariant: poses are ABSOLUTE torso-space Euler angles in DEGREES —
+	--- (pitch, yaw, roll),
 	--- measured from the rig's bind pose — arms hanging straight down. They are not
 	--- offsets from whatever the character is currently doing; see applyJoint.
 	---
@@ -5081,7 +4860,7 @@ __MODULES["SwingAnim"] = function()
 	--- upper body: pitch +  leans BACK, pitch - leans forward, yaw + turns left.
 	---
 	--- Choreography lives here rather than in Config because these are drawings,
-	--- not balance. The timings that damage depends on ARE in Config.
+	--- not balance. The timings that damage depends on ARE in Config. design:D-10.
 	local function P(arm: Vector3, offArm: Vector3?, torso: Vector3?)
 		return { arm = arm, offArm = offArm or ZERO, torso = torso or ZERO }
 	end
@@ -6145,18 +5924,15 @@ __MODULES["Util"] = function()
 		return corner
 	end
 
-	--- Device class from a bag of input flags. One of Config.Analytics.Fields
-	--- .platform.values, always.
+	--- invariant: device class from a bag of input flags. One of
+	--- Config.Analytics.Fields.platform.values, always.
 	---
-	--- HERE RATHER THAN IN Analytics.lua, and that is the one thing about this
-	--- function worth arguing over. Roblox has no server-side device API at all, so
-	--- the ladder has to RUN on the client — but Analytics.lua is deliberately
-	--- server-only (an analytics call from a client silently does nothing forever,
-	--- so the module must not be reachable from one). Written twice it would drift,
-	--- and the drift would be invisible: two ladders, both plausible, disagreeing
-	--- about tablets. So the pure part lives in the shared module that already
-	--- exists for exactly this, takes no Roblox types, and Analytics re-exports it
-	--- as `Analytics.platformFrom` so the specs pin the server's contract.
+	--- HERE RATHER THAN IN Analytics.lua. Roblox has no server-side device API, so
+	--- the ladder has to RUN on the client — and Analytics.lua is deliberately
+	--- server-only, because an analytics call from a client silently does nothing
+	--- forever. Written twice it would drift invisibly: two plausible ladders
+	--- disagreeing about tablets. Analytics re-exports it as
+	--- `Analytics.platformFrom` so the specs pin the server's contract.
 	---
 	--- ORDER IS THE WHOLE FUNCTION. A VR headset and a console both report
 	--- TouchEnabled in some configurations, so a `TouchEnabled` test placed first
@@ -6422,20 +6198,17 @@ __MODULES["AdminService"] = function()
 	function AdminService.handle(player: Player, message: string): boolean
 		local text = message:match("^%s*(.-)%s*$")
 
-		-- NOTHING RUNS WITHOUT A LOADED PROFILE, and this guard is the whole
-		-- reason: every command here ends in a write that DataService.get has to
-		-- resolve, and `get` returns nil until the load finishes rather than
-		-- yielding until it does.
+		-- invariant: NOTHING RUNS WITHOUT A LOADED PROFILE. Every command here ends
+		-- in a write that DataService.get has to resolve, and `get` returns nil
+		-- until the load finishes rather than yielding until it does.
 		--
 		-- Economy.add's first line is `if not profile or amount <= 0 then return 0`
 		-- — it fails SILENTLY — so without this, `$1000` typed during the load
-		-- window granted nothing and then reported "+1.0M Tung." A debug command
-		-- that lies about having worked is worse than one that refuses, because the
-		-- next thing you do is trust the number it printed.
+		-- window grants nothing and then reports "+1.0M Tung." A debug command that
+		-- lies about having worked is worse than one that refuses.
 		--
-		-- The window used to be milliseconds and is about to be much wider: the
-		-- parallel round's DataStore session locking makes a contended load take up
-		-- to ~32 seconds, which is long enough to walk in and start typing.
+		-- The window is wide: session locking makes a contended load take up to
+		-- ~32 seconds, which is long enough to walk in and start typing.
 		-- Gated on the message LOOKING like a command first. Guarding before that
 		-- test would answer back on every ordinary line an admin types during the
 		-- load window, which is the behaviour the "silent on anything that is not a
@@ -7782,8 +7555,8 @@ __MODULES["DataService"] = function()
 			armorTier = 1,
 			kills = 0,
 			playtime = 0,
-			-- SESSION fields. reconcile() merges a saved value onto this default
-			-- only when the TYPES match, so adding a field here is what makes every
+			-- invariant: SESSION fields. reconcile() merges a saved value onto this
+			-- default only when the TYPES match, so adding a field here is what makes every
 			-- existing save keep loading: an old profile simply arrives with the
 			-- default. Every one of these must ALSO appear in the hand-listed
 			-- payload in save() below, or it is dropped on the way out.
@@ -8430,8 +8203,8 @@ __MODULES["Economy"] = function()
 		return math.floor(Config.Rebirth.BaseCost * (Config.Rebirth.CostGrowth ^ n))
 	end
 
-	--- PROTOTYPE (Config.Prototypes.RebirthPerks). A rebirth pays four things, not
-	--- one number. `Tycoon:rebirth()` owns two of them — it bumps profile.rebirths
+	--- mechanism: PROTOTYPE (Config.Prototypes.RebirthPerks). A rebirth pays four
+	--- things, not one number. `Tycoon:rebirth()` owns two of them — it bumps profile.rebirths
 	--- (the multiplier) and resets cash to Config.Economy.StartingCash — and it is
 	--- owned by another track, so the starting-cash grant is applied here, from the
 	--- one module allowed to create cash.
@@ -8439,11 +8212,9 @@ __MODULES["Economy"] = function()
 	--- `perks` comes from SessionService.rebirthPerksFor(profile). Passing it in
 	--- rather than computing it keeps the dependency arrow pointing one way.
 	---
-	--- It used to copy `perks.unlocks` into `profile.unlocks` as well. That was a
-	--- saved cache of a pure function of profile.rebirths, nothing ever read it, and
-	--- the one entry it had recorded ("mezzanine") was stale — see the comment on
-	--- SessionService.rebirthPerksFor. Milestone unlocks are derived on read now and
-	--- there is nothing here to write.
+	--- Milestone unlocks are DERIVED ON READ and there is nothing here to write.
+	--- A saved copy of a pure function of profile.rebirths can only go stale, and
+	--- the one this used to keep had.
 	---
 	--- Idempotent on purpose: it tops cash UP to the grant instead of adding to
 	--- it, so a double call (a retry, a re-detect) cannot be farmed.
@@ -8815,7 +8586,8 @@ __MODULES["FloorService"] = function()
 	-- the ladder
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	--- WHERE THE TRUSS STANDS: inside the hatch, against its ARRIVAL lip.
+	--- invariant: WHERE THE TRUSS STANDS — inside the hatch, against its ARRIVAL
+	--- lip.
 	---
 	--- Derived from the void it climbs through rather than stated beside it, so the
 	--- truss and the hole in the floor cannot disagree about where the climb is.
@@ -9002,14 +8774,14 @@ __MODULES["FloorService"] = function()
 			FloorService.buildDeck(tycoon, entry.folder)
 		end)
 
-		-- THE UPPER STOREY'S WALLS, AND WHY THEY ARE OURS RATHER THAN THE STRUCTURE
+		-- invariant: THE UPPER STOREY'S WALLS ARE OURS, NOT THE STRUCTURE
 		-- INSTALLER'S.
 		--
 		-- They are structure, and INSTALLERS.Structure builds the ground ring from this
-		-- same call. But the ring that stands on THIS deck cannot come from there: the
-		-- walls button is bought around minute three and this floor around minute six,
-		-- so at walls-install time there is no deck to stand an upper wall on, and
-		-- nothing re-runs an installer. That is exactly the hole the ROOF had to grow
+		-- same call. But the ring that stands on THIS deck cannot come from there:
+		-- `walls` is bought long before the deck exists, so at walls-install time
+		-- there is nothing to stand an upper wall on, and nothing re-runs an
+		-- installer. That is exactly the hole the ROOF had to grow
 		-- refreshRoof to cover, and giving the walls the same treatment would mean
 		-- rebuilding the ground ring to add a storey above it — destroying the gate
 		-- leaves GateService may be mid-tween on and re-emitting sixty parts that have
@@ -11228,23 +11000,19 @@ __MODULES["SessionService"] = function()
 	-- income, derived from the SAVED plot
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	--- Income per second computed from persisted plot state and nothing else.
-	---
-	--- Never from a value cached at logout (a stale multiplier survives a nerf and
-	--- pays out forever) and never from anything the client said. An offline
-	--- player has no Tycoon instance to ask, which is why this mirrors
+	--- invariant: income per second computed from PERSISTED PLOT STATE and nothing
+	--- else. Never from a value cached at logout (a stale multiplier survives a
+	--- nerf and pays out forever) and never from anything the client said. An
+	--- offline player has no Tycoon instance to ask, which is why this mirrors
 	--- `Tycoon:incomePerSecond()` rather than calling it.
 	---
-	--- Deliberately EXCLUDES the session multipliers below: a 2x boost is bought
-	--- with presence, and banking it while logged out is the opposite of the
-	--- point. It includes the rebirth multiplier because that is a property of the
-	--- factory, not of the session.
+	--- DELIBERATELY EXCLUDES THE SESSION MULTIPLIERS — design:D-08. It includes the
+	--- rebirth multiplier, because that is a property of the factory rather than of
+	--- the session.
 	---
-	--- The same exclusion catches SocialService's friend bonus for free, and for
-	--- the same reason — it is registered as an Economy multiplier hook and this
-	--- function never calls Economy.multiplier. That is intended, not incidental: a
-	--- bonus for being in a server with your friends must not pay while you are in
-	--- no server. Anything added to this line must survive the same question.
+	--- The same exclusion catches SocialService's friend bonus for free: that hook
+	--- is registered on Economy and this function never calls Economy.multiplier.
+	--- Anything added to this line must survive the same question.
 	function SessionService.incomePerSecondFor(profile): number
 		if type(profile) ~= "table" then
 			return 0
@@ -11348,7 +11116,8 @@ __MODULES["SessionService"] = function()
 		return entry and entry.offline or nil
 	end
 
-	--- WHAT THE VAULT IS WORTH, in one formula with two modes falling out of it.
+	--- invariant: WHAT THE VAULT IS WORTH, in one formula with two modes falling
+	--- out of it. design:D-08 for what the gauge is for.
 	---
 	--- Capacity is the most this profile can bank in a single absence: its offline
 	--- income per second, for as many hours as its Vault Timer allows. That number
@@ -12309,22 +12078,19 @@ __MODULES["SocialService"] = function()
 	-- the multiplier
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	--- What the friend layer multiplies income by. Registered onto Economy under
-	--- its own key at start(), so it STACKS with the session hook rather than
-	--- overwriting it.
+	--- invariant: what the friend layer multiplies income by. Registered onto
+	--- Economy under its own key at start(), so it STACKS with the session hook
+	--- rather than overwriting it.
 	---
 	--- THIS RUNS ON EVERY Economy.add — up to ~10 times a second per plot at
 	--- endgame, times ten plots. It is one table read and two arithmetic ops, and
 	--- it must stay that way. Never a web call, never an iteration over
 	--- Players:GetPlayers(); that is what `count` is maintained for.
 	---
-	--- IT DOES NOT BANK WHILE LOGGED OUT, and that is a decision rather than an
-	--- oversight. `SessionService.incomePerSecondFor` derives offline income from
-	--- the persisted plot and deliberately never calls `Economy.multiplier` — which
-	--- is what excludes the boost and the weekend bonus too (see the comment at
-	--- SessionService.lua:122-125). The same reasoning applies with more force
-	--- here: a bonus for being in a server WITH your friends must not pay out while
-	--- you are in no server at all. The spec pins it.
+	--- IT DOES NOT BANK WHILE LOGGED OUT. design:D-08.
+	--- `SessionService.incomePerSecondFor` derives offline income from the
+	--- persisted plot and deliberately never calls `Economy.multiplier`, which is
+	--- what excludes the boost and the weekend bonus too. The spec pins it.
 	function SocialService.incomeMultiplier(player: Player): number
 		return 1 + math.min(count[player] or 0, S.MaxFriends) * S.BonusPerFriend
 	end
@@ -13580,12 +13346,8 @@ __MODULES["Belt"] = function()
 			return surface
 		end
 
-		-- ── the guard walls ──────────────────────────────────────────────────────
-		--
-		-- TODO.md item 5. These replace the 0.5-stud neon trim that ran the outer
-		-- side of each leg, and they are the shape the DELETED rails should have
-		-- been: a run on one leg, set back from both of that leg's ends by
-		-- BeltGuard.corner, on BOTH sides.
+		-- invariant: the guard walls. A run on ONE leg, set back from both of that
+		-- leg's ends by BeltGuard.corner, on both sides. design:D-07.
 		--
 		-- The setback is the whole of the fix. The old rails ran each leg's full
 		-- length, and because every leg's surface deliberately overruns its bend by
@@ -14024,24 +13786,18 @@ __MODULES["Buttons"] = function()
 		return MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
 	end
 
-	--- Where a buy button's pedestal actually stands, height included.
+	--- invariant: where a buy button's pedestal actually stands, HEIGHT INCLUDED.
 	---
-	--- This exists because the conversion from "button position" to "CFrame" was
-	--- written twice, and both copies threw the Y away — `self:at(pos.X, 0, pos.Z)`.
-	--- `buttonPosition` has always returned the right height for a machine on any
-	--- belt path (pointOnLeg bakes in `path.y`), so the floors prototype could
-	--- never have a purchasable thing standing on it: everything it priced would
-	--- have been built on the ground floor underneath the deck. One line, and it
-	--- was the single blocker for a real second storey.
+	--- The conversion from "button position" to "CFrame" was written twice and both
+	--- copies threw the Y away — `self:at(pos.X, 0, pos.Z)`. Nothing purchasable
+	--- could then stand on an upper floor: everything would be built on the ground
+	--- underneath the deck. One line, and it was the single blocker for a real
+	--- second storey.
 	---
-	--- IT STOPPED BEING A NO-OP. This used to read "no-op today: every source of a
-	--- button position returns Y = 0 while there is one ground-level path". Two of the
-	--- three sources answer with a height now — Config.trackButtonPosition takes its Y
-	--- from Config.floorTopY, and both side tracks name floor = "mezzanine", so the
-	--- weapons and armour columns (nine pads, five and four) are built on the deck at
-	--- y = 22 by this line and nothing else. Layout.MiscButtons is still all on the
-	--- floor, and the mezzanine's own belt buttons come through pointOnLeg, which bakes
-	--- in path.y.
+	--- All three sources of a button position can answer with a height.
+	--- Config.trackButtonPosition takes its Y from Config.floorTopY (0 today, since
+	--- neither side track names a `floor`); Layout.MiscButtons is all ground level;
+	--- and belt buttons come through pointOnLeg, which bakes in `path.y`.
 	---
 	--- The Studio-only half is the assertion in buildButtons below: whether the pad
 	--- that got built is where buttonPosition said. No config check can reach it.
@@ -14179,33 +13935,22 @@ __MODULES["Buttons"] = function()
 		end
 	end
 
-	--- Whether the floor a button stands on has actually been built.
+	--- invariant: whether the floor a button stands on has actually been built.
+	--- Buttons on an unbuilt floor are HIDDEN, and appear with the deck.
 	---
 	--- A previewed button is a dimmed pad with a ghost of its machine standing
-	--- where it will go, which is the right answer on the ground floor and a
-	--- terrible one twenty-two studs up in open air: before the deck exists there
-	--- is nothing under it, so it reads as a bug rather than as a plan. Buttons on
-	--- an unbuilt floor are HIDDEN, and appear with the deck.
+	--- where it will go. That is the right answer on the ground floor and a
+	--- terrible one twenty-two studs up in open air, where there is nothing under
+	--- it and it reads as a bug rather than as a plan.
 	---
-	--- TWO WAYS A BUTTON NAMES ITS FLOOR, and this used to read only the first. A belt
-	--- machine names it by `path`; a side-track button names it on its track's
-	--- Layout.Tracks entry, which is how the weapons and armour columns came to stand
-	--- on the mezzanine.
+	--- TWO WAYS A BUTTON NAMES ITS FLOOR, and both must be read. A belt machine
+	--- names it by `path`; a side-track button names it on its track's
+	--- Layout.Tracks entry.
 	---
-	--- THE COINCIDENCE THIS PARAGRAPH USED TO WARN ABOUT IS GONE, AND SO IS THE
-	--- THING IT WAS COVERING. It said the nine cabinet pads at y = 22 were kept
-	--- honest only by luck, because Config.TrackUnlock gated both cabinets on
-	--- `floor2` — the same button that builds the deck — so `trackUnlocked`
-	--- happened to answer the question this function is asking. Round 8 moved the
-	--- cabinets back to the ground floor and the gate to `dropper3`, so neither
-	--- weapons nor armour carries a `floor` on its Layout.Tracks entry any more:
-	--- Config.floorTopY(nil) is 0, the pads are at ground level, and this function
-	--- returning true early for a cabinet button is now correct rather than lucky.
-	--- The warning stood for two rounds after it stopped being true.
-	---
-	--- What it warned about is still worth knowing if a track ever goes back
-	--- upstairs: `floor` on a Layout.Tracks entry is the only thing that would tie
-	--- those pads to a deck, and nothing derives it from the gate.
+	--- IF A TRACK EVER GOES BACK UPSTAIRS: `floor` on a Layout.Tracks entry is the
+	--- only thing that ties those pads to a deck, and nothing derives it from the
+	--- track's gate. Both cabinets are on the ground floor today, so neither
+	--- carries one and Config.floorTopY(nil) is 0.
 	function Tycoon:floorBuiltFor(def): boolean
 		-- A LINE BUTTON WAITS ON THE DECK IT STANDS ON. Its pedestal is at y = 22,
 		-- so before the storey lands it would hang in open air over the aisle.
@@ -14377,13 +14122,10 @@ __MODULES["Buttons"] = function()
 		for id, entry in pairs(self.objects) do
 			local def = entry.def
 			local owned = self.owned[id] == true
-			-- A gated track is HIDDEN, not previewed, and it takes no ghost: the
-			-- point of gating the cabinets is that the right half of the plot is
-			-- empty ground until you have earned it, and nine dimmed pads with
-			-- ghost bats standing on them is the same wall of labels with the
-			-- brightness turned down.
-			-- Config.buttonUnlocked is DELIBERATELY NOT IN `standing`, and the
-			-- difference matters. A false `standing` unparents the holder, which is
+			-- design:D-03 — a gated track is HIDDEN, not previewed, and takes no
+			-- ghost.
+			--
+			-- invariant: Config.buttonUnlocked is DELIBERATELY NOT IN `standing`. A false `standing` unparents the holder, which is
 			-- right for a gated cabinet — bare ground until you have earned it. It
 			-- would be wrong for `floor2`, whose pedestal is a hand-placed position
 			-- at the near end of the misc column in Layout.MiscButtons: hiding it
@@ -14423,14 +14165,15 @@ __MODULES["Buttons"] = function()
 				entry.stroke.Color = COLORS.preview
 				entry.stepLabel.TextColor3 = COLORS.preview
 				entry.titleLabel.TextColor3 = COLORS.preview
-				-- Name the thing you have to buy, not an ordinal. "step N" meant
+				-- design:D-09 — name the thing you have to buy, not an ordinal. "step N" meant
 				-- one thing when there was one chain; with three tracks the global
 				-- order is meaningless on a pedestal and the per-track one is
 				-- ambiguous across cabinets. The requirement is right here, so say
 				-- it: "locked — buy Oak Sahur Bat first".
 				--
-				-- THE BUTTON GATE IS CHECKED FIRST, and that ordering is the whole
-				-- reason this reads as an instruction instead of a dead end. For
+				-- invariant: THE BUTTON GATE IS CHECKED FIRST, and that ordering is
+				-- the whole reason this reads as an instruction rather than a dead
+				-- end. For
 				-- `floor2` the chain requirement is `upgrader4`, which the player
 				-- has just bought — so walking `requirementsOf` alone finds nothing
 				-- unmet, leaves `blocker` nil, and the pad says the bare word
@@ -15165,7 +14908,7 @@ __MODULES["Installers"] = function()
 		return Vector3.new(thickness, height, length), tycoon:at(fixed, y, along)
 	end
 
-	--- HOW FAR OFF THE WALL A GATE LEAF HANGS, and on which side.
+	--- invariant: HOW FAR OFF THE WALL A GATE LEAF HANGS, and on which side.
 	---
 	--- `alongWall`'s `cross` is measured from the wall's CENTRE plane and positive is
 	--- inboard, so this is half the wall, plus the stated air gap, plus half the leaf
@@ -15364,21 +15107,12 @@ __MODULES["Installers"] = function()
 	end
 
 	Tycoon.INSTALLERS.Power = function(self, def, silent)
-		-- THE FACTOR HAS TO BE ASSIGNED, and it never was.
-		--
-		-- self.powerFactor was initialised to 1 and reset to 1 by release() and
-		-- rebirth(), and those were the only three writes in the file. This
-		-- installer called refreshBeltSpeed() without setting it, so the two things
-		-- that read the field — refreshBeltSpeed's (BeltSpeed + beltBonus) * factor
-		-- and dropInterval's dropRate / factor — both multiplied by one. The belt
-		-- and every dropper have been running at stock speed since the generator
-		-- shipped in #32.
-		--
-		-- incomePerSecond reads Config.powerFactor(has) directly instead, so it was
-		-- correct the whole time. That asymmetry is why nothing looked wrong: the
-		-- plot quoted the full multiplier on the HUD, on the buy button and through
-		-- SessionService's offline mirror while producing none of it, and the only
-		-- thing 300M Tung actually bought was a bigger number in the corner.
+		-- invariant: THE FACTOR HAS TO BE ASSIGNED HERE. Nothing else writes it on
+		-- a purchase, and the generator shipped for two rounds doing nothing at all
+		-- because this line was missing — the belt and every dropper ran at stock
+		-- speed while incomePerSecond, which reads Config.powerFactor(has) directly,
+		-- went on quoting the full multiplier on the HUD, on the buy button and
+		-- through SessionService's offline mirror.
 		--
 		-- DERIVED, NEVER ACCUMULATED. assign() replays a save by installing every
 		-- owned button in `order`, so a *= here would land on
@@ -15549,7 +15283,8 @@ __MODULES["Installers"] = function()
 		return specs
 	end
 
-	--- One storey's ring of walls: the courses Config.wallSegments describes, the
+	--- invariant: one storey's ring of walls — the courses Config.wallSegments
+	--- describes, the
 	--- gate leaves in its openings, a neon cap along the top of each side and a neon
 	--- strip along the inside of the storey line.
 	---
@@ -15560,7 +15295,7 @@ __MODULES["Installers"] = function()
 	--- for — Config.wallSegments answers for both, and the WHY of the split ownership
 	--- is written where the second caller is (FloorService.build).
 	---
-	--- THREE COURSES PER SOLID RUN, one lintel per opening. The bay course is
+	--- invariant: THREE COURSES PER SOLID RUN, one lintel per opening. The bay course is
 	--- Config.wallBays: piers in wall material, panes in glass. A pane is
 	--- CanCollide — what keeps the camera out of an enclosed plot is the
 	--- TRANSPARENCY, because PopperCam only treats a part as occluding below 0.25,
@@ -15620,7 +15355,7 @@ __MODULES["Installers"] = function()
 				extent.from, extent.to, top, TRIM_SECTION, S.WallThickness / 2)
 		end
 
-		-- THE CEILING FIXTURES ARRIVE WITH THE CEILING, not with the ring.
+		-- invariant: THE CEILING FIXTURES ARRIVE WITH THE CEILING, not the ring.
 		--
 		-- This block used to build them unconditionally, and the comment defended it
 		-- on ownership: tying them to `floor2` would put FloorService in charge of
@@ -15638,7 +15373,7 @@ __MODULES["Installers"] = function()
 		-- calls it on both events that can change that answer.
 		self:refreshStoreyLights(model, storeyId)
 
-		-- THE TWO UPGRADES THIS STOREY MAY ALREADY HAVE BEEN SOLD.
+		-- invariant: THE TWO UPGRADES THIS STOREY MAY ALREADY HAVE BEEN SOLD.
 		--
 		-- `walls`, `gates` and `windows` are three purchases and an installer runs
 		-- once, so a storey built AFTER one of them was bought has to arrive already
@@ -15842,7 +15577,7 @@ __MODULES["Installers"] = function()
 		end
 	end
 
-	--- The roof slab, its columns and the company sign.
+	--- invariant: the roof slab, its columns and the company sign.
 	---
 	--- Extracted from the installer because the roof's HEIGHT depends on something
 	--- bought later. A storey's ceiling is the floor above it, so the roof sits on
@@ -15858,8 +15593,9 @@ __MODULES["Installers"] = function()
 	--- and the roof always spans the whole plot.
 	---
 	--- It is still REBUILT when the floor lands (refreshRoof, off
-	--- FloorService.sync): roof is minute 28 and floor is minute 6, so without the
-	--- rebuild the beat that raises the building never happens.
+	--- FloorService.sync). The roof is bought first — Config.ButtonUnlock gates
+	--- `floor2` on it — so the rebuild is what re-derives the underside from the
+	--- deck once the deck exists.
 	function Tycoon:buildRoofModel(model: Instance)
 		model:ClearAllChildren()
 
@@ -16346,8 +16082,8 @@ __MODULES["Props"] = function()
 
 	-- ── rebirth pad ──────────────────────────────────────────────────────────────
 
-	--- The side-track cabinets: a display case standing behind each track's column
-	--- of buy buttons.
+	--- mechanism: the side-track cabinets — a display case standing behind each
+	--- track's column of buy buttons.
 	---
 	--- These carry the wayfinding that the side tracks would otherwise have to
 	--- take from `pointAt`. There is exactly ONE Highlight per plot and it belongs
@@ -16417,8 +16153,8 @@ __MODULES["Props"] = function()
 		end
 	end
 
-	--- The generator yard: a small slab behind the plot's back-right corner, with a
-	--- fence around three sides of it.
+	--- invariant: the generator yard — a small slab behind the plot's back-right
+	--- corner, with a fence around three sides of it.
 	---
 	--- Permanent plot furniture in self.props, exactly like a cabinet body. The
 	--- GENERATOR that stands on it goes into self.machines instead, so a rebirth
@@ -16426,19 +16162,15 @@ __MODULES["Props"] = function()
 	--- standing — the same split the cabinets and their shelf displays already use.
 	---
 	--- IDEMPOTENT AND RE-RUN FROM refreshButtons, for the same reason
-	--- ensureCabinets is. This used to be buildYard(), called once from the
-	--- constructor and never again — but release() does props:ClearAllChildren(),
-	--- so the first time an owner left a plot the slab and its fence went with
-	--- them, permanently, for the rest of the server's life. Every subsequent owner
-	--- bought generators that stood in mid-air. The cabinets survived that because
-	--- they are rebuilt from a refresh; the yard had no equivalent.
+	--- ensureCabinets is. release() does props:ClearAllChildren(), so a yard built
+	--- once from the constructor goes with the first owner who leaves and never
+	--- comes back: every subsequent owner buys generators that stand in mid-air.
 	---
-	--- NO SIGN. It used to hang a "POWER YARD" billboard off the back fence and
-	--- store the label in self.cabinetSigns — where updateCabinetSigns rewrote it
-	--- with the cabinet format string, so it actually read "POWER CABINET - 0/4".
-	--- The pad twelve studs away already carries the track, the tier name, the
-	--- effect and the price; a second sign restating it is the noise this change is
-	--- about. If a yard sign is ever wanted it must NOT go in cabinetSigns.
+	--- NO SIGN, and if one is ever wanted it must NOT go in self.cabinetSigns —
+	--- updateCabinetSigns rewrites everything in there with the cabinet format
+	--- string, which is how a "POWER YARD" billboard came to read
+	--- "POWER CABINET - 0/4". design:D-09: the pad twelve studs away already
+	--- carries the track, the tier name, the effect and the price.
 	function Tycoon:ensureYard()
 		local Y = L.Yard
 		if self.props:FindFirstChild("Yard") then

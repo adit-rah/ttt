@@ -72,21 +72,31 @@ source of truth and re-run the packer after any change.
   but only 8 can engage you at once, so a bigger wave is reinforcements arriving
   rather than more raiders swinging. Every 5th wave brings a boss. The state of
   it is a sign over the statue in the middle of the arena.
-- Right after the walls — about six minutes in — you buy **the mezzanine**: a
-  second storey with its own belt, its own dropper, and a ladder up to it,
-  standing directly ahead of your gateway. The weapon and armour cabinets arrive
-  with it, which is most of the reason it is bought that early.
+- The weapon and armour cabinets appear on the right-hand side of your plot at
+  your **fourth purchase**, about three minutes in — bare ground until then.
+- Two thirds of the way in you buy **the mezzanine**: a whole second storey,
+  spanning the plot, with a truss up through a hatch in its deck. You need the
+  **roof** first, because nothing else ever roofs a storey. It arrives **empty**
+  — its conveyor and its dropper are the last two purchases in the game.
 - Behind the plot's back-right corner is the **generator yard**: one generator
   and one pad, and the pad upgrades what is standing there rather than adding
   another one beside it. Each rung speeds up the droppers and the belt together
   — the belt half is what stops a faster line simply running out of room.
+- The plot's **shell** — walls, gates, glazed bays, then a roof — is a separate
+  ladder running alongside the factory, so scenery never blocks income.
 - The **Bat Forge** buttons upgrade your weapon, six tiers from Sahur Bat to
   Eclipse. Bats are ordinary Roblox `Tool`s, so the built-in hotbar and backpack
   equip them.
 - The rebirth pad wipes your factory for a compounding payout multiplier.
 
-Roughly **50 minutes** to a full factory, first rebirth about 10 minutes past
-it. That curve is measured, not guessed — see *Verification* below.
+Roughly **53 minutes** to a full factory, with the rebirth pad affordable at
+minute 42 and six rungs still unbought when it lights up. That curve is
+measured, not guessed — see *Verification* below.
+
+**What the game should be, and why, is not in this repo's code.** It is
+[issue #72](https://github.com/adit-rah/ttt/issues/72) and its ten sub-issues,
+mirrored in [`docs/design/`](docs/design/). `docs/design/GAME.md` is the long
+version of this section.
 
 ---
 
@@ -191,7 +201,7 @@ Supported `kind` values and what each needs:
 | `Dropper` | `slot`, `variant`, `dropValue`, `dropRate` | machine + spout + drop loop on belt leg 1 |
 | `Upgrader` | `slot`, `variant`, `multiplier` | scanner over belt leg 2 that multiplies passing drops |
 | `Belt` | `speedBonus` | speeds up the conveyor |
-| `Structure` | `structure` (`"walls"` / `"roof"`) | plot buildout |
+| `Structure` | `structure` (`"walls"` / `"gates"` / `"windows"` / `"roof"`) | plot buildout, one instalment at a time |
 | `Gear` | `grants` (a `Config.Bats` id) | anvil display + weapon upgrade |
 | `Armor` | `grants` (a `Config.Armor.Tiers` id) | cabinet shelf + max-health upgrade |
 | `Floor` | `floor` (a `Config.Floors` id) | the mezzanine deck, belt, collector and ladder |
@@ -215,7 +225,7 @@ python3 tools/verify.py
 ```
 
 Needs the [Luau CLI](https://github.com/luau-lang/luau/releases) on your PATH
-(`luau`, `luau-compile`, `luau-analyze`). It runs eleven passes:
+(`luau`, `luau-compile`, `luau-analyze`). It runs thirteen passes:
 
 1. **Syntax** — compiles every file in `src/` and `tools/testing/`
 2. **Static analysis** — `luau-analyze`, with the Roblox globals *named* in a
@@ -233,13 +243,17 @@ Needs the [Luau CLI](https://github.com/luau-lang/luau/releases) on your PATH
    dozen methods
 7. **UI geometry** — no card-scale literal in `src/client`; it comes from `Config.UI`
 8. **One ScreenGui** — `HUD.lua` owns it, so there is exactly one `UIScale`
-9. **Config integrity** — 2300+ assertions: duplicate ids, dangling `requires`,
-   slot collisions, upgraders placed upstream of droppers, plots that would
-   overlap on the ring, bats that aren't stronger than the tier below…
-10. **Runtime specs** — `tools/test.py` runs the game headless under `luau`
-11. **Packed build** — regenerates the paste-in scripts and compiles those too
+9. **Design refs** — every `design:D-NN` cited in the source names a decision
+   that exists in `docs/design/DECISIONS.md`
+10. **Comment triage** — a comment block over 15 lines has to declare which of
+    the four homes it is: `design:D-NN`, `invariant:` or `mechanism:`
+11. **Config integrity** — 2300+ assertions: duplicate ids, dangling `requires`,
+    slot collisions, upgraders placed upstream of droppers, plots that would
+    overlap on the ring, bats that aren't stronger than the tier below…
+12. **Runtime specs** — `tools/test.py` runs the game headless under `luau`
+13. **Packed build** — regenerates the paste-in scripts and compiles those too
 
-Pass 9 also *simulates the whole economy*, purchase by purchase, and fails the
+Pass 11 also *simulates the whole economy*, purchase by purchase, and fails the
 build if the curve breaks — a first dropper you can't afford, a mid-game wall
 over 15 minutes, or a total build outside 45–150 minutes. It prints the curve:
 

@@ -103,44 +103,24 @@ local corner, stroke, panel, text, button =
 
 -- ─────────────────────────────────────────────────────────────────────────────
 
---- ONE CARD, TWO THINGS TO READ: what you have, and what you are saving for.
+--- design:D-09 — ONE CARD, TWO THINGS TO READ: what you have, and what you are
+--- saving for. Why it is one card, why the balance is the largest thing on it,
+--- why the friend bonus is a term rather than a row, and why nothing on it is
+--- pressable.
 ---
---- It replaces two outlined panels with a gap between them. They were never read
---- apart — the only question anyone asks this HUD is "can I afford the next
---- thing yet", and answering it out of two cards made the player do the
---- subtraction across a gutter. Merging them is the whole of "simple is better":
---- one surface, five lines, a rule and a bar, in the order you read them.
+--- mechanism: `multLabel` prints the product; `termsLabel` prints what went
+--- into it.
 ---
---- THE BALANCE IS THE LARGEST THING ON IT and the top-left of it, because it is
---- the number the game is about. Under it, in one line, everything that
---- multiplies it: the multiplier itself, rebirths, KOs.
+--- THE BAR IS A BAR AND A LINE OF TEXT ON PURPOSE. A bar alone cannot say what
+--- you are saving for or how much is left; the text alone makes you compare two
+--- abbreviated numbers to find out whether you are close. Both, driven off the
+--- same lerped balance, answer it at a glance and to the Tung.
 ---
---- THE FRIEND BONUS IS A TERM IN THAT MULTIPLIER, not a separate feature, which
---- is why it prints on the terms line with the rebirths and the KOs rather than
---- getting a row of its own. `multLabel` prints the product; `termsLabel` prints
---- what went into it.
----
---- THERE IS NO BUTTON ON THIS CARD. There was an INVITE pill on a friend row
---- here, and the argument for it was that the zero state — "+0% • no friends
---- here yet" — is what turns an invite into an offer. That argument was right
---- and it moved with the pill: the rail item carries the same number as its
---- caption, on the control that acts on it. What is left behind is a card with
---- nothing on it to press, which is what a surface you read at a glance should
---- be.
----
---- THE BAR IS THE NEW PART, and it is a bar AND a line of text on purpose. A bar
---- alone cannot say what you are saving for or how much is left; the text alone
---- (which is what shipped) makes you compare two abbreviated numbers to find out
---- whether you are close. Both, driven off the same lerped balance, answer it at
---- a glance and to the Tung.
----
---- EVERY NUMBER BELOW COMES FROM Config.UI.StatusCard. Not one Y is typed here:
---- they are accumulated from the row heights in Config's derivation block, so a
---- row that grows moves the rows under it, the card's ContentHeight, the session
---- panel's Y and the column's bottom — and the verifier re-runs the fit against
---- all four. When a row was last added here, the two panels below it moved on
---- their own because those Ys were derived; the rows INSIDE the panel were eight
---- literals that had to be found by eye. This is the same fix one level down.
+--- invariant: EVERY NUMBER BELOW COMES FROM Config.UI.StatusCard. Not one Y is
+--- typed here — they are accumulated from the row heights in Config's
+--- derivation block, so a row that grows moves the rows under it, the card's
+--- ContentHeight, the session panel's Y and the column's bottom, and the
+--- verifier re-runs the fit against all four.
 local function buildStatusCard(parent: Instance)
 	-- NO POSITION. The parent is HUD.column(), which is a UIListLayout; the only
 	-- thing this card says about where it goes is that it is first.
