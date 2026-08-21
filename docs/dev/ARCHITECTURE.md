@@ -4,7 +4,7 @@ The module map. Every file in `src/`, what it owns, who requires it, and the
 four ownership boundaries the code actually obeys.
 
 Read this instead of grepping `Req(` calls. `README.md` §"Layout of the code"
-names all 42 files in one line each and points here; it carries no dependency
+names all 43 files in one line each and points here; it carries no dependency
 information, and this file is where that lives.
 
 - **What must not break** → `INVARIANTS.md`
@@ -96,9 +96,9 @@ that throws at load takes down whatever required it, which is how a deleted
 | Path | Responsibility | Required by | Must not |
 | --- | --- | --- | --- |
 | `Req.lua` | Module locator. Position-independent imports; caches; re-raises load failures. | *(the bootstrap line, not `Req()`)* | — |
-| `Config.lua` | **Every tunable number**, all geometry, all button/track/wave/analytics data, plus derived lookups (`ButtonById`, `Tracks`, `TrackRank`, `powerFactor`) and the shell's geometry functions (`storey`, `wallExtent`, `wallSegments`, `wallBays`, `roofUnderside`, `shellPartCount`). 2,810 lines. | 26 modules — everything except `Util`, `Net`, `Req`, `Main.client` | require anything (it is the graph root); hold anything that is not data or a pure derivation — `tools/verify_config.lua` executes this file against stubs and nothing else |
-| `Util.lua` | Number abbreviation, welding, `platformFrom`, misc helpers. No Roblox services. | 15 modules | — |
-| `Net.lua` | Declares `Net.NAMES` and hands out RemoteEvents; server creates them eagerly, client waits. | 14 modules | require anything (it is the other graph root) |
+| `Config.lua` | **Every tunable number**, all geometry, all button/track/wave/analytics data, plus derived lookups (`ButtonById`, `Tracks`, `TrackRank`, `powerFactor`) and the shell's geometry functions (`storey`, `wallExtent`, `wallSegments`, `wallBays`, `roofUnderside`, `shellPartCount`). 3,700 lines. | 37 of 43 modules — everything except `Config` itself, `Util`, `Net`, `Req`, `Main.client` and `tycoon/Tycoon.lua` | require anything (it is the graph root); hold anything that is not data or a pure derivation — `tools/verify_config.lua` executes this file against stubs and nothing else |
+| `Util.lua` | Number abbreviation, welding, `platformFrom`, misc helpers. No Roblox services. | 20 modules | — |
+| `Net.lua` | Declares `Net.NAMES` and hands out RemoteEvents; server creates them eagerly, client waits. | 13 modules | require anything (it is the other graph root) |
 | `Style.lua` | The only place `Config.Style` becomes instances. Every label in the world and on screen. | `FloorService`, `Fx`, `HUD`, `MapBuilder`, `SessionUI`, `TungModels`, `Tycoon`, `UiKit`, `UpgradeUI` | — |
 | `Sound.lua` | The whole audio layer, on `rbxasset://sounds/*`. Fixed pools per name; one SoundGroup. Gated on `Config.Prototypes.Sound`. | `Fx`, `SessionUI` | `Instance.new("Sound")` per event (≈400 live Sounds is where A/V desync starts) |
 | `Fx.lua` | Particle / light / sound recipes, on built-in engine textures. | `CombatService`, `NPCService`, `TungModels`, `Tycoon`, `UpgradeService` | reference an uploaded asset |
@@ -259,7 +259,7 @@ in Studio while passing every pass of `verify.py`.
    ask. The mirror deliberately **excludes** the session multipliers and (for
    free, via the same exclusion) the friend bonus. Change one and check the
    other.
-4. **`Config` is required by 26 of 30 modules.** The four that do not are
+4. **`Config` is required by 37 of 43 modules.** The ones that do not are
    `Util`, `Net`, `Req` and `Main.client`. Treat `Config` as ambient.
 5. **`Economy` requires `DataService` late** (`Economy.lua:13`, after the
    `Players` service) — cosmetic in Rojo, but the position is load-bearing in
@@ -279,7 +279,7 @@ Four rules, each with the thing that enforces it.
 Prices, curves, wave timings, belt speed, plot size, machine offsets, slot
 distance tables, cabinet and yard positions, UI card sizes, analytics schema.
 
-**The evidence.** `tools/verify_config.lua` (2,976 lines) runs `Config.lua`
+**The evidence.** `tools/verify_config.lua` (5,300 lines) runs `Config.lua`
 outside Roblox against four stubs and asserts the data is internally
 consistent. It reads **exactly one file**: `verify.py:check_config` finds the
 `--@INJECT src/shared/Config.lua` marker (`verify_config.lua:33`) and splices
@@ -288,22 +288,28 @@ see. That is not theoretical — `FloorService.lua:47-51` says so in as many
 words: the mezzanine's belt path was built in *code*, so none of the belt-path
 assertions ever saw it, and two of them were wrong.
 
-Geometry therefore lives in `Config.Layout` (`Config.lua:143`) and
-`Config.World` (`:15`), with the per-track furniture positions derived by
+Geometry therefore lives in `Config.Layout` and
+`Config.World`, with the per-track furniture positions derived by
 `Config.trackButtonPosition` / `trackCabinet` / `trackShelfPosition` and the yard
-by `Config.yardMachinePosition` / `yardButtonPosition` (`:378-383`).
+by `Config.yardMachinePosition` / `yardButtonPosition`.
 
-**All three track helpers take their Y from `Config.floorTopY(t.floor)`**, and
-both side tracks name `floor = "mezzanine"` — the weapons and armour cabinets,
-their nine buy-button pedestals and their shelf displays stand on the deck, in
-`Floors[1].zones.armoury`, not on the ground floor. A builder that drops that Y
-(`self:at(pos.X, 0, pos.Z)`) builds the whole armoury *underneath* the deck, and
-it has happened in three separate places: `Tycoon:buttonBaseCF`,
-`Tycoon:ensureCabinets` and `buildShelfDisplay`.
+**All three track helpers take their Y from `Config.floorTopY(t.floor)`.**
+Neither side track names a `floor` today, so both cabinets, their nine
+buy-button pedestals and their shelf displays stand on the **ground floor**, in
+one file down the right-hand side — `Config.floorTopY(nil)` is 0, and that is a
+documented legitimate answer rather than a missing key. The mezzanine's zones
+are `line` and `landing`; there is no `armoury` zone any more.
 
-Two escapes, both principled: `tycoon/Class.lua:36` keeps `MIN_PART = 0.05` on
+The Y still matters, and dropping it is a real defect that has happened in
+three separate places (`Tycoon:buttonBaseCF`, `Tycoon:ensureCabinets`,
+`buildShelfDisplay`): `Layout.Tracks[t].floor` is the only thing that would
+ever tie a track's furniture to a deck, so the first track that goes back
+upstairs is built *underneath* it by any builder that writes
+`self:at(pos.X, 0, pos.Z)`.
+
+Two escapes, both principled: `tycoon/Class.lua` keeps `MIN_PART = 0.05` on
 the class table because it is a property of the engine, not a knob; and `Config.Admin`
-(`:666`) is deliberately *not* in `Config.Prototypes`, because the verifier
+is deliberately *not* in `Config.Prototypes`, because the verifier
 asserts every prototype flag ships `false` and admin commands are finished
 code gated on *who is asking*.
 
@@ -311,28 +317,30 @@ code gated on *who is asking*.
 
 You add content by adding a table row. You never edit `Tycoon`.
 
-`Config.Buttons` is *derived*, not written: `Config.lua:2094-2113` walks
-`Config.TrackOrder = { "factory", "weapons", "armor", "power" }` over
-`Config.Tracks` (which point at `Config.FactoryButtons`, `WeaponButtons`,
-`ArmorButtons`, `PowerButtons`) and stamps `track`, `trackOrder`, `order` and —
+`Config.Buttons` is *derived*, not written: the loader at the foot of
+`Config.lua` walks
+`Config.TrackOrder = { "factory", "structure", "weapons", "armor", "power" }` over
+`Config.Tracks` (which point at `Config.FactoryButtons`, `StructureButtons`,
+`WeaponButtons`, `ArmorButtons`, `PowerButtons`) and stamps `track`, `trackOrder`, `order` and —
 crucially — **derives `requires` from the previous rung of the same track**. A
 track is a chain, so "no requirement crosses a track" is a property of the
 loader rather than a promise the verifier has to police.
 
-**The `kind` → required-fields contract.** `tycoon/Tycoon.lua:1-35` states it; the
-installers implement it (`Tycoon.INSTALLERS`, `tycoon/Installers.lua:121-539`); and
-`verify_config.lua:117-176` asserts it. Every row needs `id`, `name`, `price`
+**The `kind` → required-fields contract.** `tycoon/Tycoon.lua`'s header states
+it, and so does `Config.lua`'s button-table banner; the installers implement it
+(`Tycoon.INSTALLERS` in `tycoon/Installers.lua`); and `verify_config.lua`
+asserts it. Every row needs `id`, `name`, `price`
 (strictly climbing *within its own track*), plus:
 
-| `kind` | Required fields | Installer (`tycoon/Installers.lua`) |
+| `kind` | Required fields | Installer, in `tycoon/Installers.lua` |
 | --- | --- | --- |
-| `Dropper` | placement (below) + `variant`, `dropValue`, `dropRate` (> 0.2s) | `:177` |
-| `Upgrader` | placement (below) + `variant`, `multiplier` (> 1) | `:190` |
-| `Belt` | `speedBonus` (> 0) | `:258` |
-| `Power` | `factor` (> 1, **cumulative**), `variant`, and **no `slot`** — there is one generator stand and every rung upgrades the machine on it | `:267` |
-| `Structure` | `structure` ∈ `{ "walls", "gates", "windows", "roof" }` | `:512` — a two-line dispatch; it emits what `Config.wallSegments` / `Config.wallBays` / `Config.roofUnderside` describe and decides no geometry of its own |
-| `Gear` | `grants` → a `Config.Bats` id | `:334` |
-| `Armor` | `grants` → a `Config.Armor` id | `:350` |
+| `Dropper` | placement (below) + `variant`, `dropValue`, `dropRate` (> 0.2s) | `INSTALLERS.Dropper` |
+| `Upgrader` | placement (below) + `variant`, `multiplier` (> 1) | `INSTALLERS.Upgrader` |
+| `Belt` | `speedBonus` (> 0) | `INSTALLERS.Belt` |
+| `Power` | `factor` (> 1, **cumulative**), `variant`, and **no `slot`** — there is one generator stand and every rung upgrades the machine on it | `INSTALLERS.Power` |
+| `Structure` | `structure` ∈ `{ "walls", "gates", "windows", "roof" }` | `INSTALLERS.Structure` — a two-line dispatch; it emits what `Config.wallSegments` / `Config.wallBays` / `Config.roofUnderside` describe and decides no geometry of its own |
+| `Gear` | `grants` → a `Config.Bats` id | `INSTALLERS.Gear` |
+| `Armor` | `grants` → a `Config.Armor` id | `INSTALLERS.Armor` |
 | `Floor` | a matching `Config.Floors` entry naming this button id as its `button` |
 | `Line` | a matching `Config.Floors` entry naming this button id as its `lineButton` — the conveyor ON a floor, a separate purchase from the floor | a **documented no-op**, same reason as `Floor`; `FloorService.buildLine` runs off `onOwnedChanged` |
 
@@ -340,14 +348,14 @@ installers implement it (`Tycoon.INSTALLERS`, `tycoon/Installers.lua:121-539`); 
 `Layout.DropperDist` / `Layout.UpgraderDist`, the ground floor's two legs — must
 exist and must be unused) **or** `path` + `legIndex` + `legDistance` for a
 machine pinned to a named `Config.BeltPaths` entry. Never both, never neither
-(`verify_config.lua:85-115`).
+(asserted in `verify_config.lua`).
 
-**All nine kinds are in all three places now.** The header used to name five:
-`Power`, `Armor` and `Floor` arrived later and never reached it, while
-`Tycoon.INSTALLERS` and `verify_config.lua`'s `KNOWN_KINDS` carried all eight.
-Nothing enforces that third copy: `KNOWN_KINDS` mirrors the installers and the
-verifier fails an unknown `kind`, but a kind missing from the *header* fails no
-pass at all. It is the copy to check by hand when adding one.
+**A `kind` exists in FOUR places and only two are checked against each other.**
+`Tycoon.INSTALLERS` and `verify_config.lua`'s `KNOWN_KINDS` are: the verifier
+fails an unknown `kind`. The two prose lists — `tycoon/Tycoon.lua`'s header and
+the banner over `Config.lua`'s button tables — are checked by nobody, and both
+have been wrong. The header named five of nine for two rounds; the Config banner
+named six of nine until the design split. They are the copies to do by hand.
 
 `verify_config.lua` also asserts: no duplicate ids; every `requires` points at a
 button defined *earlier* and *in the same track*; every button is reachable from
@@ -570,20 +578,20 @@ a Vault Timer upgrade, a grant arriving.
 
 | I want to… | Edit | What catches a mistake |
 | --- | --- | --- |
-| add a dropper / upgrader | a row in `Config.FactoryButtons` (`Config.lua:924`) | `verify_config.lua`: id/name/price, unused slot, known variant, `dropRate > 0.2`, per-track price monotonicity, reachability |
-| add a bat / armour tier | `Config.Bats` (`:1097`) + `Config.WeaponButtons` (`:1129`), or `Config.Armor` (`:1177`) + `Config.ArmorButtons` (`:1198`) | `verify_config.lua`: `grants` must resolve in `BatById`/`ArmorById`; requirements may not cross tracks |
-| add a generator rung | `Config.PowerButtons` (`:1252`) | `verify_config.lua`: `factor` climbs, step inside `Power.StepMin..StepMax`, top rung equals `Power.MaxFactor`, **no `slot`** |
-| invent a new `kind` | a `Tycoon.INSTALLERS.X` case (`tycoon/Installers.lua:121+`) **and** `KNOWN_KINDS` in `verify_config.lua:44` **and** the `kind` list in `tycoon/Tycoon.lua:1-35` | `verify_config.lua` fails an unknown kind; `Tycoon:install` `warn`s if the installer is missing. The header list is checked by nobody. |
-| retune the curve | `Config.Economy` (`:635`), `Config.Rebirth` (`:674`), the `price` fields | `verify_config.lua`'s progression simulation + the spine-price assertions |
-| move the belt | `Config.Layout` (`:143`) — `BeltStart`/`BeltCorner`/`BeltEnd`/`CollectorAt`/`BeltY`/`BeltWidth`/`BeltSpeed`, or `Config.BeltPaths` (`:1594`) for a non-ground path | `verify_config.lua`: legs stay on the plot, slot distances fit the legs, drops-in-flight against the belt capacity model |
-| move a machine or a button | `Layout.DropperDist` / `UpgraderDist` / `MiscButtons` / `MachineOffset` / `ButtonOffset` (`:143-178`), or `Config.trackButtonPosition` (`:2741`) | `verify_config.lua`: slot collisions, slots overflowing the distance tables |
-| add a UI panel | a new `src/client/*.lua`, built into `HUD.root()` or `HUD.overlay()`, using `UiKit`; sizes named in `Config.UI` (`:651`); started from `Main.client.lua` | `verify.py` passes 3, 6, 7: no font/outline/distance outside `Style.lua`, no ≥300×200 literal card in `src/client`, no second `ScreenGui` |
+| add a dropper / upgrader | a row in `Config.FactoryButtons` | `verify_config.lua`: id/name/price, unused slot, known variant, `dropRate > 0.2`, per-track price monotonicity, reachability |
+| add a bat / armour tier | `Config.Bats` + `Config.WeaponButtons`, or `Config.Armor` + `Config.ArmorButtons` | `verify_config.lua`: `grants` must resolve in `BatById`/`ArmorById`; requirements may not cross tracks |
+| add a generator rung | `Config.PowerButtons` | `verify_config.lua`: `factor` climbs, step inside `Power.StepMin..StepMax`, top rung equals `Power.MaxFactor`, **no `slot`** |
+| invent a new `kind` | a `Tycoon.INSTALLERS.X` case in `tycoon/Installers.lua` **and** `KNOWN_KINDS` in `tools/verify_config.lua` **and** the `kind` list in `tycoon/Tycoon.lua`'s header **and** the one in `Config.lua`'s button-table banner | `verify_config.lua` fails an unknown kind; `Tycoon:install` `warn`s if the installer is missing. The header list is checked by nobody. |
+| retune the curve | `Config.Economy`, `Config.Rebirth`, the `price` fields | `verify_config.lua`'s progression simulation + the spine-price assertions |
+| move the belt | `Config.Layout` — `BeltStart`/`BeltCorner`/`BeltEnd`/`CollectorAt`/`BeltY`/`BeltWidth`/`BeltSpeed`, or `Config.BeltPaths` for a non-ground path | `verify_config.lua`: legs stay on the plot, slot distances fit the legs, drops-in-flight against the belt capacity model |
+| move a machine or a button | `Layout.DropperDist` / `UpgraderDist` / `MiscButtons` / `MachineOffset` / `ButtonOffset` in `Config.Layout`, or `Config.trackButtonPosition` | `verify_config.lua`: slot collisions, slots overflowing the distance tables |
+| add a UI panel | a new `src/client/*.lua`, built into `HUD.root()` or `HUD.overlay()`, using `UiKit`; sizes named in `Config.UI`; started from `Main.client.lua` | `verify.py` passes 3, 6, 7: no font/outline/distance outside `Style.lua`, no ≥300×200 literal card in `src/client`, no second `ScreenGui` |
 | add a save field | `DEFAULT` in `DataService.lua`, and the explicit payload table in `save()` | `reconcile()` iterates the fresh DEFAULT's keys — a field missing from DEFAULT is invisible to it and will never load |
-| add a wave behaviour | `Config.Waves` (`:1331`) for numbers; `NPCService.lua` for the state machine | `verify_config.lua`'s wave/boss assertions; `boss_spec.lua` — but `NPCService` itself does **not** execute headless (§7) |
-| add a remote | `Net.NAMES` (`Net.lua:28`) — declare it, do not create it on demand | a client resolving an undeclared remote sits in `WaitForChild` for 30s |
-| add an analytics event | `Config.Analytics` (`:2563`), then call `Analytics.emit` | `verify_config.lua`: three fields max, string values, `analyticsCombinations()` against the 8,000 cap; `analytics_spec.lua` |
-| graduate a prototype | **delete** the flag from `Config.Prototypes` (`:2153`), not set it `false` | `verify.py` pass 4: any `P.DeletedFlag` read left behind is a finding — a nil flag makes `if not P.X` fire forever, which is how `VaultService` shipped dead |
-| change the plot's shell — wall height, windows, an opening, a gate, the roof | `Config.Structure` (`Config.lua:1888`) and nothing else. `INSTALLERS.Structure` emits `Config.wallSegments`/`wallBays` verbatim, `Config.roofUnderside` is the one structural line both the walls and the roof derive from, and an opening's `face` (`"inboard"`/`"outboard"`) is which side its leaves hang and slide on — the yard door is `outboard` because the inside of the back wall is the dropper row | `verify_config.lua`'s shell family + `structure_spec.lua`: each wall tiles its extent with no gap or overlap, every opening lies inside the wall it cuts with a lintel above, a gate leaf has a solid run to slide along, glass stays at or above PopperCam's 0.25, and `shellPartCount` stays inside `Structure.PartBudget` |
+| add a wave behaviour | `Config.Waves` for numbers; `NPCService.lua` for the state machine | `verify_config.lua`'s wave/boss assertions; `boss_spec.lua` — but `NPCService` itself does **not** execute headless (§7) |
+| add a remote | `Net.NAMES` in `Net.lua` — declare it, do not create it on demand | a client resolving an undeclared remote sits in `WaitForChild` for 30s |
+| add an analytics event | `Config.Analytics`, then call `Analytics.emit` | `verify_config.lua`: three fields max, string values, `analyticsCombinations()` against the 8,000 cap; `analytics_spec.lua` |
+| graduate a prototype | **delete** the flag from `Config.Prototypes`, not set it `false` | `verify.py` pass 4: any `P.DeletedFlag` read left behind is a finding — a nil flag makes `if not P.X` fire forever, which is how `VaultService` shipped dead |
+| change the plot's shell — wall height, windows, an opening, a gate, the roof | `Config.Structure` and nothing else. `INSTALLERS.Structure` emits `Config.wallSegments`/`wallBays` verbatim, `Config.roofUnderside` is the one structural line both the walls and the roof derive from, and an opening's `face` (`"inboard"`/`"outboard"`) is which side its leaves hang and slide on — the yard door is `outboard` because the inside of the back wall is the dropper row | `verify_config.lua`'s shell family + `structure_spec.lua`: each wall tiles its extent with no gap or overlap, every opening lies inside the wall it cuts with a lintel above, a gate leaf has a solid run to slide along, glass stays at or above PopperCam's 0.25, and `shellPartCount` stays inside `Structure.PartBudget` |
 | rename or move a `Config` key | `Config.lua`, then every reader | `verify.py` pass 5: a `Config.<path>` read that no longer resolves is a finding, aliases followed |
 | retune a number, anywhere | `Config.lua` — never a file-local constant | nothing else can see it; see §4.1 |
 
@@ -702,43 +710,50 @@ line temp file.
 
 ### Where the existing docs are wrong
 
-Found while writing this file. Nothing here is fixed by this document; it is
-listed so the next reader does not trust the wrong sentence.
+Nothing here is fixed by this document; it is listed so the next reader does not
+trust the wrong sentence.
 
-1. **`README.md`'s file tree listed 18 of the 31 files** at the start of this
-   round — it was missing `Style.lua`, `ShopMath.lua`, `Sound.lua`,
-   `AdminService.lua`, `Analytics.lua`, `FloorService.lua`,
-   `SessionService.lua`, `SocialService.lua`, `UpgradeService.lua`,
-   `VaultService.lua`, `SessionUI.lua`, `UpgradeUI.lua` and `UiKit.lua`, and
-   still called `ShopMath.lua` by its old name. Another PR in this round
-   completed it. It remains a one-line-per-file index with no dependency
-   information; that is this document's job, not its own.
-2. **`HANDOFF_v6.md:534`** says `verify.py` "runs eight passes now". It runs
-   eleven. (Its own docstring notes the count "has said five, seven and eight
-   while `main()` ran nine" — the config-paths and mixin-folder lints made it
-   eleven in this round.)
-3. **`HANDOFF_v6.md:545-549`** lists `VaultService` among the modules that
+1. **`HANDOFF_v6.md:534`** says `verify.py` "runs eight passes now". It runs
+   thirteen. Its own docstring notes the count "has said five, seven and eight
+   while `main()` ran nine", which is why the docstring and `main()` are now
+   required to be read together.
+2. **`HANDOFF_v6.md:545-549`** lists `VaultService` among the modules that
    "now execute outside Roblox". **It does not** — it is not in
    `SERVER_MODULES`. The same passage says only `NPCService` and `PlotService`
    "are still out"; `UpgradeService`, `VaultService`, `FloorService`,
-   `AdminService` are also out. `src/client` USED to be in that list and is not
-   any more — all five modules and `Main.client.lua` execute as of round 7.
-4. **`Net.lua:56`** documents `RequestClaim` as
+   `GateService` and `AdminService` are also out. `src/client` USED to be in
+   that list and is not any more — all five modules and `Main.client.lua`
+   execute as of round 7.
+3. **`Net.lua`** documents `RequestClaim` as
    `{ kind = "daily" | "playtime" | "offline", index }`. `SessionService`
-   accepts a fourth kind, `"capUpgrade"` (`SessionService.lua:922`), and
-   `SessionUI.lua:406` sends it. `SessionState` (`Net.lua:57`) and
-   `UpgradeState` (`Net.lua:55`) likewise carry more keys than their comments
-   list — `UpgradeService.lua:253` says so explicitly ("the declared payload is
+   accepts a fourth kind, `"capUpgrade"`, and `SessionUI` sends it.
+   `SessionState` and `UpgradeState` likewise carry more keys than their
+   comments list — `UpgradeService` says so explicitly ("the declared payload is
    `{ levels, costs }`; the rest is additive").
-
-5. **`HANDOFF_v7.md` §1 and §10** describe the HUD as it was before the layout
+4. **`HANDOFF_v7.md` §1 and §10** describe the HUD as it was before the layout
    round: a status card with a friend row and an INVITE pill on it, an action
    stack in the bottom-right corner, and a left column ending at y=542. All
    three moved — see `HANDOFF_v8.md`, which supersedes v7 on the HUD's layout and
    nothing else.
+5. **`#74` has no handoff at all.** `HANDOFF_v10.md` was written at `#73`, so
+   the storey-lighting and guard-rail change is recorded only in its PR.
 
-Two entries left this list rather than being carried forward, because the PR that
-split `Tycoon` fixed them: the header naming five `kind`s of eight, and
-`tools/test.py`'s comment excluding the three modules listed two lines below it.
-Two more left it in the layout round: this document's own "ten passes" heading
-and `CLAUDE.md`'s claim that all of `src/client` is outside `tools/test.py`.
+### On the line numbers in this document
+
+**Treat every `file:line` in here as a hint, not an address.** They rot on every
+round that touches the file, silently, and a citation that has drifted 200 lines
+reads exactly like one that has not.
+
+The design round audited all of them: **none point past the end of a file**, so
+nothing here is provably broken — and that is precisely the problem, because
+nothing cheap can tell a drifted citation from an accurate one.
+
+Two rules came out of it, and they are why §4.2 and §6 no longer carry line
+numbers at all:
+
+- **Name a symbol, not a line.** `Config.Layout`, `INSTALLERS.Structure` and
+  `map_traceback` survive any edit that does not delete them. `Config.lua:143`
+  survives nothing.
+- **A line number is worth it only for something with no name** — a specific
+  branch, a particular assignment inside a long function. Those are the ones
+  left in §5 and §7.

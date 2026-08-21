@@ -192,20 +192,17 @@ end
 function AdminService.handle(player: Player, message: string): boolean
 	local text = message:match("^%s*(.-)%s*$")
 
-	-- NOTHING RUNS WITHOUT A LOADED PROFILE, and this guard is the whole
-	-- reason: every command here ends in a write that DataService.get has to
-	-- resolve, and `get` returns nil until the load finishes rather than
-	-- yielding until it does.
+	-- invariant: NOTHING RUNS WITHOUT A LOADED PROFILE. Every command here ends
+	-- in a write that DataService.get has to resolve, and `get` returns nil
+	-- until the load finishes rather than yielding until it does.
 	--
 	-- Economy.add's first line is `if not profile or amount <= 0 then return 0`
 	-- — it fails SILENTLY — so without this, `$1000` typed during the load
-	-- window granted nothing and then reported "+1.0M Tung." A debug command
-	-- that lies about having worked is worse than one that refuses, because the
-	-- next thing you do is trust the number it printed.
+	-- window grants nothing and then reports "+1.0M Tung." A debug command that
+	-- lies about having worked is worse than one that refuses.
 	--
-	-- The window used to be milliseconds and is about to be much wider: the
-	-- parallel round's DataStore session locking makes a contended load take up
-	-- to ~32 seconds, which is long enough to walk in and start typing.
+	-- The window is wide: session locking makes a contended load take up to
+	-- ~32 seconds, which is long enough to walk in and start typing.
 	-- Gated on the message LOOKING like a command first. Guarding before that
 	-- test would answer back on every ordinary line an admin types during the
 	-- load window, which is the behaviour the "silent on anything that is not a

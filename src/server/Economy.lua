@@ -232,8 +232,8 @@ function Economy.rebirthCost(player: Player): number
 	return math.floor(Config.Rebirth.BaseCost * (Config.Rebirth.CostGrowth ^ n))
 end
 
---- PROTOTYPE (Config.Prototypes.RebirthPerks). A rebirth pays four things, not
---- one number. `Tycoon:rebirth()` owns two of them — it bumps profile.rebirths
+--- mechanism: PROTOTYPE (Config.Prototypes.RebirthPerks). A rebirth pays four
+--- things, not one number. `Tycoon:rebirth()` owns two of them — it bumps profile.rebirths
 --- (the multiplier) and resets cash to Config.Economy.StartingCash — and it is
 --- owned by another track, so the starting-cash grant is applied here, from the
 --- one module allowed to create cash.
@@ -241,11 +241,9 @@ end
 --- `perks` comes from SessionService.rebirthPerksFor(profile). Passing it in
 --- rather than computing it keeps the dependency arrow pointing one way.
 ---
---- It used to copy `perks.unlocks` into `profile.unlocks` as well. That was a
---- saved cache of a pure function of profile.rebirths, nothing ever read it, and
---- the one entry it had recorded ("mezzanine") was stale — see the comment on
---- SessionService.rebirthPerksFor. Milestone unlocks are derived on read now and
---- there is nothing here to write.
+--- Milestone unlocks are DERIVED ON READ and there is nothing here to write.
+--- A saved copy of a pure function of profile.rebirths can only go stale, and
+--- the one this used to keep had.
 ---
 --- Idempotent on purpose: it tops cash UP to the grant instead of adding to
 --- it, so a double call (a retry, a re-detect) cannot be farmed.

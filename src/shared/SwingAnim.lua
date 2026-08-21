@@ -68,7 +68,8 @@ local SwingAnim = {}
 
 local ZERO = Vector3.new(0, 0, 0)
 
---- Poses are ABSOLUTE torso-space Euler angles in DEGREES: (pitch, yaw, roll),
+--- invariant: poses are ABSOLUTE torso-space Euler angles in DEGREES —
+--- (pitch, yaw, roll),
 --- measured from the rig's bind pose — arms hanging straight down. They are not
 --- offsets from whatever the character is currently doing; see applyJoint.
 ---
@@ -95,7 +96,7 @@ local ZERO = Vector3.new(0, 0, 0)
 --- upper body: pitch +  leans BACK, pitch - leans forward, yaw + turns left.
 ---
 --- Choreography lives here rather than in Config because these are drawings,
---- not balance. The timings that damage depends on ARE in Config.
+--- not balance. The timings that damage depends on ARE in Config. design:D-10.
 local function P(arm: Vector3, offArm: Vector3?, torso: Vector3?)
 	return { arm = arm, offArm = offArm or ZERO, torso = torso or ZERO }
 end

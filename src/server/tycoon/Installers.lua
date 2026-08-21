@@ -92,7 +92,7 @@ local function alongWall(tycoon, extent, along: number, y: number, cross: number
 	return Vector3.new(thickness, height, length), tycoon:at(fixed, y, along)
 end
 
---- HOW FAR OFF THE WALL A GATE LEAF HANGS, and on which side.
+--- invariant: HOW FAR OFF THE WALL A GATE LEAF HANGS, and on which side.
 ---
 --- `alongWall`'s `cross` is measured from the wall's CENTRE plane and positive is
 --- inboard, so this is half the wall, plus the stated air gap, plus half the leaf
@@ -291,21 +291,12 @@ Tycoon.INSTALLERS.Belt = function(self, def, silent)
 end
 
 Tycoon.INSTALLERS.Power = function(self, def, silent)
-	-- THE FACTOR HAS TO BE ASSIGNED, and it never was.
-	--
-	-- self.powerFactor was initialised to 1 and reset to 1 by release() and
-	-- rebirth(), and those were the only three writes in the file. This
-	-- installer called refreshBeltSpeed() without setting it, so the two things
-	-- that read the field — refreshBeltSpeed's (BeltSpeed + beltBonus) * factor
-	-- and dropInterval's dropRate / factor — both multiplied by one. The belt
-	-- and every dropper have been running at stock speed since the generator
-	-- shipped in #32.
-	--
-	-- incomePerSecond reads Config.powerFactor(has) directly instead, so it was
-	-- correct the whole time. That asymmetry is why nothing looked wrong: the
-	-- plot quoted the full multiplier on the HUD, on the buy button and through
-	-- SessionService's offline mirror while producing none of it, and the only
-	-- thing 300M Tung actually bought was a bigger number in the corner.
+	-- invariant: THE FACTOR HAS TO BE ASSIGNED HERE. Nothing else writes it on
+	-- a purchase, and the generator shipped for two rounds doing nothing at all
+	-- because this line was missing — the belt and every dropper ran at stock
+	-- speed while incomePerSecond, which reads Config.powerFactor(has) directly,
+	-- went on quoting the full multiplier on the HUD, on the buy button and
+	-- through SessionService's offline mirror.
 	--
 	-- DERIVED, NEVER ACCUMULATED. assign() replays a save by installing every
 	-- owned button in `order`, so a *= here would land on
@@ -476,7 +467,8 @@ function Tycoon:gateLeafSpecs(storeyId: string)
 	return specs
 end
 
---- One storey's ring of walls: the courses Config.wallSegments describes, the
+--- invariant: one storey's ring of walls — the courses Config.wallSegments
+--- describes, the
 --- gate leaves in its openings, a neon cap along the top of each side and a neon
 --- strip along the inside of the storey line.
 ---
@@ -487,7 +479,7 @@ end
 --- for — Config.wallSegments answers for both, and the WHY of the split ownership
 --- is written where the second caller is (FloorService.build).
 ---
---- THREE COURSES PER SOLID RUN, one lintel per opening. The bay course is
+--- invariant: THREE COURSES PER SOLID RUN, one lintel per opening. The bay course is
 --- Config.wallBays: piers in wall material, panes in glass. A pane is
 --- CanCollide — what keeps the camera out of an enclosed plot is the
 --- TRANSPARENCY, because PopperCam only treats a part as occluding below 0.25,
@@ -547,7 +539,7 @@ function Tycoon:buildStoreyWalls(model: Instance, storeyId: string)
 			extent.from, extent.to, top, TRIM_SECTION, S.WallThickness / 2)
 	end
 
-	-- THE CEILING FIXTURES ARRIVE WITH THE CEILING, not with the ring.
+	-- invariant: THE CEILING FIXTURES ARRIVE WITH THE CEILING, not the ring.
 	--
 	-- This block used to build them unconditionally, and the comment defended it
 	-- on ownership: tying them to `floor2` would put FloorService in charge of
@@ -565,7 +557,7 @@ function Tycoon:buildStoreyWalls(model: Instance, storeyId: string)
 	-- calls it on both events that can change that answer.
 	self:refreshStoreyLights(model, storeyId)
 
-	-- THE TWO UPGRADES THIS STOREY MAY ALREADY HAVE BEEN SOLD.
+	-- invariant: THE TWO UPGRADES THIS STOREY MAY ALREADY HAVE BEEN SOLD.
 	--
 	-- `walls`, `gates` and `windows` are three purchases and an installer runs
 	-- once, so a storey built AFTER one of them was bought has to arrive already
@@ -769,7 +761,7 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 	end
 end
 
---- The roof slab, its columns and the company sign.
+--- invariant: the roof slab, its columns and the company sign.
 ---
 --- Extracted from the installer because the roof's HEIGHT depends on something
 --- bought later. A storey's ceiling is the floor above it, so the roof sits on
@@ -785,8 +777,9 @@ end
 --- and the roof always spans the whole plot.
 ---
 --- It is still REBUILT when the floor lands (refreshRoof, off
---- FloorService.sync): roof is minute 28 and floor is minute 6, so without the
---- rebuild the beat that raises the building never happens.
+--- FloorService.sync). The roof is bought first — Config.ButtonUnlock gates
+--- `floor2` on it — so the rebuild is what re-derives the underside from the
+--- deck once the deck exists.
 function Tycoon:buildRoofModel(model: Instance)
 	model:ClearAllChildren()
 

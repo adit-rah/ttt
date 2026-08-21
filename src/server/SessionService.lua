@@ -149,23 +149,19 @@ end
 -- income, derived from the SAVED plot
 -- ─────────────────────────────────────────────────────────────────────────────
 
---- Income per second computed from persisted plot state and nothing else.
----
---- Never from a value cached at logout (a stale multiplier survives a nerf and
---- pays out forever) and never from anything the client said. An offline
---- player has no Tycoon instance to ask, which is why this mirrors
+--- invariant: income per second computed from PERSISTED PLOT STATE and nothing
+--- else. Never from a value cached at logout (a stale multiplier survives a
+--- nerf and pays out forever) and never from anything the client said. An
+--- offline player has no Tycoon instance to ask, which is why this mirrors
 --- `Tycoon:incomePerSecond()` rather than calling it.
 ---
---- Deliberately EXCLUDES the session multipliers below: a 2x boost is bought
---- with presence, and banking it while logged out is the opposite of the
---- point. It includes the rebirth multiplier because that is a property of the
---- factory, not of the session.
+--- DELIBERATELY EXCLUDES THE SESSION MULTIPLIERS — design:D-08. It includes the
+--- rebirth multiplier, because that is a property of the factory rather than of
+--- the session.
 ---
---- The same exclusion catches SocialService's friend bonus for free, and for
---- the same reason — it is registered as an Economy multiplier hook and this
---- function never calls Economy.multiplier. That is intended, not incidental: a
---- bonus for being in a server with your friends must not pay while you are in
---- no server. Anything added to this line must survive the same question.
+--- The same exclusion catches SocialService's friend bonus for free: that hook
+--- is registered on Economy and this function never calls Economy.multiplier.
+--- Anything added to this line must survive the same question.
 function SessionService.incomePerSecondFor(profile): number
 	if type(profile) ~= "table" then
 		return 0
@@ -269,7 +265,8 @@ function SessionService.pendingOffline(player: Player)
 	return entry and entry.offline or nil
 end
 
---- WHAT THE VAULT IS WORTH, in one formula with two modes falling out of it.
+--- invariant: WHAT THE VAULT IS WORTH, in one formula with two modes falling
+--- out of it. design:D-08 for what the gauge is for.
 ---
 --- Capacity is the most this profile can bank in a single absence: its offline
 --- income per second, for as many hours as its Vault Timer allows. That number

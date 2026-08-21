@@ -56,11 +56,12 @@ at, which is often the part that makes it make sense.
 
 ### The handoff chain
 
-History, newest first. Each round's document says what it changed and why, what
-it could not prove, and what only Studio can tell you.
+History, newest first. Each round's document says what it changed and why, and
+what it could not prove.
 
 | File | The round it records |
 | --- | --- |
+| `dev/HANDOFF_v11.md` | the product decisions leave the code; the two lints that keep them out |
 | `dev/HANDOFF_v10.md` | the plot shell comes off the ladder that pays for it, and the mezzanine is gated on a roof |
 | `dev/HANDOFF_v9.md` | the armoury moves downstairs, the shell sells in three rungs, the storey lands at two thirds |
 | `dev/HANDOFF_v8.md` | the mobile and HUD layout round — the one time Studio was consulted and found a shipped bug |
@@ -73,13 +74,16 @@ it could not prove, and what only Studio can tell you.
 | `dev/HANDOFF_v2.md` | plot geometry and the prototypes |
 | `dev/HANDOFF.md` | the base game, and the original landmine list |
 
-**Two gaps, named rather than hidden.** `#74` (storey lighting, the guard rails
+**One gap, named rather than hidden.** `#74` (storey lighting, the guard rails
 meeting the belt) has no handoff — `HANDOFF_v10.md` was written at `#73` and the
-round closed without one. And the handoffs' "what only Studio can tell you"
-sections are a **live product queue trapped in history documents**: about 45
-questions asked across six rounds, 3 answered. Those are now filed against the
-design decision each would change, so they can be closed rather than carried
-forward.
+round closed without one. It is not back-written, because a handoff written six
+PRs late is a reconstruction rather than a record.
+
+**The handoffs no longer carry the open playtest queue.** Their "what only
+Studio can tell you" sections were a live product backlog trapped in history
+documents — about 45 questions asked across six rounds, 3 answered, two lost
+entirely. Those are checkboxes on the design decision each would change now, so
+they can be closed instead of appended to.
 
 Handoff references to files that no longer exist (`IDEAS.md` at its old path,
 `GROWTH-TODO.md`, the root `NEW_TODO.md`) are kept as written. Those documents

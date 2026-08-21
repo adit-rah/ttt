@@ -16,21 +16,22 @@ the decision each would change**, so they can be closed rather than appended to.
 
 ## What this round has left
 
-1. **Finish the migration.** `src/shared/Config.lua` is still 53% comment and
-   most of it argues for the game rather than describing the code.
-   `docs/design/README.md` has the triage. `src/server/` and `src/client/` are
-   behind it, and `tools/verify_config.lua`'s assertion messages carry more
-   product policy than any single source file does.
+1. **The migration is triage, not a purge, and it stopped at fifteen lines.**
+   Blocks of 8–15 comment lines were not audited and carry no marker.
+   `Config.lua` is still 1,891 comment lines in 3,711. Lowering `BLOCK_LIMIT` in
+   `tools/verify.py` is the way to find out whether that matters.
 
-2. **The comment-triage lint.** The design-reference lint ships in this round
-   (pass 9). Its partner — a run of more than N consecutive comment lines must
-   open with `design:`, `invariant:` or `mechanism:` — needs the migration done
-   first, or it lands on 86 findings and gets turned off.
+2. **Player-facing copy is still hardcoded** across about fifteen service files;
+   only a button's `name` and `blurb` are data. So are the machine silhouettes
+   and both colour palettes. That is product content in code
+   ([#84](https://github.com/adit-rah/ttt/issues/84),
+   [#85](https://github.com/adit-rah/ttt/issues/85)), and moving it is a real
+   refactor with real risk.
 
-3. **`docs/dev/ARCHITECTURE.md` is stale in about thirty specifics.** It lists
-   four tracks where there are five, describes the cabinets as standing on the
-   mezzanine deck, contradicts itself on the `kind` count, and every
-   `Config.lua` line citation in §6 is off by 200–1500 lines.
+3. **The ten design decisions are written but not argued.** They record what
+   ships and why, as reconstructed from the code and the handoffs. Nobody has
+   sat down and disagreed with one yet, which is the actual point of having
+   them.
 
 ## What was already here, and still is
 

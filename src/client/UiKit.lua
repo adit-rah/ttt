@@ -166,13 +166,10 @@ local DOCKS = {
 	bottomRight = { x = 1, y = 1, alignX = "Right", alignY = "Bottom" },
 }
 
---- A transparent region pinned to one corner of the design canvas.
----
---- WHY THIS EXISTS. Five call sites across three files each spelled out their
---- own `AnchorPoint` and their own `UDim2.new(1, -UI.Margin, 1, -UI.Margin)`,
---- which is five chances to disagree about what "against the edge" means — and
---- they did: the left column's two panels were positioned by two different files
---- from two different reads of the same Config keys. A corner is a name now.
+--- invariant: a transparent region pinned to one corner of the design canvas,
+--- and THE ONLY WAY ANYTHING GETS PINNED TO AN EDGE. Five call sites spelling
+--- out their own AnchorPoint is five chances to disagree about what "against
+--- the edge" means, and they did.
 ---
 --- `insetX` / `insetY` default to UI.Margin and are the distance from that edge,
 --- always measured INWARD whichever corner it is, so a caller never writes the
@@ -224,12 +221,9 @@ end
 -- the rail, and the one glyph on it
 -- ─────────────────────────────────────────────────────────────────────────────
 
---- A person with a plus, drawn out of rounded rectangles.
----
---- DRAWN RATHER THAN UPLOADED because that is the rule this whole game is built
---- under: every model, face and UI element is generated in code and no asset id
---- is ever referenced. A head, a domed torso clipped at the container's bottom
---- edge, and a plus in a disc over its shoulder.
+--- mechanism: a person with a plus, drawn out of rounded rectangles — a head, a
+--- domed torso clipped at the container's bottom edge, and a plus in a disc over
+--- its shoulder. design:D-10 for why it is drawn rather than uploaded.
 ---
 --- `ink` is the glyph and `cut` is the colour showing THROUGH the plus — pass
 --- the button's own background for that, and the plus reads as a hole punched in
@@ -359,8 +353,8 @@ function UiKit.scaleFor(viewport: Vector2): number
 		UI.MinScale, UI.MaxScale)
 end
 
---- The gutter, in PHYSICAL pixels, the persistent HUD should keep clear on each
---- edge: notch, home indicator, rounded corners.
+--- invariant: the gutter, in PHYSICAL pixels, the persistent HUD keeps clear on
+--- each edge — notch, home indicator, rounded corners.
 ---
 --- Takes no viewport. It took one, to measure a right-hand inset off
 --- GuiService.TopbarInset's far edge; that whole reading is gone — see the note
@@ -404,7 +398,8 @@ function UiKit.safeInsets()
 		insets.bottom += math.max(0, bottomRight.Y)
 	end
 
-	-- GuiService.TopbarInset IS NOT READ, AND THAT IS THE POINT OF THIS COMMENT.
+	-- invariant: GuiService.TopbarInset IS NOT READ, AND THAT IS THE POINT OF
+	-- THIS COMMENT.
 	--
 	-- It was, on the argument that "in landscape on a notched phone its left edge
 	-- is pushed in past the notch, which is the only reading of the SIDE safe

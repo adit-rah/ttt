@@ -549,16 +549,12 @@ local function renderBoost(boost)
 	weekendBadge.Text = boost.weekend and ("WEEKEND x%g"):format(boost.weekendMultiplier) or ""
 end
 
---- Stack whichever optional rows are showing, and size the panel to them.
+--- invariant: stack whichever optional rows are showing, and size the panel to
+--- them. THE PANEL'S HEIGHT HAS EXACTLY ONE OWNER AND IT IS THIS FUNCTION.
 ---
---- THE PANEL'S HEIGHT HAS ONE OWNER NOW, AND IT IS THIS FUNCTION. render() set
---- it too — Height or TallHeight, depending on whether an offline grant was
---- pending — and then called this, which overwrote it two lines later. A write
---- nothing can observe is a write nobody checks, and it was wrong:
---- Config.UI.SessionPanel.TallHeight was the ONE-optional-row height, and both
---- optional rows show at once for any returning player who has not maxed the
---- vault. The panel reached 310 design px against a column budget measured at
---- 258. It fitted by luck.
+--- A second write in render() is invisible — this one lands after it — and the
+--- last one to try it was wrong by a whole row, because both optional rows show
+--- at once for any returning player who has not maxed the vault.
 ---
 --- THE ARITHMETIC BELOW IS THE ARITHMETIC Config DERIVES TallHeight FROM, so a
 --- full tail produces exactly TallHeight and the number the verifier holds the

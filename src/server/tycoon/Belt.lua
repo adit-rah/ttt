@@ -144,12 +144,8 @@ function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
 		return surface
 	end
 
-	-- ── the guard walls ──────────────────────────────────────────────────────
-	--
-	-- TODO.md item 5. These replace the 0.5-stud neon trim that ran the outer
-	-- side of each leg, and they are the shape the DELETED rails should have
-	-- been: a run on one leg, set back from both of that leg's ends by
-	-- BeltGuard.corner, on BOTH sides.
+	-- invariant: the guard walls. A run on ONE leg, set back from both of that
+	-- leg's ends by BeltGuard.corner, on both sides. design:D-07.
 	--
 	-- The setback is the whole of the fix. The old rails ran each leg's full
 	-- length, and because every leg's surface deliberately overruns its bend by

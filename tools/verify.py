@@ -4,7 +4,7 @@ verify.py — full pre-flight check for Tung Tung Tycoon.
 
     python3 tools/verify.py [--luau /path/to/luau] [--analyze /path/to/luau-analyze]
 
-Runs TWELVE passes, in order. Keep this list and main() in step -- it has said
+Runs THIRTEEN passes, in order. Keep this list and main() in step -- it has said
 five, seven and eight while main() ran nine, and a pass count nobody can trust
 is a pass somebody can quietly delete.
 
@@ -18,9 +18,10 @@ is a pass somebody can quietly delete.
   7. ui geometry   no card-scale literal in src/client; it comes from Config.UI
   8. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
   9. design refs   every design:D-NN cited in source names a row in DECISIONS.md
- 10. config        the integrity suite in tools/verify_config.lua
- 11. specs         the runtime specs in tools/testing, via tools/test.py
- 12. packed build  regenerates build/ and syntax-checks the output
+ 10. comment triage a long comment block declares which of the four homes it is
+ 11. config        the integrity suite in tools/verify_config.lua
+ 12. specs         the runtime specs in tools/testing, via tools/test.py
+ 13. packed build  regenerates build/ and syntax-checks the output
 
 Exit code is non-zero if anything fails, so it drops straight into CI.
 """
@@ -326,6 +327,63 @@ def check_design_refs(files):
             print(f"    {rel}:{number} cites {ref}, which is not a row in {DECISIONS_INDEX}")
         return False
     print(f"  {GREEN}ok{RESET}  {len(cited)} citation(s) against {len(known)} decision(s) in {DECISIONS_INDEX}")
+    return True
+
+
+# A LONG COMMENT BLOCK MUST SAY WHICH OF THE FOUR HOMES IT IS.
+#
+# docs/design/README.md: every paragraph in this project has exactly one home --
+# an issue under #72 for product intent, INVARIANTS.md for a constraint with an
+# enforcer named on it, a handoff for history, and the source file for mechanism.
+# The rule for the source file is that a comment may say what the code does and
+# what will break if you change it, and may not say why the game should be this
+# way.
+#
+# This pass does not read the prose and cannot tell you the call was right. What
+# it enforces is that somebody MADE the call: past BLOCK_LIMIT consecutive
+# comment lines, the block opens by declaring itself.
+#
+#   design:D-NN   the reason lives in a decision; this is a pointer to it
+#   invariant:    a constraint, and breaking it breaks something namable
+#   mechanism:    what the code does
+#
+# The limit is a threshold rather than zero because a short comment is not where
+# this goes wrong. Config.lua reached 2114 comment lines in 3933 -- 53% -- and
+# the blocks that carried product arguments were the long ones, every time.
+#
+# The marker may sit anywhere in the block's first MARKER_WINDOW comment lines,
+# so a banner rule above it still counts as part of the block.
+BLOCK_LIMIT = 15
+MARKER_WINDOW = 3
+TRIAGE_MARKER = re.compile(r"^\s*--+\s*(design:D-\d+|invariant:|mechanism:)")
+COMMENT_LINE = re.compile(r"^\s*--")
+
+
+def check_comment_triage(files):
+    step("comment triage")
+    findings = []
+    for path in files:
+        rel = path.relative_to(ROOT).as_posix()
+        lines = path.read_text(encoding="utf-8").split("\n")
+        run, start = [], 0
+        for number, line in enumerate(lines + [""], 1):
+            if COMMENT_LINE.match(line):
+                if not run:
+                    start = number
+                run.append(line)
+                continue
+            if len(run) > BLOCK_LIMIT and not any(
+                TRIAGE_MARKER.match(l) for l in run[:MARKER_WINDOW]
+            ):
+                findings.append((rel, start, len(run), run[0].strip()))
+            run = []
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for rel, number, length, text in findings:
+            print(f"    {rel}:{number} {length} comment lines with no design:/invariant:/mechanism: marker")
+            print(f"      {DIM}{text[:78]}{RESET}")
+        return False
+    print(f"  {GREEN}ok{RESET}  every comment block over {BLOCK_LIMIT} lines declares which of the four homes it is")
     return True
 
 
@@ -787,6 +845,7 @@ def main():
         check_ui_geometry(files),
         check_single_screengui(files),
         check_design_refs(files),
+        check_comment_triage(files),
         check_config(args.luau),
         # The config suite must report first: a broken Config makes every spec
         # fail in a confusing way, and the useful error is the one upstream.
