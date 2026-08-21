@@ -7,8 +7,8 @@ rails meeting the belt) and `#75` (archiving the spent brief). **`#74` has no
 handoff**; it is the one gap in the chain.
 
 The current round is the design split: product decisions moved out of the code
-and into [#72](https://github.com/adit-rah/ttt/issues/72) and its ten
-sub-issues, mirrored in `docs/design/`. **The open questions that used to be
+and into [#72](https://github.com/adit-rah/ttt/issues/72) and its five
+pillars, mirrored in `docs/design/`. **The open questions that used to be
 carried forward in handoff §"what only Studio can tell you" sections now live on
 the decision each would change**, so they can be closed rather than appended to.
 
@@ -24,14 +24,12 @@ the decision each would change**, so they can be closed rather than appended to.
 2. **Player-facing copy is still hardcoded** across about fifteen service files;
    only a button's `name` and `blurb` are data. So are the machine silhouettes
    and both colour palettes. That is product content in code
-   ([#84](https://github.com/adit-rah/ttt/issues/84),
-   [#85](https://github.com/adit-rah/ttt/issues/85)), and moving it is a real
+   ([#80](https://github.com/adit-rah/ttt/issues/80)), and moving it is a real
    refactor with real risk.
 
-3. **The ten design decisions are written but not argued.** They record what
-   ships and why, as reconstructed from the code and the handoffs. Nobody has
-   sat down and disagreed with one yet, which is the actual point of having
-   them.
+3. **The five pillars are written but not argued.** They record what ships and
+   why, reconstructed from the code and the handoffs. Nobody has sat down and
+   disagreed with one yet, which is the actual point of having them.
 
 ## What was already here, and still is
 

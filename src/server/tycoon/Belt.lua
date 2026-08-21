@@ -145,7 +145,7 @@ function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
 	end
 
 	-- invariant: the guard walls. A run on ONE leg, set back from both of that
-	-- leg's ends by BeltGuard.corner, on both sides. design:D-07.
+	-- leg's ends by BeltGuard.corner, on both sides. design:D-03.
 	--
 	-- The setback is the whole of the fix. The old rails ran each leg's full
 	-- length, and because every leg's surface deliberately overruns its bend by

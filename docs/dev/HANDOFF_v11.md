@@ -56,13 +56,29 @@ of the code.
 | a handoff (this file) | history — what a value used to be, and why it moved |
 | the source file | mechanism |
 
-**#72 is an index**, with ten sub-issues carrying `D-01`–`D-10`. `docs/design/`
+**#72 is an index**, with five sub-issues carrying `D-01`–`D-05`. `docs/design/`
 holds `GAME.md` (the flow, with the real numbers), `SYSTEMS.md` (the eight
 systems as a designer names them), and `DECISIONS.md` (the `D-NN` index, which
 the verifier reads).
 
 `docs/ideas/` is tracked now, as `docs/design/research/`, and marked as argument
 rather than decision. `docs/growth/` moved under `docs/design/` and is linked.
+
+---
+
+### Ten pillars became five
+
+The first cut had ten, and the overlap was real. Economy-and-pacing and rebirth
+folded into **the ladder**, because the ladder, the bands that measure it and
+the reset that ends it are one system — the pad is *priced off the spine*. The
+plot's build-out folded in too: the shell, the storey and the yard are rungs,
+and "must scenery block income?" is a pacing question. Retention folded into
+**the pitch**, because with nothing monetized "why do they click" and "why do
+they come back" are one question. Presentation folded into **reading it**.
+
+No decision was dropped; only the filing changed, and each closed issue names
+where its content went. Citations in `src/` and `tools/` were remapped in one
+pass.
 
 ---
 
@@ -104,8 +120,8 @@ Three things came out of the code and are recorded in §6 below, or in the issue
 named:
 
 - **Product arguments** → the matching `D-NN`. The rebirth pad's session-design
-  principle is `D-05`; the vault gauge's exit hook is `D-08`; the cabinets' first
-  three minutes are `D-03`; the barren storey is `D-07`.
+  principle, the cabinets' first three minutes and the barren storey are all
+  `D-03`; the vault gauge's exit hook is `D-01`.
 - **History** → §6.
 - **Stale claims** → deleted, and they were the real find. See §5.
 
@@ -224,4 +240,4 @@ Nothing in this round needs Studio. It changed no behaviour.
 - **Player-facing copy is still hardcoded** across about fifteen service files.
   Only a button's `name` and `blurb` are data. So are the machine silhouettes and
   both colour palettes. That is product content in code, and moving it is a real
-  refactor with real risk — it is `D-09` and `D-10`, not this round.
+  refactor with real risk — it is `D-05`, not this round.

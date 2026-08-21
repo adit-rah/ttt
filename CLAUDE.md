@@ -11,7 +11,7 @@ load-bearing. The handoffs are history; those two are the contract.
 
 **Read `docs/design/README.md` before you write a comment explaining why.** The
 product decisions are not in this repo's code; they are in
-[#72](https://github.com/adit-rah/ttt/issues/72) and its ten sub-issues, mirrored
+[#72](https://github.com/adit-rah/ttt/issues/72) and its five pillars, mirrored
 in `docs/design/`.
 
 ---
@@ -39,7 +39,7 @@ decision, and it lives in `D-05`.
 Where a value is what it is *because of* a decision, cite it and stop:
 
 ```lua
--- design:D-05 — the 6th most expensive spine price, rounded to 2 s.f.
+-- design:D-03 — the 6th most expensive spine price, rounded to 2 s.f.
 PriceRung = 6,
 ```
 

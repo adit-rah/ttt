@@ -94,7 +94,7 @@ minute 42 and six rungs still unbought when it lights up. That curve is
 measured, not guessed — see *Verification* below.
 
 **What the game should be, and why, is not in this repo's code.** It is
-[issue #72](https://github.com/adit-rah/ttt/issues/72) and its ten sub-issues,
+[issue #72](https://github.com/adit-rah/ttt/issues/72) and its five pillars,
 mirrored in [`docs/design/`](docs/design/). `docs/design/GAME.md` is the long
 version of this section.
 

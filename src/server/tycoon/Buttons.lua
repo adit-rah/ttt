@@ -459,7 +459,7 @@ function Tycoon:refreshButtons()
 			entry.stroke.Color = COLORS.preview
 			entry.stepLabel.TextColor3 = COLORS.preview
 			entry.titleLabel.TextColor3 = COLORS.preview
-			-- design:D-09 — name the thing you have to buy, not an ordinal. "step N" meant
+			-- design:D-05 — name the thing you have to buy, not an ordinal. "step N" meant
 			-- one thing when there was one chain; with three tracks the global
 			-- order is meaningless on a pedestal and the per-track one is
 			-- ambiguous across cabinets. The requirement is right here, so say

@@ -260,7 +260,7 @@ end
 --- it must stay that way. Never a web call, never an iteration over
 --- Players:GetPlayers(); that is what `count` is maintained for.
 ---
---- IT DOES NOT BANK WHILE LOGGED OUT. design:D-08.
+--- IT DOES NOT BANK WHILE LOGGED OUT. design:D-01.
 --- `SessionService.incomePerSecondFor` derives offline income from the
 --- persisted plot and deliberately never calls `Economy.multiplier`, which is
 --- what excludes the boost and the weekend bonus too. The spec pins it.

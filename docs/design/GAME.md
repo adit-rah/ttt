@@ -189,7 +189,7 @@ them.
 consecutive purchases that drop, refine and multiply nothing, sitting on the one
 ladder the player measures themselves by. Moving it off was provably
 pacing-neutral. It also made the shell *declinable*, and whether a declinable
-shell is a shell anybody buys is still an open question — see `D-07`.
+shell is a shell anybody buys is still an open question — see `D-03`.
 
 ### The factory ladder
 
@@ -331,7 +331,7 @@ is still in your hand; a rebirth should not take it.
 **Known broken: rebirths 4 through 12 collapse into one-to-three-minute loops.**
 No value of the base cost or the growth rate fixes it — the lever is scaling
 prices by rebirth count, which is not built. This is the single largest open
-problem in the game's pacing. See `D-05`.
+problem in the game's pacing. See `D-03`.
 
 ---
 
@@ -390,7 +390,7 @@ On screen there is one card and one rail:
 
 **There is no quest system, no mission list and no tutorial.** Onboarding is the
 beacon, the NEXT UPGRADE card, the three button states and one welcome toast.
-Whether that is enough is `D-09`.
+Whether that is enough is `D-05`.
 
 ---
 
@@ -401,14 +401,14 @@ on the issue named.
 
 | Question | Issue |
 | --- | --- |
-| Rebirths 4–12 collapse to one-to-three-minute loops | `D-05` |
-| Is a declinable shell a shell anybody buys? | `D-07` |
-| The mezzanine's landing is 116 × 76 studs of deliberately empty deck — does it want filling, and with what? | `D-07` |
-| Does the beacon swinging to the shell read as helpful or as nagging? | `D-09` |
-| Is 170 design px the right bottom reserve on a phone? | `D-09` |
-| Is sub-446px-tall landscape supported at all? | `D-09` |
+| Rebirths 4–12 collapse to one-to-three-minute loops | `D-03` |
+| Is a declinable shell a shell anybody buys? | `D-03` |
+| The mezzanine's landing is 116 × 76 studs of deliberately empty deck — does it want filling, and with what? | `D-03` |
+| Does the beacon swinging to the shell read as helpful or as nagging? | `D-05` |
+| Is 170 design px the right bottom reserve on a phone? | `D-05` |
+| Is sub-446px-tall landscape supported at all? | `D-05` |
 | `mezz_dropper1` is 0.002% of endgame income, blocked behind the drop budget | `D-02` |
-| Sound is engine defaults and sounds like it | `D-10` |
+| Sound is engine defaults and sounds like it | `D-05` |
 
 ---
 

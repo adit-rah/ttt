@@ -289,7 +289,7 @@ Config.Layout = {
 	-- catch what should not be caught: INVARIANTS.md's "nothing collidable may
 	-- sit near the belt except the running surface", the buy-button walk across
 	-- the belt that BeltY = 1.4 exists to allow, and a 0.8-stud slot between the
-	-- rail and the machine row for a raider to wedge into. design:D-07 for what
+	-- rail and the machine row for a raider to wedge into. design:D-03 for what
 	-- the rails are there to do, which is visual.
 	BeltGuard = {
 		thickness = 0.8,   -- across the belt
@@ -350,7 +350,7 @@ Config.Layout = {
 	CabinetSlotSpacing = 12,
 
 	-- mechanism: SIDE-TRACK FURNITURE. Each cabinet is a display case standing
-	-- behind a column of its own buy buttons. design:D-07 for why the right half
+	-- behind a column of its own buy buttons. design:D-03 for why the right half
 	-- of the plot is an armoury aisle and the left half a production line.
 	--
 	-- Positions are DERIVED from the anchor, exactly like DropperDist: adding a
@@ -542,7 +542,7 @@ Config.Layout.Vault = {
 Config.Layout.Yard = {
 	-- mechanism: A SMALL CHUNK IN THE CORNER, not a second plot. 28 x 28 is
 	-- sized for what actually stands there — one generator and one pad in front
-	-- of it — rather than for four of something. design:D-07 for why it shrank.
+	-- of it — rather than for four of something. design:D-03 for why it shrank.
 	--
 	-- The front face overlaps the pad by a stud so the two slabs interpenetrate
 	-- rather than share a vertical plane, which is the same trick the deck's
@@ -713,7 +713,7 @@ Config.Style = {
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- invariant: SCREEN UI. design:D-09 for what it is protecting.
+-- invariant: SCREEN UI. design:D-05 for what it is protecting.
 --
 -- Four out of five Roblox sessions are on a phone, and until this table existed
 -- not one number in this file described the screen. Every panel size, margin
@@ -740,7 +740,7 @@ Config.Style = {
 -- than MinScale * ReferenceHeight physical pixels gets a canvas shorter than
 -- the reference, which is exactly the band the shop overlap lived in.
 -- MaxScale is 1 because nobody asked for a HUD blown up to fill a 4K monitor.
--- design:D-09 for what the canvas is protecting, and the open question about
+-- design:D-05 for what the canvas is protecting, and the open question about
 -- whether the short-landscape band is supported at all.
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -807,7 +807,7 @@ Config.UI = {
 	ColumnWidth = 280,
 
 	-- mechanism: ONE STATUS CARD — what you have, then what you are saving for.
-	-- design:D-09 for why that is one card rather than two.
+	-- design:D-05 for why that is one card rather than two.
 	--
 	-- THE ROW HEIGHTS ARE THE INPUT AND THE Y OF EACH ROW IS DERIVED from them,
 	-- in the block below, along with the ContentHeight they add up to. Height is
@@ -832,7 +832,7 @@ Config.UI = {
 		-- THE BALANCE GROUP IS THREE LINES: the number, what it multiplies to,
 		-- and the terms that got it there. The coin sits beside the first two.
 		--
-		-- THE CARD CARRIES NO CONTROL. design:D-09. The invite is a rail item
+		-- THE CARD CARRIES NO CONTROL. design:D-05. The invite is a rail item
 		-- (see UI.Rail); the friend bonus appears here only as a term on the
 		-- terms line, which is what it always was arithmetically.
 		IconSize = 48,
@@ -1177,7 +1177,7 @@ Config.Admin = {
 }
 
 Config.Rebirth = {
-	-- design:D-05 — the pad is priced as a RUNG, not as a number, so that five
+	-- design:D-03 — the pad is priced as a RUNG, not as a number, so that five
 	-- spine rungs are provably still unbought when it lights up.
 	--
 	-- PriceRung = 6 means BaseCost is the 6th most expensive spine price;
@@ -1241,7 +1241,7 @@ Config.Persistence = {
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- mechanism: SOCIAL. design:D-08 for what the friend bonus is for and why it
+-- mechanism: SOCIAL. design:D-01 for what the friend bonus is for and why it
 -- is small.
 --
 -- A friend in your server is +10% income each, capped at three. The cap is
@@ -1498,7 +1498,7 @@ Config.FactoryButtons = {
 		multiplier = 2.4,
 		blurb = "Melts them into money. x2.4",
 	},
-	-- design:D-07 — where a second storey belongs, why it arrives barren, and
+	-- design:D-03 — where a second storey belongs, why it arrives barren, and
 	-- why its conveyor is sold separately.
 	--
 	-- AFTER THE ROOF, AND THAT IS A GATE RATHER THAN A ROW POSITION.
@@ -1591,7 +1591,7 @@ Config.FactoryButtons = {
 	},
 }
 
--- design:D-07 — the building is a PARALLEL track gated on `dropper1`, so it is
+-- design:D-03 — the building is a PARALLEL track gated on `dropper1`, so it is
 -- something you buy alongside the line rather than instead of it.
 --
 -- mechanism: WALLS, THEN GATES, THEN WINDOWS — each is only worth anything
@@ -1700,7 +1700,7 @@ Config.WeaponButtons = {
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- design:D-06 — a tier grants MaxHealth and nothing else, and why damage
+-- design:D-04 — a tier grants MaxHealth and nothing else, and why damage
 -- reduction was rejected.
 --
 -- invariant: ONE MONOTONE STAT KEEPS THE BOSS ASSERTION ONE LINE OF
@@ -1735,7 +1735,7 @@ Config.Armor = {
 
 Config.ArmorButtons = {
 	{
-		-- design:D-04 — a detour rung is priced against WHAT IT DOES, not as a
+		-- design:D-03 — a detour rung is priced against WHAT IT DOES, not as a
 		-- toll on the factory. `batforge` is 2500, so a first vest at a shade
 		-- under twice a first bat is the shape.
 		--
@@ -2030,7 +2030,7 @@ Config.Waves = {
 	-- reinforcements rather than as a queue.
 	MaxChasers = 8,
 
-	-- design:D-06 — the boss is the one thing in this game that couples two
+	-- design:D-04 — the boss is the one thing in this game that couples two
 	-- players' outcomes. Everything above this line describes a raid six people
 	-- can play in six separate boxes.
 	--
@@ -2205,7 +2205,7 @@ Config.Floors = {
 		-- dwell go on measuring what they measured before.
 		--
 		-- `landing` is the stairwell and the way onto the storey. It keeps the
-		-- full deck width for the tiling rule above. design:D-07 — it is
+		-- full deck width for the tiling rule above. design:D-03 — it is
 		-- deliberately barren, and whether it wants filling is open.
 		zones = {
 			line = {
@@ -2279,7 +2279,7 @@ Config.Floors = {
 		-- lives in the `line` zone, which ends at z = -8.
 		lineButtonAt = Vector3.new(0, 0, 20),
 
-		-- design:D-07 — HOW THE STOREY ARRIVES, and why it is staged at all
+		-- design:D-03 — HOW THE STOREY ARRIVES, and why it is staged at all
 		-- rather than appearing in one frame.
 		--
 		-- invariant: THE PIECES DESCEND. A slab rising from y = 0 sweeps through every
@@ -2620,7 +2620,7 @@ Config.Structure = {
 	-- invariant: A BUDGET. The shell was ~10 parts; windows and gates take it to ~115,
 	-- times ten plots. Config.shellPartCount() models it from this spec and the
 	-- verifier asserts the result. Whether it holds at full scale in a real
-	-- server is open — design:D-07.
+	-- server is open — design:D-03.
 	-- invariant: LIGHT, BECAUSE A STOREY WITH A CEILING IS INDOORS.
 	-- Lighting.Ambient is (0,0,0) and the mezzanine deck spans wall face to wall
 	-- face, so from the minute the storey lands the ground floor has no sky.
@@ -3142,7 +3142,7 @@ Config.World.PlotRadius = Config.World.PlotPlacements[1].radius   -- inner ring
 -- long as ids never change — which is a rule this file already enforces for
 -- other reasons (see the WeaponButtons banner).
 --
--- design:D-03, design:D-09 — POSITION IN THIS LIST IS THE BEACON.
+-- design:D-03, design:D-05 — POSITION IN THIS LIST IS THE BEACON.
 -- Config.TrackRank is the TrackOrder index, and both Tycoon:pointAt and the HUD
 -- card rank candidates by (rank, price). Nothing in the verifier can catch a
 -- beacon that points somewhere useless; it is a property of this list and it
@@ -3253,7 +3253,7 @@ Config.TrackUnlock = { weapons = "dropper3", armor = "dropper3", structure = "dr
 -- nothing else ever roofs, so a mezzanine bought before the roof is a room open
 -- to the sky. While the shell was welded into the factory chain that was
 -- guaranteed by ORDERING. A parallel track is declinable, which took the
--- guarantee with it. design:D-07.
+-- guarantee with it. design:D-03.
 --
 -- WHY THIS IS NOT A `requires`. The loader derives `requires` from the row
 -- above and the verifier asserts that the derived chain IS the table order, so

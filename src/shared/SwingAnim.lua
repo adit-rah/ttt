@@ -96,7 +96,7 @@ local ZERO = Vector3.new(0, 0, 0)
 --- upper body: pitch +  leans BACK, pitch - leans forward, yaw + turns left.
 ---
 --- Choreography lives here rather than in Config because these are drawings,
---- not balance. The timings that damage depends on ARE in Config. design:D-10.
+--- not balance. The timings that damage depends on ARE in Config. design:D-05.
 local function P(arm: Vector3, offArm: Vector3?, torso: Vector3?)
 	return { arm = arm, offArm = offArm or ZERO, torso = torso or ZERO }
 end

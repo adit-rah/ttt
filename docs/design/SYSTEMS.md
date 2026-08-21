@@ -119,7 +119,7 @@ time, loudly.
 
 **Owns the pacing contract, jointly with the verifier.** Progression is where
 the design decisions concentrate: which ladder is on the spine, how deep a
-preview goes, what a detour may cost. Those are all `D-03` and `D-04`, and the
+preview goes, what a detour may cost. Those are all `D-03` and `D-03`, and the
 numbers are asserted rather than trusted.
 
 **Seam worth knowing:** ladder *order* decides what the beacon and the status
@@ -144,7 +144,7 @@ priced. The pad is not a constant — it costs whatever the sixth most expensive
 spine rung costs, so that five rungs are provably still unbought when it lights
 up.
 
-**Known broken:** rebirths 4–12. See `D-05`.
+**Known broken:** rebirths 4–12. See `D-03`.
 
 ---
 
