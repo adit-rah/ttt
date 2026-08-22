@@ -26,6 +26,7 @@
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
+local Economy = Req("Economy")
 local Tycoon = Req("Class")
 
 local COLORS = Tycoon.COLORS
@@ -53,6 +54,7 @@ function Tycoon:mirrorStorage()
 		base:SetAttribute("StorageHealth", self.storage.health)
 		base:SetAttribute("StorageMaxHealth", S.MaxHealth)
 		base:SetAttribute("StorageBroken", self.storage.broken)
+		base:SetAttribute("StorageFill", self:storedOverflowFraction())
 	end
 	if self.storagePrompt and self.storagePrompt.Parent then
 		self.storagePrompt.Enabled = self.storage.broken
@@ -81,10 +83,19 @@ function Tycoon:buildStorageUnit(base: BasePart)
 	self:mirrorStorage()
 end
 
---- 0 until #98 gives the unit a cap. Named here so the damage scaling below
---- and #94's loot arithmetic read the same number when it exists.
+--- How full the unit is: the owner's banked Tung against the cap (#98).
+--- The damage scaling below and #94's loot arithmetic read the same number,
+--- which is the whole reason it is one function.
 function Tycoon:storedOverflowFraction(): number
-	return 0
+	local owner = self.owner
+	if not owner then
+		return 0
+	end
+	local cap = Economy.storageCapFor(owner)
+	if cap <= 0 then
+		return 0
+	end
+	return math.clamp(Economy.get(owner) / cap, 0, 1)
 end
 
 --- The predicate #98's overflow banking consults: a broken unit banks nothing.

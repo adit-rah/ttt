@@ -56,6 +56,9 @@ local function seated(w, name: string)
 	Session.start()
 	local player = w.join(name)
 	local profile = Data.load(player)
+	-- a mid-build factory, so the storage cap (#98) clears every streak
+	-- reward; the cap's own behaviour is storage_spec's subject
+	profile.owned.dropper7 = true
 	Session.onPlayer(player)
 	return player, profile
 end

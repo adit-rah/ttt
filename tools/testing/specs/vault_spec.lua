@@ -195,13 +195,20 @@ T.spec("pendingOffline is the live grant, and it goes away when it is collected"
 
 	local before = Economy.get(player)
 	t:isTrue(Session.claimOfflineFor(player), "the prompt path did not pay out")
-	t:eq(Economy.get(player) - before, pending.earned, "the prompt path paid the wrong amount")
+	-- The grant is deliberately NOT exempt from the storage cap (#98): it
+	-- fills the unit and the rest is lost, which is the return-visit
+	-- pressure the cap exists to create. Four hours on this fixture's
+	-- factory overflows a 30-minute cap, so the clip is the contract here.
+	local granted = Economy.get(player) - before
+	t:eq(granted, math.min(pending.earned, Economy.storageCapFor(player) - before),
+		"the grant must fill the unit to its cap and lose the rest")
+	t:gt(granted, 0, "the clip took the whole grant")
 
 	-- entry.offline is cleared BEFORE the payout, which is the guard that makes
 	-- a prompt and a panel button safe to have at the same time.
 	t:isNil(Session.pendingOffline(player), "the grant survived being collected")
 	t:isFalse(Session.claimOfflineFor(player), "the vault prompt paid the same grant twice")
-	t:eq(Economy.get(player) - before, pending.earned, "a second trigger paid a second time")
+	t:eq(Economy.get(player) - before, granted, "a second trigger paid a second time")
 end)
 
 T.spec("the gauge setter survives a collector that has no gauge on it", function(t)

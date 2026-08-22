@@ -69,6 +69,10 @@ local function seated(w, name: string, userId: number?)
 	local Session = w.req("SessionService")
 	local player = w.join(name, userId)
 	local profile = Data.load(player)
+	-- a mid-build factory, so the storage cap (#98) clears every ladder
+	-- reward — the cap binding on a bare fixture is the cap working, and
+	-- these specs are about the ladder, not the cap
+	profile.owned.dropper5 = true
 	Session.onPlayer(player)
 	w.spawnCharacter(player)
 	return player, profile

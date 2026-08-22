@@ -4044,6 +4044,12 @@ while true do
 	local def = pick.def
 
 	local income = Config.incomeRate(ownsSoFar)
+	-- design:D-02, via #98 — KPI 1: the cap must never be the reason the next
+	-- rung is unaffordable. Checked at every step of the real buy order, at
+	-- the owned set the player has when they start saving for it.
+	check(Config.storageCap(ownsSoFar) >= def.price * 1.05,
+		("the storage cap is %.3g when the build reaches %s at %.3g — a player following the ladder is blocked by their own bank")
+			:format(Config.storageCap(ownsSoFar), def.id, def.price))
 	local shortfall = math.max(0, def.price - cash)
 	local wait = 0
 	if shortfall > 0 then
@@ -4238,6 +4244,23 @@ check(worstRun <= MAX_FLAT_RUN,
 check(worstMinutes / 60 <= MAX_FLAT_MINUTES,
 	("%s is %.1f minutes of grind at an unchanged income (limit %d) — that is the longest stretch of this build where nothing gets better")
 		:format(worstIds, worstMinutes / 60, MAX_FLAT_MINUTES))
+
+-- ── the storage cap's other two properties (#98) ────────────────────────────
+--
+-- KPI 1 (never blocks a normal climb) is asserted inside the walk above.
+-- KPI 2 (always binds on a non-spender) is the formula itself: the unit holds
+-- CapMinutes of income flat, so idling fills it in CapMinutes at every point
+-- on the curve — what wants asserting is that the constant stays inside a
+-- sitting and stays a real constraint. KPI 3 (raid exposure) is #94's,
+-- measured against this same number.
+check(Config.Storage.CapMinutes >= 10,
+	("Storage.CapMinutes is %d — under 10 the cap clips ordinary play between two purchases"):format(Config.Storage.CapMinutes))
+check(Config.Storage.CapMinutes <= 45,
+	("Storage.CapMinutes is %d — past 45 an idle player's bank outlives the sitting and the cap never binds on anyone"):format(Config.Storage.CapMinutes))
+check(Config.Storage.CapFloor >= Config.Economy.StartingCash + Config.Tracks.factory[1].price,
+	"Storage.CapFloor cannot hold the starting cash plus the first dropper — the cap blocks the opening purchase")
+check(Config.Storage.BrokenCapFloor <= Config.Storage.CapFloor,
+	"a BROKEN unit holds more than a fresh one — smashing your own vault would raise your cap")
 
 -- ── the sixty-minute credit cap ─────────────────────────────────────────────
 --

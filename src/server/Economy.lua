@@ -193,9 +193,46 @@ function Economy.add(player: Player, amount: number, applyMultiplier: boolean?)
 	if applyMultiplier then
 		final = amount * Economy.multiplier(player)
 	end
+	-- design:D-02, via #98 — THE STORAGE CAP, applied at the one door money
+	-- comes in through. Cash above what the unit holds is LOST, not queued:
+	-- the cap exists to force spending, and a queue would be a second bank
+	-- with no cap on it. The offline grant is deliberately NOT exempt —
+	-- "log in before it overflows" is the return-visit pressure the cap is
+	-- for. Spending and stealing are outflows and stay unclamped.
+	local cap = Economy.storageCapFor(player)
+	local room = cap - profile.cash
+	if room <= 0 then
+		return 0
+	end
+	final = math.min(final, room)
 	profile.cash += final
 	Economy.markDirty(player)
 	return final
+end
+
+--- What this player's unit holds right now: the config formula against their
+--- own save, and their plot's unit if they have one standing. Economy cannot
+--- require Tycoon (Tycoon requires Economy), so the plot registers its
+--- broken-state reader here — the setMultiplierHook shape, one field over.
+local storageIntactFor: ((Player) -> boolean)? = nil
+
+function Economy.setStorageIntactHook(fn: ((Player) -> boolean)?)
+	storageIntactFor = fn
+end
+
+function Economy.storageCapFor(player: Player): number
+	local profile = DataService.get(player)
+	if not profile then
+		return Config.Storage.CapFloor
+	end
+	local owned = profile.owned or {}
+	local intact = true
+	if storageIntactFor then
+		intact = storageIntactFor(player)
+	end
+	return Config.storageCap(function(id)
+		return owned[id] == true
+	end, profile.rebirths, intact)
 end
 
 function Economy.spend(player: Player, amount: number): boolean
