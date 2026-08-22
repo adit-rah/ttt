@@ -8,13 +8,30 @@ The issue is authoritative. This row is a pointer to it.
 
 | id | pillar | issue | status |
 | --- | --- | --- | --- |
-| `D-01` | The pitch, the player, and why they come back | [#76](https://github.com/adit-rah/ttt/issues/76) | accepted |
-| `D-02` | The line | [#77](https://github.com/adit-rah/ttt/issues/77) | accepted |
-| `D-03` | The ladder | [#78](https://github.com/adit-rah/ttt/issues/78) | accepted |
-| `D-04` | The raid | [#79](https://github.com/adit-rah/ttt/issues/79) | accepted |
+| `D-01` | The player | [#76](https://github.com/adit-rah/ttt/issues/76) | accepted |
+| `D-02` | The plot | [#77](https://github.com/adit-rah/ttt/issues/77) | accepted |
+| `D-03` | Progression | [#78](https://github.com/adit-rah/ttt/issues/78) | accepted |
+| `D-04` | The world | [#79](https://github.com/adit-rah/ttt/issues/79) | accepted |
 | `D-05` | Reading it | [#80](https://github.com/adit-rah/ttt/issues/80) | accepted |
+| `D-06` | Assets | [#92](https://github.com/adit-rah/ttt/issues/92) | accepted |
 
 The index issue is [#72](https://github.com/adit-rah/ttt/issues/72).
+
+`D-06` was added after the first five. Every model, face, weapon and sound in
+this game is generated in code, and the policy for which of them should be made
+for real rather than generated is a product decision with a ledger under it.
+
+## The tree
+
+```
+#72  Design Monolith
+ └── pillar  (D-NN)
+      └── epic or feature   ← an engineer picks this up
+```
+
+A pillar is a large idea that gets built on. An epic breaks into more tickets. A
+feature is one piece of work. `future` is wanted and backlogged. `needs-design`
+is blocked on a decision. `asset` is art or audio someone has to make.
 
 ## Five, from ten
 
@@ -29,7 +46,14 @@ and why:
 | Presentation & content | `D-05` | what the player is told and the constraint on how it can be said are the same subject |
 
 Those five issues are closed, with a note on each naming where its content went.
-**No decision was dropped in the merge** — only the filing changed.
+No decision was dropped in the merge.
+
+A second pass widened three of the survivors. "The line" became **the plot**,
+which is the factory including the floors it grows. "The ladder" became
+**progression**, which is the Clash of Clans tier model rather than a list of
+purchases. "The raid" became **the world**, which is everything off the plot and
+now carries an open-world direction. A pillar is a large idea that gets built
+on; anything narrower is a child issue.
 
 ---
 

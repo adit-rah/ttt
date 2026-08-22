@@ -16,6 +16,30 @@ in `docs/design/`.
 
 ---
 
+## How to write in this repo
+
+Be concise, be direct, and get the information out for the least reading effort
+it can be got out in. This applies to prose, commit messages, issues, docs and
+code comments.
+
+**Never use antithesis.** No "it's not X, it's Y", no "not a preference, a
+fact", no "X rather than Y" as a rhetorical frame. The reader has to hold a
+negation and a correction to extract one fact, and that costs understanding
+time. State what is true and stop.
+
+```
+bad   The cap is not an opinion, it is a platform fact.
+good  The platform enforces the cap.
+
+bad   It arrives as an event, not a transaction.
+good  It builds over 5.2 seconds while you watch.
+```
+
+Antithesis belongs in speeches and advertising. Assume the reader is competent
+and in a hurry.
+
+---
+
 ## The one rule about what goes where
 
 > **A comment may say what the code does and what will break if you change it.
