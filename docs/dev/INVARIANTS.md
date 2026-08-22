@@ -903,6 +903,18 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - Props-parented and idempotent by name on the refreshButtons beat, so it leaves with
   the tenancy and survives every rebuild. `[nothing]`
 
+### The tier tag (#106)
+
+- **The tier is public and CLOSE-RANGE.** The totem tag carries the rank beside the
+  owner's name at the sign's existing "plot" draw distance — never across the map, so
+  raiders cannot shop for targets from a distance they never travel. `[nothing]` for the
+  distance (it rides the Style distance class); the ladder itself is `[assert]`ed.
+- **The ladder climbs strictly from zero**: a fresh player has a rank, thresholds rise,
+  names are unique, and a huge rebirth count wears the top rank. `[assert]`, each
+  falsified.
+- One writer: `updateSign` on the 3-second repaint, which also catches the profile
+  lagging a rebirth by a beat. `[nothing]`
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch
