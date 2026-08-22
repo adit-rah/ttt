@@ -581,6 +581,11 @@ local function render()
 	if not payload or not panel then
 		return
 	end
+	-- #96: the panel arrives when the streak and the ladder mean something
+	if not HUD.disclosed("session") then
+		panel.Visible = false
+		return
+	end
 	panel.Visible = true
 
 	renderDaily(payload.daily)
@@ -608,6 +613,7 @@ function SessionUI.start()
 	-- stack, and taking the column rather than the layer is what stops it having
 	-- an opinion about where that column starts.
 	column = HUD.column()
+	HUD.onDisclosure(render)
 	if not column then
 		-- HUD.start() runs first in Main.client.lua, but a prototype that
 		-- assumes boot order is a prototype that breaks when the boot order

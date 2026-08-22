@@ -372,11 +372,16 @@ T.spec("the invite is a rail item, and account policy decides whether it exists 
 	quiet(t, refused, "building the rail raised")
 
 	-- POLICY SAYS YES, which is the other half of a branch that had neither.
+	-- Since #96 policy alone is not enough: the surface also has to be
+	-- DISCLOSED, and the gate is proven by the first read below.
 	local allowed = clientWorld()
 	allowed.socialService.canInvite = true
 	local HUD2 = allowed.req("HUD")
 	HUD2.start()
 	local invite2 = inviteItem(HUD2)
+	t:eq(invite2.Visible, false,
+		"an undisclosed invite button drew anyway — the first-minute screen leaks")
+	HUD2.applyDisclosure({ ids = { "social" } })
 	t:eq(invite2.Visible, true, "an account that may invite was shown nothing")
 
 	-- THE CAPTION IS THE PRICE TAG. The friend row this replaced argued that the
@@ -477,6 +482,11 @@ T.spec("the session panel never outgrows the height the column is budgeted for",
 	world.handlerErrors()
 	toClient(world, "SessionState", withTail(true))
 
+	-- #96: a payload alone no longer shows the panel; the surface has to be
+	-- disclosed first, and the undisclosed read proves the gate
+	t:eq(panel.Visible, false,
+		"an undisclosed session panel drew anyway — the first-minute screen leaks")
+	HUD.applyDisclosure({ ids = { "session" } })
 	t:eq(panel.Visible, true, "the session panel stayed hidden after a SessionState")
 	local grown = panel.Size.Y.Offset
 	t:eq(grown, Config.UI.SessionPanel.TallHeight,

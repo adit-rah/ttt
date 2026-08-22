@@ -2336,6 +2336,41 @@ Config.Help = {
 	PairCooldownSeconds = 300,
 }
 
+-- design:D-05, via #96 — PROGRESSIVE DISCLOSURE. The game starts small and
+-- grows its own interface: a surface takes up space only once the player can
+-- use it, every arrival is earned by something they just did, and nothing
+-- ever disappears once shown. The high-water lives in profile.disclosed, so
+-- a returning player sees what they earned and is never re-onboarded.
+--
+-- `after` is a Config.Buttons id; owning it (or the rebirth count, for the
+-- rebirths form) is the earn. A row with no `after` is on from the first
+-- second — that set IS the sixty-second screen, and the verifier prints it.
+-- `gate = true` rows gate GAMEPLAY as well as pixels: the plot siege waits
+-- for its row, because a raid siren in your first minute is the overload
+-- this whole system exists to prevent.
+Config.Disclosure = {
+	{ id = "hud", name = "Your factory", help = "Buy droppers, follow the gold beacon. The vault banks what the machines earn." },
+	{ id = "movement", name = "Sprint and dash", help = "Hold Shift to sprint, Q to dash. On touch: RUN and DASH, bottom left." },
+	{ id = "terms", after = "dropper2", name = "Multipliers", help = "The line under your cash names every bonus you hold." },
+	{ id = "session", after = "dropper3", name = "Streaks and boosts", help = "The session panel: daily streak, playtime ladder, the boost button." },
+	{ id = "social", after = "dropper4", name = "Friends pay", help = "Every friend in the server is +10% income. Invite from the status card." },
+	{ id = "world", after = "dropper5", name = "The world outside", help = "Sahur roam the grass — weakest near the plots, strongest in the middle. Kills pay." },
+	{ id = "siege", after = "walls", gate = true, name = "Raids on your plot", help = "Sahur press your gate now and then. The siren gives you time to run home; repair what breaks." },
+	{ id = "party", after = "walls", name = "Parties", help = "Party up from the left card: no friendly fire, shared gates, +5% income each." },
+	{ id = "recall", after = "walls", name = "Recall", help = "H (or HOME on touch) walks you home after six still seconds. Never with stolen Tung." },
+	{ id = "raiding", after = "gates", name = "Raiding", help = "Break a storage unit, carry the spill home. Half their cap is always safe; camping pays half each repeat." },
+	{ id = "tower", after = "power1", name = "The tower", help = "The spire at the core's edge. A new deck of floors every day; each floor pays minutes of your income." },
+}
+
+--- Whether one disclosure row is earned. `has` answers ownership, the same
+--- shape incomeRate reads.
+function Config.disclosureEarned(row, has: (string) -> boolean): boolean
+	if not row.after then
+		return true
+	end
+	return has(row.after)
+end
+
 -- design:D-04, via #95 — THE TOWER. Combat with a shape: floors of waves,
 -- bosses, timed kills and survival, composed fresh each UTC day from the day
 -- seed so a run cannot be memorised, climbed by a party (#102) or alone.
