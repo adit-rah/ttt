@@ -50,7 +50,7 @@ TESTING = ROOT / "tools" / "testing"
 # Tycoon, MapBuilder and CombatService ARE in it. The comment here used to say
 # the opposite, two lines above the list that contradicted it.
 SERVER_MODULES = ["DataService", "Analytics", "Economy", "SessionService", "SocialService", "MovementService",
-                  "HelpService", "PartyService", "RaidService", "RecallService", "CombatService", "MapBuilder", "Tycoon"]
+                  "HelpService", "PartyService", "RaidService", "RecallService", "TowerService", "CombatService", "MapBuilder", "Tycoon"]
 
 # ALL OF src/client, WHICH HAD NEVER EXECUTED ANYWHERE BUT ROBLOX.
 #

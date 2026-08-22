@@ -1247,6 +1247,18 @@ local function step()
 	end
 end
 
+--- The tower's door into the one minting site (#95): a public wrapper so
+--- TowerService never grows its own AI. opts is mintNPC's contract.
+function NPCService.spawn(opts)
+	return mintNPC(opts)
+end
+
+--- Read-only walk of every live entry — TowerService sweeps its own floor's
+--- bodies on a run ending. Nothing outside this file may write through it.
+function NPCService.activeEntries()
+	return active
+end
+
 --- Hands a joining client the packet everyone else last saw, so a mid-wave
 --- joiner does not stare at a blank banner until the next death.
 function NPCService.pushTo(player: Player)

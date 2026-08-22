@@ -100,6 +100,10 @@ local function defaultProfile()
 		-- from profile.rebirths on every read, so it could only ever go stale;
 		-- it is gone, and a save that still carries one is simply ignored.
 		lastSeen = 0,
+		-- #95: the tower — the UTC day last climbed and the best floor
+		-- reached that day. Compared against today's day number on read, so
+		-- yesterday's best resets by arithmetic instead of by a job.
+		tower = { day = 0, best = 0 },
 		-- #123: the reputation stat — a weighted count of acts of help. A
 		-- number rather than an int: gap weighting accrues halves.
 		reputation = 0,
@@ -231,6 +235,7 @@ local function payloadOf(profile)
 		kills = profile.kills,
 		playtime = profile.playtime,
 		lastSeen = profile.lastSeen,
+		tower = profile.tower,
 		reputation = profile.reputation,
 		structure = profile.structure,
 		sessions = profile.sessions,

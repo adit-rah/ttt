@@ -823,6 +823,24 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **One direction.** Recall comes home; going out is the walk. `[nothing]` — the record
   that the asymmetry is on purpose.
 
+### The tower (#95)
+
+- **The day deals the deck.** `Config.towerFloors(daySeed)` is deterministic, every
+  archetype appears, the boss holds the top floor — walked across twenty seeds. `[assert]`
+  + `[spec]`, falsified by dropping the boss pin.
+- **A floor pays MINUTES of the climber's own income**, through the capped door, on the
+  spot — which makes "fighting beats waiting" one line of arithmetic
+  (`FloorRewardMinutes × 60 > FloorNominalSeconds`) that holds at every progression stage,
+  and makes a wipe keep what it cleared. `[assert]`, falsified.
+- **The daily reset is arithmetic**: `profile.tower` stores `{day, best}`, `bestFloor`
+  compares the stored day on read, and yesterday reads as zero with no job anywhere.
+  Both profile homes, round-trip specced. `[spec]`, falsified on the comparison.
+- **Every tower body goes through `NPCService.spawn`** — the one minting site — and the
+  world part ceiling includes `MaxConcurrentRuns` at their worst. `[assert]`, falsified
+  through `MaxConcurrentRuns`.
+- The run driver (platforms, wipes, timers) is a workspace concern. `[nothing]` beyond
+  the ledger split; HANDOFF_v18 carries the Studio list.
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch
