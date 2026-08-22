@@ -2475,7 +2475,7 @@ __MODULES["Config"] = function()
 		GatePerLevel = 75,
 		-- Same shape as the storage unit's repair: quick, manual, owner-present,
 		-- and it has to finish inside the raid's warning window (asserted).
-		RepairSeconds = 20,
+		RepairSeconds = 3,
 		PlayerDamageScale = 1,
 		-- Reserved for #89's mobs; nothing multiplies by it yet.
 		MobDamageScale = 1,

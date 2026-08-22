@@ -22,6 +22,7 @@ local AdminService = Req("AdminService")
 -- doors in the shell) have graduated and always run.
 -- UpgradeService is still a prototype and is a no-op unless
 -- Config.Prototypes.PlayerUpgrades is on, so it costs nothing in a shipping build.
+local Tycoon = Req("Tycoon")
 local UpgradeService = Req("UpgradeService")
 local SessionService = Req("SessionService")
 local VaultService = Req("VaultService")
@@ -70,6 +71,11 @@ VaultService.start()
 -- model, so the plots have to exist, but it registers no listener and reacts to
 -- no purchase — a gate is a distance test, not an event.
 GateService.start()
+-- The siege hook (#124): a swing that boxed wall or gate parts lands here.
+-- Wired from this file rather than inside CombatService, because Tycoon
+-- requires CombatService and the observer shape exists to keep that arrow
+-- one-way.
+CombatService.setStructureObserver(Tycoon.siegeStrike)
 SocialService.start()
 
 -- 6. players

@@ -243,6 +243,28 @@ function AdminService.handle(player: Player, message: string): boolean
 		return true
 	end
 
+	-- Damage your own plot's defences, through the same door a raid uses.
+	-- The one caller in the game today — mobs arrive with #89, raiders with
+	-- #94 — so this is how the break, the stump, the prompt and the repair
+	-- get exercised in Studio at all.
+	if verb == "siege" then
+		local tycoon = PlotService.plotOf(player)
+		if not tycoon then
+			say(player, "Admin", "you do not have a plot", "warn")
+			return true
+		end
+		local key, amountText = rest:match("^%s*(%S*)%s*(%d*)%s*$")
+		if key == nil or key == "" then
+			key = "gate_gateway"
+		end
+		local dealt = tycoon:damageStructure(key, tonumber(amountText) or 200)
+		say(player, "Admin",
+			dealt > 0 and ("%s takes %.0f."):format(key, dealt)
+				or ("%s absorbed nothing — broken already, or not a siege key."):format(key),
+			dealt > 0 and "info" or "warn")
+		return true
+	end
+
 	return false
 end
 

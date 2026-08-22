@@ -2475,7 +2475,7 @@ __MODULES["Config"] = function()
 		GatePerLevel = 75,
 		-- Same shape as the storage unit's repair: quick, manual, owner-present,
 		-- and it has to finish inside the raid's warning window (asserted).
-		RepairSeconds = 20,
+		RepairSeconds = 3,
 		PlayerDamageScale = 1,
 		-- Reserved for #89's mobs; nothing multiplies by it yet.
 		MobDamageScale = 1,
@@ -6022,6 +6022,28 @@ __MODULES["AdminService"] = function()
 			return true
 		end
 
+		-- Damage your own plot's defences, through the same door a raid uses.
+		-- The one caller in the game today — mobs arrive with #89, raiders with
+		-- #94 — so this is how the break, the stump, the prompt and the repair
+		-- get exercised in Studio at all.
+		if verb == "siege" then
+			local tycoon = PlotService.plotOf(player)
+			if not tycoon then
+				say(player, "Admin", "you do not have a plot", "warn")
+				return true
+			end
+			local key, amountText = rest:match("^%s*(%S*)%s*(%d*)%s*$")
+			if key == nil or key == "" then
+				key = "gate_gateway"
+			end
+			local dealt = tycoon:damageStructure(key, tonumber(amountText) or 200)
+			say(player, "Admin",
+				dealt > 0 and ("%s takes %.0f."):format(key, dealt)
+					or ("%s absorbed nothing — broken already, or not a siege key."):format(key),
+				dealt > 0 and "info" or "warn")
+			return true
+		end
+
 		return false
 	end
 
@@ -6725,6 +6747,17 @@ __MODULES["CombatService"] = function()
 		damageObserver = fn
 	end
 
+	--- The structure hook (#124), the setDamageObserver shape one target over:
+	--- a swing that boxed PARTS hands them to whoever registered, with the
+	--- swing-scoped dedup table, so this file never learns what a wall is.
+	--- Main.server wires it to Tycoon.siegeStrike — registering here directly
+	--- would put a require of Tycoon into a module Tycoon requires.
+	local structureObserver: (({ BasePart }, Player, number, { [any]: any }) -> ())? = nil
+
+	function CombatService.setStructureObserver(fn: (({ BasePart }, Player, number, { [any]: any }) -> ())?)
+		structureObserver = fn
+	end
+
 	local function stateFor(player: Player)
 		local s = state[player]
 		if not s then
@@ -6989,6 +7022,7 @@ __MODULES["CombatService"] = function()
 
 		local seen = {}
 		local victims = {}
+		local boxed = parts
 		for _, part in ipairs(parts) do
 			-- Walk UP until we find the model that owns a Humanoid, rather than
 			-- stopping at the first Model ancestor. A raider's visible body is a
@@ -7006,17 +7040,25 @@ __MODULES["CombatService"] = function()
 				end
 			end
 		end
-		return victims
+		return victims, boxed
 	end
 
 	--- Resolves one strike: box the area in front of the swinger and damage
 	--- whatever is in it that we're allowed to hurt.
 	local function resolveStrike(player: Player, character: Model, hit: { [Model]: boolean },
-		reach: number, width: number, damage: number, knockback: number, crit: boolean)
+		struckStructures: { [any]: any }, reach: number, width: number, damage: number,
+		knockback: number, crit: boolean)
 
 		local origin = character:GetPivot().Position
 
-		for _, victim in ipairs(hitscan(character, reach, width)) do
+		local victims, boxed = hitscan(character, reach, width)
+		-- Structures first, dedup'd per SWING by the shared table: the second
+		-- strike sample must not land a second hit on the same wall.
+		if structureObserver then
+			structureObserver(boxed, player, damage, struckStructures)
+		end
+
+		for _, victim in ipairs(victims) do
 			-- one swing damages a given victim once, however many samples see them
 			if not hit[victim] and CombatService.canDamage(player, victim) then
 				hit[victim] = true
@@ -7109,6 +7151,7 @@ __MODULES["CombatService"] = function()
 		-- can now step out of a telegraphed swing, which is the point.
 		local generation = s.lastSwing
 		local hit: { [Model]: boolean } = {}
+		local struckStructures: { [any]: any } = {}
 
 		local function strike()
 			-- A second swing, a death, a respawn or a disconnect since we were
@@ -7124,7 +7167,7 @@ __MODULES["CombatService"] = function()
 			then
 				return
 			end
-			resolveStrike(player, character, hit, reach, width, damage, knockback, crit)
+			resolveStrike(player, character, hit, struckStructures, reach, width, damage, knockback, crit)
 		end
 
 		task.delay(cooldown * Config.Combat.SwingStrikeAt, function()
@@ -15750,11 +15793,14 @@ __MODULES["Siege"] = function()
 	end
 
 	--- The one door swing damage comes through. `parts` is everything one swing
-	--- boxed; each siege key it touched takes ONE hit. The plot's own owner is
-	--- refused — no accidental self-demolition — and the arena's PvP rule is
-	--- deliberately not consulted: a raider breaks a gate wherever the gate is.
-	function Tycoon.siegeStrike(parts: { BasePart }, attacker: Player, damage: number)
-		local struck = {}
+	--- boxed; each siege key it touched takes ONE hit — `struck` is the dedup
+	--- and the CALLER owns it, because a swing strikes twice (CombatService
+	--- samples the arc a frame apart) and the second sample must not land a
+	--- second hit. The plot's own owner is refused — no accidental
+	--- self-demolition — and the arena's PvP rule is deliberately not consulted:
+	--- a raider breaks a gate wherever the gate is.
+	function Tycoon.siegeStrike(parts: { BasePart }, attacker: Player, damage: number, struck: { [any]: any }?)
+		struck = struck or {}
 		for _, part in ipairs(parts) do
 			local key = Tycoon.siegeKeyForPart(part)
 			if key then
@@ -16286,6 +16332,7 @@ local AdminService = Req("AdminService")
 -- doors in the shell) have graduated and always run.
 -- UpgradeService is still a prototype and is a no-op unless
 -- Config.Prototypes.PlayerUpgrades is on, so it costs nothing in a shipping build.
+local Tycoon = Req("Tycoon")
 local UpgradeService = Req("UpgradeService")
 local SessionService = Req("SessionService")
 local VaultService = Req("VaultService")
@@ -16334,6 +16381,11 @@ VaultService.start()
 -- model, so the plots have to exist, but it registers no listener and reacts to
 -- no purchase — a gate is a distance test, not an event.
 GateService.start()
+-- The siege hook (#124): a swing that boxed wall or gate parts lands here.
+-- Wired from this file rather than inside CombatService, because Tycoon
+-- requires CombatService and the observer shape exists to keep that arrow
+-- one-way.
+CombatService.setStructureObserver(Tycoon.siegeStrike)
 SocialService.start()
 
 -- 6. players

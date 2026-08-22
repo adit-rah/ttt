@@ -229,11 +229,14 @@ local function isUnder(part: Instance, root: Instance): boolean
 end
 
 --- The one door swing damage comes through. `parts` is everything one swing
---- boxed; each siege key it touched takes ONE hit. The plot's own owner is
---- refused — no accidental self-demolition — and the arena's PvP rule is
---- deliberately not consulted: a raider breaks a gate wherever the gate is.
-function Tycoon.siegeStrike(parts: { BasePart }, attacker: Player, damage: number)
-	local struck = {}
+--- boxed; each siege key it touched takes ONE hit — `struck` is the dedup
+--- and the CALLER owns it, because a swing strikes twice (CombatService
+--- samples the arc a frame apart) and the second sample must not land a
+--- second hit. The plot's own owner is refused — no accidental
+--- self-demolition — and the arena's PvP rule is deliberately not consulted:
+--- a raider breaks a gate wherever the gate is.
+function Tycoon.siegeStrike(parts: { BasePart }, attacker: Player, damage: number, struck: { [any]: any }?)
+	struck = struck or {}
 	for _, part in ipairs(parts) do
 		local key = Tycoon.siegeKeyForPart(part)
 		if key then
