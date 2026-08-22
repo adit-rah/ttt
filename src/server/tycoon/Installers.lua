@@ -371,11 +371,12 @@ Tycoon.INSTALLERS.Armor = function(self, def, silent)
 	end
 end
 
---- Land (#88). A DOCUMENTED NO-OP: the ground outlives the purchase —
---- release, rebirth and re-claim all have to rebuild or drop it and none of
---- them go through install(). ensureLand reconciles the slabs to `owned` on
---- the refreshButtons beat, which install() reaches on its next line anyway.
+--- Land (#88). The ground outlives the purchase — release, rebirth and
+--- re-claim all have to rebuild or drop it and none of them go through
+--- install() — so the whole job is ensureLand's, and it also runs on the
+--- refreshButtons beat for exactly those three other events.
 Tycoon.INSTALLERS.Land = function(self, def, silent)
+	self:ensureLand()
 end
 
 --- Every gate leaf the ring's openings carry: what to build, where it hangs
@@ -387,9 +388,10 @@ end
 --- the `name` here, so this is also the naming contract between the two files.
 function Tycoon:gateLeafSpecs()
 	local specs = {}
+	local counts = self:landState()
 
 	for _, side in ipairs(S.Sides) do
-		local segments, extent = Config.wallSegments(side)
+		local segments, extent = Config.wallSegments(side, counts.left, counts.right)
 		for index, segment in ipairs(segments) do
 			if segment.kind ~= "opening" then
 				continue
@@ -460,9 +462,10 @@ function Tycoon:buildWallRing(model: Instance)
 	local top = S.WallHeight
 	local sill = floorY + win.sill
 	local head = sill + win.height
+	local counts = self:landState()
 
 	for _, side in ipairs(S.Sides) do
-		local segments, extent = Config.wallSegments(side)
+		local segments, extent = Config.wallSegments(side, counts.left, counts.right)
 		for index, segment in ipairs(segments) do
 			local tag = ("%s_%d"):format(side, index)
 			if segment.kind == "solid" then
@@ -543,10 +546,21 @@ function Tycoon:refreshCeilingLights(model: Instance)
 			end
 		end
 	end
-	if not wanted or standing > 0 then
+	local counts = self:landState()
+	local spots = Config.storeyLightPositions(counts.left, counts.right)
+	-- the grid gains columns as the land grows, so a standing set of the
+	-- wrong SIZE is stale, not satisfied — it comes down and re-emits
+	if not wanted or standing == #spots then
 		return
 	end
-	for index, spot in ipairs(Config.storeyLightPositions()) do
+	if standing > 0 then
+		for _, part in ipairs(model:GetChildren()) do
+			if part.Name:sub(1, #prefix) == prefix then
+				part:Destroy()
+			end
+		end
+	end
+	for index, spot in ipairs(spots) do
 		local batten = newPart(model, ("Fixture_%d"):format(index),
 			Vector3.new(LIGHTS.batten.width, LIGHTS.batten.thickness, LIGHTS.batten.length),
 			self:at(spot.X, spot.Y, spot.Z), Color3.fromRGB(236, 226, 202), Enum.Material.SmoothPlastic, false)
@@ -683,21 +697,25 @@ function Tycoon:buildRoofModel(model: Instance)
 	model:ClearAllChildren()
 
 	local underside = Config.roofUnderside()
-	-- The wall ring's own |x| and |z|, read from the extents the walls are built
-	-- from rather than re-derived here: "inset in from the wall ring" has to mean
-	-- the wall the columns stand beside.
-	local ringX = Config.wallExtent("right").fixed
-	local ringZ = Config.wallExtent("front").fixed
+	-- The wall ring's own extents, read from the walls the roof stands over
+	-- rather than re-derived here: land moves the side walls, and the roof
+	-- follows them.
+	local counts = self:landState()
+	local leftWall = Config.wallExtent("left", counts.left, counts.right)
+	local rightWall = Config.wallExtent("right", counts.left, counts.right)
+	local ringZ = Config.wallExtent("front", counts.left, counts.right).fixed
+	local minX, maxX = leftWall.fixed, rightWall.fixed
 
-	local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, S.Roof.thickness, W.PlotSize.Z),
-		self:at(0, underside + S.Roof.thickness / 2, 0), ROOF_COLOR, Enum.Material.WoodPlanks)
+	local roof = newPart(model, "Roof",
+		Vector3.new(maxX - minX + 2, S.Roof.thickness, W.PlotSize.Z),
+		self:at((minX + maxX) / 2, underside + S.Roof.thickness / 2, 0),
+		ROOF_COLOR, Enum.Material.WoodPlanks)
 	roof.CanCollide = true
 
-	for _, signX in ipairs({ -1, 1 }) do
+	for _, columnX in ipairs({ minX + S.Roof.columnInset, maxX - S.Roof.columnInset }) do
 		for _, signZ in ipairs({ -1, 1 }) do
 			newPart(model, "Column", Vector3.new(S.Roof.column, underside, S.Roof.column),
-				self:at(signX * (ringX - S.Roof.columnInset), underside / 2,
-					signZ * (ringZ - S.Roof.columnInset)),
+				self:at(columnX, underside / 2, signZ * (ringZ - S.Roof.columnInset)),
 				WALL_COLOR, Enum.Material.Wood)
 		end
 	end

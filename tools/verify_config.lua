@@ -2432,7 +2432,12 @@ check(#L.UpgraderDist >= 1 and #L.DropperDist >= 1, "need at least one dropper a
 -- Plots must not overlap at ANY supported player count, since the layout is
 -- derived from the place's MaxPlayers at runtime. Checked pairwise rather
 -- than by formula, so a change to the packing logic can't slip through.
-local MAX_WALK = 420   -- studs from the arena rim to the furthest plot edge
+-- design:D-04 — 420 while the ring was packed to the centre pad's width. The
+-- pitch reserves the MAXED footprint now (#88), so the ring grew and the walk
+-- grew with it; 800 is what the grown ring measures plus margin, it is a real
+-- cost, and #89 (the open world's own layout) and #101 (movement) own the
+-- real answer. This ceiling exists so the world cannot quietly grow AGAIN.
+local MAX_WALK = 880   -- studs from the arena rim to the furthest yard edge
 for count = Config.World.MinPlots, Config.World.MaxPlots do
 	local placements = Config.plotPlacements(count)
 	check(#placements == count, ("plotPlacements(%d) returned %d entries"):format(count, #placements))
@@ -2443,12 +2448,14 @@ for count = Config.World.MinPlots, Config.World.MaxPlots do
 		for j = i + 1, #placements do
 			local b = placements[j]
 			if a.ring == b.ring then
-				-- chord between two plot centres on the same ring
+				-- chord between two plot centres on the same ring. Against
+				-- the MAXED width: land is acquired rather than reserved, so
+				-- two fully-grown neighbours are the case the ring must hold.
 				local d = math.sqrt(a.radius ^ 2 + b.radius ^ 2
 					- 2 * a.radius * b.radius * math.cos(a.angle - b.angle))
-				check(d >= Config.World.PlotSize.X,
-					("%d plots: ring %d plots %d and %d are only %.0f studs apart (need %d)")
-						:format(count, a.ring, i, j, d, Config.World.PlotSize.X))
+				check(d >= Config.World.PlotMaxWidth,
+					("%d plots: ring %d plots %d and %d are only %.0f studs apart (need %d for two maxed plots)")
+						:format(count, a.ring, i, j, d, Config.World.PlotMaxWidth))
 			else
 				check(math.abs(a.radius - b.radius) >= Config.World.PlotSize.Z,
 					("%d plots: rings %d and %d are only %.0f studs apart radially (need %d)")
@@ -2581,6 +2588,74 @@ do
 		check(math.abs(spot.X) <= centreWidth / 2 - 4 and math.abs(spot.Z) <= Config.World.PlotSize.Z / 2 - 4,
 			("the %s pedestal at (%.0f, %.0f) is off the centre pad; land pedestals stand on always-owned ground")
 				:format(track, spot.X, spot.Z))
+	end
+end
+
+-- THE SHELL AT EVERY LAND STATE. The walls, the part budget, the ceiling grid
+-- and the gate leaves are all functions of how much ground is standing, so
+-- each is checked at the eleven states the alternating ladder walks through,
+-- plus one lopsided pair — legal, expensive, and exactly the state a derived
+-- geometry bug would pick to hide in.
+do
+	local states = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 2, 1 }, { 2, 2 }, { 3, 2 },
+		{ 3, 3 }, { 4, 3 }, { 4, 4 }, { 5, 4 }, { 5, 5 }, { 3, 1 } }
+	for _, state in ipairs(states) do
+		local left, right = state[1], state[2]
+		local label = ("land (%d,%d)"):format(left, right)
+
+		-- Every wall still tiles its (grown) extent, and every opening still
+		-- sits on the CENTRE span — the property that keeps "gates and
+		-- windows are never rebuilt" true whatever the plot buys.
+		for _, side in ipairs(Config.Structure.Sides) do
+			local segments, extent = Config.wallSegments(side, left, right)
+			local cursor, covered = extent.from, 0
+			for index, segment in ipairs(segments) do
+				check(math.abs(segment.from - cursor) < 0.001,
+					("%s: the %s wall's segment %d starts at %.2f but the span before ended at %.2f — the grown wall has a gap")
+						:format(label, side, index, segment.from, cursor))
+				covered += segment.to - segment.from
+				cursor = segment.to
+				if segment.kind == "opening" then
+					local halfCentre = Config.World.PlotSize.X / 2
+					check(segment.from >= -halfCentre and segment.to <= halfCentre,
+						("%s: opening %s spans %.1f..%.1f, off the centre pad — an opening on an expansion span is an opening a land purchase would rebuild")
+							:format(label, tostring(segment.opening.id), segment.from, segment.to))
+				end
+			end
+			check(math.abs(cursor - extent.to) < 0.001 and math.abs(covered - (extent.to - extent.from)) < 0.001,
+				("%s: the %s wall's segments do not tile its extent"):format(label, side))
+		end
+
+		-- The budget holds fully grown — land is exactly when it binds.
+		local parts = Config.shellPartCount(left, right)
+		check(parts <= Config.Structure.PartBudget,
+			("%s: the shell is %d parts against a PartBudget of %d — the budget has to hold at the plot's biggest, times %d plots")
+				:format(label, parts, Config.Structure.PartBudget, Config.World.MaxPlots))
+
+		-- The room stays lit to its corners: the sampled coverage that chose
+		-- the 3x4 grid, re-run over the grown floor.
+		local LIGHT = Config.Structure.Lights
+		local spots = Config.storeyLightPositions(left, right)
+		local extents = Config.landExtents(left, right)
+		local halfZ = Config.World.PlotSize.Z / 2 - 1
+		local worst = 0
+		local x = extents.minX + 1
+		while x <= extents.maxX - 1 do
+			local z = -halfZ
+			while z <= halfZ do
+				local nearest = math.huge
+				for _, spot in ipairs(spots) do
+					local dx, dz = spot.X - x, spot.Z - z
+					nearest = math.min(nearest, math.sqrt(dx * dx + dz * dz + spot.Y * spot.Y))
+				end
+				worst = math.max(worst, nearest)
+				z += 8
+			end
+			x += 8
+		end
+		check(worst <= LIGHT.range * 0.8,
+			("%s: the darkest floor sample is %.1f studs from a fixture against a range of %d — the grown wings go dark")
+				:format(label, worst, LIGHT.range))
 	end
 end
 
@@ -3038,7 +3113,7 @@ end
 for _, side in ipairs(sides) do
 	local extent = side.extent
 	local openings = Config.openingsIn(side.id)
-	for _, segment in ipairs(Config.wallSegments(side.id, "ground")) do
+	for _, segment in ipairs(Config.wallSegments(side.id)) do
 		if segment.kind == "solid" then
 			for _, bay in ipairs(Config.wallBays(segment.from, segment.to)) do
 				if bay.kind == "pane" then

@@ -173,7 +173,9 @@ __MODULES["Config"] = function()
 		MinPlotRadius = 210,     -- closest the first ring may ever sit to the centre
 
 		PlotSize = Vector3.new(120, 2, 140),
-		BaseplateSize = 1800,
+		-- 2000 since #88: the ring packs maxed plots, and the furthest generator
+		-- yard reaches ~918 studs out. Asserted against the packing.
+		BaseplateSize = 2000,
 		ArenaRadius = 70,
 		ArenaWallHeight = 22,
 		-- The plinth the statue stands on, in the middle of the arena. It was a 26
@@ -213,7 +215,10 @@ __MODULES["Config"] = function()
 	--- `2r·sin(π/n)` apart, and using the arc length instead (the old
 	--- `2πr/pitch` capacity formula) silently under-spaces small rings.
 	function Config.plotPlacements(count: number)
-		local pitch = Config.World.PlotSize.X + Config.World.PlotGap
+		-- The pitch reserves the MAXED footprint: land is acquired rather than
+		-- reserved, so the ring has to hold every plot fully grown or two
+		-- neighbours' fifth expansions meet in the grass.
+		local pitch = (Config.World.PlotMaxWidth or Config.World.PlotSize.X) + Config.World.PlotGap
 		local depth = Config.World.PlotSize.Z + Config.World.RingGap
 
 		local placements = {}
@@ -660,9 +665,9 @@ __MODULES["Config"] = function()
 		-- next depending on what was casting a shadow over it.
 		LightInfluence = 0,
 
-		-- FOUR NAMED VIEW DISTANCES. Every label picks one of these by name, so the
-		-- question at each site is "how far away does this stop mattering" rather
-		-- than "what number did the last one use".
+		-- mechanism: FOUR NAMED VIEW DISTANCES. Every label picks one of these by
+		-- name, so the question at each site is "how far away does this stop
+		-- mattering" rather than "what number did the last one use".
 		--
 		--   machine  a plate on the machine you are standing at
 		--   prop     something you walk up to and use: buttons, pads, cabinets
@@ -672,11 +677,15 @@ __MODULES["Config"] = function()
 		-- `world` is not decoration: the two plots furthest apart on the ring are
 		-- 2 * PlotRadius apart, and the claim beacon has to be findable across that
 		-- gap. The verifier asserts it against the ring rather than trusting 1200.
+		-- plot and world grew with the ring (#88): the pitch reserves a maxed
+		-- plot's footprint, so the far side of the world moved out and a sign
+		-- that cuts out before the thing it labels is a sign that lies. The
+		-- verifier derives the floors these have to clear from the packing.
 		Distance = {
 			machine = 140,
 			prop    = 220,
-			plot    = 500,
-			world   = 900,
+			plot    = 800,
+			world   = 1600,
 		},
 
 		-- THE BUY BUTTON, IN TWO VOICES.
@@ -2464,23 +2473,28 @@ __MODULES["Config"] = function()
 	end
 
 	--- One wall of the ring: the axis it runs along, its fixed coordinate on the
-	--- other axis, and its extent.
+	--- other axis, and its extent — for a plot owning `left`/`right` expansions a
+	--- side (both default 0, the bare centre).
 	---
 	--- Note the asymmetry, which is how the shell has always been built: the side
 	--- walls run the FULL plot depth and the front and back walls sit between them.
-	--- Changing that changes four corners at once.
-	function Config.wallExtent(side: string)
-		local halfX = Config.World.PlotSize.X / 2 - 1
+	--- Changing that changes four corners at once. Land grows the ring along X
+	--- only: the front and back walls lengthen, the side walls MOVE outward, and
+	--- depth never changes — which is what keeps the leash, gate-trap and
+	--- warning-walk arithmetic still about the same distances.
+	function Config.wallExtent(side: string, left: number?, right: number?)
+		local extents = Config.landExtents(left or 0, right or 0)
+		local minX, maxX = extents.minX + 1, extents.maxX - 1
 		local halfZ = Config.World.PlotSize.Z / 2 - 1
 		if side == "back" then
-			return { axis = "X", fixed = -halfZ, from = -halfX, to = halfX, outward = -1 }
+			return { axis = "X", fixed = -halfZ, from = minX, to = maxX, outward = -1 }
 		elseif side == "front" then
-			return { axis = "X", fixed = halfZ, from = -halfX, to = halfX, outward = 1 }
+			return { axis = "X", fixed = halfZ, from = minX, to = maxX, outward = 1 }
 		elseif side == "left" then
-			return { axis = "Z", fixed = -halfX, from = -Config.World.PlotSize.Z / 2,
+			return { axis = "Z", fixed = minX, from = -Config.World.PlotSize.Z / 2,
 				to = Config.World.PlotSize.Z / 2, outward = -1 }
 		elseif side == "right" then
-			return { axis = "Z", fixed = halfX, from = -Config.World.PlotSize.Z / 2,
+			return { axis = "Z", fixed = maxX, from = -Config.World.PlotSize.Z / 2,
 				to = Config.World.PlotSize.Z / 2, outward = 1 }
 		end
 		return nil
@@ -2508,22 +2522,67 @@ __MODULES["Config"] = function()
 	--- This is the function the builder emits from, the verifier sums, and a runtime
 	--- spec exercises. A wall that does not account for its own span is now a failed
 	--- check rather than a seven-stud band of daylight nobody measured.
-	function Config.wallSegments(side: string)
-		local extent = Config.wallExtent(side)
+	---
+	--- ON A GROWN PLOT the front and back walls also split their solid runs at
+	--- every land boundary, so each expansion's frontage is its own span. The
+	--- centre's boxes never change size when land arrives — an expansion ADDS
+	--- spans — and every opening stays on the centre span, which is what keeps
+	--- "gates and windows are never rebuilt" true whatever the plot owns.
+	function Config.wallSegments(side: string, left: number?, right: number?)
+		local extent = Config.wallExtent(side, left, right)
 		local segments = {}
+
+		-- The split points: the centre pad's edges and each owned expansion's
+		-- outer boundary, where they fall strictly inside the extent.
+		local splits = {}
+		if extent.axis == "X" then
+			-- The centre/expansion boundary sits at the wall's INSET edge, the
+			-- same 1 stud in from the ground joint the bare ring has always used,
+			-- so the centre's spans are byte-identical at every land state and
+			-- the first expansion adds a span without resizing a standing box.
+			local halfX = Config.World.PlotSize.X / 2 - 1
+			for _, boundary in ipairs({ -halfX, halfX }) do
+				if boundary > extent.from and boundary < extent.to then
+					table.insert(splits, boundary)
+				end
+			end
+			for _, sideName in ipairs({ "left", "right" }) do
+				local count = (sideName == "left") and (left or 0) or (right or 0)
+				local steps = Config.landSteps(sideName)
+				local sign = (sideName == "left") and -1 or 1
+				for index = 1, math.min(count, #steps) do
+					local boundary = sign * steps[index]
+					if boundary > extent.from and boundary < extent.to then
+						table.insert(splits, boundary)
+					end
+				end
+			end
+			table.sort(splits)
+		end
+
+		local function pushSolid(from, to)
+			if to <= from then
+				return
+			end
+			local cursor = from
+			for _, split in ipairs(splits) do
+				if split > cursor and split < to then
+					table.insert(segments, { kind = "solid", from = cursor, to = split })
+					cursor = split
+				end
+			end
+			table.insert(segments, { kind = "solid", from = cursor, to = to })
+		end
+
 		local cursor = extent.from
 		for _, opening in ipairs(Config.openingsIn(side)) do
-			local left = opening.centre - opening.width / 2
-			local right = opening.centre + opening.width / 2
-			if left > cursor then
-				table.insert(segments, { kind = "solid", from = cursor, to = left })
-			end
-			table.insert(segments, { kind = "opening", from = left, to = right, opening = opening })
-			cursor = right
+			local openFrom = opening.centre - opening.width / 2
+			local openTo = opening.centre + opening.width / 2
+			pushSolid(cursor, openFrom)
+			table.insert(segments, { kind = "opening", from = openFrom, to = openTo, opening = opening })
+			cursor = openTo
 		end
-		if cursor < extent.to then
-			table.insert(segments, { kind = "solid", from = cursor, to = extent.to })
-		end
+		pushSolid(cursor, extent.to)
 		return segments, extent
 	end
 
@@ -2571,21 +2630,34 @@ __MODULES["Config"] = function()
 	--- Derived from the wall ring, so a fixture cannot end up outside the room or
 	--- below the machines. Component arithmetic only: the verifier's Vector3 is a
 	--- bare table with no operators.
-	function Config.storeyLightPositions(): { Vector3 }
+	--- The room grows along X with the land, so the COLUMN COUNT grows with it:
+	--- a fixed grid stretched over a maxed plot leaves the middle of each wing
+	--- past the fixtures' range, and the sampled coverage check is what chose
+	--- the divisor.
+	function Config.lightColumnsFor(left: number?, right: number?): number
 		local L = Config.Structure.Lights
-		local halfX = Config.World.PlotSize.X / 2 - 1 - Config.Structure.WallThickness / 2
+		local extents = Config.landExtents(left or 0, right or 0)
+		local width = extents.maxX - extents.minX
+		return math.max(L.columns, math.ceil(width / 42))
+	end
+
+	function Config.storeyLightPositions(left: number?, right: number?): { Vector3 }
+		local L = Config.Structure.Lights
+		local extents = Config.landExtents(left or 0, right or 0)
+		local inset = 1 + Config.Structure.WallThickness / 2 + L.inset
+		local fromX, toX = extents.minX + inset, extents.maxX - inset
 		local halfZ = Config.World.PlotSize.Z / 2 - 1 - Config.Structure.WallThickness / 2
 		local y = Config.Structure.WallHeight - L.drop - L.batten.thickness / 2
+		local columns = Config.lightColumnsFor(left, right)
 
 		local spots = {}
 		local spanZ = halfZ - L.inset
-		for column = 1, L.columns do
-			-- evenly across X, symmetric about the centre line
-			local x = -(halfX - L.inset)
-			if L.columns > 1 then
-				x += (column - 1) * (2 * (halfX - L.inset)) / (L.columns - 1)
+		for column = 1, columns do
+			local x = fromX
+			if columns > 1 then
+				x += (column - 1) * (toX - fromX) / (columns - 1)
 			else
-				x = 0
+				x = (fromX + toX) / 2
 			end
 			for row = 1, L.rows do
 				local z = -spanZ
@@ -2600,15 +2672,15 @@ __MODULES["Config"] = function()
 		return spots
 	end
 
-	function Config.shellPartCount(): number
+	function Config.shellPartCount(left: number?, right: number?): number
 		local total = 0
 		-- the ceiling fixtures. They are Parts; the Lights themselves are not, so
 		-- this counts battens and not lights.
-		total += #Config.storeyLightPositions()
+		total += #Config.storeyLightPositions(left, right)
 		for _, side in ipairs(Config.Structure.Sides) do
 			-- the neon cap along this wall's top, and the light strip inside it
 			total += 2
-			for _, segment in ipairs(Config.wallSegments(side)) do
+			for _, segment in ipairs(Config.wallSegments(side, left, right)) do
 				if segment.kind == "solid" then
 					total += 2   -- sill course + head course
 					for _, _bay in ipairs(Config.wallBays(segment.from, segment.to)) do
@@ -12924,6 +12996,11 @@ __MODULES["Buttons"] = function()
 	end
 
 	function Tycoon:refreshButtons()
+		-- The ground reconciles before the pads: land is derived from `owned` the
+		-- same way the buttons are, and it has to exist for the beat's other
+		-- readers (the ring, the roof) to measure against. Runs on the ownerless
+		-- path too — release wipes `owned`, and the slabs follow it down.
+		self:ensureLand()
 		if not self.owner then
 			for _, entry in pairs(self.objects) do
 				entry.holder.Parent = nil
@@ -14078,11 +14155,12 @@ __MODULES["Installers"] = function()
 		end
 	end
 
-	--- Land (#88). A DOCUMENTED NO-OP: the ground outlives the purchase —
-	--- release, rebirth and re-claim all have to rebuild or drop it and none of
-	--- them go through install(). ensureLand reconciles the slabs to `owned` on
-	--- the refreshButtons beat, which install() reaches on its next line anyway.
+	--- Land (#88). The ground outlives the purchase — release, rebirth and
+	--- re-claim all have to rebuild or drop it and none of them go through
+	--- install() — so the whole job is ensureLand's, and it also runs on the
+	--- refreshButtons beat for exactly those three other events.
 	Tycoon.INSTALLERS.Land = function(self, def, silent)
+		self:ensureLand()
 	end
 
 	--- Every gate leaf the ring's openings carry: what to build, where it hangs
@@ -14094,9 +14172,10 @@ __MODULES["Installers"] = function()
 	--- the `name` here, so this is also the naming contract between the two files.
 	function Tycoon:gateLeafSpecs()
 		local specs = {}
+		local counts = self:landState()
 
 		for _, side in ipairs(S.Sides) do
-			local segments, extent = Config.wallSegments(side)
+			local segments, extent = Config.wallSegments(side, counts.left, counts.right)
 			for index, segment in ipairs(segments) do
 				if segment.kind ~= "opening" then
 					continue
@@ -14167,9 +14246,10 @@ __MODULES["Installers"] = function()
 		local top = S.WallHeight
 		local sill = floorY + win.sill
 		local head = sill + win.height
+		local counts = self:landState()
 
 		for _, side in ipairs(S.Sides) do
-			local segments, extent = Config.wallSegments(side)
+			local segments, extent = Config.wallSegments(side, counts.left, counts.right)
 			for index, segment in ipairs(segments) do
 				local tag = ("%s_%d"):format(side, index)
 				if segment.kind == "solid" then
@@ -14250,10 +14330,21 @@ __MODULES["Installers"] = function()
 				end
 			end
 		end
-		if not wanted or standing > 0 then
+		local counts = self:landState()
+		local spots = Config.storeyLightPositions(counts.left, counts.right)
+		-- the grid gains columns as the land grows, so a standing set of the
+		-- wrong SIZE is stale, not satisfied — it comes down and re-emits
+		if not wanted or standing == #spots then
 			return
 		end
-		for index, spot in ipairs(Config.storeyLightPositions()) do
+		if standing > 0 then
+			for _, part in ipairs(model:GetChildren()) do
+				if part.Name:sub(1, #prefix) == prefix then
+					part:Destroy()
+				end
+			end
+		end
+		for index, spot in ipairs(spots) do
 			local batten = newPart(model, ("Fixture_%d"):format(index),
 				Vector3.new(LIGHTS.batten.width, LIGHTS.batten.thickness, LIGHTS.batten.length),
 				self:at(spot.X, spot.Y, spot.Z), Color3.fromRGB(236, 226, 202), Enum.Material.SmoothPlastic, false)
@@ -14390,21 +14481,25 @@ __MODULES["Installers"] = function()
 		model:ClearAllChildren()
 
 		local underside = Config.roofUnderside()
-		-- The wall ring's own |x| and |z|, read from the extents the walls are built
-		-- from rather than re-derived here: "inset in from the wall ring" has to mean
-		-- the wall the columns stand beside.
-		local ringX = Config.wallExtent("right").fixed
-		local ringZ = Config.wallExtent("front").fixed
+		-- The wall ring's own extents, read from the walls the roof stands over
+		-- rather than re-derived here: land moves the side walls, and the roof
+		-- follows them.
+		local counts = self:landState()
+		local leftWall = Config.wallExtent("left", counts.left, counts.right)
+		local rightWall = Config.wallExtent("right", counts.left, counts.right)
+		local ringZ = Config.wallExtent("front", counts.left, counts.right).fixed
+		local minX, maxX = leftWall.fixed, rightWall.fixed
 
-		local roof = newPart(model, "Roof", Vector3.new(W.PlotSize.X, S.Roof.thickness, W.PlotSize.Z),
-			self:at(0, underside + S.Roof.thickness / 2, 0), ROOF_COLOR, Enum.Material.WoodPlanks)
+		local roof = newPart(model, "Roof",
+			Vector3.new(maxX - minX + 2, S.Roof.thickness, W.PlotSize.Z),
+			self:at((minX + maxX) / 2, underside + S.Roof.thickness / 2, 0),
+			ROOF_COLOR, Enum.Material.WoodPlanks)
 		roof.CanCollide = true
 
-		for _, signX in ipairs({ -1, 1 }) do
+		for _, columnX in ipairs({ minX + S.Roof.columnInset, maxX - S.Roof.columnInset }) do
 			for _, signZ in ipairs({ -1, 1 }) do
 				newPart(model, "Column", Vector3.new(S.Roof.column, underside, S.Roof.column),
-					self:at(signX * (ringX - S.Roof.columnInset), underside / 2,
-						signZ * (ringZ - S.Roof.columnInset)),
+					self:at(columnX, underside / 2, signZ * (ringZ - S.Roof.columnInset)),
 					WALL_COLOR, Enum.Material.Wood)
 			end
 		end
@@ -14438,6 +14533,139 @@ __MODULES["Installers"] = function()
 		local model = entry and entry.machine
 		if model and model.Parent then
 			self:buildRoofModel(model)
+		end
+	end
+
+	return Tycoon
+end
+
+
+__MODULES["Land"] = function()
+	--[[
+		tycoon/Land.lua — the ground a plot grows into, reconciled from `owned`.
+
+		design:D-02, via #88. Land is bought outward from the centre and the centre
+		pad is the permanent anchor. ensureLand runs on the refreshButtons beat and
+		makes the world match `owned`: slabs and their edge strips per expansion,
+		the wall ring re-emitted around whatever ground is standing, the roof and
+		its lights re-spanned. Purchase, release, rebirth and re-claim all reach
+		refreshButtons, which is why there is no service and no listener — the
+		FloorService this replaces existed to catch those four events, and a
+		derived reconciler catches them by construction.
+
+		THE RING RE-EMITS COURSES AND NEVER TOUCHES A LEAF. Rebuilding wall boxes
+		is safe — nothing tweens them; rebuilding a gate leaf mid-tween is the
+		defect GateService's Parent check exists for. So rebuildWallRing destroys
+		everything in the ring EXCEPT Gate_* parts, re-emits the courses from
+		Config.wallSegments at the current land state, and leaves the leaves
+		alone. The openings never move — they live on the centre span — so a
+		surviving leaf is exactly where its spec still says it belongs.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Tycoon = Req("Class")
+	local Parts = Req("Parts")
+
+	local newPart = Parts.newPart
+	local W = Config.World
+
+	local SLAB_COLOR = Color3.fromRGB(112, 105, 98)
+	local EDGE_COLOR = Color3.fromRGB(255, 196, 84)
+
+	--- How many expansions each side owns. Derived from `owned` on every call,
+	--- never cached — a cached count is a second copy of the save (#35).
+	function Tycoon:landState()
+		return Config.landCounts(self.owned)
+	end
+
+	--- One expansion's ground: the slab, and neon strips along its front, back
+	--- and (for the outermost owned strip) outer edge.
+	local function buildSlab(self, folder, def, outermost)
+		local rect = Config.landRect(def.id)
+		local model = Instance.new("Model")
+		model.Name = "Land_" .. def.id
+		model.Parent = folder
+
+		local width = rect.toX - rect.fromX
+		local centreX = (rect.fromX + rect.toX) / 2
+		newPart(model, "Slab", Vector3.new(width, W.PlotSize.Y, W.PlotSize.Z),
+			self:at(centreX, -W.PlotSize.Y / 2, 0), SLAB_COLOR, Enum.Material.Concrete)
+
+		local halfZ = W.PlotSize.Z / 2
+		local edges = {
+			{ Vector3.new(width, 1, 2), self:at(centreX, 0.2, halfZ) },
+			{ Vector3.new(width, 1, 2), self:at(centreX, 0.2, -halfZ) },
+		}
+		if outermost then
+			local outerX = (rect.side == "left") and rect.fromX or rect.toX
+			table.insert(edges, { Vector3.new(2, 1, W.PlotSize.Z), self:at(outerX, 0.2, 0) })
+		end
+		for index, edge in ipairs(edges) do
+			local strip = newPart(model, "Edge" .. index, edge[1], edge[2], EDGE_COLOR, Enum.Material.Neon)
+			strip.CanCollide = false
+		end
+		return model
+	end
+
+	--- Re-emit the ring's courses at the current land state, leaves excepted.
+	function Tycoon:rebuildWallRing()
+		self:withWallRing(function(ring)
+			for _, part in ipairs(ring:GetChildren()) do
+				if part.Name:sub(1, 5) ~= "Gate_" then
+					part:Destroy()
+				end
+			end
+			self:buildWallRing(ring)
+		end)
+	end
+
+	--- Make the ground, the ring and the roof match `owned`. Idempotent: called
+	--- on every refreshButtons beat, it builds what is missing, destroys what is
+	--- no longer owned, and touches nothing that already agrees.
+	function Tycoon:ensureLand()
+		-- A stub plot (the spec harness's fakes) has no model and no plot CFrame;
+		-- there is no world for the ground to exist in, so there is nothing to
+		-- reconcile.
+		if not (self.model and self.cf) then
+			return
+		end
+		local counts = self:landState()
+
+		local folder = self.landFolder
+		if not folder or not folder.Parent then
+			folder = Instance.new("Folder")
+			folder.Name = "Land"
+			folder.Parent = self.model
+			self.landFolder = folder
+		end
+
+		local changed = false
+		for _, side in ipairs({ "left", "right" }) do
+			local rows = Config.landRows(side)
+			for index, def in ipairs(rows) do
+				local wanted = index <= counts[side]
+				local existing = folder:FindFirstChild("Land_" .. def.id)
+				if wanted and not existing then
+					buildSlab(self, folder, def, index == counts[side])
+					changed = true
+				elseif not wanted and existing then
+					existing:Destroy()
+					changed = true
+				elseif wanted and existing then
+					-- the outer edge strip belongs to the outermost strip only;
+					-- an expansion that stopped being outermost sheds it
+					local outer = existing:FindFirstChild("Edge3")
+					if outer and index ~= counts[side] then
+						outer:Destroy()
+					end
+				end
+			end
+		end
+
+		if changed then
+			self:rebuildWallRing()
+			self:refreshRoof()
 		end
 	end
 
@@ -15436,6 +15664,7 @@ __MODULES["Tycoon"] = function()
 	Req("Drops")
 	Req("Income")
 	Req("Installers")
+	Req("Land")
 	Req("Ownership")
 	Req("Props")
 	Req("Purchase")

@@ -173,7 +173,9 @@ __MODULES["Config"] = function()
 		MinPlotRadius = 210,     -- closest the first ring may ever sit to the centre
 
 		PlotSize = Vector3.new(120, 2, 140),
-		BaseplateSize = 1800,
+		-- 2000 since #88: the ring packs maxed plots, and the furthest generator
+		-- yard reaches ~918 studs out. Asserted against the packing.
+		BaseplateSize = 2000,
 		ArenaRadius = 70,
 		ArenaWallHeight = 22,
 		-- The plinth the statue stands on, in the middle of the arena. It was a 26
@@ -213,7 +215,10 @@ __MODULES["Config"] = function()
 	--- `2r·sin(π/n)` apart, and using the arc length instead (the old
 	--- `2πr/pitch` capacity formula) silently under-spaces small rings.
 	function Config.plotPlacements(count: number)
-		local pitch = Config.World.PlotSize.X + Config.World.PlotGap
+		-- The pitch reserves the MAXED footprint: land is acquired rather than
+		-- reserved, so the ring has to hold every plot fully grown or two
+		-- neighbours' fifth expansions meet in the grass.
+		local pitch = (Config.World.PlotMaxWidth or Config.World.PlotSize.X) + Config.World.PlotGap
 		local depth = Config.World.PlotSize.Z + Config.World.RingGap
 
 		local placements = {}
@@ -660,9 +665,9 @@ __MODULES["Config"] = function()
 		-- next depending on what was casting a shadow over it.
 		LightInfluence = 0,
 
-		-- FOUR NAMED VIEW DISTANCES. Every label picks one of these by name, so the
-		-- question at each site is "how far away does this stop mattering" rather
-		-- than "what number did the last one use".
+		-- mechanism: FOUR NAMED VIEW DISTANCES. Every label picks one of these by
+		-- name, so the question at each site is "how far away does this stop
+		-- mattering" rather than "what number did the last one use".
 		--
 		--   machine  a plate on the machine you are standing at
 		--   prop     something you walk up to and use: buttons, pads, cabinets
@@ -672,11 +677,15 @@ __MODULES["Config"] = function()
 		-- `world` is not decoration: the two plots furthest apart on the ring are
 		-- 2 * PlotRadius apart, and the claim beacon has to be findable across that
 		-- gap. The verifier asserts it against the ring rather than trusting 1200.
+		-- plot and world grew with the ring (#88): the pitch reserves a maxed
+		-- plot's footprint, so the far side of the world moved out and a sign
+		-- that cuts out before the thing it labels is a sign that lies. The
+		-- verifier derives the floors these have to clear from the packing.
 		Distance = {
 			machine = 140,
 			prop    = 220,
-			plot    = 500,
-			world   = 900,
+			plot    = 800,
+			world   = 1600,
 		},
 
 		-- THE BUY BUTTON, IN TWO VOICES.
@@ -2464,23 +2473,28 @@ __MODULES["Config"] = function()
 	end
 
 	--- One wall of the ring: the axis it runs along, its fixed coordinate on the
-	--- other axis, and its extent.
+	--- other axis, and its extent — for a plot owning `left`/`right` expansions a
+	--- side (both default 0, the bare centre).
 	---
 	--- Note the asymmetry, which is how the shell has always been built: the side
 	--- walls run the FULL plot depth and the front and back walls sit between them.
-	--- Changing that changes four corners at once.
-	function Config.wallExtent(side: string)
-		local halfX = Config.World.PlotSize.X / 2 - 1
+	--- Changing that changes four corners at once. Land grows the ring along X
+	--- only: the front and back walls lengthen, the side walls MOVE outward, and
+	--- depth never changes — which is what keeps the leash, gate-trap and
+	--- warning-walk arithmetic still about the same distances.
+	function Config.wallExtent(side: string, left: number?, right: number?)
+		local extents = Config.landExtents(left or 0, right or 0)
+		local minX, maxX = extents.minX + 1, extents.maxX - 1
 		local halfZ = Config.World.PlotSize.Z / 2 - 1
 		if side == "back" then
-			return { axis = "X", fixed = -halfZ, from = -halfX, to = halfX, outward = -1 }
+			return { axis = "X", fixed = -halfZ, from = minX, to = maxX, outward = -1 }
 		elseif side == "front" then
-			return { axis = "X", fixed = halfZ, from = -halfX, to = halfX, outward = 1 }
+			return { axis = "X", fixed = halfZ, from = minX, to = maxX, outward = 1 }
 		elseif side == "left" then
-			return { axis = "Z", fixed = -halfX, from = -Config.World.PlotSize.Z / 2,
+			return { axis = "Z", fixed = minX, from = -Config.World.PlotSize.Z / 2,
 				to = Config.World.PlotSize.Z / 2, outward = -1 }
 		elseif side == "right" then
-			return { axis = "Z", fixed = halfX, from = -Config.World.PlotSize.Z / 2,
+			return { axis = "Z", fixed = maxX, from = -Config.World.PlotSize.Z / 2,
 				to = Config.World.PlotSize.Z / 2, outward = 1 }
 		end
 		return nil
@@ -2508,22 +2522,67 @@ __MODULES["Config"] = function()
 	--- This is the function the builder emits from, the verifier sums, and a runtime
 	--- spec exercises. A wall that does not account for its own span is now a failed
 	--- check rather than a seven-stud band of daylight nobody measured.
-	function Config.wallSegments(side: string)
-		local extent = Config.wallExtent(side)
+	---
+	--- ON A GROWN PLOT the front and back walls also split their solid runs at
+	--- every land boundary, so each expansion's frontage is its own span. The
+	--- centre's boxes never change size when land arrives — an expansion ADDS
+	--- spans — and every opening stays on the centre span, which is what keeps
+	--- "gates and windows are never rebuilt" true whatever the plot owns.
+	function Config.wallSegments(side: string, left: number?, right: number?)
+		local extent = Config.wallExtent(side, left, right)
 		local segments = {}
+
+		-- The split points: the centre pad's edges and each owned expansion's
+		-- outer boundary, where they fall strictly inside the extent.
+		local splits = {}
+		if extent.axis == "X" then
+			-- The centre/expansion boundary sits at the wall's INSET edge, the
+			-- same 1 stud in from the ground joint the bare ring has always used,
+			-- so the centre's spans are byte-identical at every land state and
+			-- the first expansion adds a span without resizing a standing box.
+			local halfX = Config.World.PlotSize.X / 2 - 1
+			for _, boundary in ipairs({ -halfX, halfX }) do
+				if boundary > extent.from and boundary < extent.to then
+					table.insert(splits, boundary)
+				end
+			end
+			for _, sideName in ipairs({ "left", "right" }) do
+				local count = (sideName == "left") and (left or 0) or (right or 0)
+				local steps = Config.landSteps(sideName)
+				local sign = (sideName == "left") and -1 or 1
+				for index = 1, math.min(count, #steps) do
+					local boundary = sign * steps[index]
+					if boundary > extent.from and boundary < extent.to then
+						table.insert(splits, boundary)
+					end
+				end
+			end
+			table.sort(splits)
+		end
+
+		local function pushSolid(from, to)
+			if to <= from then
+				return
+			end
+			local cursor = from
+			for _, split in ipairs(splits) do
+				if split > cursor and split < to then
+					table.insert(segments, { kind = "solid", from = cursor, to = split })
+					cursor = split
+				end
+			end
+			table.insert(segments, { kind = "solid", from = cursor, to = to })
+		end
+
 		local cursor = extent.from
 		for _, opening in ipairs(Config.openingsIn(side)) do
-			local left = opening.centre - opening.width / 2
-			local right = opening.centre + opening.width / 2
-			if left > cursor then
-				table.insert(segments, { kind = "solid", from = cursor, to = left })
-			end
-			table.insert(segments, { kind = "opening", from = left, to = right, opening = opening })
-			cursor = right
+			local openFrom = opening.centre - opening.width / 2
+			local openTo = opening.centre + opening.width / 2
+			pushSolid(cursor, openFrom)
+			table.insert(segments, { kind = "opening", from = openFrom, to = openTo, opening = opening })
+			cursor = openTo
 		end
-		if cursor < extent.to then
-			table.insert(segments, { kind = "solid", from = cursor, to = extent.to })
-		end
+		pushSolid(cursor, extent.to)
 		return segments, extent
 	end
 
@@ -2571,21 +2630,34 @@ __MODULES["Config"] = function()
 	--- Derived from the wall ring, so a fixture cannot end up outside the room or
 	--- below the machines. Component arithmetic only: the verifier's Vector3 is a
 	--- bare table with no operators.
-	function Config.storeyLightPositions(): { Vector3 }
+	--- The room grows along X with the land, so the COLUMN COUNT grows with it:
+	--- a fixed grid stretched over a maxed plot leaves the middle of each wing
+	--- past the fixtures' range, and the sampled coverage check is what chose
+	--- the divisor.
+	function Config.lightColumnsFor(left: number?, right: number?): number
 		local L = Config.Structure.Lights
-		local halfX = Config.World.PlotSize.X / 2 - 1 - Config.Structure.WallThickness / 2
+		local extents = Config.landExtents(left or 0, right or 0)
+		local width = extents.maxX - extents.minX
+		return math.max(L.columns, math.ceil(width / 42))
+	end
+
+	function Config.storeyLightPositions(left: number?, right: number?): { Vector3 }
+		local L = Config.Structure.Lights
+		local extents = Config.landExtents(left or 0, right or 0)
+		local inset = 1 + Config.Structure.WallThickness / 2 + L.inset
+		local fromX, toX = extents.minX + inset, extents.maxX - inset
 		local halfZ = Config.World.PlotSize.Z / 2 - 1 - Config.Structure.WallThickness / 2
 		local y = Config.Structure.WallHeight - L.drop - L.batten.thickness / 2
+		local columns = Config.lightColumnsFor(left, right)
 
 		local spots = {}
 		local spanZ = halfZ - L.inset
-		for column = 1, L.columns do
-			-- evenly across X, symmetric about the centre line
-			local x = -(halfX - L.inset)
-			if L.columns > 1 then
-				x += (column - 1) * (2 * (halfX - L.inset)) / (L.columns - 1)
+		for column = 1, columns do
+			local x = fromX
+			if columns > 1 then
+				x += (column - 1) * (toX - fromX) / (columns - 1)
 			else
-				x = 0
+				x = (fromX + toX) / 2
 			end
 			for row = 1, L.rows do
 				local z = -spanZ
@@ -2600,15 +2672,15 @@ __MODULES["Config"] = function()
 		return spots
 	end
 
-	function Config.shellPartCount(): number
+	function Config.shellPartCount(left: number?, right: number?): number
 		local total = 0
 		-- the ceiling fixtures. They are Parts; the Lights themselves are not, so
 		-- this counts battens and not lights.
-		total += #Config.storeyLightPositions()
+		total += #Config.storeyLightPositions(left, right)
 		for _, side in ipairs(Config.Structure.Sides) do
 			-- the neon cap along this wall's top, and the light strip inside it
 			total += 2
-			for _, segment in ipairs(Config.wallSegments(side)) do
+			for _, segment in ipairs(Config.wallSegments(side, left, right)) do
 				if segment.kind == "solid" then
 					total += 2   -- sill course + head course
 					for _, _bay in ipairs(Config.wallBays(segment.from, segment.to)) do
