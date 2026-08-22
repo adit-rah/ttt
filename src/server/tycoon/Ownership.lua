@@ -42,6 +42,9 @@ function Tycoon:assign(player: Player)
 	self.generation += 1
 	self:ensureButtons()
 	self:setFactoryVisible(true)
+	-- Before the install replay: the replay builds walls, and applySiegeState
+	-- reads this table to know what may stand.
+	self:resetSiege()
 
 	local profile = DataService.get(player)
 	if profile then
@@ -101,9 +104,10 @@ function Tycoon:release()
 	-- owner, and the last owner's "leaving now banks 2.4M" would be sitting on
 	-- a free plot's sign while the claim beacon lit up next to it.
 	self:setVaultGauge(0, nil, nil, false)
-	-- Storage state is tenancy-scoped: the next claimant starts with an
-	-- intact unit, whatever the last one let happen to it.
+	-- Storage and siege state are tenancy-scoped: the next claimant starts
+	-- with an intact plot, whatever the last one let happen to it.
 	self:resetStorage()
+	self:resetSiege()
 
 	self:refreshButtons()
 	self:updateSign()

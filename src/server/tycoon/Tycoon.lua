@@ -52,6 +52,7 @@ Req("Land")
 Req("Ownership")
 Req("Props")
 Req("Purchase")
+Req("Siege")
 Req("Storage")
 Req("Vault")
 

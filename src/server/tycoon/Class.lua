@@ -90,6 +90,9 @@ function Tycoon.new(index: number, parent: Instance)
 	-- The storage unit's state (Storage.lua). A plain table here rather than
 	-- resetStorage(), because Class must not call methods the mixins attach.
 	self.storage = { health = Config.Storage.MaxHealth, broken = false }
+	-- The walls' and gates' state (Siege.lua). Empty means nothing tracked
+	-- yet; assign() fills it via resetSiege, then overwrites from the save.
+	self.structureHealth = {}
 
 	-- Folders that come and go with the factory. Registered as they are built
 	-- rather than listed in setFactoryVisible; see registerFactoryFolder.

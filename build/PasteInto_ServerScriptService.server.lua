@@ -2460,6 +2460,39 @@ __MODULES["Config"] = function()
 		PartBudget = 200,
 	}
 
+	-- design:D-02, via #124 — the walls and gate are breakable, and their
+	-- toughness arrives with the land: level = expansions owned + 1, so a grown
+	-- plot is a harder target with no separate wall ladder to climb. The state
+	-- machine is tycoon/Siege.lua; players land damage through CombatService's
+	-- structure observer, mobs will land theirs when #89 lets them reach a wall.
+	Config.Structure.Health = {
+		WallBase = 600,
+		WallPerLevel = 150,
+		-- The gate is the door a raider is MEANT to break (#94): cheaper than a
+		-- wall, and the verifier holds it to "never one swing, never a siege" for
+		-- every bat at every level.
+		GateBase = 300,
+		GatePerLevel = 75,
+		-- Same shape as the storage unit's repair: quick, manual, owner-present,
+		-- and it has to finish inside the raid's warning window (asserted).
+		RepairSeconds = 20,
+		PlayerDamageScale = 1,
+		-- Reserved for #89's mobs; nothing multiplies by it yet.
+		MobDamageScale = 1,
+	}
+
+	--- A wall's full health at `level` = expansions owned + 1.
+	function Config.wallMaxHealth(level: number): number
+		local H = Config.Structure.Health
+		return H.WallBase + H.WallPerLevel * (level - 1)
+	end
+
+	--- A gate's full health at the same level.
+	function Config.gateMaxHealth(level: number): number
+		local H = Config.Structure.Health
+		return H.GateBase + H.GatePerLevel * (level - 1)
+	end
+
 	-- The one structural line: floor top to the wall's top, which is also the
 	-- roof's underside. It was Storeys[1].clear, derived from the mezzanine
 	-- deck's underside; the storey system retired with #88 and the shipped number
@@ -13299,6 +13332,9 @@ __MODULES["Class"] = function()
 		-- The storage unit's state (Storage.lua). A plain table here rather than
 		-- resetStorage(), because Class must not call methods the mixins attach.
 		self.storage = { health = Config.Storage.MaxHealth, broken = false }
+		-- The walls' and gates' state (Siege.lua). Empty means nothing tracked
+		-- yet; assign() fills it via resetSiege, then overwrites from the save.
+		self.structureHealth = {}
 
 		-- Folders that come and go with the factory. Registered as they are built
 		-- rather than listed in setFactoryVisible; see registerFactoryFolder.
@@ -14307,6 +14343,11 @@ __MODULES["Installers"] = function()
 		-- once, so a ring built after one of them was bought — assign() replaying
 		-- a save — has to arrive already carrying it.
 		self:applyStructureUpgrades(model)
+
+		-- ...and the DAMAGE it may already have taken (#124). The health table is
+		-- the authority; without this line every rebuild on the refreshButtons
+		-- beat would resurrect a wall the raiders earned.
+		self:applySiegeState(model)
 	end
 
 	--- Build or remove the ceiling battens to match whether the room is covered —
@@ -14718,6 +14759,9 @@ __MODULES["Ownership"] = function()
 		self.generation += 1
 		self:ensureButtons()
 		self:setFactoryVisible(true)
+		-- Before the install replay: the replay builds walls, and applySiegeState
+		-- reads this table to know what may stand.
+		self:resetSiege()
 
 		local profile = DataService.get(player)
 		if profile then
@@ -14777,9 +14821,10 @@ __MODULES["Ownership"] = function()
 		-- owner, and the last owner's "leaving now banks 2.4M" would be sitting on
 		-- a free plot's sign while the claim beacon lit up next to it.
 		self:setVaultGauge(0, nil, nil, false)
-		-- Storage state is tenancy-scoped: the next claimant starts with an
-		-- intact unit, whatever the last one let happen to it.
+		-- Storage and siege state are tenancy-scoped: the next claimant starts
+		-- with an intact plot, whatever the last one let happen to it.
 		self:resetStorage()
+		self:resetSiege()
 
 		self:refreshButtons()
 		self:updateSign()
@@ -15473,6 +15518,266 @@ __MODULES["Purchase"] = function()
 end
 
 
+__MODULES["Siege"] = function()
+	--[[
+		tycoon/Siege.lua — the walls and the gate can be broken, and the owner
+		repairs them.
+
+		design:D-02, via #124. The wall is the boundary the open world will press
+		against: mobs will wear it down when #89 lets them reach it, a raiding
+		player breaks the GATE to get in (#94), and both scale with the land —
+		level is expansions owned + 1, so toughness arrives with the ground and
+		there is no separate wall ladder.
+
+		AUTHORITY IS THE TABLE, THE PARTS ARE A PICTURE. self.structureHealth maps
+		a siege key — "wall_front", "wall_left", "gate_gateway", one per side and
+		one per opening — to hit points, assigned from Config.wallMaxHealth /
+		gateMaxHealth and never accumulated. A broken wall has no parts to carry
+		an attribute, which is why the table is the authority; applySiegeState
+		makes the ring agree with it after every rebuild, so the refreshButtons
+		beat cannot resurrect a wall the raiders earned.
+
+		KEYS ARE STABLE ACROSS LAND STATES. A side is one damage unit whatever its
+		span count — course names shift as land splits the runs, sides do not —
+		and an opening's id never changes. That is what lets damage persist (#124
+		ships it as fractions in the profile) without a rename ever forgiving it.
+
+		DAMAGE COMES THROUGH ONE DOOR. Tycoon.siegeStrike receives the parts a
+		swing boxed (Main.server wires it into CombatService's structure observer,
+		keeping the require arrows one-way), resolves them to plot + key, refuses
+		the plot's own owner, and applies one hit per key per swing. Mobs get the
+		same door when #89 wires them.
+
+		NO REMOTE, the CollectOffline argument: a repair intent has no payload, so
+		the ProximityPrompt on the stump is the whole interface and the handler
+		re-checks the owner.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Fx = Req("Fx")
+	local Tycoon = Req("Class")
+
+	local S = Config.Structure
+	local H = S.Health
+
+	local STUMP_COLOR = Color3.fromRGB(64, 48, 38)
+	local WALL_COLOR = Color3.fromRGB(150, 111, 74)
+
+	-- Course prefixes that belong to a wall side. `Sill` is deliberately absent:
+	-- the sill course survives a break as the stump the repair prompt stands on.
+	local BREAKABLE_PREFIXES = { Pier = true, Pane = true, Head = true, Lintel = true }
+
+	--- The siege level: expansions owned + 1. Derived, never stored.
+	function Tycoon:siegeLevel(): number
+		local counts = self:landState()
+		return counts.left + counts.right + 1
+	end
+
+	--- Full health for one siege key at the current level.
+	function Tycoon:siegeMaxHealth(key: string): number
+		if key:sub(1, 5) == "gate_" then
+			return Config.gateMaxHealth(self:siegeLevel())
+		end
+		return Config.wallMaxHealth(self:siegeLevel())
+	end
+
+	--- Every siege key this plot has: one per side, one per opening.
+	function Tycoon:siegeKeys(): { string }
+		local keys = {}
+		for _, side in ipairs(S.Sides) do
+			table.insert(keys, "wall_" .. side)
+		end
+		for _, opening in ipairs(S.Openings) do
+			table.insert(keys, "gate_" .. opening.id)
+		end
+		return keys
+	end
+
+	--- Fresh tenancy or repair: every key at full. assign() overwrites this from
+	--- the saved fractions right after.
+	function Tycoon:resetSiege()
+		self.structureHealth = {}
+		for _, key in ipairs(self:siegeKeys()) do
+			self.structureHealth[key] = self:siegeMaxHealth(key)
+		end
+	end
+
+	function Tycoon:structureBroken(key: string): boolean
+		local hp = self.structureHealth and self.structureHealth[key]
+		return hp ~= nil and hp <= 0
+	end
+
+	--- The side a wall-course part belongs to, or the opening a leaf hangs in,
+	--- as a siege key — nil for anything that is not siege-able.
+	function Tycoon.siegeKeyForPart(part: BasePart): string?
+		local prefix, rest = part.Name:match("^(%a+)_(.+)$")
+		if not prefix then
+			return nil
+		end
+		if prefix == "Gate" then
+			local opening = rest:match("^([%w]+)_%d+$")
+			return opening and ("gate_" .. opening) or nil
+		end
+		if BREAKABLE_PREFIXES[prefix] or prefix == "Sill" then
+			local side = rest:match("^(%a+)")
+			if side == "back" or side == "front" or side == "left" or side == "right" then
+				return "wall_" .. side
+			end
+		end
+		return nil
+	end
+
+	--- Make the standing ring agree with the health table: a broken side keeps
+	--- its sill course as a charred stump and loses everything above it; a broken
+	--- gate loses its leaves. Idempotent, and called at the end of buildWallRing,
+	--- so the refreshButtons beat re-applies breakage instead of healing it.
+	function Tycoon:applySiegeState(ring: Instance)
+		for _, part in ipairs(ring:GetChildren()) do
+			if part:IsA("BasePart") then
+				local key = Tycoon.siegeKeyForPart(part)
+				if key and self:structureBroken(key) then
+					local prefix = part.Name:match("^(%a+)_")
+					if prefix == "Sill" then
+						part.Color = STUMP_COLOR
+					elseif prefix == "Gate" or BREAKABLE_PREFIXES[prefix] then
+						part:Destroy()
+					end
+				elseif key then
+					local prefix = part.Name:match("^(%a+)_")
+					if prefix == "Sill" and part.Color == STUMP_COLOR then
+						part.Color = WALL_COLOR
+					end
+				end
+			end
+		end
+		self:refreshSiegePrompts(ring)
+	end
+
+	--- One repair prompt per broken key, standing on the stump (walls) or on an
+	--- invisible anchor at the opening (gates). Enabled only while broken.
+	function Tycoon:refreshSiegePrompts(ring: Instance)
+		for _, key in ipairs(self:siegeKeys()) do
+			local anchorName = "SiegeAnchor_" .. key
+			local anchor = ring:FindFirstChild(anchorName, true)
+			local broken = self:structureBroken(key)
+			if broken and not anchor then
+				-- The host outlives the break by construction: a wall's sill
+				-- course is the stump a break leaves, and a gate break destroys
+				-- only its leaves, so the lintel over the opening still stands.
+				local hostPrefix, hostKey = "Sill_", key
+				if key:sub(1, 5) == "gate_" then
+					hostPrefix = "Lintel_"
+					for _, opening in ipairs(S.Openings) do
+						if "gate_" .. opening.id == key then
+							hostKey = "wall_" .. opening.side
+						end
+					end
+				end
+				local host
+				for _, part in ipairs(ring:GetChildren()) do
+					if part:IsA("BasePart") and part.Name:sub(1, #hostPrefix) == hostPrefix
+							and Tycoon.siegeKeyForPart(part) == hostKey then
+						host = part
+						break
+					end
+				end
+				if host then
+					local prompt = Instance.new("ProximityPrompt")
+					prompt.Name = anchorName
+					prompt.ActionText = "Repair"
+					prompt.ObjectText = key:sub(1, 5) == "gate_" and "Gate" or "Wall"
+					prompt.HoldDuration = H.RepairSeconds
+					prompt.MaxActivationDistance = 16
+					prompt.RequiresLineOfSight = false
+					prompt.Parent = host
+					prompt.Triggered:Connect(function(player)
+						self:repairStructure(key, player)
+					end)
+				end
+			elseif not broken and anchor then
+				anchor:Destroy()
+			end
+		end
+	end
+
+	--- One hit on one key. Returns the damage dealt — 0 for a key already down,
+	--- which is how a caller counts wasted swings.
+	function Tycoon:damageStructure(key: string, amount: number, _attacker: Player?): number
+		if not self.structureHealth or self.structureHealth[key] == nil then
+			return 0
+		end
+		if amount <= 0 or self:structureBroken(key) then
+			return 0
+		end
+		self.structureHealth[key] = math.max(0, self.structureHealth[key] - amount)
+		if self.structureHealth[key] <= 0 then
+			self:withWallRing(function(ring)
+				self:applySiegeState(ring)
+			end)
+		end
+		return amount
+	end
+
+	--- The owner, present, holding the prompt: the whole repair. The rebuild path
+	--- is the ring's own idempotent builders — rebuildWallRing re-emits the
+	--- courses and hangGateLeaves the leaves, and applySiegeState (now healthy)
+	--- leaves them standing.
+	function Tycoon:repairStructure(key: string, player: Player): boolean
+		if player ~= self.owner or not self:structureBroken(key) then
+			return false
+		end
+		self.structureHealth[key] = self:siegeMaxHealth(key)
+		self:rebuildWallRing()
+		local character = player.Character
+		if character and character.PrimaryPart then
+			Fx.burst(character:GetPivot().Position, Color3.fromRGB(180, 220, 140), 10, workspace)
+		end
+		return true
+	end
+
+	--- Ancestry by walking `.Parent`, which the spec harness's Instances carry;
+	--- `IsDescendantOf` they do not, and this is the one place it would be asked.
+	local function isUnder(part: Instance, root: Instance): boolean
+		local node = part
+		while node do
+			if node == root then
+				return true
+			end
+			node = node.Parent
+		end
+		return false
+	end
+
+	--- The one door swing damage comes through. `parts` is everything one swing
+	--- boxed; each siege key it touched takes ONE hit. The plot's own owner is
+	--- refused — no accidental self-demolition — and the arena's PvP rule is
+	--- deliberately not consulted: a raider breaks a gate wherever the gate is.
+	function Tycoon.siegeStrike(parts: { BasePart }, attacker: Player, damage: number)
+		local struck = {}
+		for _, part in ipairs(parts) do
+			local key = Tycoon.siegeKeyForPart(part)
+			if key then
+				for _, tycoon in ipairs(Tycoon.all()) do
+					if tycoon.model and isUnder(part, tycoon.model) then
+						if tycoon.owner ~= attacker and not struck[tycoon] then
+							struck[tycoon] = {}
+						end
+						if struck[tycoon] and not struck[tycoon][key] then
+							struck[tycoon][key] = true
+							tycoon:damageStructure(key, damage * H.PlayerDamageScale, attacker)
+						end
+						break
+					end
+				end
+			end
+		end
+	end
+
+	return Tycoon
+end
+
+
 __MODULES["Storage"] = function()
 	--[[
 		tycoon/Storage.lua — the storage unit's health, and the repair that needs
@@ -15663,6 +15968,7 @@ __MODULES["Tycoon"] = function()
 	Req("Ownership")
 	Req("Props")
 	Req("Purchase")
+	Req("Siege")
 	Req("Storage")
 	Req("Vault")
 

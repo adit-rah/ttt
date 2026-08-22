@@ -523,6 +523,11 @@ function Tycoon:buildWallRing(model: Instance)
 	-- once, so a ring built after one of them was bought — assign() replaying
 	-- a save — has to arrive already carrying it.
 	self:applyStructureUpgrades(model)
+
+	-- ...and the DAMAGE it may already have taken (#124). The health table is
+	-- the authority; without this line every rebuild on the refreshButtons
+	-- beat would resurrect a wall the raiders earned.
+	self:applySiegeState(model)
 end
 
 --- Build or remove the ceiling battens to match whether the room is covered —
