@@ -103,10 +103,15 @@ function Tycoon:storageIntact(): boolean
 	return self.storage.broken ~= true
 end
 
+-- The break observer: fires once per break, on the transition only, with the
+-- attacker who landed it. Main.server points this at RaidService (#94) —
+-- the service requires this world, so the arrow cannot point back.
+Tycoon.storageBreakObserver = nil :: ((any, Player) -> ())?
+
 --- One hit on the unit. Returns the damage actually dealt — a broken unit
 --- absorbs nothing more, so hitting it again is wasted swings, and the return
 --- value is how #94 will know the difference.
-function Tycoon:damageStorage(amount: number, _attacker: Player?): number
+function Tycoon:damageStorage(amount: number, attacker: Player?): number
 	if amount <= 0 or self.storage.broken then
 		return 0
 	end
@@ -117,6 +122,9 @@ function Tycoon:damageStorage(amount: number, _attacker: Player?): number
 		local base = self.storageBase
 		if base and base.Parent then
 			base.Color = BROKEN_COLOR
+		end
+		if attacker and Tycoon.storageBreakObserver then
+			Tycoon.storageBreakObserver(self, attacker)
 		end
 	end
 	self:mirrorStorage()

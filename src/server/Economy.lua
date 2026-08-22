@@ -248,6 +248,23 @@ function Economy.spend(player: Player, amount: number): boolean
 	return true
 end
 
+--- An absolute outflow that takes what is there and reports what it got —
+--- the raid ledger's door (#94). The CALLER is responsible for sizing the
+--- amount from overflow; this clamps only at the floor of an empty bank.
+function Economy.take(player: Player, amount: number): number
+	local profile = DataService.get(player)
+	if not profile or amount <= 0 then
+		return 0
+	end
+	local taken = math.min(math.floor(amount), profile.cash)
+	if taken <= 0 then
+		return 0
+	end
+	profile.cash -= taken
+	Economy.markDirty(player)
+	return taken
+end
+
 --- Raiders nibble a slice of your bank when they land a hit.
 function Economy.steal(player: Player, fraction: number): number
 	local profile = DataService.get(player)

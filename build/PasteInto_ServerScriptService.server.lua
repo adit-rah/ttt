@@ -2247,6 +2247,35 @@ __MODULES["Config"] = function()
 		JumpPower = 52,
 	}
 
+	-- design:D-04, via #94 — RAIDING. A safe amount is untouchable; only the
+	-- overflow above it is ever at risk, and every number here is a KPI made
+	-- config: a raid never costs more than a few minutes of the victim's income
+	-- (recovered inside one sitting), an empty unit still pays the raider
+	-- (minted — the defender loses nothing), and camping one target halves its
+	-- spoils per repeat until it is worthless. The loot is CARRIED until the
+	-- raider reaches their own plot, and killing the carrier returns it.
+	Config.Raid = {
+		-- The untouchable fraction of the storage cap. Overflow = cash above it,
+		-- and overflow is the only Tung any raid mechanism can reach.
+		SafeFraction = 0.5,
+		-- What one storage-unit break takes, as a fraction of overflow. With the
+		-- cap at 30 minutes of income, a full-worst-case raid costs
+		-- 0.35 x 0.5 x 30 = 5.25 minutes — asserted under RecoveryMinutes.
+		SpillFraction = 0.35,
+		-- Breaking an EMPTY unit mints this fraction of the victim's cap for the
+		-- raider; the defender loses nothing. Raiding always rewards the raider.
+		EmptyBountyFraction = 0.05,
+		-- A player kill takes this fraction of the victim's overflow, wherever
+		-- combat is legal — the smaller vector, available everywhere.
+		KillStealFraction = 0.1,
+		-- Repeat spoils from the same victim halve per break inside the window.
+		CampingHalving = 0.5,
+		CampingWindowSeconds = 1800,
+		-- The KPI ceiling the spill arithmetic is asserted under: a raid's worst
+		-- case must be re-earnable inside one sitting.
+		RecoveryMinutes = 8,
+	}
+
 	-- design:D-04, via #101 — MOVEMENT. Sprint and dash ship now, as BASELINE
 	-- capabilities everyone has: legibility first, and a movement axis nobody can
 	-- buy is a movement axis nobody falls behind on. Mounts and waypoints wait
@@ -8286,6 +8315,23 @@ __MODULES["Economy"] = function()
 		return true
 	end
 
+	--- An absolute outflow that takes what is there and reports what it got —
+	--- the raid ledger's door (#94). The CALLER is responsible for sizing the
+	--- amount from overflow; this clamps only at the floor of an empty bank.
+	function Economy.take(player: Player, amount: number): number
+		local profile = DataService.get(player)
+		if not profile or amount <= 0 then
+			return 0
+		end
+		local taken = math.min(math.floor(amount), profile.cash)
+		if taken <= 0 then
+			return 0
+		end
+		profile.cash -= taken
+		Economy.markDirty(player)
+		return taken
+	end
+
 	--- Raiders nibble a slice of your bank when they land a hit.
 	function Economy.steal(player: Player, fraction: number): number
 		local profile = DataService.get(player)
@@ -10330,6 +10376,269 @@ __MODULES["PlotService"] = function()
 	end
 
 	return PlotService
+end
+
+
+__MODULES["RaidService"] = function()
+	--[[
+		RaidService.lua — what a raid takes, who carries it, and how it gets home
+		(#94).
+
+		design:D-04. Breaking in is #124's verb and the storage unit is #93's
+		object; this file owns the LOOT ARITHMETIC between them. Config.Raid holds
+		every number, and the shape is: a safe amount is structurally out of reach,
+		a break spills a fraction of the overflow above it into the raider's HANDS,
+		and the spoils only become the raider's when they stand on their own plot.
+		Until then the carrier can be killed, and a kill returns the loot.
+
+		THE SAFE AMOUNT IS UNREACHABLE BY CONSTRUCTION. overflowOf subtracts
+		SafeFraction x cap before anything is computed, and every taking — spill
+		and kill-steal both — is sized from that remainder. There is no code path
+		that reads the victim's cash without the subtraction, which is the only
+		kind of guarantee worth making about a number griefers will probe.
+
+		AN EMPTY UNIT STILL PAYS. Raiding has to reward the raider every time or
+		the verb dies; a break over no overflow MINTS EmptyBountyFraction of the
+		victim's cap for the attacker and the victim loses nothing. Camping decays
+		both kinds the same way: spoils halve per repeat on the same victim inside
+		the window, so farming one target converges on zero.
+
+		CLOCKS ARE PARAMETERS. Every entry point takes `now` so the specs drive
+		time; the wiring in start() passes os.clock(). The one Studio-only piece is
+		the banking heartbeat — standing-on-your-own-plot is CFrame arithmetic the
+		mock world does not claim to have — and the handoff names it.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Util = Req("Util")
+	local Economy = Req("Economy")
+
+	local Players = game:GetService("Players")
+
+	local RaidService = {}
+
+	local R = Config.Raid
+
+	-- per-carrier: { total, sources = { [victimUserId] = amount } }. Sources are
+	-- kept apart so a death can hand each victim back exactly what was theirs.
+	local carried: { [Player]: { total: number, sources: { [number]: number } } } = {}
+
+	-- camping ledger, attacker -> victimUserId -> { count, expires }. Counting
+	-- resets when the window lapses; the factor is read BEFORE the increment, so
+	-- the first break always pays full.
+	local recent: { [Player]: { [number]: { count: number, expires: number } } } = {}
+
+	--- The character wears the number so other players can see a thief worth
+	--- chasing. The handoff owns making it legible; the attribute is the seam.
+	local function mirrorCarry(player: Player)
+		local character = player.Character
+		if character and character.SetAttribute then
+			local carry = carried[player]
+			character:SetAttribute("CarryingTung", carry and carry.total or 0)
+		end
+	end
+
+	--- The only Tung a raid can reach: cash above the safe fraction of the cap.
+	function RaidService.overflowOf(victim: Player): number
+		local safe = R.SafeFraction * Economy.storageCapFor(victim)
+		return math.max(0, Economy.get(victim) - safe)
+	end
+
+	--- The camping decay: CampingHalving^breaks-inside-the-window. Read only —
+	--- recordBreak advances the ledger, so a refused raid costs no decay.
+	function RaidService.campingFactor(attacker: Player, victimUserId: number, now: number): number
+		local ledger = recent[attacker]
+		local entry = ledger and ledger[victimUserId]
+		if not entry or now >= entry.expires then
+			return 1
+		end
+		return R.CampingHalving ^ entry.count
+	end
+
+	local function recordBreak(attacker: Player, victimUserId: number, now: number)
+		local ledger = recent[attacker]
+		if not ledger then
+			ledger = {}
+			recent[attacker] = ledger
+		end
+		local entry = ledger[victimUserId]
+		if not entry or now >= entry.expires then
+			entry = { count = 0, expires = 0 }
+			ledger[victimUserId] = entry
+		end
+		entry.count += 1
+		entry.expires = now + R.CampingWindowSeconds
+	end
+
+	function RaidService.carriedBy(player: Player): number
+		local carry = carried[player]
+		return carry and carry.total or 0
+	end
+
+	local function addCarry(carrier: Player, victimUserId: number, amount: number)
+		if amount <= 0 then
+			return
+		end
+		local carry = carried[carrier]
+		if not carry then
+			carry = { total = 0, sources = {} }
+			carried[carrier] = carry
+		end
+		carry.total += amount
+		carry.sources[victimUserId] = (carry.sources[victimUserId] or 0) + amount
+		mirrorCarry(carrier)
+	end
+
+	--- The storage unit broke with an attacker on the bat. Called through
+	--- Tycoon's break observer (Main.server wires it — the service requires
+	--- Tycoon's world, so the arrow cannot point back). Returns what the
+	--- attacker now carries from this break.
+	function RaidService.onStorageBroken(tycoon, attacker: Player, now: number): number
+		local victim = tycoon.owner
+		if not victim or not attacker or victim == attacker then
+			return 0
+		end
+
+		local factor = RaidService.campingFactor(attacker, victim.UserId, now)
+		recordBreak(attacker, victim.UserId, now)
+
+		local overflow = RaidService.overflowOf(victim)
+		local spoils
+		if overflow >= 1 then
+			spoils = math.floor(R.SpillFraction * overflow * factor)
+			spoils = Economy.take(victim, spoils)
+		else
+			-- minted, so the raider is paid and the broke stay broke
+			spoils = math.floor(R.EmptyBountyFraction * Economy.storageCapFor(victim) * factor)
+		end
+		if spoils <= 0 then
+			return 0
+		end
+
+		addCarry(attacker, victim.UserId, spoils)
+		Economy.notify(victim, { kind = "warn", title = "Raided!",
+			body = ("%s broke your storage and grabbed %s. Kill them before they bank it!")
+				:format(attacker.Name, Util.abbreviate(spoils)) })
+		Economy.notify(attacker, { kind = "claim", title = "Loot",
+			body = ("Carrying %s — get back to your plot."):format(Util.abbreviate(RaidService.carriedBy(attacker))) })
+		return spoils
+	end
+
+	--- Standing on your own plot is what banks the carry. The deposit goes
+	--- through Economy.add, so the CAP CLAMPS IT — loot above what your unit
+	--- holds is lost, the same rule every other inflow obeys.
+	function RaidService.bankCarry(player: Player): number
+		local carry = carried[player]
+		if not carry then
+			return 0
+		end
+		carried[player] = nil
+		mirrorCarry(player)
+		local banked = Economy.add(player, carry.total, false)
+		Economy.notify(player, { kind = "claim", title = "Banked",
+			body = banked < carry.total
+				and ("Banked %s — your storage held no more."):format(Util.abbreviate(banked))
+				or ("Banked %s of stolen Tung."):format(Util.abbreviate(banked)) })
+		return banked
+	end
+
+	--- Any death drops the carry, and each victim gets their share straight back
+	--- if they are still on the server (through Economy.add: their own cap
+	--- clamps the return too). A killer who is a player also lifts
+	--- KillStealFraction of the dead player's overflow — into a CARRY of their
+	--- own, so the chase can chain.
+	function RaidService.onPlayerDied(victim: Player, killer: Player?, now: number)
+		local carry = carried[victim]
+		if carry then
+			carried[victim] = nil
+			mirrorCarry(victim)
+			for userId, amount in pairs(carry.sources) do
+				local source = Players:GetPlayerByUserId(userId)
+				if source then
+					local returned = Economy.add(source, amount, false)
+					if returned > 0 then
+						Economy.notify(source, { kind = "claim", title = "Recovered",
+							body = ("%s went down — %s of your Tung came home.")
+								:format(victim.Name, Util.abbreviate(returned)) })
+					end
+				end
+			end
+		end
+
+		if killer and killer ~= victim then
+			local steal = math.floor(R.KillStealFraction * RaidService.overflowOf(victim) *
+				RaidService.campingFactor(killer, victim.UserId, now))
+			steal = Economy.take(victim, steal)
+			if steal > 0 then
+				recordBreak(killer, victim.UserId, now)
+				addCarry(killer, victim.UserId, steal)
+				Economy.notify(victim, { kind = "warn", title = "Robbed",
+					body = ("%s took %s off your body."):format(killer.Name, Util.abbreviate(steal)) })
+			end
+		end
+	end
+
+	function RaidService.start()
+		-- deaths: the classic creator tag CombatService already plants is the
+		-- killer credit; a death with no tag (fall, reset) still drops the carry
+		local function hook(player: Player)
+			player.CharacterAdded:Connect(function(character)
+				mirrorCarry(player)
+				local humanoid = character:WaitForChild("Humanoid", 10)
+				if not humanoid then
+					return
+				end
+				humanoid.Died:Connect(function()
+					local tag = humanoid:FindFirstChild("creator")
+					local credited = tag and tag.Value
+					local killer = (credited and credited:IsA("Player")) and credited or nil
+					RaidService.onPlayerDied(player, killer, os.clock())
+				end)
+			end)
+		end
+		Players.PlayerAdded:Connect(hook)
+		for _, player in ipairs(Players:GetPlayers()) do
+			hook(player)
+		end
+		Players.PlayerRemoving:Connect(function(player)
+			carried[player] = nil
+			recent[player] = nil
+			for _, ledger in pairs(recent) do
+				if player.UserId then
+					ledger[player.UserId] = nil
+				end
+			end
+		end)
+
+		-- the banking heartbeat: a carrier standing on their own plot deposits.
+		-- CFrame arithmetic — Studio owns proving the rectangle feels right.
+		-- PlotService is required HERE: the ledger above runs in the spec
+		-- harness, whose bundle carries neither PlotService nor a workspace,
+		-- and start() is the one function only Roblox calls.
+		local PlotService = Req("PlotService")
+		task.spawn(function()
+			while true do
+				task.wait(2)
+				for player, carry in pairs(carried) do
+					if carry.total > 0 then
+						local tycoon = PlotService.plotOf(player)
+						local character = player.Character
+						local root = character and character:FindFirstChild("HumanoidRootPart")
+						if tycoon and tycoon.cf and root then
+							local rel = tycoon.cf:PointToObjectSpace(root.Position)
+							local half = Config.World.PlotSize / 2
+							if math.abs(rel.X) <= half.X and math.abs(rel.Z) <= half.Z then
+								RaidService.bankCarry(player)
+							end
+						end
+					end
+				end
+			end
+		end)
+	end
+
+	return RaidService
 end
 
 
@@ -16130,6 +16439,14 @@ __MODULES["Siege"] = function()
 		return nil
 	end
 
+	--- The storage unit is a swing target too (#94): its body resolves to the
+	--- reserved key "storage", which siegeStrike routes to damageStorage. Kept
+	--- out of siegeKeyForPart — the wall/gate machinery (max health, repair
+	--- prompts, saved fractions) must never see it.
+	local function isStorageBody(part: BasePart): boolean
+		return part.Name == "VaultBase"
+	end
+
 	--- Make the standing ring agree with the health table: a broken side keeps
 	--- its sill course as a charred stump and loses everything above it; a broken
 	--- gate loses its leaves. Idempotent, and called at the end of buildWallRing,
@@ -16264,6 +16581,9 @@ __MODULES["Siege"] = function()
 		struck = struck or {}
 		for _, part in ipairs(parts) do
 			local key = Tycoon.siegeKeyForPart(part)
+			if not key and isStorageBody(part) then
+				key = "storage"
+			end
 			if key then
 				for _, tycoon in ipairs(Tycoon.all()) do
 					if tycoon.model and isUnder(part, tycoon.model) then
@@ -16272,7 +16592,11 @@ __MODULES["Siege"] = function()
 						end
 						if struck[tycoon] and not struck[tycoon][key] then
 							struck[tycoon][key] = true
-							tycoon:damageStructure(key, damage * H.PlayerDamageScale, attacker)
+							if key == "storage" then
+								tycoon:damageStorage(damage * H.PlayerDamageScale, attacker)
+							else
+								tycoon:damageStructure(key, damage * H.PlayerDamageScale, attacker)
+							end
 						end
 						break
 					end
@@ -16391,10 +16715,15 @@ __MODULES["Storage"] = function()
 		return self.storage.broken ~= true
 	end
 
+	-- The break observer: fires once per break, on the transition only, with the
+	-- attacker who landed it. Main.server points this at RaidService (#94) —
+	-- the service requires this world, so the arrow cannot point back.
+	Tycoon.storageBreakObserver = nil :: ((any, Player) -> ())?
+
 	--- One hit on the unit. Returns the damage actually dealt — a broken unit
 	--- absorbs nothing more, so hitting it again is wasted swings, and the return
 	--- value is how #94 will know the difference.
-	function Tycoon:damageStorage(amount: number, _attacker: Player?): number
+	function Tycoon:damageStorage(amount: number, attacker: Player?): number
 		if amount <= 0 or self.storage.broken then
 			return 0
 		end
@@ -16405,6 +16734,9 @@ __MODULES["Storage"] = function()
 			local base = self.storageBase
 			if base and base.Parent then
 				base.Color = BROKEN_COLOR
+			end
+			if attacker and Tycoon.storageBreakObserver then
+				Tycoon.storageBreakObserver(self, attacker)
 			end
 		end
 		self:mirrorStorage()
@@ -16797,6 +17129,7 @@ local Analytics = Req("Analytics")
 local Economy = Req("Economy")
 local CombatService = Req("CombatService")
 local MovementService = Req("MovementService")
+local RaidService = Req("RaidService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -16866,6 +17199,13 @@ Economy.setStorageIntactHook(function(player)
 	local tycoon = PlotService.plotOf(player)
 	return tycoon == nil or tycoon:storageIntact()
 end)
+-- The raid loot loop (#94): a break with an attacker spills into their hands,
+-- and RaidService.start hangs the death-drops and banking loops. Same
+-- one-way-arrow argument as the two hooks above.
+Tycoon.storageBreakObserver = function(tycoon, attacker)
+	RaidService.onStorageBroken(tycoon, attacker, os.clock())
+end
+RaidService.start()
 SocialService.start()
 
 -- 6. players
