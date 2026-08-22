@@ -2522,23 +2522,22 @@ end
 
 do
 	local centreWidth = Config.World.PlotSize.X
-	local sides = { left = Config.LandLButtons, right = Config.LandRButtons }
+	local sides = { left = Config.landRows("left"), right = Config.landRows("right") }
 	local expansionWidth = 0
 
 	for side, rows in pairs(sides) do
 		check(#rows == 5,
-			("the %s land track has %d rows; the design is five expansions a side"):format(side, #rows))
+			("the %s land track has %d land rows; the design is five expansions a side"):format(side, #rows))
 		local previousWidth = math.huge
 		for index, def in ipairs(rows) do
 			local where = ("land row %s"):format(tostring(def.id))
-			check(def.kind == "Land", where .. " is not kind Land")
 			check(def.side == side,
 				("%s sits in the %s table but claims side %q"):format(where, side, tostring(def.side)))
 			-- The id is the save key; a rename silently un-buys the land every
 			-- existing player owns (DataService prunes unknown ids).
 			local expected = (side == "left" and "landL" or "landR") .. index
 			check(def.id == expected,
-				("%s should be %q — the id is the save key and position %d of the %s chain"):format(where, expected, index, side))
+				("%s should be %q — the id is the save key and land position %d of the %s chain"):format(where, expected, index, side))
 			check(type(def.width) == "number" and def.width > 0,
 				where .. " has no width; the strip would be a line")
 			check(def.width < previousWidth,
@@ -2549,11 +2548,65 @@ do
 		end
 	end
 
+	-- The machine rows an expansion delivers (#109): every non-Land row pins
+	-- itself to the strip whose land row precedes it on the chain, so the
+	-- machine stands on ground its own purchase already required.
+	for _, table_ in ipairs({ Config.LandLButtons, Config.LandRButtons }) do
+		local currentStrip = nil
+		for _, def in ipairs(table_) do
+			if def.kind == "Land" then
+				currentStrip = def.id
+			else
+				check(def.kind == "Dropper" or def.kind == "Upgrader",
+					("%s is kind %s on a land track; a strip delivers ground, droppers and upgrade levels and nothing else")
+						:format(tostring(def.id), tostring(def.kind)))
+				check(def.path == currentStrip,
+					("%s pins itself to path %q but stands after %q on the chain — the machine would be bought before its ground, or stand on someone else's strip")
+						:format(tostring(def.id), tostring(def.path), tostring(currentStrip)))
+				check(def.legIndex == 1 and type(def.legDistance) == "number",
+					("%s has no pin; a strip's belt is one leg and every machine on it states its distance"):format(tostring(def.id)))
+			end
+		end
+	end
+
+	-- The sub-belt every strip arrives with (#109): its leg and its collector
+	-- inside the strip's own ground, its machine pins on the leg, and its
+	-- collector clear of the front wall's line.
+	for _, sideRows in pairs(sides) do
+		for _, def in ipairs(sideRows) do
+			local rect = Config.landRect(def.id)
+			local path = Config.landBeltPath(def)
+			local halfZ = Config.World.PlotSize.Z / 2
+			for index, point in ipairs(path.points) do
+				check(point.X > rect.fromX and point.X < rect.toX,
+					("%s's belt point %d sits at x=%.1f, off its own strip (%.1f..%.1f)")
+						:format(def.id, index, point.X, rect.fromX, rect.toX))
+				check(math.abs(point.Z) < halfZ - 1,
+					("%s's belt point %d sits at z=%.1f, through the plot's end walls"):format(def.id, index, point.Z))
+			end
+			check(path.collectorAt.X > rect.fromX and path.collectorAt.X < rect.toX,
+				("%s's collector sits at x=%.1f, off its own strip"):format(def.id, path.collectorAt.X))
+			check(path.collectorAt.Z + Config.Layout.Vault.plainDepth / 2 < halfZ - 1 - Config.Structure.WallThickness,
+				("%s's collector reaches z=%.1f, into the front wall")
+					:format(def.id, path.collectorAt.Z + Config.Layout.Vault.plainDepth / 2))
+			-- the run-off the collector needs, the same bound buildCollector
+			-- raises at runtime
+			check(Config.Land.CollectorZ - Config.Land.BeltTo > Config.Layout.Vault.plainDepth / 2 + 3,
+				"a strip's collector overlaps its belt run-off; move Land.CollectorZ out")
+			-- machine pins land on the leg
+			local legLength = Config.Land.BeltTo - Config.Land.BeltFrom
+			check(Config.Land.DropperDistance > 0 and Config.Land.DropperDistance < legLength
+					and Config.Land.UpgraderDistance > Config.Land.DropperDistance
+					and Config.Land.UpgraderDistance < legLength,
+				"a strip's machine pins fall off its one leg, or the upgrader sits upstream of the dropper it refines")
+		end
+	end
+
 	-- Mirror pairs: the base stays symmetric when bought alternating.
 	for index = 1, 5 do
-		check(Config.LandLButtons[index].width == Config.LandRButtons[index].width,
+		check(sides.left[index].width == sides.right[index].width,
 			("landL%d is %d wide and landR%d is %d — the pairs mirror, or alternating purchases build a lopsided base")
-				:format(index, Config.LandLButtons[index].width, index, Config.LandRButtons[index].width))
+				:format(index, sides.left[index].width, index, sides.right[index].width))
 	end
 
 	-- The maxed footprint: 3-4x the centre (issue #88's stated band), with the
@@ -2569,12 +2622,12 @@ do
 	-- mechanism that keeps a greedy buyer symmetric, so both margins are
 	-- asserted here and the simulation's buy order is asserted below.
 	for index = 1, 5 do
-		local l, r = Config.LandLButtons[index].price, Config.LandRButtons[index].price
+		local l, r = sides.left[index].price, sides.right[index].price
 		check(r > l and r <= l * 1.25,
 			("landR%d at %d against landL%d at %d — a pair interleaves within 25%%, so the sides alternate")
 				:format(index, r, index, l))
 		if index < 5 then
-			local nextL = Config.LandLButtons[index + 1].price
+			local nextL = sides.left[index + 1].price
 			check(nextL >= r * 3,
 				("landL%d at %d is under 3x landR%d at %d — without the pair step, skipping a side is cheap and the base goes lopsided for free")
 					:format(index + 1, nextL, index, r))
@@ -4110,9 +4163,10 @@ end
 -- that names it.
 do
 	local expected = {}
-	for index = 1, #Config.LandLButtons do
-		table.insert(expected, Config.LandLButtons[index].id)
-		table.insert(expected, Config.LandRButtons[index].id)
+	local leftRows, rightRows = Config.landRows("left"), Config.landRows("right")
+	for index = 1, #leftRows do
+		table.insert(expected, leftRows[index].id)
+		table.insert(expected, rightRows[index].id)
 	end
 	local seen = {}
 	for _, row in ipairs(curve) do

@@ -155,11 +155,11 @@ function Tycoon:rebirth(player: Player): boolean
 	local kept = {}
 	for id in pairs(profile.owned) do
 		local def = Config.ButtonById[id]
-		-- One table, not two name tests with opposite polarity. The twin of
-		-- this test is a few lines down, and a fourth track missing from one of
-		-- them fails OPEN: the generator would survive the reset it is supposed
-		-- to be part of.
-		if def and Config.TrackInfo[def.track].keepOnRebirth then
+		-- One derivation, not two name tests with opposite polarity — a track
+		-- missing from one of them fails OPEN and the generator survives the
+		-- reset it is part of. keptOnRebirth also carries #109's carve-out:
+		-- land ground survives, the machines on it reset.
+		if def and Config.keptOnRebirth(def) then
 			kept[id] = true
 		end
 	end
@@ -173,7 +173,7 @@ function Tycoon:rebirth(player: Player): boolean
 		-- Side-track props live in self.props and are not cleared below, so
 		-- their entries must keep their handle or the model outlives its
 		-- reference and can never be cleaned up.
-		if not Config.TrackInfo[entry.def.track].keepOnRebirth then
+		if not Config.keptOnRebirth(entry.def) then
 			entry.machine = nil
 		end
 	end
