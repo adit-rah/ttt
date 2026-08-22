@@ -35,10 +35,13 @@
 	along the wall, away from the opening centre" is two answers the day either
 	wall moves.
 
-	RAIDERS ARE NOT PART OF THIS. A raider's leash is 52 + 72 = 124 studs against
-	a plot edge at 140, so nothing hostile ever reaches a gate and a closed gate
-	cannot trap a wave. Do not add raider-awareness to make that true; it already
-	is.
+	THE GATE ANSWERS TO ITS OWNER, nobody else. Since #89 hostile things do
+	reach gates — a plot wave stands at yours, and PvP raiders walk up to
+	anyone's — so a door that opened for any nearby humanoid would hand both
+	of them a free entrance and gut #124's break-in verb. Opening on the
+	owner's own proximity keeps the plot usable and makes letting a fight in
+	through your own door a choice. NPCs never open anything: the position
+	sweep below reads Players, and mobs get in by breaking things.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
@@ -145,39 +148,38 @@ end
 -- the loop
 -- ─────────────────────────────────────────────────────────────────────────────
 
---- Every humanoid root position on the server, collected once per tick.
+--- Every player's root position, WITH its player, collected once per tick.
 ---
 --- Once, because the alternative is a Character/HumanoidRootPart lookup per
 --- opening per plot: ten players against twenty openings is the same two hundred
 --- distance tests either way round, but ten instance walks instead of two
---- hundred. Players rather than every Humanoid in the workspace for the same
---- reason — raiders cannot reach a plot, so walking the raid to find that out
---- every fifth of a second buys nothing.
-local function rootPositions(): { Vector3 }
+--- hundred. Players rather than every Humanoid in the workspace on purpose:
+--- an NPC must never open a gate — mobs get in by breaking things.
+local function rootPositions(): { { player: Player, position: Vector3 } }
 	local roots = {}
 	for _, player in ipairs(Players:GetPlayers()) do
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		if root and root:IsA("BasePart") then
-			table.insert(roots, root.Position)
+			table.insert(roots, { player = player, position = root.Position })
 		end
 	end
 	return roots
 end
 
-local function anyoneNear(roots: { Vector3 }, centre: Vector3): boolean
-	for _, position in ipairs(roots) do
-		if (position - centre).Magnitude <= GATE.triggerRadius then
+local function ownerNear(roots, owner: Player, centre: Vector3): boolean
+	for _, entry in ipairs(roots) do
+		if entry.player == owner and (entry.position - centre).Magnitude <= GATE.triggerRadius then
 			return true
 		end
 	end
 	return false
 end
 
---- Opens or closes one plot's gates to match who is standing near them.
-function GateService.sync(tycoon, roots: { Vector3 })
+--- Opens or closes one plot's gates to match where its OWNER is standing.
+function GateService.sync(tycoon, roots)
 	for _, opening in ipairs(stateFor(tycoon).openings) do
-		local wanted = anyoneNear(roots, opening.centre)
+		local wanted = ownerNear(roots, tycoon.owner, opening.centre)
 		for _, leaf in ipairs(opening.leaves) do
 			local part = resolve(tycoon, leaf)
 			if part then

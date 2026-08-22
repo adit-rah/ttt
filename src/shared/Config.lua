@@ -146,6 +146,10 @@ Config.World = {
 	BaseplateSize = 2000,
 	ArenaRadius = 70,
 	ArenaWallHeight = 22,
+	-- Where fresh players land: outside the outermost mob band's reach and
+	-- inside the plot belt, in the quiet strip of grass. The bearing is picked
+	-- by MapBuilder to sit between two plots.
+	SpawnRadius = 660,
 	-- The plinth the statue stands on, in the middle of the arena. It was a 26
 	-- written into MapBuilder; it is here because the boss now spawns at a fixed
 	-- radius from the same centre and the verifier has to be able to check that
@@ -163,62 +167,37 @@ Config.World = {
 	YardTopY       = 0.45,
 }
 
--- Most plots a single ring may hold before we start a second one. At MaxPlots
--- = 10 this is never reached, which is the point: everybody lives on one ring,
--- at the same distance from the arena, and can see every other factory. The
--- multi-ring path is kept (and still verified) so raising MaxPlots later
--- degrades gracefully instead of producing a 900-stud ring.
-Config.World.MaxPlotsPerRing = 14
-
---- Where each plot sits: { radius, angle, ring }.
----
---- The ring is sized to the plots on it rather than fixed. Two plots on a ring
---- big enough for fourteen would sit a quarter of the map apart for no reason,
---- and a fixed small radius would bunch fourteen shoulder to shoulder. So we
---- solve for the radius that puts exactly `PlotGap` studs of grass between
---- neighbouring plot EDGES, and only clamp it up to MinPlotRadius so the inner
---- ring never eats the arena.
----
---- Note this is a chord, not an arc: neighbouring plot centres are
---- `2r·sin(π/n)` apart, and using the arc length instead (the old
---- `2πr/pitch` capacity formula) silently under-spaces small rings.
-function Config.plotPlacements(count: number)
-	-- The pitch reserves the MAXED footprint: land is acquired rather than
-	-- reserved, so the ring has to hold every plot fully grown or two
-	-- neighbours' fifth expansions meet in the grass.
+--- The plot belt's radius: where the belt sits for EVERY server, solved so a
+--- full server's chord between neighbouring plot centres fits the MAXED
+--- footprint plus the gap (land is acquired rather than reserved, so the belt
+--- holds every plot fully grown). Fixed rather than sized to this server's
+--- count — design:D-04, via #89: the mob bands, the spawn and every
+--- plot-safety proof are static distances from the centre, and a 4-player
+--- belt that contracted inward would put homes inside the mid band.
+function Config.beltRadius(): number
 	local pitch = (Config.World.PlotMaxWidth or Config.World.PlotSize.X) + Config.World.PlotGap
-	local depth = Config.World.PlotSize.Z + Config.World.RingGap
+	local radius = pitch / (2 * math.sin(math.pi / Config.World.MaxPlots))
+	return math.max(radius, Config.World.MinPlotRadius)
+end
 
+--- Where each plot sits: { radius, angle, ring }. One belt at the fixed
+--- radius, plots spread evenly for whatever count this server built — fewer
+--- plots sit further apart on the same circle, and everyone meets in the
+--- middle, where the bands and the central wave are.
+---
+--- Note the full-server spacing is a chord, not an arc: neighbouring plot
+--- centres are `2r·sin(π/n)` apart, and using the arc length instead (the old
+--- `2πr/pitch` capacity formula) silently under-spaces the belt.
+function Config.plotPlacements(count: number)
+	local radius = Config.beltRadius()
 	local placements = {}
-	local remaining = count
-	local ring = 0
-	local previousRadius = nil
-
-	while remaining > 0 do
-		local take = math.min(remaining, Config.World.MaxPlotsPerRing)
-
-		-- radius at which the chord between neighbours equals the pitch
-		local radius = (take > 1) and (pitch / (2 * math.sin(math.pi / take))) or 0
-		radius = math.max(radius, Config.World.MinPlotRadius)
-		-- and never closer than a full plot depth + gap to the ring inside it
-		if previousRadius then
-			radius = math.max(radius, previousRadius + depth)
-		end
-
-		for i = 1, take do
-			table.insert(placements, {
-				radius = radius,
-				-- stagger alternate rings so plots don't line up radially
-				angle = (i - 1) * (2 * math.pi / take) + ((ring % 2 == 1) and (math.pi / take) or 0),
-				ring = ring + 1,
-			})
-		end
-
-		previousRadius = radius
-		remaining -= take
-		ring += 1
+	for i = 1, count do
+		table.insert(placements, {
+			radius = radius,
+			angle = (i - 1) * (2 * math.pi / count),
+			ring = 1,
+		})
 	end
-
 	return placements
 end
 
@@ -2184,7 +2163,6 @@ Config.Combat = {
 	SwingSteps = 4,             -- must equal #SwingAnim.SWINGS; both sides assert it
 	ComboDamagePerStack = 0.18, -- +18% per stack
 	HitboxSize = Vector3.new(7, 7, 1),
-	ArenaPvP = true,            -- PvP only inside the arena ring
 	RespawnCash = 0,            -- cash lost on death (0 = friendly)
 
 	-- SWING TIMING, as fractions of the bat's cooldown. The hitbox used to be
@@ -2243,6 +2221,71 @@ Config.Raid = {
 	-- case must be re-earnable inside one sitting.
 	RecoveryMinutes = 8,
 }
+
+-- design:D-04, via #89 — THE OPEN WORLD. The plots hold the belt at the rim
+-- and danger concentrates inward: three fixed bands of roaming mobs between
+-- the belt and the centre, strongest in the middle, so difficulty is
+-- geography a player walks toward and a fresh player meets only what suits
+-- them near home. Fixed bands rather than levels scaled to the nearest
+-- player, so the world is learnable and every safety line is assertable.
+Config.Mobs = {
+	Enabled = true,
+	-- The bands, inmost first: annuli by flat distance from the world centre.
+	-- `level` feeds the same growth curves as the central wave (BaseHealth x
+	-- HealthGrowth^(level-1), damage capped at MaxDamage), and `count` is the
+	-- band's standing population.
+	Bands = {
+		{ name = "core",      inner = 0,   outer = 150, level = 15, count = 8 },
+		{ name = "mid",       inner = 150, outer = 400, level = 8,  count = 8 },
+		{ name = "outskirts", inner = 400, outer = 560, level = 2,  count = 8 },
+	},
+	-- Home patches keep this clear of their band's edges, so a roamer's
+	-- wander never straddles a boundary.
+	HomeMargin = 20,
+	-- The census: how often a short band is refilled, one body at a time.
+	RespawnSeconds = 18,
+	MaintainInterval = 3,
+}
+
+-- design:D-04, via #89 — THE PLOT WAVE. The server-wide climbing raid is
+-- gone; it is the stated problem (a fresh player joining a busy server walked
+-- into wave 40). Each plot now runs its own small cycle: raiders spawn in the
+-- grass outside YOUR gate at a level set by YOUR plot's progression, press
+-- the gate (#124's mobs, finally arrived), and stream in when it breaks. The
+-- central wave at the dais is the one shared event, and it may still climb —
+-- nobody stands in the core by accident.
+Config.PlotWave = {
+	Enabled = true,
+	-- Quiet time between one plot raid clearing and the next warning, plus a
+	-- jitter so ten plots' sirens do not sound in chorus.
+	RestSeconds = 240,
+	RestJitter = 60,
+	-- Wave size by plot level, capped WELL under MaxChasers — a plot wave is
+	-- pressure to come home, never the wall a central wave is.
+	BaseCount = 3,
+	MaxCount = 6,
+	-- How many raiders press the gate at once; the rest mill. This is the
+	-- breach-floor arithmetic's input, so the verifier can promise how long
+	-- the gate holds.
+	GateSlots = 3,
+	-- The whole siege despawns after this long, cleared or not.
+	MaxSiegeSeconds = 150,
+	-- At most this many plots under siege at once. The stagger is what keeps
+	-- the world part budget bounded with ten plots occupied.
+	MaxConcurrent = 3,
+}
+
+-- The whole world's NPC ceiling: the central wave's worst case, every band's
+-- standing population and every concurrent plot siege, all alive at once.
+-- The verifier sums the real worst case against this.
+Config.Mobs.MaxWorldNPCParts = 2800
+
+--- The plot wave's level: the plot's own progression, never the server's
+--- lifetime. Expansions are the plot's size and rebirths its age; the cap
+--- keeps a maxed veteran's raid inside the damage ceilings.
+function Config.plotWaveLevel(expansions: number, rebirths: number): number
+	return math.min(1 + expansions + rebirths * 2, 12)
+end
 
 -- design:D-04, via #123 — HELPING PAYS. The counterweight to raiding: a
 -- server where everyone is prey loses its new players, so kindness earns a
@@ -2726,8 +2769,11 @@ Config.Structure.Health = {
 	-- and it has to finish inside the raid's warning window (asserted).
 	RepairSeconds = 3,
 	PlayerDamageScale = 1,
-	-- Reserved for #89's mobs; nothing multiplies by it yet.
-	MobDamageScale = 1,
+	-- #89's mobs hit masonry at half a player's weight: the plot-wave breach
+	-- floors (warning + time-to-breach covers the run home) are asserted
+	-- against this, and at 1 a bare plot's storage fell before its owner
+	-- could sprint back from the mid band.
+	MobDamageScale = 0.5,
 }
 
 --- design:D-02, via #98 — what the storage unit can hold, in Tung: CapMinutes

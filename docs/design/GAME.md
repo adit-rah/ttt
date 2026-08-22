@@ -71,7 +71,7 @@ flowchart TD
     C --> D{Plot free?}
     D -- "reserved for you<br/>(disconnected &lt;180s ago)" --> E[Your old plot]
     D -- "yes" --> F[First free plot]
-    D -- "no" --> G["All plots taken —<br/>hang out in the arena"]
+    D -- "no" --> G["All plots taken —<br/>fight the bands until one frees"]
     E --> H[Claim: every owned button<br/>re-installed silently, cheapest first]
     F --> H
     H --> I["Spawn just inside the gateway,<br/>looking down the line"]
@@ -263,27 +263,35 @@ Ladder order is therefore load-bearing: it decides what the game is pointing at.
 
 ---
 
-## 5. Raids
+## 5. The world, and what fights you
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Warning: world loads (+30s)
-    Warning --> Raid: 12s siren
-    Raid --> Cleared: last raider down
-    Raid --> TimedOut: 300s elapsed
-    Cleared --> Warning: 18s rest<br/>(35s after a boss)
-    TimedOut --> Warning: no reward paid
-    note right of Warning
-        12s x walkspeed 22 = 264 studs.
-        The plot ring is 210.
-        You can always get back in time.
-    end note
+graph LR
+    HOME["<b>your plot</b><br/>the belt, ~750 out"] --> OUT["<b>outskirts</b><br/>level 2"]
+    OUT --> MID["<b>middle band</b><br/>level 8"]
+    MID --> CORE["<b>the core</b><br/>level 15 + the central wave"]
 ```
 
-Waves land in the **arena at the centre of the map**, never on your plot. A
-leashed raider can reach 124 studs from the middle; the nearest plot edge is at
-140. **Your factory is provably safe** — that 16-stud clearance is asserted, not
-hoped for.
+Plots hold a fixed belt at the rim; danger concentrates inward. **Difficulty is
+something you walk toward** — the walk is toward the middle, and a fresh player
+meets only level-2 mobs near home. Three things fight you:
+
+**Band roamers** stand in three fixed rings between the belt and the centre,
+strongest inside. Each pays its level on a kill and refills slowly. A roamer can
+never reach a plot: outermost band edge + leash + reach falls short of the
+nearest plot edge, asserted.
+
+**Your plot's own raid** comes every four minutes or so, at a level set by YOUR
+plot's progression — expansions and rebirths, never the server's lifetime. Three
+to six Sahur spawn at your gate after a 12-second siren, press the gate at half
+a player's demolition weight, and stream in when it breaks. The promise is
+asserted: siren + the gate's minimum time-to-breach covers a sprint home from
+the world's centre, and a bare plot's storage holds long enough to sprint back
+from the mid band.
+
+**The central wave** is the old shared event, at the dais in the core: the boss,
+the pot, the climbing wave number. It may climb with server lifetime because
+nobody stands in the core by accident.
 
 - Waves start at **6** raiders and climb by 4 to a cap of **40**. Health grows
   ×1.20 a wave, damage ×1.07 — capped at 34 against your 100 health.
@@ -305,8 +313,10 @@ algebraically identical to the old solo payout when there is one contributor.
 red number floating off you. That is the only economic penalty in the game.
 **Dying costs nothing** and you respawn on your own plot.
 
-**PvP is geographic.** You can only damage another player when you are *both*
-inside the arena ring. Your plot is a safe zone, always.
+**PvP is legal everywhere, plots included.** A raider who breaks your gate
+stands in your factory, and killing the loot carrier is the raid loop's
+anti-grief spine — a safe zone would hollow both. The protection is economic:
+dying costs nothing, the kill-steal is bounded, half your cap is untouchable.
 
 **A wave nobody finishes pays nobody** — it force-ends at five minutes reading
 "TIMED OUT" rather than "CLEARED". The exception is a boss, which pays out pro

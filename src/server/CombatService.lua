@@ -4,8 +4,8 @@
 	Design notes
 	  * The server is authoritative. Tool.Activated replicates, so the client
 	    never gets to say "I hit them"; it only asks for a swing.
-	  * PvP is opt-in by geography: you can only hurt another player while
-	    BOTH of you are inside the arena ring. Your plot is a safe zone.
+	  * PvP is legal everywhere, plots included (#89): the raid loop needs
+	    combat exactly where the raider is standing.
 	  * Sahur raiders can be hit anywhere.
 ]]
 
@@ -66,12 +66,14 @@ end
 -- zones
 -- ─────────────────────────────────────────────────────────────────────────────
 
-function CombatService.inArena(position: Vector3): boolean
-	local flat = Vector3.new(position.X, 0, position.Z)
-	return flat.Magnitude <= Config.World.ArenaRadius
-end
-
 --- Can `attacker` (a Player) hurt `victimModel`?
+---
+--- design:D-04, via #89 — PvP is legal EVERYWHERE, plots included. A raider
+--- who breaks your gate stands in your factory, and killing the carrier is
+--- #94's whole anti-grief spine; a geographic safe zone would hollow both.
+--- The guards against grief are economic and already asserted: dying costs
+--- no cash, the kill-steal is a bounded fraction of overflow, and the safe
+--- half of the cap is unreachable. The arena gate this replaces lived here.
 function CombatService.canDamage(attacker: Player, victimModel: Model): boolean
 	if victimModel:GetAttribute("IsSahurNPC") then
 		return true
@@ -80,18 +82,7 @@ function CombatService.canDamage(attacker: Player, victimModel: Model): boolean
 	if not victimPlayer then
 		return false
 	end
-	if victimPlayer == attacker then
-		return false
-	end
-	if not Config.Combat.ArenaPvP then
-		return true
-	end
-	local attackerChar = attacker.Character
-	if not attackerChar then
-		return false
-	end
-	return CombatService.inArena(attackerChar:GetPivot().Position)
-		and CombatService.inArena(victimModel:GetPivot().Position)
+	return victimPlayer ~= attacker
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
