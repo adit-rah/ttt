@@ -214,13 +214,12 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **`Lighting.Technology` is not script-writable at runtime.** It is set in the Rojo project
   file and the runtime assignment is wrapped in `pcall` so a paste-in install does not die
   on boot. `[nothing]`
-- **AN ENCLOSED STOREY NEEDS REAL FIXTURES, AND THEY ARE `SurfaceLight` ON THE BOTTOM FACE.**
-  `Ambient` is black and the mezzanine deck spans wall face to wall face, so from the minute
-  the storey lands the ground floor has no sky — and the wall's neon "light strip" is
-  `Material.Neon`, which illuminates nothing. Every fixture runs `Shadows = false`, and a
-  Roblox light with shadows off **ignores occluders entirely**: a `PointLight` under the deck
-  would shine through a 1.6-stud slab onto the floor above. A `SurfaceLight` emits from one
-  face into a cone and cannot. `[assert]`
+- **AN ENCLOSED ROOM NEEDS REAL FIXTURES, AND THEY ARE `SurfaceLight` ON THE BOTTOM FACE.**
+  `Ambient` is black, so from the minute the roof lands the room has no sky — and the wall's
+  neon "light strip" is `Material.Neon`, which illuminates nothing. Every fixture runs
+  `Shadows = false`, and a Roblox light with shadows off **ignores occluders entirely**: a
+  `PointLight` would shine through the roof slab. A `SurfaceLight` emits from one face into
+  a cone and cannot. `[assert]`
 - **Roblox CLAMPS a light's `Range` at 60 and says nothing about it,** so a larger number
   reads as set in the source and is not. `[assert]`
 - **The grid has to reach the corners, and that is sampled rather than reasoned about.**
@@ -245,8 +244,8 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   overrun included; setting `corner` to 0 reproduces the original defect verbatim.
 - **`Config.beltHalfWidth()` is the only statement of how far the belt reaches.** It was
   `width + 1.2` in `Belt.lua` and a mirrored `BELT_BASE_PROUD = 1.2` in the verifier, and
-  the two agreeing was luck — that coupling is what put the mezzanine's hatch guard 0.1
-  studs inside the belt base while every check reported a stud of daylight. It carries the
+  the two agreeing was luck — that coupling once put a guard 0.1 studs inside the belt base
+  while every check reported a stud of daylight. It carries the
   rails too, so every clearance check measures the real object. `[assert]`
 - **Overhead parts need real headroom over the tallest variant standing on the belt**
   (infinity, 2.23 studs; current minimum clearance 0.7). `[nothing]`
@@ -262,8 +261,7 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   look at this number. `[assert]` "a drop crosses a %.1f-stud trigger in %.0f ms".
 - **The upgrader's visible plate and its trigger are different parts.** `Scanner` is 1 stud
   with `CanTouch = false`; `ScanTrigger` is 5 studs, invisible, and carries the `Touched` —
-  the same split, for the same reason, as the mezzanine's invisible guard behind its visible
-  railing. `[nothing]`
+  an invisible catcher behind a visible face. `[nothing]`
 - **`MACHINE_MASSES` is shared with `buildGhost`, and masses named `*Trigger` are filtered
   out of ghosts.** This is the ONE exception to "the ghost is built from the same
   description as the real machine", and it is named rather than being a quiet special case.
@@ -301,113 +299,42 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   assertions originally could not fail — one measured the wrong axis, the other had an
   unsatisfiable bound. `[assert]`
 
-### The second floor
+### Land (#88)
 
-- **A belt machine is either SLOTTED or PINNED, never both.** `slot` indexes
-  `Layout.DropperDist`/`UpgraderDist`, which describe the ground floor's two legs and nothing
-  else; anything on another floor names `path` plus `legIndex` and `legDistance`. `[assert]`
-  "%s carries both a slot and a path".
-- **A button carries `path` as an ID, not an index.** `pathIndex` is assigned at runtime by
-  `addBeltPath`; Config cannot know it. `[assert]` "%s names belt path %q, which is not in
-  Config.BeltPaths".
-- **Every belt path is registered at plot construction, including floors nobody has bought.**
-  A path is pure maths and registering one builds nothing — but buy buttons are built once, on
-  first claim, and a button on the mezzanine needs its path to exist to know its own height.
-  `[nothing]`
-- **EVERY FLOOR IS REFINED BY THE WHOLE PLOT'S UPGRADERS, by construction.**
-  `Config.incomeRate` multiplies the summed droppers by every owned upgrader, whatever
-  floor either stands on, so an upper floor is a multiplicative term with no mechanism
-  needed — `refineryMultiplierFor` and the vault-side refining it did are deleted with the
-  per-drop economy. The income share a floor produces is still asserted below. `[spec]`
-  `income_spec.lua` pins the model's shape.
-- **The floor is LATE and it gates nothing.** v5's "halfway mark" and v7's "early but not
-  first" are both superseded, and the second one only ever held because `Config.TrackUnlock`
-  gated both cabinets on this button — #36 said so in its own words. Round 8 moved that gate
-  to `dropper3`, so every argument for an early floor left with the cabinets. A 50–80% band,
-  and it lands at 67%. The 10-minute deadline is DELETED rather than retuned: its stated
-  reason was "it gates both cabinets", and an assertion whose argument is false is worse than
-  none. `[assert]`
-- **AFTER THE ROOF, and that is now a GATE rather than an ordering.** `FloorService` stands
-  the upper storey's own wall ring up and nothing else ever roofs it, so a floor bought
-  before the roof leaves every plot wearing upper walls open to the sky — twenty-one minutes
-  of it on the pre-round-8 ladder, and nobody had named it. Round 8 fixed it by putting
-  `roof` earlier on the same chain; that fix died the moment the shell moved to a parallel
-  track, because a track you can decline cannot guarantee anything. `Config.ButtonUnlock`
-  carries it now and the runtime refuses the purchase. **The pacing assertion that used to
-  enforce this was DELETED for the same reason the 10-minute deadline was**: it said a deck
-  bought first "leaves the upper walls open to the sky for the N minutes in between", and
-  once the purchase is impossible that state cannot be reached and those minutes do not
-  exist. It still fired; it fired for a reason that had stopped being the reason. `[assert]`
-  the gate's shape and its price order, in §4.
-- **The deck and the LINE on it are two purchases.** `Floors[n].button` buys the storey;
-  `Floors[n].lineButton` buys the conveyor and the hopper. The storey arrives barren.
-  `Config.floorLineBuilt` is sticky and derived, for the same reason `trackUnlocked` is: a
-  save written before the split owns `mezz_dropper1` and no `mezz_line`, and installing that
-  dropper onto a path with no conveyor drops its output through the deck. `[assert]` the
-  ordering and that nothing pinned to the path precedes the line; `[spec]` the stickiness.
-- **A machine on a belt waits for the BELT; a pad on a deck waits for the DECK.**
-  `Tycoon:floorBuiltFor` used to ask one question for both, and its own comment flagged that
-  the armoury's nine pads were correct only by the coincidence that `TrackUnlock` named the
-  button that built the deck. Round 8 broke that coincidence in both directions. `[spec]`
-- **The floor's income share is measured when its LINE opens, not when the deck is bought.**
-  It read `defRow.at <= row.at` against the deck and then counted every dropper pinned to the
-  path whenever it was bought — harmless while they were one purchase, and afterwards a check
-  whose lower bound fails on a correct build and whose upper bound can never fail at all.
-  `[assert]` 25–45%.
-- **The storey takes 3–10 seconds to arrive, in contiguous stages, ladder last.** A gap
-  between stages reads as a hitch rather than as building; the ladder is last because the
-  climb must not open until there is a floor at the top of it; the pieces DESCEND because a
-  slab rising from y = 0 sweeps through every player on the ground floor and Roblox ejects or
-  wedges them. A rebuild on release, rebirth or re-claim is instant — the animation is a
-  reward for a purchase, not a loading screen. `[assert]` the table; `[nothing]` that the
-  builder honours it, beyond a boot-time warn that the stage ids match.
-- **The floor's income share is measured at the moment of purchase**, so the band moved when
-  its position did: 25–45% against three owned droppers, not 10–30% against seven.
-  `mezz_dropper1.dropValue` is 12 for this reason and not 1400 — at 1400 the upstairs line
-  would be 98% of plot income the second you bought it. `[assert]`
-- **The deck SPANS THE PLOT and the climb goes THROUGH it, via `Floors[1].hatch`.** There is no
-  `Floors.pads` table and no `ladder.at` either: the ladder is a `TrussPart` inside the hatch,
-  against the lip named by `hatch.arrival`, and the hatch guard is cut `ladder.gate` wide on
-  that lip — a guard that closes the whole void is a ladder to nowhere. Against the lip and not
-  centred, because you step off a truss horizontally: from the middle of a 10-stud hole there
-  is nothing in reach. `[assert]` hatch inside the deck, clear of the belt, the hopper, the
-  cabinets and the ground floor's spine; truss inside the hatch; gap on the arrival lip and
-  wider than the truss.
-- **`Config.floorLadderAt` and `floorLandingAt` are the only statements of where the climb
-  is.** They exist because `ladder.at` said `z = -6.6` (correct while the deck stopped at
-  z = −8) while the builder derived `z = -8` from the hatch — so **every ladder clearance check
-  was measuring a box nothing builds**, and the hopper's clearance was measured against the
-  deck's front edge 74 studs away and passed for the wrong reason. One derivation, read by the
-  builder and the verifier. `[assert]`
-- **The ladder is floor furniture** and is checked as a BOX against every pedestal, pad and
-  cabinet — its predecessor, the ground teleport pad, was the one piece of floor furniture
-  nothing checked and it interpenetrated the armour cabinet's slot-2 pedestal by 3×1 studs.
-  9×9 against 5×5 cannot be seen by a centre-distance rule. `[assert]`
-- **`Config.floorBeltPath` states the collector's x** rather than deriving it from a piece of
-  furniture (it used to read `pads.up.X - padClearance`), and the hopper must clear where the
-  ladder lands you. `[assert]`
-- **The deck's belt stays on the deck** — legs, the machine row outboard of each leg, and the
-  buy-button row inboard of it. This is the check that caught `side = 10`, which needed 11.5.
-  `[assert]`
-- **The deck's faces are coplanar with the wall ring's inner faces, and the roof columns pass
-  THROUGH it.** Both are deliberate: "spans the plot" means wall face to wall face, and a
-  column through a floor reads as a column. The old "the deck clears the roof columns and the
-  shortened roof stops short of it" rule is superseded — there is no shortened roof any more,
-  because the deck IS the ground storey's ceiling. Its pillars still stand among the ground
-  floor's machines and must clear every dropper and upgrader slot. `[assert]` pillars;
-  coplanar deck edges are a z-fight risk only Studio can settle.
-- **The roof LIFTS when the floor lands; it no longer shrinks.** `Config.roofUnderside(hasFloor)`
-  puts it on the top storey that exists, so there is no half-roof state — which is why the old
-  shrink rule and its unfalsifiable companion check are both gone. The rebuild itself still
-  matters: roof is minute 28 and floor is minute 6. `[nothing]` that the rebuild fires;
-  `[assert]` where it lands.
-- **FloorService owns the upper storey's WALLS, not the `Structure` installer.** `walls` is
-  bought around minute three, when there is no deck to stand a wall on, and an installer never
-  runs again — the same hole `refreshRoof` exists to plug. Off `onOwnedChanged` the walls live
-  in the deck's own folder, so the storey arrives and leaves as one object and there is no
-  state where a deck has no walls. **Sharp edge:** `GateService` looks for leaves in
-  `tycoon.machines`, and these walls are not there. No upper-storey opening exists today; the
-  day one does, that lookup has to widen. `[nothing]`
+- **Land ownership is a prefix of each side's chain, and everything derives from it.**
+  `Config.landCounts(owned)` is the whole state; `Tycoon:landState()` re-derives it on
+  every call and caches nothing (#35's rule). `[spec]` `land_spec.lua`.
+- **ensureLand runs on the refreshButtons beat and reconciles the world to `owned`.**
+  Purchase, release, rebirth and re-claim all reach that beat, which is why land has no
+  service and no listener — the FloorService it replaces existed to catch exactly those
+  four events. `[nothing]` for the beat wiring itself; the derivations it applies are
+  asserted below.
+- **The ring re-emits courses and never touches a leaf.** rebuildWallRing destroys
+  everything in the ring except `Gate_*` parts and re-emits from `Config.wallSegments` at
+  the current land state. Safe because openings cannot move: every opening lives on the
+  CENTRE span, `[assert]` per land state ("an opening on an expansion span is an opening a
+  land purchase would rebuild"), and the centre's spans are byte-identical at every land
+  state, `[spec]` `land_spec.lua` — the spec that caught the split sitting on the raw
+  ground joint instead of the wall's inset edge.
+- **The strips tile outward with no gap, mirror by pair, and shrink outward.** `[assert]`
+  the land data family; `[spec]` `land_spec.lua`.
+- **The alternation is pricing, and the simulation demonstrates it.** Within a pair the
+  east lot costs a shade more than the west; between pairs the step is 3x plus; and the
+  greedy simulation's land purchases are asserted to run L1 R1 L2 R2... A lopsided base
+  stays legal and expensive. `[assert]`
+- **Everything at ceiling height follows the land.** The roof spans the wall extents, the
+  ceiling grid gains columns by width (the sampled coverage check chose the divisor and
+  runs per land state), and `shellPartCount(left, right)` is asserted against `PartBudget`
+  at all eleven alternating states plus a lopsided pair — 187 of 200 fully grown, which is
+  where the budget binds. `[assert]`
+- **The ring pitch reserves the MAXED footprint.** Land is acquired rather than reserved,
+  so two fully-grown neighbours are the case the world must hold; the pairwise chord check
+  needs `PlotMaxWidth`, the walk limit is 880 with #89/#101 named as the owners of the
+  real answer, and the plot/world sign distances follow the packing. `[assert]`
+- **Land survives rebirth** (design:D-03 — rebirth raises the ceiling; the ground is the
+  ceiling). `keepOnRebirth` is true for both land tracks, and the cabinet-only equivalence
+  is restated to admit them: a kept land id is a kept model because ensureLand rebuilds
+  from `owned`. `[assert]`
 
 ### The building shell
 
@@ -417,14 +344,13 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   checks looked at wall height. The builder now emits exactly the spans that function returns.
   `[assert]` "a wall that does not account for its whole extent is exactly the seven-stud band
   of daylight that shipped round every plot"; `[spec]` `structure_spec.lua`.
-- **A storey's ceiling is the floor above it, derived, never typed.** The ground storey's clear
-  height is the mezzanine deck's **underside** — `Floors[1].height - deckSize.Y`, a full
-  thickness below the deck's top, not half of one. Short of it is open band; past it is a wall
-  inside the floor above. `[assert]` both directions; `[spec]`.
-- **There is no `Layout.RoofY` and no roof-shrink rule.** The roof sits on the top storey that
-  exists — `Config.roofUnderside(hasFloor)` — so there is no half-roof state to model. The old
-  rule existed because a slab at 20 and a deck underside at 20.4 were each derived separately
-  and had to dodge each other. `[assert]`
+- **`Config.Structure.WallHeight` is the one structural line.** The wall's top, the roof's
+  underside and the light plane all derive from it; it keeps the shipped 20.4 verbatim from
+  the storey system it replaced (#88). `[assert]`, `[spec]`.
+- **There is no `Layout.RoofY` and no roof-shrink rule.** The roof sits on the wall's top —
+  `Config.roofUnderside()` — and follows the land's extents. The old rule existed because a
+  slab at 20 and a ceiling at 20.4 were each derived separately and had to dodge each
+  other. `[assert]`
 - **Glass stays at or above `Transparency` 0.25.** Roblox's PopperCam only occludes on
   `Transparency < 0.25 and CanCollide`, so below that every pane becomes a hole the camera
   shoves itself through — on a plot that is now enclosed. `[assert]`, `[spec]`.
@@ -519,9 +445,8 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   means the ladder forked and the buy-button frontier lights both branches at once.
   `[assert]` "the %s track has %d requirement-free roots".
 - **No factory button carries an explicit `requires`; the loader derives the chain from table
-  order, so table order IS dependency order.** Restating it is what hid the fork:
-  `dropper8` required `upgrader4` while `floor2 → mezz_dropper1` hung off `upgrader4` too, so
-  the mezzanine was a dead-end branch you could skip entirely. The root count cannot see a
+  order, so table order IS dependency order.** Restating it is what once hid a fork that made
+  the second storey a dead-end branch you could skip entirely. The root count cannot see a
   fork *below* the root. `[nothing]` — moving a row is now the new way to get this wrong, and
   nothing refuses a hand-typed `requires`.
 - **Prices climb within a track, requirements point at earlier indices, and no requirement
@@ -546,31 +471,27 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   track — "factory" was the only vocabulary that property had while the factory was the only
   ladder everyone walks, and the old form refused a perfectly safe gate on `walls` with a
   message calling structure a side track.
-- **A single-button gate is not a `requires` EITHER, and there is exactly one.**
-  `Config.ButtonUnlock = { floor2 = "roof" }`. `FloorService` stands each storey's own wall
-  ring up and nothing else ever roofs it, so a mezzanine bought before the roof is a room
-  open to the sky. That used to be guaranteed by ORDERING — `roof` was simply an earlier row
-  on the same chain — and moving the shell to its own track made it declinable and took the
-  guarantee with it. It cannot be a `requires` because the loader derives `requires` from the
-  row above and the verifier asserts the derived chain IS the table order, so a hand-typed
-  cross-track one is either overwritten or forks the chain. `[assert]` the pair's shape, that
-  the gated purchase is reachable in price order, and — separately — that the storey's gate
-  names a button that builds a **roof**, which is the fact the row exists for.
+- **A single-button gate is not a `requires` EITHER, and the table is empty today.**
+  `Config.ButtonUnlock`'s one entry gated the mezzanine on the roof, and it retired with the
+  storey system (#88). The MECHANISM stays: a row here is a precondition on a purchase, the
+  same kind of thing `TrackUnlock` is for a whole ladder, and it cannot be a `requires`
+  because the loader derives `requires` from the row above and the verifier asserts the
+  derived chain IS the table order — a hand-typed cross-track one is either overwritten or
+  forks the chain. `[assert]` the shape of any row that appears. #125 owns deciding whether
+  the table and the fixpoint below retire together.
 - **Reachability must count the GATES, not just the chains.** The old walk followed `requires`
   and was safe rather than correct: `requires` never crosses a track and `TrackUnlock` was
-  asserted onto the ungated factory, so the gate was always satisfiable. `ButtonUnlock`
-  removes that, and `TrackUnlock.structure = "dropper8"` plus the shipped
-  `ButtonUnlock.floor2 = "roof"` deadlocks the plot four rungs from the end with every
-  structural check passing. `[assert]` a fixpoint from an empty save over
-  `requires` ∪ `TrackUnlock` ∪ `ButtonUnlock`.
+  asserted onto the ungated factory, so the gate was always satisfiable. A `ButtonUnlock` row
+  removes that — the retired `floor2 = "roof"` entry could deadlock the plot four rungs from
+  the end with every structural check passing. `[assert]` a fixpoint from an empty save over
+  `requires` ∪ `TrackUnlock` ∪ `ButtonUnlock`, kept while the mechanism exists.
 - **The cabinet gate is STICKY and derived**: owning any rung of a track counts as having it
   open. Rebirth wipes the factory — and so the gate button — while keeping weapons and
   armour, so without that clause your first rebirth deletes both cabinets and leaves the
   shelf displays and the granted bat standing. `[nothing]`
-- **The gate is `dropper3`, and the cabinets stand on the GROUND floor.** It was `floor2`
-  for two rounds and that was only ever a proxy — the cases stood on the deck, so the deck's
-  button was the thing that could open them. With them downstairs the coupling has no
-  argument behind it. `[assert]` the gate opens inside the opening minutes.
+- **The cabinet gate is `dropper3`.** It was the second storey's button for two rounds and
+  that was only ever a proxy for where the cases stood. `[assert]` the gate opens inside the
+  opening minutes.
 - **A cabinet column is not a misc column, and `Layout.CabinetSlotSpacing` says so.** One
   constant policed both, which is one constant doing two jobs: the misc column is five
   unrelated purchases in a line down an open floor, and a cabinet column is nine pads that
@@ -578,7 +499,7 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   two. `[assert]`
 - **No row may restate the chain the loader derives.** The oldest `[nothing]` in this file,
   and it had a shipped defect behind it: every row used to restate its own requirement, and
-  the restating hid a fork that made the mezzanine a branch you could skip entirely. Now
+  the restating hid a fork that made the second storey a branch you could skip entirely. Now
   `[assert]` — the chain must be exactly the table order, checked as "requires equals the row
   above" because the loader has filled the field in by the time the verifier runs.
 - **THE SHELL IS FOUR PURCHASES ON A TRACK OF ITS OWN, IN ONE ORDER.**
@@ -599,26 +520,26 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   Prices and internal order did not move in the split and the simulated curve is unchanged
   row for row, because the spine simulation buys the cheapest available rung and these four
   still fall in the same places. `[assert]` no `Structure` row remains on the factory track.
-- **The shell is paced as SPINE, not as a detour.** The detour model assumes buying a track
-  does not change the curve it is measured against *and* that you can decline it; the second
-  half is false once `ButtonUnlock` puts `roof` between the player and the mezzanine.
-  Measured as a detour the build reads 46 minutes against a `MIN_TOTAL_MINUTES` of 45 — and
-  the four purchases did not stop happening, the verifier just stopped counting them.
-  `[assert]` via `paced`, which the spine simulation and `spinePricesDescending` both now
-  read instead of naming factory and power by hand.
+- **The shell and the land are paced as SPINE, not as detours.** The detour model prices a
+  track against a curve it does not change and assumes you can decline it; the plot's own
+  growth is neither. Measured as detours the build once read 46 minutes against a
+  `MIN_TOTAL_MINUTES` of 45 — the purchases did not stop happening, the verifier just
+  stopped counting them. `[assert]` via `paced`, which the spine simulation and
+  `spinePricesDescending` both read instead of naming tracks by hand.
 - **The shell does NOT survive a rebirth, and that is forced rather than chosen.**
   `rebirth()` clears `self.machines` unconditionally and the wall ring lives there, not in
   the `self.props` folder the `keepOnRebirth` exemption is about. Set it true and the ring is
   destroyed while `owned.walls` survives, so `refreshButtons` hides the pad for a building
   that is not standing and the plot has no shell for the rest of that owner's session.
-  `[assert]` `keepOnRebirth == (furniture == "cabinet")` for every track, which also retires
+  `[assert]` `keepOnRebirth == (furniture == "cabinet" or furniture == "land")` for every
+  track — land survives because ensureLand rebuilds it from `owned` — which also retires
   the old `[nothing]` about only the factory's value being checked. A runtime spec runs the
   real rebirth and confirms all four ids clear while a weapons tier survives.
 - **`gates` and `windows` ADD to the ring that is standing; they never rebuild it.** A
   rebuild would destroy the gate leaves `GateService` may be mid-tween on and re-emit sixty
-  parts that have not changed — the argument `FloorService`'s header already makes about the
-  upper walls. Their parts live in the ring's own model, so a rebirth takes the glass down
-  with the wall. `[nothing]`
+  parts that have not changed. Their parts live in the ring's own model, so a rebirth takes
+  the glass down with the wall — and when a land purchase re-emits the ring's COURSES,
+  `rebuildWallRing` spares every `Gate_*` part by name for the same reason. `[nothing]`
 - **Every button must be reachable, every bat and armour tier must be granted by exactly one
   button, and armour tier 1 must grant nothing** (it is the bare humanoid you spawn as, which
   is what keeps the raider-damage assertions honest). `[assert]`
@@ -627,13 +548,10 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   hint; a new `kind` needs a `Tycoon.INSTALLERS` entry and a new visual variant a
   `Config.Variants` row. `[assert]` `KNOWN_KINDS` mirrors the installers, and an unknown
   variant or structure fails the build.
-- **A `Floor` button must be named by exactly one `Config.Floors` entry and must have a
-  `Layout.MiscButtons` position**, or it charges and builds nothing, or gets built at the plot
-  origin on the belt. `[assert]`
 - **A buy button honours its own height.** `buttonBaseCF` is the single conversion —
   `buildButtons` used to build at `self:at(pos.X, 0, pos.Z)`, discarding a Y that
   `buttonPosition` had already worked out, and the conversion existed twice with both copies
-  dropping it. That one zero is why nothing purchasable could stand on the mezzanine.
+  dropping it. That one zero once kept anything purchasable off the second storey.
   `[assert]` the config half (a path states its height; the ground floor runs at y=0);
   `[runtime]` the instance half — a Studio-only self-test in `buildButtons` comparing the
   built pad against `buttonPosition`.
@@ -1057,13 +975,11 @@ specced — they need `Touched` and a physics step.
   other module — and requiring it is what makes the client's boot ORDER covered rather than
   transcribed into a spec that would not notice a reordering. `[spec]`
 - **Two branches of the next-purchase ranking cannot change the answer with today's Config,
-  and are specced somewhere they can.** The track gate only hides the two cabinets while
-  `mezzanine` is unowned — and `mezzanine` is a factory rung, which outranks anything the gate
-  could hide; the price tie-break only applies within one track, and a track is a chain, so
-  exactly one rung is ever available. Two hand-maintained copies of a branch that cannot
-  change the answer can drift forever with the game looking fine. `hud_spec.lua` gates the
-  POWER track and ties two `TrackRank` values to put each branch somewhere it decides.
-  `[spec]`
+  and are specced somewhere they can.** The track gates hide whole ladders the factory
+  outranks, and the price tie-break only applies within one track — a chain, so exactly one
+  rung is ever available. Two hand-maintained copies of a branch that cannot change the
+  answer can drift forever with the game looking fine. `hud_spec.lua` gates the POWER track
+  and ties two `TrackRank` values to put each branch somewhere it decides. `[spec]`
 - **The pass list in `verify.py`'s docstring must stay in step with `main()`.** It has said
   five, seven and eight while `main()` ran nine, and a pass count nobody can trust is a pass
   somebody can quietly delete. `[nothing]`

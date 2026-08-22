@@ -15623,15 +15623,10 @@ __MODULES["Tycoon"] = function()
 			kind = "Structure" -> needs structure ("walls" | "gates" | "windows" | "roof")
 			kind = "Gear"      -> needs grants (a Config.Bats id)
 			kind = "Armor"     -> needs grants (a Config.Armor id)
-			kind = "Floor"     -> needs a Config.Floors entry naming this button
-			kind = "Line"      -> needs a Config.Floors entry naming this button as
-			                      its lineButton. The conveyor ON a floor, which is a
-			                      different purchase from the floor: the storey
-			                      arrives barren and you buy the belt for it.
 			kind = "Land"      -> needs side ("left" | "right") and width. One
 			                      expansion strip of ground, outward from the centre.
 
-		TEN KINDS, IN THREE PLACES. Add a case to tycoon/Installers.lua to invent
+		EIGHT KINDS, IN THREE PLACES. Add a case to tycoon/Installers.lua to invent
 		one, add it to KNOWN_KINDS in tools/verify_config.lua, and add it to the list
 		above. This list is the copy that fell behind: it said five while INSTALLERS
 		and KNOWN_KINDS carried Power, Armor and Floor as well. Nothing checks it,

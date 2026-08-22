@@ -41,7 +41,7 @@ local function check(condition, message)
 end
 
 -- installers that Tycoon.lua actually implements
-local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Floor = true, Line = true, Power = true, Land = true }
+local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Power = true, Land = true }
 local KNOWN_STRUCTURES = { walls = true, gates = true, windows = true, roof = true }
 
 local seenIds, dropperSlots, upgraderSlots = {}, {}, {}
