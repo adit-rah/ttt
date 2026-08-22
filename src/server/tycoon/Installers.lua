@@ -12,20 +12,11 @@
 	REPLAY, because assign() reinstalls every owned button in `order`: Power
 	assigns Config.powerFactor(owned) rather than multiplying into the factor,
 	which is what makes it correct under a replay, under a double install, and
-	under a save holding power3 without power2. Floor is a documented no-op for a
-	related reason — the deck outlives the purchase, so FloorService builds it
-	off onOwnedChanged.
+	under a save holding power3 without power2. Land is a documented no-op for a
+	related reason — the ground outlives the purchase, so ensureLand reconciles
+	it on the refreshButtons beat.
 
-	buildDropperMachine and buildShelfDisplay sit outside the installers on
-	purpose: FloorService stands a dropper on each upper floor, and a floor's
-	dropper is not a button, so it cannot go through INSTALLERS.
-
-	buildRoofModel is extracted for the same class of reason and is the one piece
-	of structure that gets REBUILT: the roof sits on the top storey that exists,
-	so a plot that buys the mezzanine fifteen minutes after the roof needs the
-	roof lifted rather than left under the deck.
-
-	THE SHELL IS EMITTED FROM Config.Structure AND NOTHING ELSE. buildStoreyWalls
+	THE SHELL IS EMITTED FROM Config.Structure AND NOTHING ELSE. buildWallRing
 	walks Config.wallSegments and builds exactly the spans it is handed; it does
 	not decide where a wall stops, how tall it is or where its openings are. That
 	is not tidiness — the walls were five boxes at a local `h = 13` under a roof
@@ -146,9 +137,7 @@ end
 
 Tycoon.INSTALLERS = {}
 
---- The dropper machine itself: masses, dressing, nameplate. Shared by the buy
---- button installer and by FloorService, which stands one on each upper floor —
---- a floor's dropper is not a button, so it cannot go through INSTALLERS.
+--- The dropper machine itself: masses, dressing, nameplate.
 --- Returns the model, its nozzle, and the leg and path it feeds.
 function Tycoon:buildDropperMachine(def, parent: Instance)
 	local variant = Config.Variants[def.variant] or Config.Variants.classic
@@ -382,53 +371,32 @@ Tycoon.INSTALLERS.Armor = function(self, def, silent)
 	end
 end
 
---- A DOCUMENTED NO-OP. The deck is built by FloorService off the
---- ownedChanged signal, not from here, because the deck outlives this
---- purchase: release, rebirth and re-claim all have to rebuild or drop it and
---- none of them go through install(). This exists so install() does not
---- warn("no installer for kind Floor") on a button that worked perfectly.
-Tycoon.INSTALLERS.Floor = function(self, def, silent)
-end
-
---- The conveyor on a floor. A DOCUMENTED NO-OP, for exactly the reason
---- INSTALLERS.Floor is one: the belt outlives the purchase. FloorService builds
---- it off onOwnedChanged, which is the one signal that fires on purchase,
---- release, rebirth AND re-claim — an installer runs once and none of the other
---- three go through install().
-Tycoon.INSTALLERS.Line = function(self, def, silent)
-end
-
---- Land (#88). A DOCUMENTED NO-OP for the FloorService reason: the ground
---- outlives the purchase — release, rebirth and re-claim all have to rebuild
---- or drop it and none of them go through install(). ensureLand reconciles
---- the slabs to `owned` on the refreshButtons beat, which install() reaches
---- on its next line anyway.
+--- Land (#88). A DOCUMENTED NO-OP: the ground outlives the purchase —
+--- release, rebirth and re-claim all have to rebuild or drop it and none of
+--- them go through install(). ensureLand reconciles the slabs to `owned` on
+--- the refreshButtons beat, which install() reaches on its next line anyway.
 Tycoon.INSTALLERS.Land = function(self, def, silent)
 end
 
---- Every gate leaf one storey's openings carry: what to build, where it hangs
+--- Every gate leaf the ring's openings carry: what to build, where it hangs
 --- closed, and where it slides to.
 ---
 --- ONE FUNCTION FOR THE BUILDER AND FOR GateService. The walls branch builds
 --- these and GateService moves them, and "where does this leaf slide to" written
 --- twice is two answers the day either wall moves. GateService finds the parts by
 --- the `name` here, so this is also the naming contract between the two files.
-function Tycoon:gateLeafSpecs(storeyId: string)
-	local storey = Config.storey(storeyId)
+function Tycoon:gateLeafSpecs()
 	local specs = {}
-	if not storey then
-		return specs
-	end
 
 	for _, side in ipairs(S.Sides) do
-		local segments, extent = Config.wallSegments(side, storeyId)
+		local segments, extent = Config.wallSegments(side)
 		for index, segment in ipairs(segments) do
 			if segment.kind ~= "opening" then
 				continue
 			end
 			local opening = segment.opening
 			local leafWidth = opening.width / opening.leaves
-			local bottom, top = storey.floorY, storey.floorY + opening.height
+			local bottom, top = 0, opening.height
 
 			-- WHICH WAY A LONE LEAF SLIDES. A pair opens from the middle, one
 			-- leaf each way. A single leaf has no middle to open from, so it
@@ -477,35 +445,26 @@ function Tycoon:gateLeafSpecs(storeyId: string)
 	return specs
 end
 
---- invariant: one storey's ring of walls — the courses Config.wallSegments
---- describes, the
---- gate leaves in its openings, a neon cap along the top of each side and a neon
---- strip along the inside of the storey line.
----
---- IT TAKES THE STOREY, AND BOTH STOREYS ARE BUILT NOW. This installer builds the
---- ground ring; FloorService calls the same function with the upper storey's id
---- when the mezzanine lands, because the deck spans the whole plot and there is a
---- floor to stand that ring on. Nothing here knows which storey it is being asked
---- for — Config.wallSegments answers for both, and the WHY of the split ownership
---- is written where the second caller is (FloorService.build).
+--- invariant: the ring of walls — the courses Config.wallSegments describes,
+--- the gate leaves in its openings, a neon cap along the top of each side and
+--- a neon strip along the inside of the ceiling line.
 ---
 --- invariant: THREE COURSES PER SOLID RUN, one lintel per opening. The bay course is
 --- Config.wallBays: piers in wall material, panes in glass. A pane is
 --- CanCollide — what keeps the camera out of an enclosed plot is the
 --- TRANSPARENCY, because PopperCam only treats a part as occluding below 0.25,
 --- and Config.Structure.Window.transparency sits at 0.45 for exactly that.
-function Tycoon:buildStoreyWalls(model: Instance, storeyId: string)
-	local storey = Config.storey(storeyId)
-	local win = S.Window[storeyId]
-	local floorY = storey.floorY
-	local top = floorY + storey.clear
+function Tycoon:buildWallRing(model: Instance)
+	local win = S.Window
+	local floorY = 0
+	local top = S.WallHeight
 	local sill = floorY + win.sill
 	local head = sill + win.height
 
 	for _, side in ipairs(S.Sides) do
-		local segments, extent = Config.wallSegments(side, storeyId)
+		local segments, extent = Config.wallSegments(side)
 		for index, segment in ipairs(segments) do
-			local tag = ("%s_%s_%d"):format(storeyId, side, index)
+			local tag = ("%s_%d"):format(side, index)
 			if segment.kind == "solid" then
 				wallBox(self, model, "Sill_" .. tag, extent, segment.from, segment.to, floorY, sill)
 				-- A BAY IS BUILT SOLID AND GLAZED LATER. `windows` is its own
@@ -542,77 +501,38 @@ function Tycoon:buildStoreyWalls(model: Instance, storeyId: string)
 		-- inside as a light cove where the wall meets the ceiling. THE STRIP IS
 		-- WHY IT IS THERE: the ground floor is an enclosed box now, and the
 		-- cheapest light in an enclosed box is a neon part you can see.
-		neonBar(self, model, "Trim_" .. storeyId .. "_" .. side, extent,
+		neonBar(self, model, "Trim_" .. side, extent,
 			extent.from - TRIM_PROUD / 2, extent.to + TRIM_PROUD / 2, top,
 			S.WallThickness + TRIM_PROUD, 0)
-		neonBar(self, model, "Light_" .. storeyId .. "_" .. side, extent,
+		neonBar(self, model, "Light_" .. side, extent,
 			extent.from, extent.to, top, TRIM_SECTION, S.WallThickness / 2)
 	end
 
 	-- invariant: THE CEILING FIXTURES ARRIVE WITH THE CEILING, not the ring.
-	--
-	-- This block used to build them unconditionally, and the comment defended it
-	-- on ownership: tying them to `floor2` would put FloorService in charge of
-	-- the GROUND storey's lights and a second module would have to know what a
-	-- storey is. That argument is still right and it is still honoured — this
-	-- module owns them, one folder, one clearing rule, one entry in
-	-- shellPartCount. What was wrong was the price it quoted: "three minutes of
-	-- lights-on-in-daylight between `walls` and the roof". The real curve is
-	-- walls at 4.8, roof at 26.4, deck at 35.2, so it was thirty minutes of lit
-	-- battens hanging at ceiling height over a plot with no ceiling under the
-	-- open sky — twenty-one of them before anything was overhead at all.
-	--
-	-- So the ownership stays and the TIMING moves: refreshStoreyLights below is
-	-- idempotent and driven by whether the storey is covered, and refreshRoof
-	-- calls it on both events that can change that answer.
-	self:refreshStoreyLights(model, storeyId)
+	-- refreshCeilingLights is idempotent and driven by whether the plot owns a
+	-- roof, so a ring built before the roof comes up unlit and gains its
+	-- battens the moment something is overhead.
+	self:refreshCeilingLights(model)
 
-	-- invariant: THE TWO UPGRADES THIS STOREY MAY ALREADY HAVE BEEN SOLD.
+	-- invariant: THE TWO UPGRADES THIS RING MAY ALREADY HAVE BEEN SOLD.
 	--
 	-- `walls`, `gates` and `windows` are three purchases and an installer runs
-	-- once, so a storey built AFTER one of them was bought has to arrive already
-	-- carrying it — the same hole `refreshRoof` exists to plug, and the reason
-	-- FloorService owns the upper ring at all. The ground ring is built at
-	-- `walls`, so these are both no-ops there; the upper ring is built whenever
-	-- the deck lands, which is after all three.
-	self:applyStructureUpgrades(model, storeyId)
+	-- once, so a ring built after one of them was bought — assign() replaying
+	-- a save — has to arrive already carrying it.
+	self:applyStructureUpgrades(model)
 end
 
---- Whether anything stands over `storeyId` — a deck, or failing that the roof.
+--- Build or remove the ceiling battens to match whether the room is covered —
+--- which, with the storey system retired, is exactly "does the plot own a
+--- roof".
 ---
---- DERIVED, LIKE hasStructure, so it survives release, rebirth and re-claim for
---- free and needs no stored flag. A storey is covered by the floor above it if
---- that floor has been bought; the topmost storey is covered by the roof. The
---- ground storey is therefore lit by the roof at minute 26 and stays lit when
---- the deck lands over it at 35, which is the same ceiling plane either way —
---- Config.storeyLightPositions says so explicitly, and it is why the fixtures
---- never move and this is purely a question of when they exist.
-function Tycoon:storeyHasCeiling(storeyId: string): boolean
-	local storey = Config.storey(storeyId)
-	-- Any owned floor standing ABOVE this storey covers it. The comparison is
-	-- against `floorY` rather than against a named storey id, so a third storey
-	-- would slot in without this function learning about it: the mezzanine's
-	-- height of 22 is over the ground storey's floorY of 0 and is NOT over the
-	-- upper storey's own floorY of 22, which is exactly the answer wanted in
-	-- both cases.
-	for _, floor in ipairs(Config.Floors) do
-		if floor.height > storey.floorY and self.owned[floor.button] == true then
-			return true
-		end
-	end
-	return self:hasStructure("roof")
-end
-
---- Build or remove `storeyId`'s ceiling battens to match whether it is covered.
----
---- IDEMPOTENT IN BOTH DIRECTIONS, because it is called from a purchase, from a
---- deck landing and from a deck being torn down, and because buildStoreyWalls
---- calls it for a ring that may be built after the roof already exists. Counted
---- by Config.shellPartCount as part of the storey, which is unchanged: every
---- fixture still arrives, just later.
-function Tycoon:refreshStoreyLights(model: Instance, storeyId: string)
-	local wanted = self:storeyHasCeiling(storeyId)
-	local prefix = ("Fixture_%s_"):format(storeyId)
+--- IDEMPOTENT IN BOTH DIRECTIONS, because it is called from the roof purchase
+--- and because buildWallRing calls it for a ring that may be built after the
+--- roof already exists (assign replaying a save). Counted by
+--- Config.shellPartCount as part of the shell.
+function Tycoon:refreshCeilingLights(model: Instance)
+	local wanted = self:hasStructure("roof")
+	local prefix = "Fixture_"
 	local standing = 0
 	for _, part in ipairs(model:GetChildren()) do
 		if part.Name:sub(1, #prefix) == prefix then
@@ -626,8 +546,8 @@ function Tycoon:refreshStoreyLights(model: Instance, storeyId: string)
 	if not wanted or standing > 0 then
 		return
 	end
-	for index, spot in ipairs(Config.storeyLightPositions(storeyId)) do
-		local batten = newPart(model, ("Fixture_%s_%d"):format(storeyId, index),
+	for index, spot in ipairs(Config.storeyLightPositions()) do
+		local batten = newPart(model, ("Fixture_%d"):format(index),
 			Vector3.new(LIGHTS.batten.width, LIGHTS.batten.thickness, LIGHTS.batten.length),
 			self:at(spot.X, spot.Y, spot.Z), Color3.fromRGB(236, 226, 202), Enum.Material.SmoothPlastic, false)
 		batten.CanQuery = false
@@ -651,7 +571,7 @@ function Tycoon:hasStructure(structure: string): boolean
 	return false
 end
 
---- Turn a storey's solid bays into glass. Idempotent, and it adds no parts.
+--- Turn the ring's solid bays into glass. Idempotent, and it adds no parts.
 function Tycoon:glazeStorey(model: Instance)
 	local glazed = 0
 	for _, part in ipairs(model:GetDescendants()) do
@@ -664,16 +584,16 @@ function Tycoon:glazeStorey(model: Instance)
 	return glazed
 end
 
---- Hang a storey's gate leaves, off the face `opening.face` names.
+--- Hang the ring's gate leaves, off the face `opening.face` names.
 ---
 --- They live in the WALL's model rather than one of their own, so release() and
 --- rebirth() take them down with everything else — which is why GateService
 --- checks a leaf's Parent before it moves it rather than holding a reference and
 --- trusting it. Idempotent by name: `gates` can be replayed by assign() over a
---- storey that already has them.
-function Tycoon:hangGateLeaves(model: Instance, storeyId: string)
+--- ring that already has them.
+function Tycoon:hangGateLeaves(model: Instance)
 	local hung = 0
-	for _, leaf in ipairs(self:gateLeafSpecs(storeyId)) do
+	for _, leaf in ipairs(self:gateLeafSpecs()) do
 		if not model:FindFirstChild(leaf.name, true) then
 			newPart(model, leaf.name, leaf.size, leaf.closed, WALL_COLOR, Enum.Material.WoodPlanks)
 			hung += 1
@@ -682,39 +602,32 @@ function Tycoon:hangGateLeaves(model: Instance, storeyId: string)
 	return hung
 end
 
---- Bring one storey's ring up to whatever this plot has bought.
-function Tycoon:applyStructureUpgrades(model: Instance, storeyId: string)
+--- Bring the ring up to whatever this plot has bought.
+function Tycoon:applyStructureUpgrades(model: Instance)
 	if self:hasStructure("windows") then
 		self:glazeStorey(model)
 	end
 	if self:hasStructure("gates") then
-		self:hangGateLeaves(model, storeyId)
+		self:hangGateLeaves(model)
 	end
 end
 
---- Every storey ring standing on this plot right now, as (model, storeyId).
+--- The wall ring standing on this plot right now, handed to `fn`, or nothing.
 ---
---- A ring is found by its own trim bar rather than by a folder reference,
---- because the two rings live in DIFFERENT folders and always have: the ground
---- one is a `Structure_walls` model under `machines`, and the upper one is built
---- by FloorService into the deck's folder so that the storey arrives and leaves
---- as one object. `factoryFolders` is the registry both are in. This is the same
---- lookup GateService does for a leaf, and it is here so that `gates` and
---- `windows` do not have to learn where a storey lives.
-function Tycoon:eachStoreyRing(fn)
-	local found = 0
-	for _, storey in ipairs(S.Storeys) do
-		local marker = "Trim_" .. storey.id .. "_" .. S.Sides[1]
-		for _, folder in ipairs(self.factoryFolders) do
-			local part = folder:FindFirstChild(marker, true)
-			if part and part.Parent then
-				fn(part.Parent, storey.id)
-				found += 1
-				break
-			end
+--- Found by its own trim bar rather than by a folder reference, so a caller
+--- never holds a model that a release or rebirth already destroyed. This is
+--- the same lookup GateService does for a leaf, and it is here so that
+--- `gates` and `windows` do not have to learn where the ring lives.
+function Tycoon:withWallRing(fn)
+	local marker = "Trim_" .. S.Sides[1]
+	for _, folder in ipairs(self.factoryFolders) do
+		local part = folder:FindFirstChild(marker, true)
+		if part and part.Parent then
+			fn(part.Parent)
+			return 1
 		end
 	end
-	return found
+	return 0
 end
 
 Tycoon.INSTALLERS.Structure = function(self, def, silent)
@@ -723,45 +636,34 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 	model.Parent = self.machines
 
 	if def.structure == "walls" then
-		-- THE GROUND STOREY ONLY, and the id comes from Config rather than being
-		-- typed here. The upper storey's ring is the same call with the storey the
-		-- mezzanine's deck floors, and FloorService makes it when that deck lands —
-		-- this purchase happens around minute three, when there is nothing up there
-		-- to stand a wall on, and an installer never runs again.
-		self:buildStoreyWalls(model, S.Storeys[1].id)
+		self:buildWallRing(model)
 	elseif def.structure == "gates" or def.structure == "windows" then
-		-- ADDITIVE, AND ON EVERY RING THAT EXISTS — never a rebuild.
-		--
-		-- The obvious implementation is to re-emit the wall with the upgrade
-		-- included, and FloorService's header already argues at length against
-		-- exactly that: it would destroy the gate leaves GateService may be
-		-- mid-tween on and re-emit sixty parts that have not changed. Glass is a
-		-- material change on a bay that is already built and a leaf is a part
-		-- with nothing standing where it goes, so neither needs the wall touched.
+		-- ADDITIVE — never a rebuild. The obvious implementation is to re-emit
+		-- the wall with the upgrade included, and that would destroy the gate
+		-- leaves GateService may be mid-tween on and re-emit sixty parts that
+		-- have not changed. Glass is a material change on a bay that is
+		-- already built and a leaf is a part with nothing standing where it
+		-- goes, so neither needs the wall touched.
 		--
 		-- `model` stays empty for these two and that is deliberate: the parts
-		-- belong to the ring they are part of, so a rebirth takes the glass down
-		-- with the wall rather than leaving panes floating in a plot with no
-		-- shell. The entry below still records the model so the object bookkeeping
-		-- is uniform.
-		self:eachStoreyRing(function(ring, storeyId)
+		-- belong to the ring they are part of, so a rebirth takes the glass
+		-- down with the wall rather than leaving panes floating in a plot with
+		-- no shell. The entry below still records the model so the object
+		-- bookkeeping is uniform.
+		self:withWallRing(function(ring)
 			if def.structure == "windows" then
 				self:glazeStorey(ring)
 			else
-				self:hangGateLeaves(ring, storeyId)
+				self:hangGateLeaves(ring)
 			end
 		end)
 	elseif def.structure == "roof" then
 		self:buildRoofModel(model)
-		-- THE MOMENT THE GROUND STOREY GAINS A CEILING. Its ring was built at
-		-- `walls` some twenty minutes ago and came up unlit, because until now
-		-- there was nothing over it to hang a fixture under. Every storey that
-		-- is standing gets re-answered rather than just this one: the upper ring
-		-- cannot exist yet today (floor2 waits on this button), and hard-coding
-		-- that assumption is how the roof came to need refreshRoof in the first
-		-- place.
-		self:eachStoreyRing(function(ring, storeyId)
-			self:refreshStoreyLights(ring, storeyId)
+		-- THE MOMENT THE ROOM GAINS A CEILING. The ring was built at `walls`
+		-- some twenty minutes ago and came up unlit, because until now there
+		-- was nothing over it to hang a fixture under.
+		self:withWallRing(function(ring)
+			self:refreshCeilingLights(ring)
 		end)
 	end
 
@@ -773,31 +675,14 @@ end
 
 --- invariant: the roof slab, its columns and the company sign.
 ---
---- Extracted from the installer because the roof's HEIGHT depends on something
---- bought later. A storey's ceiling is the floor above it, so the roof sits on
---- the top storey that EXISTS: on the ground storey's line before the mezzanine
---- is bought, on the upper storey's after. Config.roofUnderside is that one
---- structural line and the walls are derived from the same one.
----
---- THE SHRINK RULE IS GONE. The roof used to span `front - back` and pull its
---- back edge in to the deck's front edge plus two studs, so a plot with a floor
---- got a roof over the front half and open sky over the back. That existed only
---- because the roof's height and the deck's height were each derived separately
---- and had to be kept out of each other's way; with one line they cannot cross,
---- and the roof always spans the whole plot.
----
---- It is still REBUILT when the floor lands (refreshRoof, off
---- FloorService.sync). The roof is bought first — Config.ButtonUnlock gates
---- `floor2` on it — so the rebuild is what re-derives the underside from the
---- deck once the deck exists.
+--- Extracted from the installer so refreshRoof can REBUILD it — tween-free,
+--- leaf-free, and therefore the one piece of structure that a rebuild cannot
+--- hurt. Config.roofUnderside is the one structural line, and the walls are
+--- derived from the same one.
 function Tycoon:buildRoofModel(model: Instance)
 	model:ClearAllChildren()
 
-	local floorDef = Config.Floors[1]
-	-- `== true`, not `~= nil`: `owned` is the same map FloorService.sync tests with
-	-- `== true`, and the two have to answer the same question the same way or the
-	-- roof lifts onto a storey whose deck was never built.
-	local underside = Config.roofUnderside(floorDef ~= nil and self.owned[floorDef.button] == true)
+	local underside = Config.roofUnderside()
 	-- The wall ring's own |x| and |z|, read from the extents the walls are built
 	-- from rather than re-derived here: "inset in from the wall ring" has to mean
 	-- the wall the columns stand beside.
@@ -832,20 +717,14 @@ function Tycoon:buildRoofModel(model: Instance)
 	self:updateSign()
 end
 
---- Lifts an already-built roof onto the storey that exists now, and re-answers
---- which storeys are covered. Called when the floor lands under it, when it is
---- torn down, and when the roof itself is bought.
----
---- THE LIGHTS RIDE ALONG BECAUSE IT IS THE SAME EVENT. Both callers of this are
---- "something above a storey changed", which is precisely the question
---- storeyHasCeiling answers — so putting the fixture refresh anywhere else would
---- be a second subscription to one event. Note the ordering against the early
---- return: the lights are refreshed FIRST and unconditionally, because a plot
---- that owns no roof still has a storey whose deck may have just landed, and on
---- that path `self.objects.roof` is nil and the old body did nothing at all.
+--- Rebuilds an already-built roof and re-answers whether the room is lit.
+--- The lights ride along because it is the same event — "something over the
+--- room changed" — and they are refreshed FIRST and unconditionally, because
+--- on a plot that owns no roof `self.objects.roof` is nil and the tail of
+--- this function does nothing at all.
 function Tycoon:refreshRoof()
-	self:eachStoreyRing(function(ring, storeyId)
-		self:refreshStoreyLights(ring, storeyId)
+	self:withWallRing(function(ring)
+		self:refreshCeilingLights(ring)
 	end)
 
 	local entry = self.objects.roof

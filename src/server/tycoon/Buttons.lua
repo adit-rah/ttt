@@ -62,20 +62,15 @@ function Tycoon:buttonPosition(def): Vector3
 	-- and the wrong one for a row of generators on a slab behind it — and
 	-- Layout.Tracks has no `power` entry, so it would have indexed nil and
 	-- taken the whole plot's construction down with it.
-	-- A Line button stands on the deck whose conveyor it buys, so its position
-	-- comes from the floor rather than from Layout.MiscButtons — which asserts
-	-- y = 0 and would put this pedestal on the ground floor under its own deck.
-	if def.kind == "Line" then
-		local floor = Config.floorForLineButton(def.id)
-		if floor then
-			return Config.floorLineButtonPosition(floor)
-		end
-	end
 	local furniture = def.track and Config.TrackInfo[def.track].furniture
 	if furniture == "cabinet" then
 		return Config.trackButtonPosition(def.track, def.trackOrder)
 	elseif furniture == "yard" then
 		return Config.yardButtonPosition()
+	elseif furniture == "land" then
+		-- One pedestal per side, on the centre pad. Every rung of a side
+		-- resolves here, which is why the land tracks preview 0 rungs.
+		return Config.landButtonPosition(def.track)
 	end
 	return MISC_SPOTS[def.id] or Vector3.new(0, 0, 0)
 end
@@ -88,10 +83,10 @@ end
 --- underneath the deck. One line, and it was the single blocker for a real
 --- second storey.
 ---
---- All three sources of a button position can answer with a height.
---- Config.trackButtonPosition takes its Y from Config.floorTopY (0 today, since
---- neither side track names a `floor`); Layout.MiscButtons is all ground level;
---- and belt buttons come through pointOnLeg, which bakes in `path.y`.
+--- All the sources of a button position can answer with a height.
+--- Config.trackButtonPosition and Config.landButtonPosition answer at ground
+--- level; Layout.MiscButtons is all ground level; and belt buttons come
+--- through pointOnLeg, which bakes in `path.y`.
 ---
 --- The Studio-only half is the assertion in buildButtons below: whether the pad
 --- that got built is where buttonPosition said. No config check can reach it.
@@ -227,55 +222,6 @@ function Tycoon:buildButtons()
 			ghost = nil,
 		}
 	end
-end
-
---- invariant: whether the floor a button stands on has actually been built.
---- Buttons on an unbuilt floor are HIDDEN, and appear with the deck.
----
---- A previewed button is a dimmed pad with a ghost of its machine standing
---- where it will go. That is the right answer on the ground floor and a
---- terrible one twenty-two studs up in open air, where there is nothing under
---- it and it reads as a bug rather than as a plan.
----
---- TWO WAYS A BUTTON NAMES ITS FLOOR, and both must be read. A belt machine
---- names it by `path`; a side-track button names it on its track's
---- Layout.Tracks entry.
----
---- IF A TRACK EVER GOES BACK UPSTAIRS: `floor` on a Layout.Tracks entry is the
---- only thing that ties those pads to a deck, and nothing derives it from the
---- track's gate. Both cabinets are on the ground floor today, so neither
---- carries one and Config.floorTopY(nil) is 0.
-function Tycoon:floorBuiltFor(def): boolean
-	-- A LINE BUTTON WAITS ON THE DECK IT STANDS ON. Its pedestal is at y = 22,
-	-- so before the storey lands it would hang in open air over the aisle.
-	if def.kind == "Line" then
-		local floor = Config.floorForLineButton(def.id)
-		return floor == nil or self.owned[floor.button] == true
-	end
-
-	local track = def.track and Config.Layout.Tracks[def.track]
-	local floorId = def.path or (track and track.floor)
-	if not floorId then
-		return true
-	end
-	for _, floor in ipairs(Config.Floors) do
-		if floor.id == floorId then
-			-- A MACHINE ON A BELT WAITS ON THE BELT, NOT ON THE STOREY. These
-			-- used to be the same question — buying the floor built the deck and
-			-- the conveyor together — and this function's own comment above
-			-- flagged that as a coincidence it was banking on. TODO.md item 4
-			-- split them, so a plot can own a barren deck for the rest of the
-			-- build; `mezz_dropper1` revealed there would be a pad standing over
-			-- a slab with no conveyor under it, dropping its output through the
-			-- floor.
-			if def.path == floor.id then
-				return self.owned[floor.button] == true
-					and Config.floorLineBuilt(floor, self.owned)
-			end
-			return self.owned[floor.button] == true
-		end
-	end
-	return true
 end
 
 function Tycoon:requirementsMet(id: string): boolean
@@ -419,20 +365,14 @@ function Tycoon:refreshButtons()
 		-- design:D-03 — a gated track is HIDDEN, not previewed, and takes no
 		-- ghost.
 		--
-		-- invariant: Config.buttonUnlocked is DELIBERATELY NOT IN `standing`. A false `standing` unparents the holder, which is
-		-- right for a gated cabinet — bare ground until you have earned it. It
-		-- would be wrong for `floor2`, whose pedestal is a hand-placed position
-		-- at the near end of the misc column in Layout.MiscButtons: hiding it
-		-- opens a gap in a line of six pads that reads as purchase order, and
-		-- the storey stops being a thing the player knows is coming.
-		--
-		-- Left out of `standing`, the existing three-state logic already does
-		-- the right thing for free. requirementsMet() is false, so `available`
-		-- is false; the button is at its track's frontier, so `preview` is true;
-		-- and it renders dimmed with the locked voice and a line naming the
-		-- roof. That is the intended behaviour, not a happy accident, which is
-		-- why it is written down here rather than discovered later.
-		local standing = self:floorBuiltFor(def) and Config.trackUnlocked(def.track, self.owned)
+		-- invariant: Config.buttonUnlocked is DELIBERATELY NOT IN `standing`.
+		-- A false `standing` unparents the holder, which is right for a gated
+		-- cabinet — bare ground until you have earned it — and wrong for a
+		-- button-gated pad standing in a hand-placed line: hiding it opens a
+		-- gap that reads as purchase order. Left out of `standing`, the
+		-- three-state logic below renders a gated pad dimmed with the locked
+		-- voice and a line naming its gate, which is the intended behaviour.
+		local standing = Config.trackUnlocked(def.track, self.owned)
 		local available = (not owned) and standing and self:requirementsMet(id)
 		local preview = (not owned) and (not available) and standing
 			and (def.trackOrder <= frontier[def.track] + Config.TrackInfo[def.track].preview)
@@ -467,15 +407,11 @@ function Tycoon:refreshButtons()
 			--
 			-- invariant: THE BUTTON GATE IS CHECKED FIRST, and that ordering is
 			-- the whole reason this reads as an instruction rather than a dead
-			-- end. For
-			-- `floor2` the chain requirement is `upgrader4`, which the player
-			-- has just bought — so walking `requirementsOf` alone finds nothing
-			-- unmet, leaves `blocker` nil, and the pad says the bare word
-			-- "locked" next to a nine-million price tag with no way to learn
-			-- what it is waiting for. Config.ButtonUnlock is also the SURPRISING
-			-- blocker of the two: a chain requirement is by construction the row
-			-- you just came from, while this one names a purchase on a
-			-- different ladder entirely.
+			-- end: a chain requirement is by construction the row you just came
+			-- from, while a Config.ButtonUnlock gate names a purchase on a
+			-- different ladder entirely — the surprising blocker of the two,
+			-- and the one the pad has to name or it says the bare word
+			-- "locked" with no way to learn what it is waiting for.
 			local blocker = Config.ButtonById[Config.ButtonUnlock[id] or ""]
 			if blocker and self.owned[blocker.id] then
 				blocker = nil

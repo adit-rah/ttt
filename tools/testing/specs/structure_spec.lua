@@ -121,32 +121,28 @@ end
 --- An opening literal, in the shape Config.Structure.Openings holds. Centre and
 --- width rather than from/to, because that is what the shipped table uses and a
 --- test that reshapes its input is testing something else.
-local function opening(id: string, side: string, storey: string, from: number, to: number, leaves: number?)
+local function opening(id: string, side: string, from: number, to: number, leaves: number?)
 	return {
-		id = id, side = side, storey = storey,
+		id = id, side = side,
 		centre = (from + to) / 2, width = to - from,
 		height = 13, leaves = leaves or 1,
 	}
 end
 
-local STOREYS = { "ground", "upper" }
-
 -- ── the wall, horizontally ──────────────────────────────────────────────────
 
-T.spec("every wall of both storeys tiles its extent exactly", function(t)
+T.spec("every wall tiles its extent exactly", function(t)
 	local w = T.world()
 	local Config = w.config
 
 	local walls = 0
-	for _, storey in ipairs(STOREYS) do
-		for _, side in ipairs(Config.Structure.Sides) do
-			local segments, extent = Config.wallSegments(side, storey)
-			t:notNil(extent, side .. ": no extent")
-			tiles(t, segments, extent.from, extent.to, side .. "/" .. storey)
-			walls += 1
-		end
+	for _, side in ipairs(Config.Structure.Sides) do
+		local segments, extent = Config.wallSegments(side)
+		t:notNil(extent, side .. ": no extent")
+		tiles(t, segments, extent.from, extent.to, side)
+		walls += 1
 	end
-	t:eq(walls, 8, "four sides times two storeys — the loop must not have run dry")
+	t:eq(walls, 4, "four sides — the loop must not have run dry")
 end)
 
 T.spec("a wall with no opening is one solid run, end to end", function(t)
@@ -154,23 +150,20 @@ T.spec("a wall with no opening is one solid run, end to end", function(t)
 	local Config = w.config
 
 	local blank = 0
-	for _, storey in ipairs(STOREYS) do
-		for _, side in ipairs(Config.Structure.Sides) do
-			if #Config.openingsIn(side, storey) == 0 then
-				local segments, extent = Config.wallSegments(side, storey)
-				local label = side .. "/" .. storey
-				t:eq(kinds(segments), "solid", label .. ": an unbroken wall is not one run")
-				-- guarded, so a wall that came back empty reports as a failed
-				-- check rather than as "spec raised: index nil with 'from'"
-				t:near(segments[1] and segments[1].from, extent.from, EPS, label)
-				t:near(segments[1] and segments[1].to, extent.to, EPS, label)
-				blank += 1
-			end
+	for _, side in ipairs(Config.Structure.Sides) do
+		if #Config.openingsIn(side) == 0 then
+			local segments, extent = Config.wallSegments(side)
+			t:eq(kinds(segments), "solid", side .. ": an unbroken wall is not one run")
+			-- guarded, so a wall that came back empty reports as a failed
+			-- check rather than as "spec raised: index nil with 'from'"
+			t:near(segments[1] and segments[1].from, extent.from, EPS, side)
+			t:near(segments[1] and segments[1].to, extent.to, EPS, side)
+			blank += 1
 		end
 	end
-	-- Ships as: left/right ground, and all four upper. If this number moves,
-	-- someone cut a new opening and should look at the rest of this file.
-	t:eq(blank, 6, "the shipped shell has six unbroken walls")
+	-- Ships as: left and right. If this number moves, someone cut a new
+	-- opening and should look at the rest of this file.
+	t:eq(blank, 2, "the shipped shell has two unbroken walls")
 end)
 
 T.spec("the wall ring closes at all four corners", function(t)
@@ -205,7 +198,6 @@ T.spec("the wall ring closes at all four corners", function(t)
 	t:gte(back.to, right.fixed, "open corner: the back wall stops short of the right wall")
 
 	t:isNil(Config.wallExtent("ceiling"), "a side nobody defined must be nil, not a guess")
-	t:isNil(Config.storey("basement"), "a storey nobody defined must be nil")
 end)
 
 -- ── the wall, against openings the shipped config does not contain ──────────
@@ -219,18 +211,16 @@ T.spec("openings come back in wall order, however they were entered", function(t
 
 	-- Entered right-to-left on purpose: openingsIn sorts, and nothing else in
 	-- the shipped config has two openings in one wall to sort.
-	table.insert(Config.Structure.Openings, opening("far", "left", "ground", 20, 32))
-	table.insert(Config.Structure.Openings, opening("near", "left", "ground", -32, -20))
+	table.insert(Config.Structure.Openings, opening("far", "left", 20, 32))
+	table.insert(Config.Structure.Openings, opening("near", "left", -32, -20))
 
-	local found = Config.openingsIn("left", "ground")
+	local found = Config.openingsIn("left")
 	t:eq(#found, 2, "both openings should be in this wall")
 	t:eq(found[1].id, "near", "the openings came back in insertion order, not wall order")
 	t:eq(found[2].id, "far")
 	t:lt(found[1].centre, found[2].centre)
 
-	-- and the other storey of the same side is unaffected
-	t:eq(#Config.openingsIn("left", "upper"), 0, "an opening leaked between storeys")
-	t:eq(#Config.openingsIn("right", "ground"), 0, "an opening leaked between sides")
+	t:eq(#Config.openingsIn("right"), 0, "an opening leaked between sides")
 end)
 
 T.spec("two openings give solid/opening/solid/opening/solid", function(t)
@@ -238,13 +228,13 @@ T.spec("two openings give solid/opening/solid/opening/solid", function(t)
 	local Config = w.config
 
 	-- entered far-then-near again, so this spec fails if the ordering fails
-	table.insert(Config.Structure.Openings, opening("b", "left", "ground", 24, 36))
-	table.insert(Config.Structure.Openings, opening("a", "left", "ground", -36, -24))
+	table.insert(Config.Structure.Openings, opening("b", "left", 24, 36))
+	table.insert(Config.Structure.Openings, opening("a", "left", -36, -24))
 
-	local segments, extent = Config.wallSegments("left", "ground")
+	local segments, extent = Config.wallSegments("left")
 	t:eq(kinds(segments), "solid|opening|solid|opening|solid",
 		"a wall with two openings must alternate, in wall order")
-	tiles(t, segments, extent.from, extent.to, "left/ground with two openings")
+	tiles(t, segments, extent.from, extent.to, "left with two openings")
 
 	t:near(segments[2] and segments[2].from, -36, EPS)
 	t:near(segments[2] and segments[2].to, -24, EPS)
@@ -261,24 +251,24 @@ T.spec("an opening flush to either end leaves no zero-width run", function(t)
 
 	-- Flush to the END ships already: the yard doorway runs to the back wall's
 	-- far edge, so `cursor < extent.to` is false and there is no trailing run.
-	local back, backExtent = Config.wallSegments("back", "ground")
+	local back, backExtent = Config.wallSegments("back")
 	t:eq(kinds(back), "solid|opening", "the yard doorway is flush to the wall end")
 	t:near(back[#back] and back[#back].to, backExtent.to, EPS)
-	tiles(t, back, backExtent.from, backExtent.to, "back/ground")
+	tiles(t, back, backExtent.from, backExtent.to, "back")
 
 	-- Flush to the START does not ship, and is the mirror-image bug: a leading
 	-- solid run of width 0, which is a BasePart with a zero-length side.
 	local extent = Config.wallExtent("left")
-	table.insert(Config.Structure.Openings, opening("start", "left", "ground", extent.from, extent.from + 18))
-	local left = Config.wallSegments("left", "ground")
+	table.insert(Config.Structure.Openings, opening("start", "left", extent.from, extent.from + 18))
+	local left = Config.wallSegments("left")
 	t:eq(kinds(left), "opening|solid", "a flush opening produced a zero-width leading run")
-	tiles(t, left, extent.from, extent.to, "left/ground flush to the start")
+	tiles(t, left, extent.from, extent.to, "left flush to the start")
 
 	-- And a wall that is entirely one opening is one segment, not three.
-	table.insert(Config.Structure.Openings, opening("all", "right", "ground", extent.from, extent.to))
-	local right = Config.wallSegments("right", "ground")
+	table.insert(Config.Structure.Openings, opening("all", "right", extent.from, extent.to))
+	local right = Config.wallSegments("right")
 	t:eq(kinds(right), "opening", "a fully open wall must be exactly one opening span")
-	tiles(t, right, extent.from, extent.to, "right/ground fully open")
+	tiles(t, right, extent.from, extent.to, "right fully open")
 end)
 
 T.spec("openings that share an edge leave no zero-width solid", function(t)
@@ -286,13 +276,13 @@ T.spec("openings that share an edge leave no zero-width solid", function(t)
 	local Config = w.config
 
 	local extent = Config.wallExtent("left")
-	table.insert(Config.Structure.Openings, opening("one", "left", "ground", extent.from, extent.from + 30))
-	table.insert(Config.Structure.Openings, opening("two", "left", "ground", extent.from + 30, extent.from + 60))
+	table.insert(Config.Structure.Openings, opening("one", "left", extent.from, extent.from + 30))
+	table.insert(Config.Structure.Openings, opening("two", "left", extent.from + 30, extent.from + 60))
 
-	local segments = Config.wallSegments("left", "ground")
+	local segments = Config.wallSegments("left")
 	t:eq(kinds(segments), "opening|opening|solid",
 		"two openings meeting at a stud must not have a zero-width pier between them")
-	tiles(t, segments, extent.from, extent.to, "left/ground, openings sharing an edge")
+	tiles(t, segments, extent.from, extent.to, "left, openings sharing an edge")
 	t:eq(idAt(segments, 1), "one")
 	t:eq(idAt(segments, 2), "two")
 end)
@@ -305,17 +295,14 @@ T.spec("every opening lies inside the wall it cuts, with a lintel above", functi
 	for _, entry in ipairs(Config.Structure.Openings) do
 		local extent = Config.wallExtent(entry.side)
 		t:notNil(extent, entry.id .. ": names a side that does not exist")
-		local storey = Config.storey(entry.storey)
-		t:notNil(storey, entry.id .. ": names a storey that does not exist")
-
 		t:gt(entry.width, 0, entry.id .. ": an opening with no width")
 		t:gte(entry.centre - entry.width / 2, extent.from - EPS,
 			entry.id .. ": the opening starts outside its wall")
 		t:lte(entry.centre + entry.width / 2, extent.to + EPS,
 			entry.id .. ": the opening ends outside its wall")
 		t:gt(entry.height, 0, entry.id .. ": an opening with no height")
-		t:lt(entry.height, storey.clear,
-			entry.id .. ": no room for a lintel — the opening is as tall as the storey")
+		t:lt(entry.height, Config.Structure.WallHeight,
+			entry.id .. ": no room for a lintel — the opening is as tall as the wall")
 		t:gte(entry.leaves, 1, entry.id .. ": an opening with no door")
 		seen += 1
 	end
@@ -330,9 +317,9 @@ T.spec("a gate leaf has a solid run to slide along", function(t)
 	local Config = w.config
 
 	local openings = 0
-	for _, storey in ipairs(STOREYS) do
+	do
 		for _, side in ipairs(Config.Structure.Sides) do
-			local segments = Config.wallSegments(side, storey)
+			local segments = Config.wallSegments(side)
 			for index, segment in ipairs(segments) do
 				if segment.kind == "opening" then
 					local leaf = (segment.to - segment.from) / segment.opening.leaves
@@ -369,18 +356,18 @@ T.spec("a fresh realm's Config is untouched by another spec's mutation", functio
 	-- Five specs above have already pushed openings into their own realms.
 	t:eq(#first.config.Structure.Openings, 2,
 		"an earlier spec's opening leaked into this realm")
-	t:eq(#first.config.openingsIn("left", "ground"), 0,
+	t:eq(#first.config.openingsIn("left"), 0,
 		"an earlier spec's opening leaked into this realm")
 
-	table.insert(first.config.Structure.Openings, opening("leak", "right", "upper", -10, 10))
-	t:eq(#first.config.openingsIn("right", "upper"), 1, "the mutation did not take")
-	t:eq(#second.config.openingsIn("right", "upper"), 0,
+	table.insert(first.config.Structure.Openings, opening("leak", "right", -10, 10))
+	t:eq(#first.config.openingsIn("right"), 1, "the mutation did not take")
+	t:eq(#second.config.openingsIn("right"), 0,
 		"a mutation in one realm reached another realm's Config")
 
 	-- and a realm built AFTER the mutation is clean too
 	local third = T.world()
 	t:eq(#third.config.Structure.Openings, 2, "the mutation leaked forward into a new realm")
-	t:eq(#third.config.openingsIn("right", "upper"), 0)
+	t:eq(#third.config.openingsIn("right"), 0)
 end)
 
 -- ── the bay course ──────────────────────────────────────────────────────────
@@ -516,76 +503,31 @@ T.spec("panes are exactly pane wide and the slack is even on the piers", functio
 	t:eq(glazed, 36, "every glazed length in the table must have been walked")
 end)
 
-T.spec("the bay course fits inside its storey, sill and head included", function(t)
+T.spec("the bay course fits inside the wall, sill and head included", function(t)
 	local w = T.world()
 	local Config = w.config
 	local window = Config.Structure.Window
 
-	local seen = 0
-	for _, id in ipairs(STOREYS) do
-		local storey = Config.storey(id)
-		local bay = window[id]
-		t:notNil(bay, id .. ": no window spec for this storey")
-		t:gt(bay.sill, 0, id .. ": a sill course with no height")
-		t:gt(bay.height, 0, id .. ": glass with no height")
-		t:lt(bay.sill + bay.height, storey.clear,
-			id .. ": no room for a head course — the glass reaches the ceiling")
-		seen += 1
-	end
-	t:eq(seen, 2, "both storeys have a window spec")
+	t:gt(window.sill, 0, "a sill course with no height")
+	t:gt(window.height, 0, "glass with no height")
+	t:lt(window.sill + window.height, Config.Structure.WallHeight,
+		"no room for a head course — the glass reaches the ceiling")
 end)
 
--- ── vertically: the storey, the deck and the roof ───────────────────────────
+-- ── vertically: the wall and the roof ───────────────────────────────────────
 
-T.spec("roofUnderside sits on the top storey that exists", function(t)
+T.spec("roofUnderside is the wall's top", function(t)
 	local w = T.world()
 	local Config = w.config
 
-	local ground = Config.storey("ground")
-	local upper = Config.storey("upper")
-	t:notNil(ground)
-	t:notNil(upper)
-
-	t:near(Config.roofUnderside(false), ground.floorY + ground.clear, EPS,
-		"before the mezzanine the roof sits on the ground storey's top")
-	t:near(Config.roofUnderside(true), upper.floorY + upper.clear, EPS,
-		"after the mezzanine the roof sits on the upper storey's top")
-	t:gt(Config.roofUnderside(true), Config.roofUnderside(false),
-		"buying a floor must raise the roof, not lower it")
-
-	-- There is no half-roof state, which is what let the old "shrink to dodge
-	-- the deck" rule go: the two answers differ by a whole storey.
-	t:near(Config.roofUnderside(true) - Config.roofUnderside(false),
-		upper.clear + Config.Floors[1].deckSize.Y, EPS,
-		"the gap between the two roof heights is the upper storey plus the deck")
-end)
-
-T.spec("the ground storey stops at the deck's underside, not its middle", function(t)
-	-- This number was wrong by half a thickness while the contract was written,
-	-- and half a thickness is a wall that ends INSIDE the floor above it.
-	local w = T.world()
-	local Config = w.config
-	local floor = Config.Floors[1]
-	local ground = Config.storey("ground")
-
-	t:near(ground.clear, floor.height - floor.deckSize.Y, EPS,
-		"the ground storey's clear height must be the deck's UNDERSIDE")
-	t:ne(ground.clear, floor.height - floor.deckSize.Y / 2,
-		"the ground wall ends half a deck thickness inside the floor above it")
-	t:lt(ground.clear, floor.height, "the ground wall passes through the deck")
-
-	-- No band, stated the way the seven-stud hole should have been: the deck
-	-- exactly fills the space between the ground storey's top and the upper
-	-- storey's floor. Nothing left over, nothing overlapping.
-	t:near(Config.roofUnderside(false) + floor.deckSize.Y, Config.storey("upper").floorY, EPS,
-		"there is a gap (or an overlap) between the ground wall's top and the upper floor")
-	t:near(Config.storey("upper").floorY, floor.height, EPS,
-		"the upper storey does not start at the floor it stands on")
+	t:near(Config.roofUnderside(), Config.Structure.WallHeight, EPS,
+		"the roof sits on the wall's top — one structural line, both readers")
+	t:gt(Config.Structure.WallHeight, 0, "a shell with no height")
 end)
 
 -- ── the part budget ─────────────────────────────────────────────────────────
 
-T.spec("shellPartCount is 2n+3 a run, grows with the floor, and is stable", function(t)
+T.spec("shellPartCount is 2n+3 a run, and is stable", function(t)
 	local w = T.world()
 	local Config = w.config
 
@@ -599,48 +541,41 @@ T.spec("shellPartCount is 2n+3 a run, grows with the floor, and is stable", func
 	-- actually built. A budget asserted 13% under the truth is a budget that
 	-- passes right up until it matters, so this model counts the trim cap, the
 	-- interior light strip and the anchor the roof sign hangs on.
-	local function model(hasFloor: boolean)
+	local function model()
 		local total, runs, cuts = 6, 0, 0   -- roof slab + four columns + sign anchor
-		for _, storey in ipairs(hasFloor and { "ground", "upper" } or { "ground" }) do
-			-- The ceiling fixtures this storey hangs, modelled from columns x rows
-			-- rather than from the function that places them — so this stays a
-			-- second opinion. A grid that stopped emitting its far column would
-			-- agree with itself and disagree here.
-			total += Config.Structure.Lights.columns * Config.Structure.Lights.rows
-			for _, side in ipairs(Config.Structure.Sides) do
-				total += 2   -- this wall's neon cap, and the light strip inside it
-				for _, segment in ipairs(Config.wallSegments(side, storey)) do
-					if segment.kind == "solid" then
-						local bays = Config.wallBays(segment.from, segment.to)
-						local panes = countKind(bays, "pane")
-						t:eq(#bays, 2 * panes + 1, "a run's bay course is not 2n+1")
-						total += 2 * panes + 3   -- sill + head + (2n+1) bays
-						runs += 1
-					else
-						total += 1 + segment.opening.leaves   -- lintel + leaves
-						cuts += 1
-					end
+		-- The ceiling fixtures, modelled from columns x rows rather than from
+		-- the function that places them — so this stays a second opinion. A
+		-- grid that stopped emitting its far column would agree with itself
+		-- and disagree here.
+		total += Config.Structure.Lights.columns * Config.Structure.Lights.rows
+		for _, side in ipairs(Config.Structure.Sides) do
+			total += 2   -- this wall's neon cap, and the light strip inside it
+			for _, segment in ipairs(Config.wallSegments(side)) do
+				if segment.kind == "solid" then
+					local bays = Config.wallBays(segment.from, segment.to)
+					local panes = countKind(bays, "pane")
+					t:eq(#bays, 2 * panes + 1, "a run's bay course is not 2n+1")
+					total += 2 * panes + 3   -- sill + head + (2n+1) bays
+					runs += 1
+				else
+					total += 1 + segment.opening.leaves   -- lintel + leaves
+					cuts += 1
 				end
 			end
 		end
 		return total, runs, cuts
 	end
 
-	local full, runs, cuts = model(true)
-	local ground = model(false)
-	t:eq(Config.shellPartCount(true), full, "shellPartCount disagrees with 2n+3 a run")
-	t:eq(Config.shellPartCount(false), ground, "shellPartCount disagrees with 2n+3 a run")
-	t:eq(runs, 9, "five solid runs downstairs and four upstairs")
-	t:eq(cuts, 2, "the gateway and the yard doorway, both on the ground storey")
+	local full, runs, cuts = model()
+	t:eq(Config.shellPartCount(), full, "shellPartCount disagrees with 2n+3 a run")
+	t:eq(runs, 5, "five solid runs around the ring")
+	t:eq(cuts, 2, "the gateway and the yard doorway")
 
-	t:gt(Config.shellPartCount(true), Config.shellPartCount(false),
-		"the mezzanine adds a whole storey of wall, so it must add parts")
-	t:eq(Config.shellPartCount(true), Config.shellPartCount(true),
+	t:eq(Config.shellPartCount(), Config.shellPartCount(),
 		"counting twice gave two answers — something accumulates across calls")
 
-	t:lte(Config.shellPartCount(true), Config.Structure.PartBudget,
+	t:lte(Config.shellPartCount(), Config.Structure.PartBudget,
 		"the full shell is over Config.Structure.PartBudget")
-	t:lte(Config.shellPartCount(false), Config.Structure.PartBudget)
 end)
 
 T.spec("shellPartCount answers to inputs the shipped config never has", function(t)
@@ -648,20 +583,20 @@ T.spec("shellPartCount answers to inputs the shipped config never has", function
 	-- as well if shellPartCount ignores half its inputs, so: move the inputs.
 	local w = T.world()
 	local Config = w.config
-	local base = Config.shellPartCount(true)
+	local base = Config.shellPartCount()
 
-	table.insert(Config.Structure.Openings, opening("sideDoor", "left", "ground", -7, 7))
-	local withDoor = Config.shellPartCount(true)
+	table.insert(Config.Structure.Openings, opening("sideDoor", "left", -7, 7))
+	local withDoor = Config.shellPartCount()
 	t:ne(withDoor, base, "cutting a third opening did not change the part count")
 	t:lte(withDoor, Config.Structure.PartBudget,
 		"a third opening puts the shell over budget")
 
 	Config.Structure.Window.pane = Config.Structure.Window.pane / 2
-	t:gt(Config.shellPartCount(true), withDoor,
+	t:gt(Config.shellPartCount(), withDoor,
 		"halving the pane must double up the bays, and each bay is a part")
 
 	Config.Structure.Window.pier = 400   -- wider than any run: every wall goes solid
-	local solid = Config.shellPartCount(true)
+	local solid = Config.shellPartCount()
 	t:lt(solid, withDoor, "with no run wide enough to glaze the shell must get cheaper")
 	t:gt(solid, 5, "the roof and its columns are always there")
 end)
@@ -740,38 +675,6 @@ T.spec("the shell is walls, then gates, then windows, then roof, on a track of i
 		"one dropper in, the building becomes something you can want")
 end)
 
-T.spec("the mezzanine cannot be bought before something has roofed the storey below", function(t)
-	-- FloorService stands each storey's own wall ring up and nothing else ever
-	-- roofs it. While the shell was welded into the factory chain this was
-	-- guaranteed by ORDERING — `roof` was simply an earlier row, and the config
-	-- check asserted the deck was bought later. A parallel track is one you can
-	-- decline, so that guarantee left with the shell and Config.ButtonUnlock
-	-- replaces it.
-	local w = T.world()
-	local Config = w.config
-
-	t:eq(Config.ButtonUnlock.floor2, "roof",
-		"nothing makes the storey wait for a roof; it would arrive open to the sky")
-
-	t:isFalse(Config.buttonUnlocked("floor2", { upgrader4 = true }),
-		"every chain requirement is met and the roof is not bought — this must still be refused")
-	t:isTrue(Config.buttonUnlocked("floor2", { upgrader4 = true, roof = true }),
-		"with the roof standing the storey is buyable")
-
-	-- NOT STICKY, which is the one way it differs from Config.trackUnlocked.
-	-- That function forgives a missing gate because rebirth keeps the cabinets
-	-- while wiping the factory button that opened them. Nothing like that can
-	-- happen here: factory and structure are both keepOnRebirth = false, so a
-	-- rebirth takes `roof` and `floor2` together.
-	t:isFalse(Config.buttonUnlocked("floor2", { floor2 = true }),
-		"owning the gated button must not satisfy its own gate")
-
-	-- An ungated button is unaffected — the helper answers true for everything
-	-- that has no row, or it would gate the entire game.
-	t:isTrue(Config.buttonUnlocked("dropper1", {}))
-	t:isTrue(Config.buttonUnlocked("walls", {}))
-end)
-
 T.spec("splitting the shell costs no parts, because an unglazed bay is still a wall", function(t)
 	-- THE DESIGN DECISION, AS AN ASSERTION. `walls` could have left the bays as
 	-- holes for `windows` to fill, and that reading is refused: a purchase
@@ -787,7 +690,7 @@ T.spec("splitting the shell costs no parts, because an unglazed bay is still a w
 
 	local panes, piers = 0, 0
 	for _, side in ipairs(Config.Structure.Sides) do
-		for _, segment in ipairs(Config.wallSegments(side, "ground")) do
+		for _, segment in ipairs(Config.wallSegments(side)) do
 			if segment.kind == "solid" then
 				for _, bay in ipairs(Config.wallBays(segment.from, segment.to)) do
 					if bay.kind == "pane" then panes += 1 else piers += 1 end
@@ -800,9 +703,9 @@ T.spec("splitting the shell costs no parts, because an unglazed bay is still a w
 
 	-- Both kinds are boxes in the same course, and shellPartCount counts a bay
 	-- as one part whichever it is — which is what makes the glass free.
-	local counted = Config.shellPartCount(false)
+	local counted = Config.shellPartCount()
 	Config.Structure.Window.transparency = 1
-	t:eq(Config.shellPartCount(false), counted,
+	t:eq(Config.shellPartCount(), counted,
 		"the part count moved with the glass; glazing is a material change, not a part")
 end)
 
@@ -840,61 +743,27 @@ T.spec("a plot owns the glass only while it owns the wall the glass is in", func
 		"an owned id with no Config row is being treated as a structure")
 end)
 
--- ── a storey is lit when it is covered, not when it is walled ───────────────
+-- ── the room is lit when it is covered, not when it is walled ───────────────
 
-T.spec("a storey has a ceiling only once something stands over it", function(t)
-	-- THE FIXTURES USED TO ARRIVE WITH THE WALL RING, unconditionally, and the
-	-- comment defending that quoted the cost as "three minutes of
-	-- lights-on-in-daylight between `walls` and the roof". The real curve is
-	-- walls 4.8, roof 26.4, deck 35.2 — thirty minutes of lit battens hanging at
-	-- ceiling height over a plot that had no ceiling, twenty-one of them under
-	-- open sky.
-	--
+T.spec("the ceiling battens exist only once the plot owns a roof", function(t)
+	-- THE FIXTURES USED TO ARRIVE WITH THE WALL RING, unconditionally —
+	-- thirty minutes of lit battens hanging at ceiling height under open sky.
 	-- The verifier cannot see this: Config.storeyLightPositions is a pure
-	-- function of the storey and shellPartCount counts every fixture whenever it
-	-- is built, so both are identical before and after. WHEN a batten exists is
-	-- runtime, and storeyHasCeiling is the whole of the decision.
+	-- function and shellPartCount counts every fixture whenever it is built.
+	-- WHEN a batten exists is runtime, and hasStructure("roof") is the whole
+	-- of the decision now that the storey system has retired.
 	local w = T.world()
-	local Config = w.config
 	local Tycoon = w.req("Tycoon")
-
-	local ground = Config.Structure.Storeys[1].id
-	local upper = Config.Structure.Storeys[2].id
-	local floor2 = Config.Floors[1].button
 
 	local function plot(owned)
 		return setmetatable({ owned = owned }, { __index = Tycoon })
 	end
 
-	-- A walled plot with nothing over it is not a room yet.
-	t:isFalse(plot({}):storeyHasCeiling(ground),
-		"a bare plot is lit")
-	t:isFalse(plot({ walls = true, gates = true, windows = true }):storeyHasCeiling(ground),
-		"the whole shell is bought, there is still open sky overhead, and the battens are on")
-
-	-- The roof is what covers the ground floor first, at minute 26.
-	t:isTrue(plot({ walls = true, roof = true }):storeyHasCeiling(ground),
-		"the roof is on and the room below it is dark")
-
-	-- ...and the deck covers it too, which matters because the deck is what
-	-- makes the room genuinely dark and it lands nine minutes later.
-	local decked = {}
-	decked[floor2] = true
-	t:isTrue(plot(decked):storeyHasCeiling(ground),
-		"a storey with a deck over it is uncovered")
-
-	-- THE UPPER STOREY IS COVERED BY THE ROOF AND NOT BY ITS OWN DECK. The
-	-- comparison is floor.height > storey.floorY, so the mezzanine's 22 covers
-	-- the ground storey at floorY 0 and does not cover the storey it creates at
-	-- floorY 22. Getting this backwards would light the upper ring off the deck
-	-- it is standing on.
-	local upperOnly = {}
-	upperOnly[floor2] = true
-	t:isFalse(plot(upperOnly):storeyHasCeiling(upper),
-		"the mezzanine is lit by the deck it stands on rather than by the roof above it")
-	upperOnly.roof = true
-	t:isTrue(plot(upperOnly):storeyHasCeiling(upper),
-		"the roof is over the mezzanine and the mezzanine is dark")
+	t:isFalse(plot({}):hasStructure("roof"), "a bare plot claims a ceiling")
+	t:isFalse(plot({ walls = true, gates = true, windows = true }):hasStructure("roof"),
+		"the whole rest of the shell is bought, there is still open sky overhead")
+	t:isTrue(plot({ walls = true, roof = true }):hasStructure("roof"),
+		"the roof is on and the room below it reads as uncovered")
 end)
 
 -- ── the shell does not survive a rebirth, and must not ──────────────────────

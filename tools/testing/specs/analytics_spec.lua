@@ -243,24 +243,17 @@ T.spec("the schema spends 2,520 of the experience's 8,000 combinations", functio
 
 	t:eq(total, w.config.analyticsCombinations(),
 		"the verifier and the schema disagree about what this costs, so one of them is checking the wrong number")
-	-- 2,340 before round 8, then 2,520. `buttonId` and `milestone` are DERIVED
-	-- from the ladder, so two new factory rungs widened both sets and cost 180
-	-- combinations without anyone editing Analytics.Fields — which is the
-	-- derivation working, and exactly why this number is pinned here.
+	-- 2,340 before round 8, 2,520, then 2,400 when the shell left the spine.
+	-- `buttonId` and `milestone` are DERIVED from the ladder, so a reshaped
+	-- ladder moves this number without anyone editing Analytics.Fields —
+	-- which is the derivation working, and exactly why it is pinned here.
 	--
-	-- 2,400 NOW, AND THE 120 CAME BACK RATHER THAN WENT. Moving the shell to
-	-- its own track shortened `Config.Tracks.factory` from 24 rows to 20, and
-	-- `buttonId` is the factory track — so `first_button_purchased` stopped
-	-- budgeting for walls, gates, windows and roof being somebody's opening
-	-- purchase. None of them ever could be: Config.TrackUnlock gates the whole
-	-- structure track on `dropper1`. Four facets for a state the game cannot
-	-- reach, refunded.
-	--
-	-- `milestone` did NOT move, and that is the one to watch. It is every
-	-- button on every track and the change re-parented buttons rather than
-	-- adding or removing any, so it stands at 38 of MaxFieldValues 40 exactly
-	-- as it did before.
-	t:eq(total, 2400,
+	-- 2,520 NOW (#88): the factory track lost its three floor rows
+	-- (`buttonId` 20 -> 17) and `milestone` — every button on every track,
+	-- plus "none" — went from 38 to 45 with the ten land rows. The net is
+	-- +120 out of the shared 8,000, spent on the growth axis the game is now
+	-- about.
+	t:eq(total, 2520,
 		"the combination cost moved; it is a shared experience-wide budget, so this is a decision and not an implementation detail")
 
 	-- THE LIMIT THAT WILL BITE FIRST, and it is not the 8,000. `milestone` is
