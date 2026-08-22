@@ -16,6 +16,7 @@ local Economy = Req("Economy")
 local CombatService = Req("CombatService")
 local MovementService = Req("MovementService")
 local RaidService = Req("RaidService")
+local HelpService = Req("HelpService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -92,6 +93,12 @@ Tycoon.storageBreakObserver = function(tycoon, attacker)
 	RaidService.onStorageBroken(tycoon, attacker, os.clock())
 end
 RaidService.start()
+-- Helping pays (#123): the boost hook registers, and repairing someone
+-- else's plot lands as a kindness credit.
+Tycoon.repairObserver = function(tycoon, player)
+	HelpService.credit(player, tycoon.owner, "repairs", os.clock())
+end
+HelpService.start()
 SocialService.start()
 
 -- 6. players

@@ -2244,6 +2244,29 @@ Config.Raid = {
 	RecoveryMinutes = 8,
 }
 
+-- design:D-04, via #123 — HELPING PAYS. The counterweight to raiding: a
+-- server where everyone is prey loses its new players, so kindness earns a
+-- persistent reputation stat and a short income boost, weighted toward
+-- helping someone earlier in the game than you. The boost is minutes of a
+-- small multiplier — two accounts farming each other at this scale is
+-- acceptable, which is what removes the need for an abuse system.
+Config.Help = {
+	-- The income multiplier a fresh act of help grants, and for how long.
+	-- Deliberately small: the reward must never be the point of the game.
+	BoostMultiplier = 1.2,
+	BoostMinutes = 2,
+	-- Repeated help extends the boost, to at most this far ahead.
+	MaxBoostMinutes = 10,
+	-- The progression-gap weighting: each rebirth the helper has over the
+	-- helped adds this to the credit's weight, up to MaxWeight. A veteran
+	-- pulling a new player up comes out ahead of two peers pairing.
+	GapWeightPerRebirth = 0.5,
+	MaxWeight = 3,
+	-- One helper-helped pair earns credit at most this often. Longer than
+	-- the boost it grants, so one tame pair cannot hold a boost forever.
+	PairCooldownSeconds = 300,
+}
+
 -- design:D-04, via #101 — MOVEMENT. Sprint and dash ship now, as BASELINE
 -- capabilities everyone has: legibility first, and a movement axis nobody can
 -- buy is a movement axis nobody falls behind on. Mounts and waypoints wait

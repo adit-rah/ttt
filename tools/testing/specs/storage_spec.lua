@@ -14,7 +14,7 @@
 
 return function(T)
 
-T.family("storage", "the unit breaks at zero, absorbs nothing broken, and repairs for its owner alone")
+T.family("storage", "the unit breaks at zero, absorbs nothing broken, and anyone may stand it back up")
 
 local function fakePlot(w, owner)
 	local Tycoon = w.req("Tycoon")
@@ -49,22 +49,38 @@ T.spec("a broken unit absorbs nothing, and the return value says so", function(t
 		"a broken unit reported absorbing damage — #94 counts wasted swings by this")
 end)
 
-T.spec("repair needs the owner; anyone else is refused", function(t)
+T.spec("anyone repairs a broken unit; only a helper earns the credit", function(t)
 	local w = T.world()
 	local S = w.config.Storage
 	local owner = w.join("owner")
 	local visitor = w.join("visitor")
 	local plot = fakePlot(w, owner)
 
-	plot:damageStorage(S.MaxHealth * 2)
-	t:isFalse(plot:repairStorage(visitor), "a visitor repaired someone else's unit")
-	t:isFalse(plot:storageIntact(), "the refused repair still fixed the unit")
+	local Tycoon = w.req("Tycoon")
+	local credited = {}
+	Tycoon.repairObserver = function(_, player)
+		table.insert(credited, player)
+	end
 
-	t:isTrue(plot:repairStorage(owner), "the owner's repair was refused")
+	-- #123 opened repair past the owner; a helper's repair is a kindness
+	-- credit, and the breaker themselves is the one exclusion
+	plot:damageStorage(S.MaxHealth * 2, visitor)
+	t:isTrue(plot:repairStorage(visitor),
+		"the breaker's repair was refused — the repair itself is always welcome")
 	t:isTrue(plot:storageIntact(), "the repair did not restore the unit")
+	t:eq(#credited, 0, "the breaker farmed a kindness credit out of their own break")
+
+	plot:damageStorage(S.MaxHealth * 2)
+	t:isTrue(plot:repairStorage(visitor), "a visitor's repair was refused")
+	t:eq(credited[1], visitor, "the helper's repair earned no credit")
+
+	plot:damageStorage(S.MaxHealth * 2)
+	t:isTrue(plot:repairStorage(owner), "the owner's repair was refused")
+	t:eq(#credited, 1, "the owner earned credit for their own plot")
 	t:eq(plot.storage.health, S.MaxHealth, "the repair did not restore full health")
 
 	t:isFalse(plot:repairStorage(owner), "an intact unit accepted a repair")
+	Tycoon.repairObserver = nil
 end)
 
 T.spec("resetStorage is the tenancy boundary", function(t)

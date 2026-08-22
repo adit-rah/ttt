@@ -2276,6 +2276,29 @@ __MODULES["Config"] = function()
 		RecoveryMinutes = 8,
 	}
 
+	-- design:D-04, via #123 — HELPING PAYS. The counterweight to raiding: a
+	-- server where everyone is prey loses its new players, so kindness earns a
+	-- persistent reputation stat and a short income boost, weighted toward
+	-- helping someone earlier in the game than you. The boost is minutes of a
+	-- small multiplier — two accounts farming each other at this scale is
+	-- acceptable, which is what removes the need for an abuse system.
+	Config.Help = {
+		-- The income multiplier a fresh act of help grants, and for how long.
+		-- Deliberately small: the reward must never be the point of the game.
+		BoostMultiplier = 1.2,
+		BoostMinutes = 2,
+		-- Repeated help extends the boost, to at most this far ahead.
+		MaxBoostMinutes = 10,
+		-- The progression-gap weighting: each rebirth the helper has over the
+		-- helped adds this to the credit's weight, up to MaxWeight. A veteran
+		-- pulling a new player up comes out ahead of two peers pairing.
+		GapWeightPerRebirth = 0.5,
+		MaxWeight = 3,
+		-- One helper-helped pair earns credit at most this often. Longer than
+		-- the boost it grants, so one tame pair cannot hold a boost forever.
+		PairCooldownSeconds = 300,
+	}
+
 	-- design:D-04, via #101 — MOVEMENT. Sprint and dash ship now, as BASELINE
 	-- capabilities everyone has: legibility first, and a movement axis nobody can
 	-- buy is a movement axis nobody falls behind on. Mounts and waypoints wait
@@ -7663,6 +7686,9 @@ __MODULES["DataService"] = function()
 			-- from profile.rebirths on every read, so it could only ever go stale;
 			-- it is gone, and a save that still carries one is simply ignored.
 			lastSeen = 0,
+			-- #123: the reputation stat — a weighted count of acts of help. A
+			-- number rather than an int: gap weighting accrues halves.
+			reputation = 0,
 			-- #124: damaged defences, as { [siegeKey] = fraction of full health },
 			-- only keys below full. Fractions rather than hit points, so the same
 			-- dent survives the max moving when the plot buys land.
@@ -7791,6 +7817,7 @@ __MODULES["DataService"] = function()
 			kills = profile.kills,
 			playtime = profile.playtime,
 			lastSeen = profile.lastSeen,
+			reputation = profile.reputation,
 			structure = profile.structure,
 			sessions = profile.sessions,
 			upgrades = profile.upgrades,
@@ -8206,6 +8233,11 @@ __MODULES["Economy"] = function()
 		kos.Name = "KOs"
 		kos.Value = profile.kills
 		kos.Parent = folder
+
+		local rep = Instance.new("IntValue")
+		rep.Name = "Rep"
+		rep.Value = math.floor(profile.reputation or 0)
+		rep.Parent = folder
 	end
 
 	local function syncLeaderstats(player: Player)
@@ -8225,6 +8257,10 @@ __MODULES["Economy"] = function()
 		local kos = folder:FindFirstChild("KOs")
 		if kos then
 			(kos :: IntValue).Value = profile.kills
+		end
+		local rep = folder:FindFirstChild("Rep")
+		if rep then
+			(rep :: IntValue).Value = math.floor(profile.reputation or 0)
 		end
 	end
 
@@ -8633,6 +8669,134 @@ __MODULES["GateService"] = function()
 	end
 
 	return GateService
+end
+
+
+__MODULES["HelpService"] = function()
+	--[[
+		HelpService.lua — kindness earns reputation and a short income boost (#123).
+
+		design:D-04. The counterweight to #94: a server where everyone is prey
+		loses its new players, so helping has to pay, and pay MORE for helping
+		someone earlier in the game than you. credit() is the one door every
+		qualifying act comes through — raid defence today (RaidService), visitor
+		repair today (Tycoon's repair observer, wired in Main.server), parties and
+		co-combat when #102 and the wave pot arrive.
+
+		THE REWARD IS DELIBERATELY SMALL. A persistent reputation number, and
+		BoostMinutes of a BoostMultiplier on income for both sides. At this scale
+		two accounts farming each other is acceptable — friends helping friends is
+		the behaviour being bought — which is what removes the need for an abuse
+		system. The one guard is the per-pair cooldown, and it exists so a tame
+		pair cannot hold a boost forever.
+
+		THE WEIGHT IS THE POINT. Each rebirth the helper has over the helped adds
+		GapWeightPerRebirth, capped at MaxWeight; the weight scales the reputation
+		earned and the helper's boost minutes. A veteran pulling a new player up
+		comes out ahead of two peers pairing, which is the issue's whole ask.
+
+		The boost is a named Economy multiplier hook ("help"), the SessionService
+		shape: an O(1) expiry read, registered at boot so the require arrow keeps
+		pointing at Economy. Clocks are parameters everywhere except the hook,
+		which reads os.clock() — the spec harness patches it.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Util = Req("Util")
+	local Economy = Req("Economy")
+	local DataService = Req("DataService")
+
+	local Players = game:GetService("Players")
+
+	local HelpService = {}
+
+	local H = Config.Help
+
+	-- boost expiry per player, monotonic seconds. The multiplier hook reads it.
+	local boostUntil: { [Player]: number } = {}
+
+	-- per helper: { [helpedUserId] = cooldown-end }. One pair, one credit per
+	-- window.
+	local lastCredit: { [Player]: { [number]: number } } = {}
+
+	--- The gap weighting: 1 plus GapWeightPerRebirth per rebirth the helper has
+	--- over the helped, capped. Helping DOWN the ladder is what pays extra;
+	--- helping up or across pays the base.
+	function HelpService.weightFor(helper: Player, helped: Player): number
+		local hp = DataService.get(helper)
+		local ep = DataService.get(helped)
+		if not hp or not ep then
+			return 1
+		end
+		local gap = math.max(0, hp.rebirths - ep.rebirths)
+		return math.min(H.MaxWeight, 1 + H.GapWeightPerRebirth * gap)
+	end
+
+	--- Seconds of boost left, for the HUD and the specs.
+	function HelpService.boostRemaining(player: Player, now: number): number
+		return math.max(0, (boostUntil[player] or 0) - now)
+	end
+
+	local function extendBoost(player: Player, minutes: number, now: number)
+		local from = math.max(boostUntil[player] or 0, now)
+		boostUntil[player] = math.min(from + minutes * 60, now + H.MaxBoostMinutes * 60)
+	end
+
+	--- The one door. Every qualifying kindness lands here; `kind` names the act
+	--- for the notification. Returns the reputation earned — 0 when refused
+	--- (self-help, a missing profile, or the pair inside its cooldown).
+	function HelpService.credit(helper: Player, helped: Player, kind: string, now: number): number
+		if helper == helped then
+			return 0
+		end
+		local profile = DataService.get(helper)
+		if not profile or not DataService.get(helped) then
+			return 0
+		end
+
+		local pairs_ = lastCredit[helper]
+		if pairs_ and (pairs_[helped.UserId] or 0) > now then
+			return 0
+		end
+		if not pairs_ then
+			pairs_ = {}
+			lastCredit[helper] = pairs_
+		end
+		pairs_[helped.UserId] = now + H.PairCooldownSeconds
+
+		local weight = HelpService.weightFor(helper, helped)
+		profile.reputation = (profile.reputation or 0) + weight
+		Economy.markDirty(helper)
+
+		extendBoost(helper, H.BoostMinutes * weight, now)
+		extendBoost(helped, H.BoostMinutes, now)
+
+		Economy.notify(helper, { kind = "claim", title = "Good deed",
+			body = ("+%s Rep for %s — income boosted %d min."):format(
+				Util.abbreviate(weight), kind, math.floor(HelpService.boostRemaining(helper, now) / 60)) })
+		Economy.notify(helped, { kind = "info", title = "Helped",
+			body = ("%s had your back (%s) — income boosted %d min."):format(
+				helper.Name, kind, math.floor(HelpService.boostRemaining(helped, now) / 60)) })
+		return weight
+	end
+
+	function HelpService.start()
+		-- the boost, as a named multiplier: an O(1) table read, per the Economy
+		-- hook contract
+		Economy.setMultiplierHook("help", function(player)
+			if (boostUntil[player] or 0) > os.clock() then
+				return H.BoostMultiplier
+			end
+			return 1
+		end)
+		Players.PlayerRemoving:Connect(function(player)
+			boostUntil[player] = nil
+			lastCredit[player] = nil
+		end)
+	end
+
+	return HelpService
 end
 
 
@@ -10413,6 +10577,7 @@ __MODULES["RaidService"] = function()
 	local Config = Req("Config")
 	local Util = Req("Util")
 	local Economy = Req("Economy")
+	local HelpService = Req("HelpService")
 
 	local Players = game:GetService("Players")
 
@@ -10561,6 +10726,12 @@ __MODULES["RaidService"] = function()
 						Economy.notify(source, { kind = "claim", title = "Recovered",
 							body = ("%s went down — %s of your Tung came home.")
 								:format(victim.Name, Util.abbreviate(returned)) })
+					end
+					-- downing a thief is a kindness to everyone they robbed;
+					-- getting your OWN money back is self-interest, and credit()
+					-- refuses self-help anyway
+					if killer and killer ~= source then
+						HelpService.credit(killer, source, "raid defence", now)
 					end
 				end
 			end
@@ -16295,8 +16466,8 @@ end
 
 __MODULES["Siege"] = function()
 	--[[
-		tycoon/Siege.lua — the walls and the gate can be broken, and the owner
-		repairs them.
+		tycoon/Siege.lua — the walls and the gate can be broken, and anyone
+		present can stand them back up.
 
 		design:D-02, via #124. The wall is the boundary the open world will press
 		against: mobs will wear it down when #89 lets them reach it, a raiding
@@ -16324,8 +16495,10 @@ __MODULES["Siege"] = function()
 		same door when #89 wires them.
 
 		NO REMOTE, the CollectOffline argument: a repair intent has no payload, so
-		the ProximityPrompt on the stump is the whole interface and the handler
-		re-checks the owner.
+		the ProximityPrompt on the stump is the whole interface. Since #123 the
+		repair is open to anyone — it only ever helps the plot — and a stranger's
+		repair earns a kindness credit through Tycoon.repairObserver, with the
+		breaker themselves the one exclusion.
 	]]
 
 	local Req = __Req
@@ -16529,6 +16702,10 @@ __MODULES["Siege"] = function()
 		if amount <= 0 or self:structureBroken(key) then
 			return 0
 		end
+		if _attacker then
+			self.lastBreaker = self.lastBreaker or {}
+			self.lastBreaker[key] = _attacker
+		end
 		self.structureHealth[key] = math.max(0, self.structureHealth[key] - amount)
 		if self.structureHealth[key] <= 0 then
 			self:withWallRing(function(ring)
@@ -16539,13 +16716,29 @@ __MODULES["Siege"] = function()
 		return amount
 	end
 
-	--- The owner, present, holding the prompt: the whole repair. The rebuild path
-	--- is the ring's own idempotent builders — rebuildWallRing re-emits the
-	--- courses and hangGateLeaves the leaves, and applySiegeState (now healthy)
-	--- leaves them standing.
+	-- Fired when someone repairs a plot that is not theirs (#123). Main.server
+	-- points it at HelpService.credit; the arrow stays one-way, the observer
+	-- shape everything else here uses.
+	Tycoon.repairObserver = nil :: ((any, Player) -> ())?
+
+	--- Anyone present, holding the prompt: the whole repair (#123 opened it past
+	--- the owner — a repair only ever helps the plot). A helper earns credit
+	--- through the observer; the one refusal is the breaker themselves, so
+	--- break-and-repair cannot farm kindness. The rebuild path is the ring's own
+	--- idempotent builders — rebuildWallRing re-emits the courses and
+	--- hangGateLeaves the leaves, and applySiegeState (now healthy) leaves them
+	--- standing.
 	function Tycoon:repairStructure(key: string, player: Player): boolean
-		if player ~= self.owner or not self:structureBroken(key) then
+		if not self:structureBroken(key) then
 			return false
+		end
+		local breaker = self.lastBreaker and self.lastBreaker[key]
+		if self.lastBreaker then
+			self.lastBreaker[key] = nil
+		end
+		if player ~= self.owner and self.owner and player ~= breaker
+				and Tycoon.repairObserver then
+			Tycoon.repairObserver(self, player)
 		end
 		self.structureHealth[key] = self:siegeMaxHealth(key)
 		self:syncSiege()
@@ -16612,7 +16805,7 @@ end
 __MODULES["Storage"] = function()
 	--[[
 		tycoon/Storage.lua — the storage unit's health, and the repair that needs
-		the owner standing at it.
+		someone standing at it.
 
 		design:D-02, via #93 — the vault body is the storage unit: it has health, a
 		raider hits it with a bat, and while it is broken the plot cannot bank
@@ -16632,8 +16825,10 @@ __MODULES["Storage"] = function()
 
 		NO REMOTE, same argument as CollectOffline: the repair intent has no
 		payload, so there is no number for a client to send and none for the server
-		to disbelieve. The ProximityPrompt is only enabled while broken, and the
-		handler re-checks the owner anyway.
+		to disbelieve. The ProximityPrompt is only enabled while broken. Since #123
+		anyone may repair — it only ever helps the plot — and a stranger's repair
+		earns a kindness credit through Tycoon.repairObserver, with the breaker
+		themselves the one exclusion.
 	]]
 
 	local Req = __Req
@@ -16735,6 +16930,7 @@ __MODULES["Storage"] = function()
 			if base and base.Parent then
 				base.Color = BROKEN_COLOR
 			end
+			self.storageBreaker = attacker
 			if attacker and Tycoon.storageBreakObserver then
 				Tycoon.storageBreakObserver(self, attacker)
 			end
@@ -16743,11 +16939,18 @@ __MODULES["Storage"] = function()
 		return scaled
 	end
 
-	--- The owner, present, pressing the thing: the whole repair. Anyone else, or
-	--- an intact unit, is refused.
+	--- Anyone present, pressing the thing: the whole repair (#123 opened it past
+	--- the owner). A helper earns credit through the repair observer; the breaker
+	--- themselves is the one refusal, so break-and-repair cannot farm kindness.
 	function Tycoon:repairStorage(player: Player): boolean
-		if player ~= self.owner or not self.storage.broken then
+		if not self.storage.broken then
 			return false
+		end
+		local breaker = self.storageBreaker
+		self.storageBreaker = nil
+		if player ~= self.owner and self.owner and player ~= breaker
+				and Tycoon.repairObserver then
+			Tycoon.repairObserver(self, player)
 		end
 		self.storage.health = S.MaxHealth
 		self.storage.broken = false
@@ -17130,6 +17333,7 @@ local Economy = Req("Economy")
 local CombatService = Req("CombatService")
 local MovementService = Req("MovementService")
 local RaidService = Req("RaidService")
+local HelpService = Req("HelpService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -17206,6 +17410,12 @@ Tycoon.storageBreakObserver = function(tycoon, attacker)
 	RaidService.onStorageBroken(tycoon, attacker, os.clock())
 end
 RaidService.start()
+-- Helping pays (#123): the boost hook registers, and repairing someone
+-- else's plot lands as a kindness credit.
+Tycoon.repairObserver = function(tycoon, player)
+	HelpService.credit(player, tycoon.owner, "repairs", os.clock())
+end
+HelpService.start()
 SocialService.start()
 
 -- 6. players

@@ -744,6 +744,29 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   CFrame arithmetic the harness does not claim. `[nothing]` the rectangle test
   itself; Studio owns it, HANDOFF_v17 names it.
 
+### Helping (#123)
+
+- **`HelpService.credit` is the one door kindness comes through.** Raid defence
+  (RaidService's death path) and visitor repair (`Tycoon.repairObserver`, wired
+  in Main.server) land there today; parties (#102) and wave co-combat join the
+  same door later. The weight — 1 plus `GapWeightPerRebirth` per rebirth of
+  lead, capped — scales the reputation AND the helper's boost minutes, and only
+  a lead counts: helping up or across pays the base. `[spec]` `help_spec.lua`,
+  falsified on `math.abs`.
+- **Repair is open to anyone, and the breaker is the one exclusion.** A repair
+  only ever helps the plot, so the guard moved off the owner; `lastBreaker` /
+  `storageBreaker` remember who broke a thing so break-and-repair cannot farm
+  credit. `[spec]` in siege_spec and storage_spec, falsified by dropping the
+  exclusion.
+- **One pair, one credit per `PairCooldownSeconds`,** and the cooldown outlasts
+  the boost one credit grants, so a tame pair cannot hold a boost forever —
+  which is the entire abuse story, by design. `[assert]` + `[spec]`, both
+  falsified.
+- **`profile.reputation` lives in BOTH `defaultProfile()` and the save
+  payload,** with a round-trip spec. `[spec]`
+- The boost is the named Economy multiplier hook `"help"` — an O(1) expiry
+  read, the SessionService shape. `[spec]` through `Economy.multiplier`.
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch

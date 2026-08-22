@@ -139,6 +139,11 @@ function Economy.setupLeaderstats(player: Player)
 	kos.Name = "KOs"
 	kos.Value = profile.kills
 	kos.Parent = folder
+
+	local rep = Instance.new("IntValue")
+	rep.Name = "Rep"
+	rep.Value = math.floor(profile.reputation or 0)
+	rep.Parent = folder
 end
 
 local function syncLeaderstats(player: Player)
@@ -158,6 +163,10 @@ local function syncLeaderstats(player: Player)
 	local kos = folder:FindFirstChild("KOs")
 	if kos then
 		(kos :: IntValue).Value = profile.kills
+	end
+	local rep = folder:FindFirstChild("Rep")
+	if rep then
+		(rep :: IntValue).Value = math.floor(profile.reputation or 0)
 	end
 end
 

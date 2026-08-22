@@ -1,6 +1,6 @@
 --[[
 	tycoon/Storage.lua — the storage unit's health, and the repair that needs
-	the owner standing at it.
+	someone standing at it.
 
 	design:D-02, via #93 — the vault body is the storage unit: it has health, a
 	raider hits it with a bat, and while it is broken the plot cannot bank
@@ -20,8 +20,10 @@
 
 	NO REMOTE, same argument as CollectOffline: the repair intent has no
 	payload, so there is no number for a client to send and none for the server
-	to disbelieve. The ProximityPrompt is only enabled while broken, and the
-	handler re-checks the owner anyway.
+	to disbelieve. The ProximityPrompt is only enabled while broken. Since #123
+	anyone may repair — it only ever helps the plot — and a stranger's repair
+	earns a kindness credit through Tycoon.repairObserver, with the breaker
+	themselves the one exclusion.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
@@ -123,6 +125,7 @@ function Tycoon:damageStorage(amount: number, attacker: Player?): number
 		if base and base.Parent then
 			base.Color = BROKEN_COLOR
 		end
+		self.storageBreaker = attacker
 		if attacker and Tycoon.storageBreakObserver then
 			Tycoon.storageBreakObserver(self, attacker)
 		end
@@ -131,11 +134,18 @@ function Tycoon:damageStorage(amount: number, attacker: Player?): number
 	return scaled
 end
 
---- The owner, present, pressing the thing: the whole repair. Anyone else, or
---- an intact unit, is refused.
+--- Anyone present, pressing the thing: the whole repair (#123 opened it past
+--- the owner). A helper earns credit through the repair observer; the breaker
+--- themselves is the one refusal, so break-and-repair cannot farm kindness.
 function Tycoon:repairStorage(player: Player): boolean
-	if player ~= self.owner or not self.storage.broken then
+	if not self.storage.broken then
 		return false
+	end
+	local breaker = self.storageBreaker
+	self.storageBreaker = nil
+	if player ~= self.owner and self.owner and player ~= breaker
+			and Tycoon.repairObserver then
+		Tycoon.repairObserver(self, player)
 	end
 	self.storage.health = S.MaxHealth
 	self.storage.broken = false
