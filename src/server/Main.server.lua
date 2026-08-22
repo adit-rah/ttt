@@ -20,6 +20,7 @@ local HelpService = Req("HelpService")
 local PartyService = Req("PartyService")
 local RecallService = Req("RecallService")
 local TowerService = Req("TowerService")
+local DisclosureService = Req("DisclosureService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -112,6 +113,9 @@ RecallService.start()
 -- The tower (#95): after NPCService (it spawns through the minting site) and
 -- PartyService (a climb brings the presser's whole party).
 TowerService.start()
+-- Disclosure (#96): the beat that grows each player's interface, and the
+-- gate NPCService reads before a plot's first siege.
+DisclosureService.start()
 SocialService.start()
 
 -- 6. players

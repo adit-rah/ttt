@@ -83,6 +83,9 @@ local state = {
 	-- is never shown optimistically: account policy can refuse invites outright
 	-- and a button that errors when a child presses it is worse than no button.
 	canInvite = false,
+	-- #96: the unlocked surface set, pushed whole by DisclosureService. The
+	-- client renders it and decides nothing.
+	disclosed = {},
 }
 
 local gui, root, overlay, rootScale, overlayScale, rootPadding
@@ -94,6 +97,10 @@ local waveFrame, waveLabel, toastList, rebirthButton
 -- local nothing reads is a local that outlives the reason it was added.
 local nextLabel, nextFill, nextDetail
 local bossTrack, bossFill
+-- #96's help card, and its builder — declared here because the rail builder
+-- above the definition calls it
+local helpPanel
+local buildHelp
 
 -- The panel vocabulary, aliased so every call site below reads exactly as it
 -- did when these were five local functions in this file. They are UiKit's now;
@@ -348,6 +355,7 @@ local function buildUtilityRail(parent: Instance)
 
 	local slot
 	inviteButton, slot, inviteCaption = UiKit.railItem(rail, "Invite", PALETTE.good)
+	buildHelp(rail)
 	UiKit.personPlus(slot, RAIL.GlyphSize, UiKit.INK, PALETTE.good)
 	-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 	-- control does not exist. See refreshInvite.
@@ -524,11 +532,98 @@ end
 --- is the offer; with somebody here it reads what you are already getting, in the
 --- good colour, which is the receipt. An icon with no number is a button a child
 --- presses to find out what it does.
+--- #96: whether a surface has been earned. Every gated panel asks this at
+--- render, and applyDisclosure re-renders them all when the set grows.
+function HUD.disclosed(id: string): boolean
+	return state.disclosed[id] == true
+end
+
+-- Panels outside this file (SessionUI, PartyUI) register here; the set only
+-- ever grows, so a re-render on push is the whole protocol.
+local disclosureListeners: { () -> () } = {}
+
+function HUD.onDisclosure(fn: () -> ())
+	table.insert(disclosureListeners, fn)
+end
+
+--- #96's help surface: a "?" on the rail, and a card on the overlay that
+--- lists ONLY what this player has unlocked — it grows with them, so it can
+--- never become a manual. Rebuilt from Config.Disclosure on every open.
+local function renderHelp()
+	if not helpPanel then
+		return
+	end
+	for _, child in ipairs(helpPanel:GetChildren()) do
+		if child:IsA("TextLabel") or child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+	local y = 12
+	UiKit.text(helpPanel, {
+		Size = UDim2.new(1, -24, 0, 22),
+		Position = UDim2.fromOffset(12, y),
+		Font = Style.Font.head,
+		Text = "WHAT YOU HAVE SO FAR",
+		TextSize = 16,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = PALETTE.gold,
+	})
+	y += 30
+	for _, row in ipairs(Config.Disclosure) do
+		if HUD.disclosed(row.id) then
+			UiKit.text(helpPanel, {
+				Size = UDim2.new(1, -24, 0, 16),
+				Position = UDim2.fromOffset(12, y),
+				Font = Style.Font.body,
+				Text = row.name,
+				TextSize = 14,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = PALETTE.accent,
+			})
+			y += 17
+			local body = UiKit.text(helpPanel, {
+				Size = UDim2.new(1, -36, 0, 28),
+				Position = UDim2.fromOffset(24, y),
+				Font = Style.Font.body,
+				Text = row.help,
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = PALETTE.muted,
+			})
+			body.TextWrapped = true
+			y += 34
+		end
+	end
+	helpPanel.Size = UDim2.fromOffset(320, y + 8)
+end
+
+function buildHelp(rail)
+	local button = UiKit.railItem(rail, "Help", PALETTE.accent)
+	button.Text = "?"
+	helpPanel = UiKit.panel(overlay, UDim2.fromOffset(320, 60), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	helpPanel.Name = "Help"
+	helpPanel.Visible = false
+	button.Activated:Connect(function()
+		helpPanel.Visible = not helpPanel.Visible
+		if helpPanel.Visible then
+			renderHelp()
+		end
+	end)
+	local close = UiKit.button(helpPanel, "CLOSE", PALETTE.bad, {
+		Size = UDim2.fromOffset(64, 22),
+		Position = UDim2.new(1, -72, 0, 8),
+	})
+	close.Activated:Connect(function()
+		helpPanel.Visible = false
+	end)
+end
+
 local function refreshInvite()
 	if not inviteButton then
 		return
 	end
 	inviteButton.Visible = state.canInvite and state.friends < state.friendCap
+		and HUD.disclosed("social")
 	if state.friends > 0 then
 		inviteCaption.Text = ("+%d%%"):format(friendPercent(state.friends))
 		inviteCaption.TextColor3 = UiKit.INK
@@ -551,6 +646,12 @@ local function renderTerms()
 	if not termsLabel then
 		return
 	end
+	-- #96: the multiplier vocabulary waits until there is more than one term
+	-- to speak of
+	if not HUD.disclosed("terms") then
+		termsLabel.Text = ""
+		return
+	end
 	local parts = {
 		("%d rebirth%s"):format(state.rebirths, state.rebirths == 1 and "" or "s"),
 		("%d KO%s"):format(state.kills, state.kills == 1 and "" or "s"),
@@ -560,6 +661,18 @@ local function renderTerms()
 	end
 	termsLabel.Text = table.concat(parts, "  •  ")
 	termsLabel.TextColor3 = state.friends > 0 and PALETTE.good or PALETTE.muted
+end
+
+function HUD.applyDisclosure(payload)
+	state.disclosed = {}
+	for _, id in ipairs(payload.ids or {}) do
+		state.disclosed[id] = true
+	end
+	renderTerms()
+	refreshInvite()
+	for _, fn in ipairs(disclosureListeners) do
+		fn()
+	end
 end
 
 --- BOTH SocialService calls YIELD, so neither may run on the signal thread —
@@ -1025,6 +1138,7 @@ function HUD.start()
 	Net.event("Stats").OnClientEvent:Connect(HUD.applyStats)
 	Net.event("WaveState").OnClientEvent:Connect(HUD.applyWave)
 	Net.event("SocialState").OnClientEvent:Connect(HUD.applySocial)
+	Net.event("Disclosure").OnClientEvent:Connect(HUD.applyDisclosure)
 
 	-- Ask ONCE, off the main thread, whether this account may send invites at
 	-- all. The answer decides whether the button ever appears; it is not asked

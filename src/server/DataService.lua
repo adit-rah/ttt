@@ -100,6 +100,10 @@ local function defaultProfile()
 		-- from profile.rebirths on every read, so it could only ever go stale;
 		-- it is gone, and a save that still carries one is simply ignored.
 		lastSeen = 0,
+		-- #96: the disclosure high-water — { [surfaceId] = true }. Written
+		-- once per surface, never cleared: nothing disappears once shown, and
+		-- a returning player is never re-onboarded.
+		disclosed = {},
 		-- #95: the tower — the UTC day last climbed and the best floor
 		-- reached that day. Compared against today's day number on read, so
 		-- yesterday's best resets by arithmetic instead of by a job.
@@ -235,6 +239,7 @@ local function payloadOf(profile)
 		kills = profile.kills,
 		playtime = profile.playtime,
 		lastSeen = profile.lastSeen,
+		disclosed = profile.disclosed,
 		tower = profile.tower,
 		reputation = profile.reputation,
 		structure = profile.structure,

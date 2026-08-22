@@ -696,10 +696,15 @@ local function stepPlotSieges(now: number)
 			end
 
 			if state.phase == "resting" then
-				if now >= state.phaseUntil and concurrent < PW.MaxConcurrent then
+				-- #96: the siege is a GATED disclosure — a raid siren in the
+				-- first minute is the overload the system exists to prevent.
+				-- The high-water lives on the profile, so the gate and the
+				-- interface cannot disagree.
+				local profile = DataService.get(owner)
+				local disclosed = profile and profile.disclosed and profile.disclosed.siege == true
+				if disclosed and now >= state.phaseUntil and concurrent < PW.MaxConcurrent then
 					concurrent += 1
 					local counts = tycoon:landState()
-					local profile = DataService.get(owner)
 					state.level = Config.plotWaveLevel(counts.left + counts.right,
 						profile and profile.rebirths or 0)
 					state.count = math.min(PW.BaseCount + math.floor(state.level / 3), PW.MaxCount)

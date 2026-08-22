@@ -1095,6 +1095,41 @@ do
 			:format(PT.InviteTimeoutSeconds))
 end
 
+-- ── disclosure (#96) ───────────────────────────────────────────────────────
+--
+-- The sixty-second screen is the always-on set below, and it is held SMALL;
+-- everything else is earned. A row that points at a button nobody can buy is
+-- a surface that never arrives.
+do
+	local seen = {}
+	local alwaysOn = {}
+	for _, row in ipairs(Config.Disclosure) do
+		check(type(row.id) == "string" and not seen[row.id],
+			("Disclosure row %q is missing an id or repeats one"):format(tostring(row.id)))
+		seen[row.id] = true
+		check(type(row.name) == "string" and type(row.help) == "string",
+			("Disclosure.%s has no name or no help line — the help card reads both"):format(tostring(row.id)))
+		check(#row.help <= 160,
+			("Disclosure.%s's help line is %d chars; past 160 the card is a manual"):format(row.id, #row.help))
+		if row.after then
+			check(Config.ButtonById[row.after] ~= nil,
+				("Disclosure.%s waits for %q, which is not a button — the surface never arrives"):format(row.id, tostring(row.after)))
+		else
+			table.insert(alwaysOn, row.id)
+		end
+		if row.gate then
+			check(row.after ~= nil,
+				("Disclosure.%s gates gameplay with no trigger — the system would never run"):format(row.id))
+		end
+	end
+	check(#alwaysOn <= 3,
+		("%d surfaces are on from the first second; past 3 the sixty-second screen is the overload again")
+			:format(#alwaysOn))
+	check(seen.siege == true, "the siege row is gone — plot raids would fire on minute one")
+	print(("  disclosure: minute one shows [%s]; %d surfaces are earned")
+		:format(table.concat(alwaysOn, ", "), #Config.Disclosure - #alwaysOn))
+end
+
 -- ── the tower (#95) ────────────────────────────────────────────────────────
 --
 -- Fighting must beat waiting, a run must fit in a sitting's remainder, and

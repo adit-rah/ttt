@@ -2368,6 +2368,41 @@ __MODULES["Config"] = function()
 		PairCooldownSeconds = 300,
 	}
 
+	-- design:D-05, via #96 — PROGRESSIVE DISCLOSURE. The game starts small and
+	-- grows its own interface: a surface takes up space only once the player can
+	-- use it, every arrival is earned by something they just did, and nothing
+	-- ever disappears once shown. The high-water lives in profile.disclosed, so
+	-- a returning player sees what they earned and is never re-onboarded.
+	--
+	-- `after` is a Config.Buttons id; owning it (or the rebirth count, for the
+	-- rebirths form) is the earn. A row with no `after` is on from the first
+	-- second — that set IS the sixty-second screen, and the verifier prints it.
+	-- `gate = true` rows gate GAMEPLAY as well as pixels: the plot siege waits
+	-- for its row, because a raid siren in your first minute is the overload
+	-- this whole system exists to prevent.
+	Config.Disclosure = {
+		{ id = "hud", name = "Your factory", help = "Buy droppers, follow the gold beacon. The vault banks what the machines earn." },
+		{ id = "movement", name = "Sprint and dash", help = "Hold Shift to sprint, Q to dash. On touch: RUN and DASH, bottom left." },
+		{ id = "terms", after = "dropper2", name = "Multipliers", help = "The line under your cash names every bonus you hold." },
+		{ id = "session", after = "dropper3", name = "Streaks and boosts", help = "The session panel: daily streak, playtime ladder, the boost button." },
+		{ id = "social", after = "dropper4", name = "Friends pay", help = "Every friend in the server is +10% income. Invite from the status card." },
+		{ id = "world", after = "dropper5", name = "The world outside", help = "Sahur roam the grass — weakest near the plots, strongest in the middle. Kills pay." },
+		{ id = "siege", after = "walls", gate = true, name = "Raids on your plot", help = "Sahur press your gate now and then. The siren gives you time to run home; repair what breaks." },
+		{ id = "party", after = "walls", name = "Parties", help = "Party up from the left card: no friendly fire, shared gates, +5% income each." },
+		{ id = "recall", after = "walls", name = "Recall", help = "H (or HOME on touch) walks you home after six still seconds. Never with stolen Tung." },
+		{ id = "raiding", after = "gates", name = "Raiding", help = "Break a storage unit, carry the spill home. Half their cap is always safe; camping pays half each repeat." },
+		{ id = "tower", after = "power1", name = "The tower", help = "The spire at the core's edge. A new deck of floors every day; each floor pays minutes of your income." },
+	}
+
+	--- Whether one disclosure row is earned. `has` answers ownership, the same
+	--- shape incomeRate reads.
+	function Config.disclosureEarned(row, has: (string) -> boolean): boolean
+		if not row.after then
+			return true
+		end
+		return has(row.after)
+	end
+
 	-- design:D-04, via #95 — THE TOWER. Combat with a shape: floors of waves,
 	-- bosses, timed kills and survival, composed fresh each UTC day from the day
 	-- seed so a run cannot be memorised, climbed by a party (#102) or alone.
@@ -4434,6 +4469,10 @@ __MODULES["Net"] = function()
 		-- Recall (#103). The intent has no payload; the server owns the cast, the
 		-- cancel rules and the cooldown.
 		"RequestRecall", -- C->S (no payload)
+
+		-- Disclosure (#96): the server owns the high-water and pushes the whole
+		-- unlocked set; the client only renders it.
+		"Disclosure",    -- S->C { ids = { id, ... } }
 
 		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 		-- demand so a client that connects with a flag off still resolves them and
@@ -6583,6 +6622,9 @@ __MODULES["HUD"] = function()
 		-- is never shown optimistically: account policy can refuse invites outright
 		-- and a button that errors when a child presses it is worse than no button.
 		canInvite = false,
+		-- #96: the unlocked surface set, pushed whole by DisclosureService. The
+		-- client renders it and decides nothing.
+		disclosed = {},
 	}
 
 	local gui, root, overlay, rootScale, overlayScale, rootPadding
@@ -6594,6 +6636,10 @@ __MODULES["HUD"] = function()
 	-- local nothing reads is a local that outlives the reason it was added.
 	local nextLabel, nextFill, nextDetail
 	local bossTrack, bossFill
+	-- #96's help card, and its builder — declared here because the rail builder
+	-- above the definition calls it
+	local helpPanel
+	local buildHelp
 
 	-- The panel vocabulary, aliased so every call site below reads exactly as it
 	-- did when these were five local functions in this file. They are UiKit's now;
@@ -6848,6 +6894,7 @@ __MODULES["HUD"] = function()
 
 		local slot
 		inviteButton, slot, inviteCaption = UiKit.railItem(rail, "Invite", PALETTE.good)
+		buildHelp(rail)
 		UiKit.personPlus(slot, RAIL.GlyphSize, UiKit.INK, PALETTE.good)
 		-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 		-- control does not exist. See refreshInvite.
@@ -7024,11 +7071,98 @@ __MODULES["HUD"] = function()
 	--- is the offer; with somebody here it reads what you are already getting, in the
 	--- good colour, which is the receipt. An icon with no number is a button a child
 	--- presses to find out what it does.
+	--- #96: whether a surface has been earned. Every gated panel asks this at
+	--- render, and applyDisclosure re-renders them all when the set grows.
+	function HUD.disclosed(id: string): boolean
+		return state.disclosed[id] == true
+	end
+
+	-- Panels outside this file (SessionUI, PartyUI) register here; the set only
+	-- ever grows, so a re-render on push is the whole protocol.
+	local disclosureListeners: { () -> () } = {}
+
+	function HUD.onDisclosure(fn: () -> ())
+		table.insert(disclosureListeners, fn)
+	end
+
+	--- #96's help surface: a "?" on the rail, and a card on the overlay that
+	--- lists ONLY what this player has unlocked — it grows with them, so it can
+	--- never become a manual. Rebuilt from Config.Disclosure on every open.
+	local function renderHelp()
+		if not helpPanel then
+			return
+		end
+		for _, child in ipairs(helpPanel:GetChildren()) do
+			if child:IsA("TextLabel") or child:IsA("Frame") then
+				child:Destroy()
+			end
+		end
+		local y = 12
+		UiKit.text(helpPanel, {
+			Size = UDim2.new(1, -24, 0, 22),
+			Position = UDim2.fromOffset(12, y),
+			Font = Style.Font.head,
+			Text = "WHAT YOU HAVE SO FAR",
+			TextSize = 16,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = PALETTE.gold,
+		})
+		y += 30
+		for _, row in ipairs(Config.Disclosure) do
+			if HUD.disclosed(row.id) then
+				UiKit.text(helpPanel, {
+					Size = UDim2.new(1, -24, 0, 16),
+					Position = UDim2.fromOffset(12, y),
+					Font = Style.Font.body,
+					Text = row.name,
+					TextSize = 14,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					TextColor3 = PALETTE.accent,
+				})
+				y += 17
+				local body = UiKit.text(helpPanel, {
+					Size = UDim2.new(1, -36, 0, 28),
+					Position = UDim2.fromOffset(24, y),
+					Font = Style.Font.body,
+					Text = row.help,
+					TextSize = 12,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					TextColor3 = PALETTE.muted,
+				})
+				body.TextWrapped = true
+				y += 34
+			end
+		end
+		helpPanel.Size = UDim2.fromOffset(320, y + 8)
+	end
+
+	function buildHelp(rail)
+		local button = UiKit.railItem(rail, "Help", PALETTE.accent)
+		button.Text = "?"
+		helpPanel = UiKit.panel(overlay, UDim2.fromOffset(320, 60), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+		helpPanel.Name = "Help"
+		helpPanel.Visible = false
+		button.Activated:Connect(function()
+			helpPanel.Visible = not helpPanel.Visible
+			if helpPanel.Visible then
+				renderHelp()
+			end
+		end)
+		local close = UiKit.button(helpPanel, "CLOSE", PALETTE.bad, {
+			Size = UDim2.fromOffset(64, 22),
+			Position = UDim2.new(1, -72, 0, 8),
+		})
+		close.Activated:Connect(function()
+			helpPanel.Visible = false
+		end)
+	end
+
 	local function refreshInvite()
 		if not inviteButton then
 			return
 		end
 		inviteButton.Visible = state.canInvite and state.friends < state.friendCap
+			and HUD.disclosed("social")
 		if state.friends > 0 then
 			inviteCaption.Text = ("+%d%%"):format(friendPercent(state.friends))
 			inviteCaption.TextColor3 = UiKit.INK
@@ -7051,6 +7185,12 @@ __MODULES["HUD"] = function()
 		if not termsLabel then
 			return
 		end
+		-- #96: the multiplier vocabulary waits until there is more than one term
+		-- to speak of
+		if not HUD.disclosed("terms") then
+			termsLabel.Text = ""
+			return
+		end
 		local parts = {
 			("%d rebirth%s"):format(state.rebirths, state.rebirths == 1 and "" or "s"),
 			("%d KO%s"):format(state.kills, state.kills == 1 and "" or "s"),
@@ -7060,6 +7200,18 @@ __MODULES["HUD"] = function()
 		end
 		termsLabel.Text = table.concat(parts, "  •  ")
 		termsLabel.TextColor3 = state.friends > 0 and PALETTE.good or PALETTE.muted
+	end
+
+	function HUD.applyDisclosure(payload)
+		state.disclosed = {}
+		for _, id in ipairs(payload.ids or {}) do
+			state.disclosed[id] = true
+		end
+		renderTerms()
+		refreshInvite()
+		for _, fn in ipairs(disclosureListeners) do
+			fn()
+		end
 	end
 
 	--- BOTH SocialService calls YIELD, so neither may run on the signal thread —
@@ -7525,6 +7677,7 @@ __MODULES["HUD"] = function()
 		Net.event("Stats").OnClientEvent:Connect(HUD.applyStats)
 		Net.event("WaveState").OnClientEvent:Connect(HUD.applyWave)
 		Net.event("SocialState").OnClientEvent:Connect(HUD.applySocial)
+		Net.event("Disclosure").OnClientEvent:Connect(HUD.applyDisclosure)
 
 		-- Ask ONCE, off the main thread, whether this account may send invites at
 		-- all. The answer decides whether the button ever appears; it is not asked
@@ -7904,7 +8057,10 @@ __MODULES["PartyUI"] = function()
 		end
 
 		panel.Size = UDim2.fromOffset(WIDTH, P.HeaderHeight + 6 + rows * P.RowHeight)
-		panel.Visible = rows > 0 or state.invite ~= nil
+		-- #96: the card waits for its row — except an incoming invite, which is
+		-- itself the disclosure (someone chose you; hiding that is worse)
+		panel.Visible = (rows > 0 or state.invite ~= nil)
+			and (HUD.disclosed("party") or state.invite ~= nil or #state.members > 1)
 	end
 
 	function PartyUI.start()
@@ -7912,6 +8068,7 @@ __MODULES["PartyUI"] = function()
 		panel.Name = "Party"
 		panel.LayoutOrder = P.LayoutOrder
 
+		HUD.onDisclosure(render)
 		remote().OnClientEvent:Connect(function(payload)
 			state.members = payload.members or {}
 			state.invite = payload.invite
@@ -8523,6 +8680,11 @@ __MODULES["SessionUI"] = function()
 		if not payload or not panel then
 			return
 		end
+		-- #96: the panel arrives when the streak and the ladder mean something
+		if not HUD.disclosed("session") then
+			panel.Visible = false
+			return
+		end
 		panel.Visible = true
 
 		renderDaily(payload.daily)
@@ -8550,6 +8712,7 @@ __MODULES["SessionUI"] = function()
 		-- stack, and taking the column rather than the layer is what stops it having
 		-- an opinion about where that column starts.
 		column = HUD.column()
+		HUD.onDisclosure(render)
 		if not column then
 			-- HUD.start() runs first in Main.client.lua, but a prototype that
 			-- assumes boot order is a prototype that breaks when the boot order
