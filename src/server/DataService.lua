@@ -100,6 +100,10 @@ local function defaultProfile()
 		-- from profile.rebirths on every read, so it could only ever go stale;
 		-- it is gone, and a save that still carries one is simply ignored.
 		lastSeen = 0,
+		-- #124: damaged defences, as { [siegeKey] = fraction of full health },
+		-- only keys below full. Fractions rather than hit points, so the same
+		-- dent survives the max moving when the plot buys land.
+		structure = {},
 		sessions = {},     -- streak / boost / cap / playtime state, shaped by SessionService
 		upgrades = {},     -- { [upgradeId] = level }, shaped by UpgradeService (PROTOTYPE)
 		utilityEquipped = "",  -- a Config.Utilities id; "" rather than nil so the
@@ -224,6 +228,7 @@ local function payloadOf(profile)
 		kills = profile.kills,
 		playtime = profile.playtime,
 		lastSeen = profile.lastSeen,
+		structure = profile.structure,
 		sessions = profile.sessions,
 		upgrades = profile.upgrades,
 		utilityEquipped = profile.utilityEquipped,

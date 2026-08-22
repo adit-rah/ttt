@@ -61,6 +61,9 @@ function Tycoon:assign(player: Player)
 		for _, id in ipairs(ids) do
 			self:install(id, true)
 		end
+		-- After the replay stood the walls up: the saved dents scale onto the
+		-- current maxes and the ring is made to agree (#124).
+		self:restoreSiege(profile)
 	end
 
 	self:refreshButtons()

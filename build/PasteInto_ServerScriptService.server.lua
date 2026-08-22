@@ -7354,6 +7354,10 @@ __MODULES["DataService"] = function()
 			-- from profile.rebirths on every read, so it could only ever go stale;
 			-- it is gone, and a save that still carries one is simply ignored.
 			lastSeen = 0,
+			-- #124: damaged defences, as { [siegeKey] = fraction of full health },
+			-- only keys below full. Fractions rather than hit points, so the same
+			-- dent survives the max moving when the plot buys land.
+			structure = {},
 			sessions = {},     -- streak / boost / cap / playtime state, shaped by SessionService
 			upgrades = {},     -- { [upgradeId] = level }, shaped by UpgradeService (PROTOTYPE)
 			utilityEquipped = "",  -- a Config.Utilities id; "" rather than nil so the
@@ -7478,6 +7482,7 @@ __MODULES["DataService"] = function()
 			kills = profile.kills,
 			playtime = profile.playtime,
 			lastSeen = profile.lastSeen,
+			structure = profile.structure,
 			sessions = profile.sessions,
 			upgrades = profile.upgrades,
 			utilityEquipped = profile.utilityEquipped,
@@ -14821,6 +14826,9 @@ __MODULES["Ownership"] = function()
 			for _, id in ipairs(ids) do
 				self:install(id, true)
 			end
+			-- After the replay stood the walls up: the saved dents scale onto the
+			-- current maxes and the ring is made to agree (#124).
+			self:restoreSiege(profile)
 		end
 
 		self:refreshButtons()
@@ -15599,6 +15607,7 @@ __MODULES["Siege"] = function()
 	local Req = __Req
 	local Config = Req("Config")
 	local Fx = Req("Fx")
+	local DataService = Req("DataService")
 	local Tycoon = Req("Class")
 
 	local S = Config.Structure
@@ -15644,6 +15653,41 @@ __MODULES["Siege"] = function()
 		for _, key in ipairs(self:siegeKeys()) do
 			self.structureHealth[key] = self:siegeMaxHealth(key)
 		end
+	end
+
+	--- Mirror the dents into the profile, as fractions of full health — only
+	--- keys below full, so a healthy plot saves an empty table and a dent
+	--- survives the max moving when the plot buys land. Called on every damage,
+	--- repair and reset; a plot with no owner has no profile to write.
+	function Tycoon:syncSiege()
+		local owner = self.owner
+		local profile = owner and DataService.get(owner)
+		if not profile then
+			return
+		end
+		local out = {}
+		for _, key in ipairs(self:siegeKeys()) do
+			local hp = self.structureHealth[key]
+			local max = self:siegeMaxHealth(key)
+			if hp and hp < max then
+				out[key] = hp / max
+			end
+		end
+		profile.structure = out
+	end
+
+	--- The other half of the round trip, run by assign() after the install
+	--- replay has stood the walls up: saved fractions scale onto the CURRENT
+	--- maxes, and the ring is made to agree.
+	function Tycoon:restoreSiege(profile)
+		for key, fraction in pairs(profile.structure or {}) do
+			if type(fraction) == "number" and self.structureHealth[key] ~= nil then
+				self.structureHealth[key] = self:siegeMaxHealth(key) * math.clamp(fraction, 0, 1)
+			end
+		end
+		self:withWallRing(function(ring)
+			self:applySiegeState(ring)
+		end)
 	end
 
 	function Tycoon:structureBroken(key: string): boolean
@@ -15759,6 +15803,7 @@ __MODULES["Siege"] = function()
 				self:applySiegeState(ring)
 			end)
 		end
+		self:syncSiege()
 		return amount
 	end
 
@@ -15771,6 +15816,7 @@ __MODULES["Siege"] = function()
 			return false
 		end
 		self.structureHealth[key] = self:siegeMaxHealth(key)
+		self:syncSiege()
 		self:rebuildWallRing()
 		local character = player.Character
 		if character and character.PrimaryPart then

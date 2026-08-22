@@ -165,6 +165,7 @@ third value neither round had guessed.
 | retune the curve | `price` values | the economy simulation: build length band, per-purchase waits, the floor's position |
 | move the belt | `Config.Layout.BeltStart/BeltCorner/BeltEnd` | `inPlot`, machine spacing, trigger dwell, drop budget |
 | change the plot's walls or roof | `Config.Structure` (`WallHeight`, `Openings`, `Window`), `GateCentre/GateWidth`; the builder is `buildWallRing` in `src/server/tycoon/Installers.lua`; the PURCHASES are `Config.StructureButtons` | the doorway span, the gateway vs the belt, openings staying on the centre span, the part budget at every land state |
+| retune how walls and gates break | `Config.Structure.Health` | monotone health in level, wall out-lasts gate, no one-swing gate, a maxed gate breaks inside 90 s, repair inside the raid warning |
 | buy the plot more ground | a row pair in `Config.LandLButtons`/`LandRButtons` — widths mirror, prices interleave | the land family: shrinking widths, the 2.5× sum, the pricing margins, the simulated buy order alternating, and the per-state shell checks |
 | change what the room is lit by | `Config.Structure.Lights` | fixtures inside the ring, above the machines and the cabinet signs, `Range` under Roblox's silent 60 clamp, and a sampled coverage check per land state |
 | change the belt's guard rails | `Config.Layout.BeltGuard` | a leg's rail may not overlap another leg's running surface — set `corner` to 0 and watch the deleted rails' bug come back |

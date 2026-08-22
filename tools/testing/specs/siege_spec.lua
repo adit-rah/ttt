@@ -98,6 +98,33 @@ T.spec("part names resolve to stable keys, and only siege parts resolve", functi
 	t:isNil(Tycoon.siegeKeyForPart(named("Fixture_3")), "a light batten is not a wall")
 end)
 
+T.spec("a dent survives the save as a fraction, and scales onto new maxes", function(t)
+	-- The named [nothing] trap: a field in defaultProfile and not in the save
+	-- payload works all session and is gone at next login. This round-trips
+	-- through the REAL DataService save/load, then restores onto a plot one
+	-- land level up, where the same fraction is more hit points.
+	local w = T.world()
+	local Data = w.req("DataService")
+	local player = w.join("veteran")
+	local profile = Data.load(player)
+
+	local plot = fakePlot(w, player)
+	plot:damageStructure("wall_front", plot:siegeMaxHealth("wall_front") * 0.5)
+	t:near(profile.structure.wall_front, 0.5, 1e-9,
+		"half a wall's damage must mirror into the profile as one half")
+
+	t:isTrue(Data.save(player, true), "the save did not go through")
+	local reloaded = Data.load(player)
+	t:ne(reloaded, profile, "the reload handed back the in-memory profile, so nothing was round-tripped")
+	t:near(reloaded.structure.wall_front, 0.5, 1e-9,
+		"the dent did not survive the round trip — the payload is missing the field")
+
+	local grown = fakePlot(w, player, { landL1 = true })
+	grown:restoreSiege(reloaded)
+	t:near(grown.structureHealth.wall_front, grown:siegeMaxHealth("wall_front") * 0.5, 1e-9,
+		"the restored dent did not scale onto the grown wall's max")
+end)
+
 T.spec("one swing hits one key once, and never the swinger's own plot", function(t)
 	local w = T.world()
 	local Tycoon = w.req("Tycoon")
