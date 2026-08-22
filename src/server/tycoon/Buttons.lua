@@ -153,11 +153,14 @@ function Tycoon:buildButtons()
 		-- The track name, not a global ordinal. "STEP 21 OF 30" on a pedestal
 		-- in front of a weapons cabinet tells you nothing; "WEAPONS 2/5" is
 		-- the whole feature explained in three words.
+		-- The CATEGORY, not the internal chain (#125): "PLOT 20/34" is one of
+		-- three kinds of thing, "WEST LAND 5/15" was one of seven ladders.
 		local step = Style.text(frame, {
 			name = "Step", weight = "body",
 			size = UDim2.fromScale(0.94, 0.18), position = UDim2.fromScale(0.03, 0.02),
 			text = ("%s %d/%d"):format(
-				Config.TrackLabel[def.track] or "STEP", def.trackOrder, #Config.Tracks[def.track]),
+				Config.TrackLabel[def.track] or "STEP", def.categoryOrder or def.trackOrder,
+				Config.CategoryCount[def.category] or #Config.Tracks[def.track]),
 			color = Color3.fromRGB(150, 142, 172),
 		})
 
@@ -232,15 +235,6 @@ function Tycoon:requirementsMet(id: string): boolean
 	-- ANDed in here rather than only in refreshButtons, so a stale Touched on a
 	-- pad that is about to be hidden cannot buy through the gate.
 	if not Config.trackUnlocked(def.track, self.owned) then
-		return false
-	end
-	-- The single-button gate, for the same reason and with one difference: a
-	-- track gate hides its pads, so the Touched race is the only way through it.
-	-- This one deliberately leaves the pad STANDING and dimmed (see the preview
-	-- branch in refreshButtons), so the pad it is guarding is one the player can
-	-- physically walk onto for as long as the gate is shut. This line is the
-	-- whole of what stops that being a purchase.
-	if not Config.buttonUnlocked(id, self.owned) then
 		return false
 	end
 	for _, req in ipairs(Config.requirementsOf(def)) do
@@ -370,13 +364,6 @@ function Tycoon:refreshButtons()
 		-- design:D-03 — a gated track is HIDDEN, not previewed, and takes no
 		-- ghost.
 		--
-		-- invariant: Config.buttonUnlocked is DELIBERATELY NOT IN `standing`.
-		-- A false `standing` unparents the holder, which is right for a gated
-		-- cabinet — bare ground until you have earned it — and wrong for a
-		-- button-gated pad standing in a hand-placed line: hiding it opens a
-		-- gap that reads as purchase order. Left out of `standing`, the
-		-- three-state logic below renders a gated pad dimmed with the locked
-		-- voice and a line naming its gate, which is the intended behaviour.
 		local standing = Config.trackUnlocked(def.track, self.owned)
 		local available = (not owned) and standing and self:requirementsMet(id)
 		local preview = (not owned) and (not available) and standing
@@ -410,23 +397,11 @@ function Tycoon:refreshButtons()
 			-- ambiguous across cabinets. The requirement is right here, so say
 			-- it: "locked — buy Oak Sahur Bat first".
 			--
-			-- invariant: THE BUTTON GATE IS CHECKED FIRST, and that ordering is
-			-- the whole reason this reads as an instruction rather than a dead
-			-- end: a chain requirement is by construction the row you just came
-			-- from, while a Config.ButtonUnlock gate names a purchase on a
-			-- different ladder entirely — the surprising blocker of the two,
-			-- and the one the pad has to name or it says the bare word
-			-- "locked" with no way to learn what it is waiting for.
-			local blocker = Config.ButtonById[Config.ButtonUnlock[id] or ""]
-			if blocker and self.owned[blocker.id] then
-				blocker = nil
-			end
-			if not blocker then
-				for _, req in ipairs(Config.requirementsOf(def)) do
-					if not self.owned[req] then
-						blocker = Config.ButtonById[req]
-						break
-					end
+			local blocker
+			for _, req in ipairs(Config.requirementsOf(def)) do
+				if not self.owned[req] then
+					blocker = Config.ButtonById[req]
+					break
 				end
 			end
 			entry.effectLabel.Text = blocker

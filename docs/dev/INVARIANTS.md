@@ -508,20 +508,20 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   track — "factory" was the only vocabulary that property had while the factory was the only
   ladder everyone walks, and the old form refused a perfectly safe gate on `walls` with a
   message calling structure a side track.
-- **A single-button gate is not a `requires` EITHER, and the table is empty today.**
-  `Config.ButtonUnlock`'s one entry gated the mezzanine on the roof, and it retired with the
-  storey system (#88). The MECHANISM stays: a row here is a precondition on a purchase, the
-  same kind of thing `TrackUnlock` is for a whole ladder, and it cannot be a `requires`
-  because the loader derives `requires` from the row above and the verifier asserts the
-  derived chain IS the table order — a hand-typed cross-track one is either overwritten or
-  forks the chain. `[assert]` the shape of any row that appears. #125 owns deciding whether
-  the table and the fixpoint below retire together.
-- **Reachability must count the GATES, not just the chains.** The old walk followed `requires`
-  and was safe rather than correct: `requires` never crosses a track and `TrackUnlock` was
-  asserted onto the ungated factory, so the gate was always satisfiable. A `ButtonUnlock` row
-  removes that — the retired `floor2 = "roof"` entry could deadlock the plot four rungs from
-  the end with every structural check passing. `[assert]` a fixpoint from an empty save over
-  `requires` ∪ `TrackUnlock` ∪ `ButtonUnlock`, kept while the mechanism exists.
+- **The per-purchase gate is GONE** (#125). `Config.ButtonUnlock` and `buttonUnlocked`
+  shipped one entry ever — the mezzanine waiting on the roof — and retired with the storey
+  system; a mechanism nothing uses is a mechanism that silently rots. The next cross-ladder
+  precondition re-earns the machinery with its own reason. The fixpoint below stays.
+- **The purchase surface is THREE CATEGORIES over seven chains** (#125): conveyor,
+  generator, plot, with the cabinets labelled their own way until #108 moves them off the
+  plot. `TrackInfo.category` is the field; pads and the HUD card count by
+  `categoryOrder`/`CategoryCount`, and the conveyor sits at rank 1 — which is what "its
+  label sits highest" means to a card and a beacon that rank by (TrackRank, price).
+  `[assert]` category names, coverage and rank; `[spec]` the ordinals tile each category.
+- **Reachability must count the GATES, not just the chains.** `[assert]` a fixpoint from an
+  empty save over `requires` ∪ `TrackUnlock`. It was built when a per-purchase gate could
+  close a loop the naive walk missed; that mechanism is gone (#125) and the fixpoint stays,
+  because it is the only check that would notice the NEXT gate shape closing a loop.
 - **The cabinet gate is STICKY and derived**: owning any rung of a track counts as having it
   open. Rebirth wipes the factory — and so the gate button — while keeping weapons and
   armour, so without that clause your first rebirth deletes both cabinets and leaves the

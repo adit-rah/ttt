@@ -149,7 +149,7 @@ live, and it is what keeps the plot readable as one thing rather than as a maze.
 
 ---
 
-## 4. The seven ladders
+## 4. Three categories, seven chains
 
 ```mermaid
 graph TD
@@ -171,19 +171,25 @@ graph TD
     F -->|"dropper5 opens"| LR2
 ```
 
-Each ladder is a strict chain **ordered only against itself** — table order is
-dependency order, and no requirement ever crosses a track. There are exactly two
-ways one ladder can wait on another, and they are different things:
+**The player is shown three categories** (#125): CONVEYOR — everything that
+makes the line earn more; GENERATOR; and PLOT — the ground and the shell on
+it. A pad says "PLOT 20/34", counting across the whole category, and the
+conveyor outranks everything the card and beacon could point at. Underneath,
+each ladder is a strict chain **ordered only against itself** — table order is
+dependency order, and no requirement ever crosses a track — because the
+chains carry the orderings geometry forces (no West Lot II without West Lot
+I). The cabinets keep their own labels until #108 moves them off the plot.
+
+There is one way a ladder waits on another:
 
 - **A whole ladder waits** — `TrackUnlock`. The cabinets are hidden ground until
   `dropper3`, the fourth thing you buy, about three minutes in. They used to
   stand there from the moment you claimed: two display cases and nine pedestals
   for upgrades you could not use. That was most of the visual noise in the
   opening minutes.
-- **One purchase waits** — `ButtonUnlock`. The table is empty today — its one
-  entry gated the second storey on the roof, and it retired with the storey
-  system when land became the growth axis (#88). The mechanism stays for the
-  next cross-ladder precondition.
+The per-purchase gate (`ButtonUnlock`) is gone (#125): its one entry retired
+with the storey system, and a mechanism nothing uses is a mechanism that
+silently rots. The reachability fixpoint stays, counting `TrackUnlock`.
 
 ### Spine vs detour
 
