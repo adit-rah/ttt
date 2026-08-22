@@ -77,6 +77,65 @@ T.spec("a buy button's advertised delta is the model's delta", function(t)
 		"the +N/sec a pad advertises must be the model's own delta")
 end)
 
+T.spec("the tick pays rate x seconds x the live multiplier", function(t)
+	local w = T.world()
+	local Config = w.config
+	local Data = w.req("DataService")
+	local Economy = w.req("Economy")
+	local player = w.join("earner")
+	local profile = Data.load(player)
+
+	local owned = { dropper1 = true, upgrader1 = true, power1 = true }
+	local plot = fakePlot(w, owned)
+	plot.owner = player
+	plot:startIncomeLoop(player)
+
+	local before = profile.cash
+	local ticks = 10
+	w.clock:advance(ticks * Config.Economy.IncomeTickSeconds)
+
+	local rate = Config.incomeRate(function(id) return owned[id] == true end)
+	local expected = rate * ticks * Config.Economy.IncomeTickSeconds * Economy.multiplier(player)
+	t:near(profile.cash - before, expected, 1e-6,
+		"ten ticks must pay exactly ten seconds of the quoted rate")
+end)
+
+T.spec("release kills the loop; rebirth leaves it reading the wiped plot", function(t)
+	local w = T.world()
+	local Config = w.config
+	local Data = w.req("DataService")
+	local player = w.join("cycler")
+	local profile = Data.load(player)
+
+	local owned = { dropper1 = true }
+	local plot = fakePlot(w, owned)
+	plot.owner = player
+	plot:startIncomeLoop(player)
+	w.clock:advance(3 * Config.Economy.IncomeTickSeconds)
+	t:gt(profile.cash, Config.Economy.StartingCash, "the loop never paid at all")
+
+	-- a rebirth keeps the owner and wipes `owned`; the SAME loop must read
+	-- the wiped table next tick and pay the new rate, which here is zero
+	for id in pairs(owned) do
+		owned[id] = nil
+	end
+	local atRebirth = profile.cash
+	w.clock:advance(5 * Config.Economy.IncomeTickSeconds)
+	t:near(profile.cash, atRebirth, 1e-9,
+		"the loop kept paying the pre-rebirth rate after the wipe")
+
+	-- ...and re-buying starts it earning again with no new loop
+	owned.dropper1 = true
+	w.clock:advance(2 * Config.Economy.IncomeTickSeconds)
+	t:gt(profile.cash, atRebirth, "the surviving loop ignored the re-bought dropper")
+
+	-- release nils the owner; the loop dies with it
+	plot.owner = nil
+	local atRelease = profile.cash
+	w.clock:advance(5 * Config.Economy.IncomeTickSeconds)
+	t:near(profile.cash, atRelease, 1e-9, "the loop outlived the plot's owner")
+end)
+
 T.spec("the model multiplies the whole plot by every upgrader", function(t)
 	-- Pinned by hand so the spec can fail if Config.incomeRate changes shape:
 	-- two droppers summed, one upgrader multiplied, the generator applied.

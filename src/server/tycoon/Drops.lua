@@ -2,21 +2,26 @@
 	tycoon/Drops.lua — spawning the things the belt carries, and the budget that
 	stops a finished factory spawning without limit.
 
+	DROPS ARE COSMETIC. design:D-02 — income is Config.incomeRate on a timer
+	(tycoon/Income.lua:startIncomeLoop); no part carries value. A drop exists to
+	make a producing plot look like one, and losing every drop costs nothing.
+
 	ONE CONSTRAINT AND ONE MODEL. The constraint: a LinearVelocity in Plane mode
 	plus an AlignOrientation, so a drop costs no per-frame script and physically
 	cannot drift sideways off the belt. The model: PivotTo overwrites the body's
 	rotation outright, so the upright pose has to be baked into the target CFrame
 	or every drop spawns lying on its side.
 
-	THE ATTRIBUTES ARE THE ROUTING. Value, PlotIndex, Leg and Path are what the
-	corner sensors, the upgrader triggers and the collector all filter on, so a
-	drop on the mezzanine is invisible to the ground floor's geometry and vice
-	versa. A drop built without them is a drop nothing will ever collect.
+	THE ATTRIBUTES ARE THE ROUTING. PlotIndex, Leg and Path are what the corner
+	sensors, the upgrader triggers and the collector all filter on, so a drop on
+	the mezzanine is invisible to the ground floor's geometry and vice versa. A
+	drop built without them sails off the first bend and stands wherever it
+	lands until the reaper takes it.
 
-	Config.Economy.MaxDropsPerPlot and self.dropCount are the budget. Every path
-	that removes a drop — collected, expired, cleared — has to decrement the
-	count, or the counter drifts up to the cap and the plot silently stops
-	dropping.
+	Config.Economy.MaxDropsPerPlot and self.dropCount are the VISUAL budget.
+	Every path that removes a drop — collected, expired, cleared — has to
+	decrement the count, or the counter drifts up to the cap and the plot
+	silently stops dropping.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
@@ -40,7 +45,6 @@ function Tycoon:spawnDrop(def, nozzle: BasePart, legIndex: number, pathIndex: nu
 	self.dropCount += 1
 
 	local drop = TungModels.buildDrop(def.variant, 0.62)
-	drop:SetAttribute("Value", def.dropValue)
 	drop:SetAttribute("PlotIndex", self.index)
 	drop:SetAttribute("Variant", def.variant)
 

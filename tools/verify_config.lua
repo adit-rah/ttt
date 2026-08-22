@@ -1494,9 +1494,11 @@ end
 checkSpacing("DropperDist", L.DropperDist, leg1)
 checkSpacing("UpgraderDist", L.UpgraderDist, leg2)
 
--- THROUGHPUT: the belt has to physically fit the drops it carries. If the
--- peak spawn rate times the transit time exceeds the drop cap, the belt runs
--- bumper-to-bumper, drops shove each other, and the cap silently eats income.
+-- THROUGHPUT: the belt has to physically fit the drops it carries. Drops are
+-- cosmetic (design:D-02 — income is Config.incomeRate on a timer), so what
+-- these checks protect is the picture: a belt over occupancy runs
+-- bumper-to-bumper and reads as broken, and a plot spawning past the visual
+-- budget stops drawing new drops and looks poorer than a plot half its size.
 --
 -- MaxDropsPerPlot is a WHOLE-PLOT budget — spawnDrop's counter is per plot, not
 -- per belt — so the cap is checked against the sum over every floor while the
@@ -1526,7 +1528,7 @@ for _, path in ipairs(Config.BeltPaths) do
 	totalInFlight += pathInFlight
 
 	check(pathInFlight * DROP_LENGTH <= length * 0.75,
-		("the %s belt would run at %.0f%% occupancy at peak — drops will jam into each other; raise Layout.BeltSpeed")
+		("the %s belt would run at %.0f%% occupancy at peak — drops shove each other and the line reads as broken; raise Layout.BeltSpeed")
 			:format(path.id, pathInFlight * DROP_LENGTH / length * 100))
 
 	if path.id == groundId then
@@ -1559,43 +1561,19 @@ end
 local maxBeltSpeed = (L.BeltSpeed + maxSpeedBonus) * Config.Tracks.power[#Config.Tracks.power].factor
 local dwell = L.TriggerThickness / maxBeltSpeed
 check(dwell >= PHYSICS_STEP_DEMOTED * 2,
-	("a drop crosses a %.1f-stud trigger in %.0f ms at the top belt speed of %.0f studs/s; Roblox demotes an unattended assembly to 30 Hz (%.0f ms steps), so under two of those an upgrader can be tunnelled through and the drop pays out unrefined")
+	("a drop crosses a %.1f-stud trigger in %.0f ms at the top belt speed of %.0f studs/s; Roblox demotes an unattended assembly to 30 Hz (%.0f ms steps), so under two of those a corner sensor can be tunnelled through and the drop sails off the bend")
 		:format(L.TriggerThickness, dwell * 1000, maxBeltSpeed, PHYSICS_STEP_DEMOTED * 1000))
 
--- THE COUPLING, which is the entire point of the generator.
---
--- inFlight is peakRate x length / speed. The generator multiplies peakRate (by
--- dividing every dropRate) and beltSpeed by the SAME factor, so the two cancel
--- and the number of drops on the belt is unchanged at every tier. Scale the
--- droppers alone and it is a straight multiplier on a plot already at 88% of
--- its cap, at which point spawnDrop starts silently eating the income you just
--- paid for.
---
--- Asserted per tier rather than once, so a rung that ever grants an asymmetric
--- pair is caught on the rung rather than at the top.
-for _, def in ipairs(Config.Tracks.power) do
-	local scaled = 0
-	for _, path in ipairs(Config.BeltPaths) do
-		local pathRate = 0
-		for _, button in ipairs(Config.Buttons) do
-			if button.kind == "Dropper" and (button.path or groundId) == path.id then
-				-- rate goes UP by the factor: dropRate is divided by it
-				pathRate += def.factor / button.dropRate
-			end
-		end
-		local length = len(sub(path.collectorAt, path.points[#path.points]))
-		for leg = 1, #path.points - 1 do
-			length += len(sub(path.points[leg + 1], path.points[leg]))
-		end
-		-- ...and so does belt speed, by the same factor
-		scaled += pathRate * (length / (L.BeltSpeed * def.factor))
-	end
-	check(math.abs(scaled - totalInFlight) < 0.01,
-		("power tier %s puts %.0f drops in flight against %.0f ungoverned; the generator must multiply belt speed by exactly the factor it multiplies drop rate by, or the drop cap silently eats the income you just bought")
-			:format(def.id, scaled, totalInFlight))
-end
+-- The generator-cancellation family stood here: per power tier, belt speed
+-- had to rise by exactly the factor drop rate did, so drops in flight stayed
+-- constant and the cap could not eat income. Income no longer rides the belt
+-- (design:D-02), so that family's stated reason is false and it is deleted
+-- rather than retuned — an assertion whose argument is gone can only fail for
+-- a reason its message would lie about. The picture the coupling protected is
+-- covered by the occupancy and budget checks around this comment, which now
+-- say what a violation actually costs.
 
--- ...and the other end of the same rope: a dropper cannot be sped up past the
+-- A dropper cannot be sped up past the
 -- point where it floods physics, however much power you buy.
 local topFactor = Config.Tracks.power[#Config.Tracks.power].factor
 local fastest = math.huge
@@ -1609,8 +1587,18 @@ check(fastest >= 0.2,
 		:format(topFactor, fastest))
 
 check(totalInFlight <= Config.Economy.MaxDropsPerPlot,
-	("the plot carries %.0f drops at peak across %d belts but MaxDropsPerPlot is %d — the cap would silently eat income; raise BeltSpeed or thin a dropper")
+	("the plot carries %.0f drops at peak across %d belts but MaxDropsPerPlot is %d — past the visual budget spawnDrop stops drawing, and a finished factory looks emptier than a mid one; raise BeltSpeed or thin a dropper")
 		:format(totalInFlight, #Config.BeltPaths, Config.Economy.MaxDropsPerPlot))
+
+-- THE INCOME TICK. Longer than Economy's 0.1s replication coalescer or the
+-- drain loop batches nothing, and short enough that the cash counter visibly
+-- moves while you stand on your plot.
+check(Config.Economy.IncomeTickSeconds > 0.1,
+	("IncomeTickSeconds is %.2f — at or under Economy's 0.1s replication drain the coalescer batches nothing")
+		:format(Config.Economy.IncomeTickSeconds))
+check(Config.Economy.IncomeTickSeconds <= 5,
+	("IncomeTickSeconds is %.2f — past 5s the cash counter reads as stuck rather than earning")
+		:format(Config.Economy.IncomeTickSeconds))
 
 -- everything the belt places has to stay inside the plot
 local halfX, halfZ = Config.World.PlotSize.X / 2, Config.World.PlotSize.Z / 2

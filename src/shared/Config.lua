@@ -1142,8 +1142,15 @@ Config.Economy = {
 	-- MUST be >= the cheapest button with no requirements, or a fresh player
 	-- has no income and no way to ever buy their first dropper.
 	StartingCash = 100,
+	-- design:D-02 — income is Config.incomeRate added on this cadence, by
+	-- Tycoon:startIncomeLoop. Longer than Economy's 0.1s replication
+	-- coalescer, short enough that the counter visibly moves.
+	IncomeTickSeconds = 1,
 	DropLifetime = 45,          -- seconds before an orphaned drop despawns
-	MaxDropsPerPlot = 70,       -- hard cap so a mega-tycoon can't melt the server
+	-- The VISUAL budget: drops are cosmetic, so past this cap a drop simply
+	-- is not drawn and nothing is lost. Still a hard cap — a mega-tycoon's
+	-- parts in flight is a server cost whatever the drops are worth.
+	MaxDropsPerPlot = 70,
 	OfflineGraceSeconds = 180,  -- keep a plot reserved this long after a disconnect
 }
 

@@ -1174,8 +1174,15 @@ __MODULES["Config"] = function()
 		-- MUST be >= the cheapest button with no requirements, or a fresh player
 		-- has no income and no way to ever buy their first dropper.
 		StartingCash = 100,
+		-- design:D-02 — income is Config.incomeRate added on this cadence, by
+		-- Tycoon:startIncomeLoop. Longer than Economy's 0.1s replication
+		-- coalescer, short enough that the counter visibly moves.
+		IncomeTickSeconds = 1,
 		DropLifetime = 45,          -- seconds before an orphaned drop despawns
-		MaxDropsPerPlot = 70,       -- hard cap so a mega-tycoon can't melt the server
+		-- The VISUAL budget: drops are cosmetic, so past this cap a drop simply
+		-- is not drawn and nothing is lost. Still a hard cap — a mega-tycoon's
+		-- parts in flight is a server cost whatever the drops are worth.
+		MaxDropsPerPlot = 70,
 		OfflineGraceSeconds = 180,  -- keep a plot reserved this long after a disconnect
 	}
 
@@ -14551,21 +14558,26 @@ __MODULES["Drops"] = function()
 		tycoon/Drops.lua — spawning the things the belt carries, and the budget that
 		stops a finished factory spawning without limit.
 
+		DROPS ARE COSMETIC. design:D-02 — income is Config.incomeRate on a timer
+		(tycoon/Income.lua:startIncomeLoop); no part carries value. A drop exists to
+		make a producing plot look like one, and losing every drop costs nothing.
+
 		ONE CONSTRAINT AND ONE MODEL. The constraint: a LinearVelocity in Plane mode
 		plus an AlignOrientation, so a drop costs no per-frame script and physically
 		cannot drift sideways off the belt. The model: PivotTo overwrites the body's
 		rotation outright, so the upright pose has to be baked into the target CFrame
 		or every drop spawns lying on its side.
 
-		THE ATTRIBUTES ARE THE ROUTING. Value, PlotIndex, Leg and Path are what the
-		corner sensors, the upgrader triggers and the collector all filter on, so a
-		drop on the mezzanine is invisible to the ground floor's geometry and vice
-		versa. A drop built without them is a drop nothing will ever collect.
+		THE ATTRIBUTES ARE THE ROUTING. PlotIndex, Leg and Path are what the corner
+		sensors, the upgrader triggers and the collector all filter on, so a drop on
+		the mezzanine is invisible to the ground floor's geometry and vice versa. A
+		drop built without them sails off the first bend and stands wherever it
+		lands until the reaper takes it.
 
-		Config.Economy.MaxDropsPerPlot and self.dropCount are the budget. Every path
-		that removes a drop — collected, expired, cleared — has to decrement the
-		count, or the counter drifts up to the cap and the plot silently stops
-		dropping.
+		Config.Economy.MaxDropsPerPlot and self.dropCount are the VISUAL budget.
+		Every path that removes a drop — collected, expired, cleared — has to
+		decrement the count, or the counter drifts up to the cap and the plot
+		silently stops dropping.
 	]]
 
 	local Req = __Req
@@ -14589,7 +14601,6 @@ __MODULES["Drops"] = function()
 		self.dropCount += 1
 
 		local drop = TungModels.buildDrop(def.variant, 0.62)
-		drop:SetAttribute("Value", def.dropValue)
 		drop:SetAttribute("PlotIndex", self.index)
 		drop:SetAttribute("Variant", def.variant)
 
@@ -14672,11 +14683,11 @@ __MODULES["Income"] = function()
 		progression simulation reads it raw. Change the shape in Config and the
 		wrappers stay one line each.
 
-		refineryMultiplierFor is the REALITY the model has to keep agreeing with. A
-		path with no upgraders of its own is refined by the plot's at the vault,
-		which is what stops an upper floor being an additive term against a curve
-		that multiplies: unrefined, the mezzanine's dropper is 17% of plot income the
-		minute you buy it and 0.02% by the end of the build.
+		startIncomeLoop is the PAYER. design:D-02 — no part carries value; the loop
+		adds rate x tick through Economy.add every IncomeTickSeconds while its
+		owner keeps the plot. The loop tests self.owner each cycle, so release
+		kills it, a rebirth leaves it running against the freshly wiped `owned`,
+		and assign's owner guard means a plot can never carry two loops.
 
 		updateSign has a ONE-WRITER RULE. PlotService repaints every sign on a
 		3-second beat and VaultService recomputes the gauge on its own schedule, so
@@ -14710,35 +14721,34 @@ __MODULES["Income"] = function()
 		return Config.incomeRate(has) * rebirthMult
 	end
 
-	--- What a drop arriving from `pathId` is multiplied by at the vault.
+	--- Pays the owner what the factory makes, on a fixed cadence.
 	---
-	--- Lives next to incomePerSecond deliberately: the pair of them are the model
-	--- and the reality of the same number, and the whole reason the mezzanine is
-	--- refined at all is so those two can keep agreeing. A path that carries its
-	--- own upgraders would return 1 here and be multiplied on the belt like the
-	--- ground floor is; today only the ground floor has any, so every other path
-	--- borrows the stack.
-	function Tycoon:refineryMultiplierFor(pathIndex: number?): number
-		-- a drop carries its path as the runtime INDEX (see spawnDrop); path 1 is
-		-- always the ground floor, and it crossed the scanners on the way down
-		if (pathIndex or 1) == 1 then
-			return 1
-		end
-		local path = self.paths[pathIndex]
-		local pathId = path and path.id
-		local ground = Config.BeltPaths[1].id
-
-		local mult = 1
-		for id, def in pairs(Config.ButtonById) do
-			if def.kind == "Upgrader" and self.owned[id] then
-				if (def.path or ground) == pathId then
-					-- this path has its own; it has already been refined
-					return 1
+	--- The loop's liveness test is `self.owner == owner` and nothing else:
+	--- release nils the owner and the loop dies with it; rebirth keeps the owner,
+	--- so the loop survives and next tick reads the wiped `owned` fresh — no
+	--- restart and nothing accumulated. assign refuses an owned plot, so a second
+	--- loop cannot start while this one lives.
+	---
+	--- The rate is re-derived from `owned` every cycle for the same reason
+	--- self.powerFactor is assigned and never accumulated: a cached rate is a
+	--- second copy of the model, and second copies drift (#35).
+	function Tycoon:startIncomeLoop(owner: Player)
+		task.spawn(function()
+			while self.owner == owner do
+				task.wait(Config.Economy.IncomeTickSeconds)
+				if self.owner ~= owner then
+					return
 				end
-				mult *= def.multiplier
+				local rate = Config.incomeRate(function(id)
+					return self.owned[id] == true
+				end)
+				if rate > 0 then
+					-- `true` applies Economy.multiplier — rebirth and the session
+					-- hooks — exactly as the vault's per-drop payout did.
+					Economy.add(owner, rate * Config.Economy.IncomeTickSeconds, true)
+				end
 			end
-		end
-		return mult
+		end)
 	end
 
 	--- One line of plain English for what a button actually does for you. Income
@@ -15065,6 +15075,10 @@ __MODULES["Installers"] = function()
 			color = Color3.fromRGB(255, 240, 210),
 		})
 
+		-- The flash. design:D-02 — the upgrader's multiplier lives in
+		-- Config.incomeRate; what the trigger does is make the arch visibly work a
+		-- drop as it passes. The once-flag stays because Touched fires twice, and
+		-- a double flash reads as a stutter.
 		local flagName = "up_" .. def.id
 		trigger.Touched:Connect(function(hit)
 			local drop = hit.Parent
@@ -15074,12 +15088,10 @@ __MODULES["Installers"] = function()
 			if drop:GetAttribute("PlotIndex") ~= self.index then
 				return
 			end
-			local value = drop:GetAttribute("Value")
-			if not value or drop:GetAttribute(flagName) then
+			if drop:GetAttribute(flagName) then
 				return
 			end
 			drop:SetAttribute(flagName, true)
-			drop:SetAttribute("Value", value * def.multiplier)
 
 			local body = drop.PrimaryPart or drop:FindFirstChild("Body")
 			if body and body:IsA("BasePart") then
@@ -15730,6 +15742,7 @@ __MODULES["Ownership"] = function()
 		self:refreshButtons()
 		self:updateSign()
 		self:fireOwnedChanged()
+		self:startIncomeLoop(player)
 		return true
 	end
 
@@ -16530,16 +16543,17 @@ end
 __MODULES["Vault"] = function()
 	--[[
 		tycoon/Vault.lua — the collector at the end of a belt, the gauge on its side,
-		and the one place a drop becomes money.
+		and where a drop's ride ends.
 
-		onCollect IS INCOME REALISED. It claims the drop's Value attribute
-		immediately, because Touched fires twice; it refines a drop from a path with
-		no upgraders of its own by the plot's refinery (see
-		tycoon/Income.lua:refineryMultiplierFor); and it pays through Economy.add. A
-		drop the sensor does not see is 100% of its value, not a fraction of it,
-		which is why buildCollector ASSERTS that the vault shell stays downstream of
-		the run-off and why the trigger is Layout.TriggerThickness deep rather than
-		one stud.
+		onCollect RETIRES A DROP. design:D-02 — income is Config.incomeRate on a
+		timer (tycoon/Income.lua:startIncomeLoop) and no part carries value, so the
+		collector's job is to take a finished drop off the belt, return its slot to
+		the visual budget, and play the payout dressing. It claims the drop with a
+		Collected flag because Touched fires twice. A drop the sensor does not see
+		stands at the run-off until the reaper takes it, holding a budget slot the
+		whole time — which is why buildCollector ASSERTS that the vault shell stays
+		downstream of the run-off and why the trigger is Layout.TriggerThickness
+		deep rather than one stud.
 
 		setVaultGauge DECIDES NOTHING. All four of its values are worked out by
 		VaultService, which is the module allowed to know what offline earnings are.
@@ -16558,7 +16572,6 @@ __MODULES["Vault"] = function()
 	local Util = Req("Util")
 	local Fx = Req("Fx")
 	local TungModels = Req("TungModels")
-	local Economy = Req("Economy")
 	local Tycoon = Req("Class")
 	local Parts = Req("Parts")
 
@@ -16772,42 +16785,26 @@ __MODULES["Vault"] = function()
 		if not model or not model:IsA("Model") then
 			return
 		end
-		local rawValue = model:GetAttribute("Value")
-		if not rawValue then
-			return
-		end
 		if model:GetAttribute("PlotIndex") ~= self.index then
 			return
 		end
-		model:SetAttribute("Value", nil)  -- claim it immediately, touch fires twice
-
-		-- THE MEZZANINE FEEDS THE SAME REFINERY.
-		--
-		-- Upgraders are physical scanners on the ground floor's leg 2, so a drop
-		-- from an upper floor crosses none of them and arrives at its raw value.
-		-- Left that way the second floor is an ADDITIVE term against a curve that
-		-- multiplies: modelled, the mezzanine's dropper is 17% of plot income the
-		-- minute you buy it, 4% one button later, and 0.02% by the end of the
-		-- build. You would buy a storey at minute forty and watch it become noise.
-		--
-		-- So a path with no upgraders of its own is refined by the plot's, at the
-		-- one place income is realised. Three lines, and it makes the existing
-		-- "sum the droppers, multiply by the upgraders" shape — which Tycoon,
-		-- SessionService and the verifier's economy sim each implement separately
-		-- — correct for both floors with no change to any of them.
-		local value = self:refineryMultiplierFor(model:GetAttribute("Path")) * rawValue
+		if model:GetAttribute("Collected") then
+			return  -- touch fires twice; the first one claimed it
+		end
+		model:SetAttribute("Collected", true)
 
 		local owner = self.owner
 		self.dropCount = math.max(0, self.dropCount - 1)
 
 		if owner and owner.Parent then
-			local gained = Economy.add(owner, value, true)
 			-- late game the vault eats ~10 drops/sec; throttle the confetti so a
-			-- finished factory doesn't spam hundreds of billboards per minute
+			-- finished factory doesn't spam hundreds of billboards per minute. The
+			-- figure quoted is the plot's rate — the drop itself is worth nothing.
 			local now = os.clock()
 			if now - (self.lastPayoutFx or 0) > 0.3 then
 				self.lastPayoutFx = now
-				Fx.floatingText(hit.Position + Vector3.new(0, 3, 0), "+" .. Util.abbreviate(gained), COLORS.gold, self.model)
+				Fx.floatingText(hit.Position + Vector3.new(0, 3, 0),
+					"+" .. Util.abbreviate(self:incomePerSecond()) .. "/sec", COLORS.gold, self.model)
 				Fx.tung(hit, 0.9 + math.random() * 0.35, 0.18)
 			end
 		end
