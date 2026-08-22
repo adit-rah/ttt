@@ -13,8 +13,25 @@ The issue is authoritative. This row is a pointer to it.
 | `D-03` | Progression | [#78](https://github.com/adit-rah/ttt/issues/78) | accepted |
 | `D-04` | The world | [#79](https://github.com/adit-rah/ttt/issues/79) | accepted |
 | `D-05` | Reading it | [#80](https://github.com/adit-rah/ttt/issues/80) | accepted |
+| `D-06` | Assets | [#92](https://github.com/adit-rah/ttt/issues/92) | accepted |
 
 The index issue is [#72](https://github.com/adit-rah/ttt/issues/72).
+
+`D-06` was added after the first five. Every model, face, weapon and sound in
+this game is generated in code, and the policy for which of them should be made
+for real rather than generated is a product decision with a ledger under it.
+
+## The tree
+
+```
+#72  Design Monolith
+ └── pillar  (D-NN)
+      └── epic or feature   ← an engineer picks this up
+```
+
+A pillar is a large idea that gets built on. An epic breaks into more tickets. A
+feature is one piece of work. `future` is wanted and backlogged. `needs-design`
+is blocked on a decision. `asset` is art or audio someone has to make.
 
 ## Five, from ten
 

@@ -26,6 +26,7 @@ where a decision is argued and changed.
 | `D-03` | [Progression](https://github.com/adit-rah/ttt/issues/78) |
 | `D-04` | [The world](https://github.com/adit-rah/ttt/issues/79) |
 | `D-05` | [Reading it](https://github.com/adit-rah/ttt/issues/80) |
+| `D-06` | [Assets](https://github.com/adit-rah/ttt/issues/92) |
 
 There were ten. `DECISIONS.md` records what merged into what, and why.
 
