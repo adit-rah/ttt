@@ -532,8 +532,8 @@ check(Config.TrackInfo.factory.paced == "spine",
 for _, track in ipairs(Config.TrackOrder) do
 	local info = Config.TrackInfo[track]
 	if info then
-		check(info.keepOnRebirth == (info.furniture == "cabinet" or info.furniture == "land"),
-			("TrackInfo.%s has keepOnRebirth=%s and furniture=%q; cabinet tracks build into self.props and land is rebuilt from `owned` by ensureLand — anything else lives in self.machines, which rebirth() clears unconditionally, so a surviving entry is a bought button with no model and a cabinet or land track that does not survive is progress you paid for and lost")
+		check(info.keepOnRebirth == (info.furniture == "shop" or info.furniture == "land"),
+			("TrackInfo.%s has keepOnRebirth=%s and furniture=%q; shop tracks are the player's own gear (#108) and land is rebuilt from `owned` by ensureLand — anything else lives in self.machines, which rebirth() clears unconditionally, so a surviving entry is a bought button with no model and a shop or land track that does not survive is progress you paid for and lost")
 				:format(track, tostring(info.keepOnRebirth), tostring(info.furniture)))
 	end
 end
@@ -2248,37 +2248,6 @@ local placedTracks = {}
 for id, spot in pairs(L.MiscButtons) do
 	table.insert(miscList, { id = "MiscButtons." .. id, spot = spot, floor = GROUND, spacing = L.MiscButtonSpacing })
 end
-for _, track in ipairs(Config.TrackOrder) do
-	local layout = L.Tracks[track]
-	if layout then
-		-- THE COLUMN STANDS ON THE PLOT FLOOR. The storey system retired with
-		-- #88, so a `floor` key on a Layout.Tracks entry names a height nothing
-		-- can build any more — refuse it rather than measuring the ground floor
-		-- on a stale key and agreeing with every other check that did the same.
-		local floorKey = GROUND
-		local known = layout.floor == nil
-		placedTracks[track] = known
-		check(known,
-			("Layout.Tracks.%s names floor %q; storeys retired with #88 and every column stands on the plot floor")
-				:format(track, tostring(layout.floor)))
-		check(beltPathById[floorKey] ~= nil,
-			("Layout.Tracks.%s stands on floor %q, which has no belt path, so its pedestals cannot be checked against the belt they share a storey with")
-				:format(track, tostring(floorKey)))
-		-- Check every SLOT, not every button: the empty slots are where the
-		-- next tier will land, and finding out then is finding out too late.
-		for slot = 1, (known and layout.slots or 0) do
-			table.insert(miscList, {
-				id = ("Tracks.%s[%d]"):format(track, slot),
-				spot = Config.trackButtonPosition(track, slot),
-				floor = floorKey,
-				spacing = L.CabinetSlotSpacing,
-			})
-		end
-		check(#Config.Tracks[track] <= layout.slots,
-			("the %s track has %d buttons but Layout.Tracks.%s only has %d slots; the extras would stack on the last pedestal")
-				:format(track, #Config.Tracks[track], track, layout.slots))
-	end
-end
 table.sort(miscList, function(a, b) return a.id < b.id end)
 
 -- THE PADS ARE GROUND-FLOOR FURNITURE, all three of them: you claim a plot,
@@ -2414,241 +2383,33 @@ for _, entry in ipairs(miscList) do
 	end
 end
 
--- ── side-track cabinets ─────────────────────────────────────────────────────
--- The cabinet BODIES are the only solid, collidable things the side tracks add
--- to the plot, so they get the treatment the vault and the belt already have: an
--- explicit box, checked against everything else that occupies floor — on the
--- floor they stand on.
---
--- THEY ARE ON THE MEZZANINE NOW, which is what pulls the deck, its armoury zone
--- and its stairwell into this loop. Two of the checks below used to be about the
--- ground floor and had to be re-authored for that; the rest are new, and they
--- exist because "inside the plot" stopped being a useful bound for a cabinet the
--- moment the cabinet left the plot floor. A 116x136 deck sits inside a 120x140
--- plot, so a cabinet can pass every containment check in this file and still
--- stand two studs off the edge of the floor it is supposed to be standing on.
-
-local gateFrom, gateTo = L.GateCentre - L.GateWidth / 2, L.GateCentre + L.GateWidth / 2
-
--- WHAT THE CABINET IS, ABOVE ITS BOX. Mirrored from Props.lua's ensureCabinets,
--- where all four are literals: the trim cap is `size.Y + 0.4` tall and 0.8 thick,
--- the sign anchor stands 2.5 above the body, and a billboard 4 studs tall hangs
--- centred on the anchor. So the tallest part of a cabinet is its LABEL, at
--- `height + 4.5`, and not the case.
---
--- THIS IS A MIRROR, AND SAYING SO IS THE POINT. verify_config reads Config and
--- nothing else, so these four numbers cannot be derived here; the block below
--- asserts Structure.UpperClear against the object's shape and will not notice the
--- BUILDER changing that shape. Config.Structure.Trim exists because
--- shellPartCount had to count a trim cap it could not see, and these want exactly
--- the same treatment — the geometry of a cabinet belongs in Config.Layout.Tracks
--- beside `height`. Until it moves there, this is the coupling, declared.
-local CABINET_TRIM_LIFT, CABINET_TRIM_THICK = 0.4, 0.8
-local CABINET_SIGN_LIFT, CABINET_SIGN_HEIGHT, CABINET_ANCHOR = 2.5, 4, 1
-
--- THE FOUR ROOF COLUMNS, derived rather than typed. These were the literals
--- (halfX - 4, halfZ - 4) in the loop below, which is "the wall ring minus
--- Roof.columnInset" for today's numbers and stops tracking the roof the moment
--- the inset moves — the same two-copies-of-one-number arrangement that let the
--- walls sit seven studs under the roof. The wall ring stands 1 stud in from the
--- pad edge; the columns stand `columnInset` in from that. The shell block below
--- asserts these same two numbers against the wall's inner face and against the
--- machine rows they stand among.
-local roofColumnX = halfX - 1 - Config.Structure.Roof.columnInset
-local roofColumnZ = halfZ - 1 - Config.Structure.Roof.columnInset
-
--- The gap a piece of furniture has to leave round a hole in the floor it stands
--- on, and round the belt that shares it: enough to walk past, which is the same
--- number the pillars and the pedestals already use.
-local FURNITURE_GAP = 2
-
-for _, track in ipairs(Config.TrackOrder) do
-	local layout = L.Tracks[track]
-	if layout and placedTracks[track] then
-		local centre, size = Config.trackCabinet(track)
-		local where = "Tracks." .. track .. " cabinet"
-		local floorKey = GROUND
-
-		-- inside the wall ring, which stands 1 stud in from the pad edge. NOT
-		-- floor-aware, and must not become so: the shell is a ring at every
-		-- storey, so a cabinet upstairs has the same wall to grow through as one
-		-- downstairs.
-		check(math.abs(centre.X) + size.X / 2 <= halfX - 2,
-			("%s spans x %.1f..%.1f, into the side wall at x=%.1f")
-				:format(where, centre.X - size.X / 2, centre.X + size.X / 2, halfX - 1))
-		check(math.abs(centre.Z) + size.Z / 2 <= halfZ - 2,
-			("%s spans z %.1f..%.1f, into the end wall at z=%.1f")
-				:format(where, centre.Z - size.Z / 2, centre.Z + size.Z / 2, halfZ - 1))
-
-		-- RE-AUTHORED, PREMISE OVERTURNED. Not standing on the floor furniture —
-		-- on its own floor. This is the check that reported `Tracks.weapons cabinet
-		-- comes within 4.0 studs of ClaimPadAt (needs 17)`: a 17-stud bound between
-		-- a display case on the deck and the pad you claim the plot on, 22 studs
-		-- below it. The bound was right while both stood on the plot floor, and it
-		-- is the one that found a 9x9 pad inside a 5x5 pedestal.
-		for _, spot in ipairs(floorSpots) do
-			if spot.floor == floorKey then
-				furniturePairs += 1
-				local gap = boxPointGap(centre, size, spot.spot)
-				check(gap >= spot.margin,
-					("%s comes within %.1f studs of %s on the %s floor (needs %d)")
-						:format(where, gap, spot.id, spot.floor, spot.margin))
-			end
-		end
-
-		-- ...and far enough off its own pedestals that a shelf display does
-		-- not grow through the buy button in front of it
-		check(math.abs(layout.buttonX - layout.cabinetX) - size.X / 2 >= 4,
-			("%s stands %.1f studs from its own button column; the shelf would clip the pads")
-				:format(where, math.abs(layout.buttonX - layout.cabinetX) - size.X / 2))
-
-		-- ...and off the belt ON ITS OWN FLOOR. This was two scalars naming the
-		-- GROUND floor's two legs — `BeltStart.Z` and `BeltCorner.X` — which is the
-		-- belt these cabinets no longer share a storey with. The belt they do share
-		-- one with was not checked at all, and it is the one they can reach: the
-		-- mezzanine's return leg ends 6 studs from the weapons cabinet.
-		local ownBelt = beltPathById[floorKey]
-		if ownBelt then
-			for _, leg in ipairs(legBoxes(ownBelt)) do
-				for _, strip in ipairs({
-					{ "belt base", leg.belt },
-					{ "machine row", leg.machines },
-					{ "buy-button row", leg.buttons },
-				}) do
-					furniturePairs += 1
-					local gap = boxBoxGap(centre, size, strip[2].centre, strip[2].size)
-					check(gap >= FURNITURE_GAP,
-						("%s comes within %.1f studs of the %s of belt %q's leg %d (need %d) — a display case over a belt walls the conveyor off")
-							:format(where, gap, strip[1], ownBelt.id, leg.index, FURNITURE_GAP))
+-- ── the side tracks' storefront (#108) ──────────────────────────────────────
+-- The cabinets are gone: weapons and armour sell from the SHOP, off the plot,
+-- and the geometry family that policed the cases went with them. What remains
+-- checkable is the CATALOG: every shop row's grant resolves, and the tier it
+-- grants climbs with the chain, which is the monotonicity the boss assertion
+-- stands on.
+for _, track in ipairs({ "weapons", "armor" }) do
+	local lastTier = 0
+	for _, def in ipairs(Config.Tracks[track]) do
+		local tier
+		if track == "weapons" then
+			local bat = Config.BatById[def.grants]
+			check(bat ~= nil, ("%s grants %q, which is not a bat"):format(def.id, tostring(def.grants)))
+			tier = bat and bat.tier or 0
+		else
+			tier = 0
+			for index, row in ipairs(Config.Armor.Tiers) do
+				if row.id == def.grants then
+					tier = index
 				end
 			end
+			check(tier > 0, ("%s grants %q, which is not an armour tier"):format(def.id, tostring(def.grants)))
 		end
-
-		-- ...and clear of the four roof columns, which stand Roof.columnInset
-		-- studs in from the wall ring (see roofColumnX/Z above). Also not
-		-- floor-aware: a column runs from the plot floor to the roof and passes
-		-- through every storey on the way.
-		for _, sx in ipairs({ -1, 1 }) do
-			for _, sz in ipairs({ -1, 1 }) do
-				furniturePairs += 1
-				local column = Vector3.new(sx * roofColumnX, 0, sz * roofColumnZ)
-				check(boxPointGap(centre, size, column) >= 2,
-					("%s overlaps the roof column at (%.0f, %.0f)")
-						:format(where, column.X, column.Z))
-			end
-		end
-
-		-- RE-AUTHORED, PREMISE OVERTURNED. The walk in from the gateway must not
-		-- run into a display case — and the gateway is a hole in the GROUND floor's
-		-- front wall, which a cabinet on the deck cannot stand in. This is the
-		-- second of the two failures the move produced (`stands in the walk from
-		-- the gateway to the owner spawn at z=44`): true of the plan, false of the
-		-- building, because the walk it describes is 22 studs underneath.
-		--
-		-- The upstairs equivalent is not the gateway, it is the stairwell — you
-		-- arrive on that floor through the hatch — and that is the check below.
-		if floorKey == GROUND then
-			local clearsGate = (centre.X - size.X / 2 > gateTo)
-				or (centre.X + size.X / 2 < gateFrom)
-				or (centre.Z + size.Z / 2 < L.OwnerSpawnAt.Z - 8)
-			check(clearsGate,
-				("%s stands in the walk from the gateway to the owner spawn at z=%.0f")
-					:format(where, L.OwnerSpawnAt.Z))
-		end
-
-		-- ── a cabinet on the ground floor, under a deck that spans it ────────
-		--
-		-- DELETED FROM HERE: the block that bounded a cabinet standing on a floor
-		-- ABOVE the plot — against the slab, against its zone, and against the
-		-- hole in that slab. #58 wrote it when both cases moved onto the
-		-- mezzanine; TODO.md item 2 has brought both back down, so `layout.floor`
-		-- is nil for every shipped track and every one of those checks was
-		-- unreachable. Nine checks that cannot fail are not nine checks, and this
-		-- file's own convention is to delete rather than leave them standing.
-		--
-		-- What replaces them covers the same class — "a display case standing
-		-- through something" — on the floor the cases are actually on. Both of
-		-- these are gaps that predate the move: neither the posts nor the yard
-		-- door has ever been compared against a piece of floor furniture, and
-		-- both are reachable by a case at x 46..50 in a way nothing else on this
-		-- plot is.
-		local column = {}
-		for slot = 1, layout.slots do
-			table.insert(column, { id = ("Tracks.%s[%d]"):format(track, slot),
-				at = Config.trackButtonPosition(track, slot), size = PEDESTAL })
-		end
-		table.insert(column, { id = where, at = centre, size = size })
-
-		-- THE DOORWAY ONTO THE GENERATOR YARD. `clearsGate` above covers the
-		-- front gateway and has since the cabinets were first placed; the back
-		-- wall's door has never been covered by anything. It is the only way to
-		-- the yard, it is cut at x 46..59 — the same right-hand strip the armoury
-		-- now occupies — and a case parked across its threshold is a generator
-		-- you can see and cannot reach.
-		--
-		-- The threshold is modelled as a box the width of the opening reaching
-		-- DOORWAY_WALK studs in from the wall — far enough that a case flush to
-		-- the wall beside it still fails, which is the shape of the mistake.
-		local DOORWAY_WALK = 8
-		for _, opening in ipairs(Config.Structure.Openings) do
-			if opening.side == "back" then
-				local mouth = Vector3.new(opening.centre, 0, -Config.World.PlotSize.Z / 2 + DOORWAY_WALK / 2)
-				local mouthSize = Vector3.new(opening.width, 1, DOORWAY_WALK)
-				-- boxBoxOverlap, NOT boxBoxGap. boxBoxGap saturates at zero — it
-				-- can say "these two touch" and never "this one is inside that
-				-- one" — so `gap >= 0` is true for every pair of boxes that has
-				-- ever existed. Written that way first, and it passed with a
-				-- cabinet parked squarely across the doorway.
-				for _, piece in ipairs(column) do
-					furniturePairs += 1
-					local into = boxBoxOverlap(piece.at, piece.size, mouth, mouthSize)
-					check(into == 0,
-						("%s stands %.1f studs inside the walk-through of the %s opening (x %.0f..%.0f in the back wall) — that doorway is the only way onto the generator yard")
-							:format(piece.id, into, opening.id,
-								opening.centre - opening.width / 2, opening.centre + opening.width / 2))
-				end
-			end
-		end
-
-		-- ── the room it stands IN, not just the floor it stands ON ───────────
-		--
-		-- The relationship that once moved a clear height from 16 to 20: a
-		-- cabinet is taller than `height` — trim, sign anchor and the billboard
-		-- stack above the case, so the tallest part of the object is its LABEL.
-		-- Every one of those has to clear the wall's top, which is the ceiling.
-		for _, part in ipairs({
-			{ "case", size.Y },
-			{ "trim cap", size.Y + CABINET_TRIM_LIFT + CABINET_TRIM_THICK / 2 },
-			{ "sign anchor", size.Y + CABINET_SIGN_LIFT + CABINET_ANCHOR / 2 },
-			{ "sign", size.Y + CABINET_SIGN_LIFT + CABINET_SIGN_HEIGHT / 2 },
-		}) do
-			check(part[2] <= Config.Structure.WallHeight,
-				("%s's %s reaches %.1f studs over a floor with %.1f studs of clear height — the top %.1f studs are inside the ceiling")
-					:format(where, part[1], part[2], Config.Structure.WallHeight, part[2] - Config.Structure.WallHeight))
-		end
-	end
-end
-
--- CABINET AGAINST CABINET, which nothing compared. Both cases are 4 studs deep
--- and up to 64 long, they stand on one storey 34 studs apart in x, and the
--- furniture list only ever saw their PEDESTALS — two 5x5 points 14 studs apart
--- pass the spacing rule while the cases behind them interpenetrate, which is the
--- same 9x9-against-5x5 mistake the pads made from the other direction.
-for i, track in ipairs(Config.TrackOrder) do
-	local layout = L.Tracks[track]
-	for j = i + 1, #Config.TrackOrder do
-		local other = Config.TrackOrder[j]
-		local otherLayout = L.Tracks[other]
-		if layout and otherLayout and placedTracks[track] and placedTracks[other]
-				and (layout.floor or GROUND) == (otherLayout.floor or GROUND) then
-			local aCentre, aSize = Config.trackCabinet(track)
-			local bCentre, bSize = Config.trackCabinet(other)
-			furniturePairs += 1
-			local gap = boxBoxGap(aCentre, aSize, bCentre, bSize)
-			check(gap >= FURNITURE_GAP,
-				("the %s and %s cabinets both stand on the %s floor and come within %.1f studs of each other (need %d)")
-					:format(track, other, layout.floor or GROUND, gap, FURNITURE_GAP))
-		end
+		check(tier > lastTier,
+			("%s grants tier %d after tier %d — the shop chain must climb, or buying in order un-equips you")
+				:format(def.id, tier, lastTier))
+		lastTier = tier
 	end
 end
 
@@ -3130,19 +2891,8 @@ do
 				("%s hangs %.1f above its own floor and a cabinet's sign reaches 17.5 — the fixture would be inside the billboard")
 					:format(where, clear))
 
-			-- ...AND CLEAR OF WHAT IT HANGS OVER, in plan. This is the check
-			-- that CHOOSES `inset`: at 24 the +X column lands on the armoury.
-			local batten = Vector3.new(LIGHT.batten.width, 1, LIGHT.batten.length)
-			for _, track in ipairs(Config.TrackOrder) do
-				local layout = L.Tracks[track]
-				if layout then
-					local centre, size = Config.trackCabinet(track)
-					local gap = boxBoxGap(spot, batten, centre, size)
-					check(gap >= 2,
-						("%s is %.1f studs from the %s cabinet in plan (need 2) — the case is 13 tall and the fixture is on the ceiling above it")
-							:format(where, gap, track))
-				end
-			end
+			-- The cabinets this fixture used to be checked against left with
+			-- #108; the machines and the belt below keep their own clearances.
 		end
 	end
 
@@ -3481,12 +3231,6 @@ for index = 1, #groundPath.points - 1 do
 		})
 	end
 end
-for _, track in ipairs(Config.TrackOrder) do
-	if L.Tracks[track] and placedTracks[track] then
-		local centre, size = Config.trackCabinet(track)
-		table.insert(obstacles, { label = ("the %s cabinet"):format(track), centre = centre, size = size })
-	end
-end
 
 for _, side in ipairs(sides) do
 	local extent = side.extent
@@ -3643,11 +3387,13 @@ do
 				roofTop - (signY - ROOF_SIGN_HEIGHT / 2)))
 end
 
+local roofColumnX = halfX - 1 - Config.Structure.Roof.columnInset
+local roofColumnZ = halfZ - 1 - Config.Structure.Roof.columnInset
+
 -- THE FOUR COLUMNS. They stand `columnInset` in from the wall ring, which has to
 -- put them INSIDE it — a column in the wall is a column you cannot see and a
 -- wall segment you cannot build — and clear of the machine rows they stand
--- among. roofColumnX/Z are the numbers the cabinet block above models, derived
--- from Roof.columnInset in one place so the two cannot drift.
+-- among. roofColumnX/Z are derived from Roof.columnInset above.
 local wallInnerX = halfX - 1 - SH.WallThickness / 2
 local wallInnerZ = halfZ - 1 - SH.WallThickness / 2
 check(roofColumnX + ROOF.column / 2 <= wallInnerX,

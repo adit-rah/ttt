@@ -9,6 +9,7 @@ local HUD = Req("HUD")
 local CombatClient = Req("CombatClient")
 local MovementClient = Req("MovementClient")
 local PartyUI = Req("PartyUI")
+local ShopUI = Req("ShopUI")
 local UpgradeUI = Req("UpgradeUI")
 local SessionUI = Req("SessionUI")
 
@@ -18,6 +19,7 @@ HUD.start()
 CombatClient.start()
 MovementClient.start()
 PartyUI.start()
+ShopUI.start()
 
 -- Prototype panels. Both return immediately unless their Config.Prototypes
 -- flag is on.

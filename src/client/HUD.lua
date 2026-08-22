@@ -101,6 +101,7 @@ local bossTrack, bossFill
 -- above the definition calls it
 local helpPanel
 local buildHelp
+local railFrame
 
 -- The panel vocabulary, aliased so every call site below reads exactly as it
 -- did when these were five local functions in this file. They are UiKit's now;
@@ -345,7 +346,7 @@ end
 --- a button is that the toast column below it is derived from its height: a
 --- second item makes the rail wider, not taller, and nothing under it moves.
 local function buildUtilityRail(parent: Instance)
-	local rail = UiKit.dock(parent, {
+	railFrame = UiKit.dock(parent, {
 		name = "Rail",
 		corner = "topRight",
 		width = RAIL.ItemWidth,
@@ -354,8 +355,8 @@ local function buildUtilityRail(parent: Instance)
 	})
 
 	local slot
-	inviteButton, slot, inviteCaption = UiKit.railItem(rail, "Invite", PALETTE.good)
-	buildHelp(rail)
+	inviteButton, slot, inviteCaption = UiKit.railItem(railFrame, "Invite", PALETTE.good)
+	buildHelp(railFrame)
 	UiKit.personPlus(slot, RAIL.GlyphSize, UiKit.INK, PALETTE.good)
 	-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 	-- control does not exist. See refreshInvite.
@@ -663,6 +664,16 @@ local function renderTerms()
 	termsLabel.TextColor3 = state.friends > 0 and PALETTE.good or PALETTE.muted
 end
 
+-- #108: rail items other modules hang on the rail, with a visibility rule
+-- re-asked on every disclosure push. { button, visible }
+local dynamicRail: { any } = {}
+
+local function refreshDynamicRail()
+	for _, item in ipairs(dynamicRail) do
+		item.button.Visible = item.visible()
+	end
+end
+
 function HUD.applyDisclosure(payload)
 	state.disclosed = {}
 	for _, id in ipairs(payload.ids or {}) do
@@ -670,9 +681,35 @@ function HUD.applyDisclosure(payload)
 	end
 	renderTerms()
 	refreshInvite()
+	refreshDynamicRail()
 	for _, fn in ipairs(disclosureListeners) do
 		fn()
 	end
+end
+
+--- The owned-buttons mirror off the last Stats push — ShopUI dresses its
+--- catalog from this rather than holding state of its own.
+function HUD.ownedSet()
+	return state.owned or {}
+end
+
+-- fired at the end of every applyStats; ShopUI re-dresses through it
+local statsListeners: { () -> () } = {}
+
+function HUD.onStats(fn: () -> ())
+	table.insert(statsListeners, fn)
+end
+
+--- A rail item owned by another module: label, a visibility rule, a press.
+function HUD.addRailItem(name: string, label: string, visible: () -> boolean, onPress: () -> ())
+	if not railFrame then
+		return
+	end
+	local button = UiKit.railItem(railFrame, name, PALETTE.gold)
+	button.Text = label
+	button.Visible = visible()
+	button.Activated:Connect(onPress)
+	table.insert(dynamicRail, { button = button, visible = visible })
 end
 
 --- BOTH SocialService calls YIELD, so neither may run on the signal thread —
@@ -903,8 +940,12 @@ function HUD.applyStats(payload)
 				owned += 1
 			end
 		end
+		-- #108: a shop row has no pad to walk to, so the card says where the
+		-- counter is instead of leaving the player hunting the plot for it
+		local inShop = Config.TrackInfo[next_.track]
+			and Config.TrackInfo[next_.track].furniture == "shop"
 		nextUp = {
-			name = next_.name,
+			name = inShop and (next_.name .. "  •  in the SHOP") or next_.name,
 			price = next_.price,
 			label = Config.TrackLabel[next_.track] or "STEP",
 			step = owned + 1,
@@ -919,6 +960,9 @@ function HUD.applyStats(payload)
 
 	rebirthButton.Text = ("REBIRTH  %s"):format(Util.abbreviate(state.rebirthCost))
 	rebirthButton.BackgroundColor3 = state.cash >= state.rebirthCost and PALETTE.accent or PALETTE.dead
+	for _, fn in ipairs(statsListeners) do
+		fn()
+	end
 end
 
 --- The last wave packet, plus the wall-clock deadline derived from its

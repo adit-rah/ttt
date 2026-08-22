@@ -352,65 +352,6 @@ __MODULES["Config"] = function()
 		},
 		MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
 
-		-- mechanism: THE SAME RULE FOR A CABINET COLUMN, AND A DIFFERENT NUMBER.
-		-- MiscButtonSpacing paces unrelated purchases so they do not read as one
-		-- object; a cabinet column is nine pads that deliberately are one object, in
-		-- front of one case, in track order.
-		--
-		-- 12 is what makes the armoury a single straight file. Nine pedestals at 14
-		-- need 112 studs of run; the clear band down the right-hand side is 101.5,
-		-- bounded at the back by belt leg 1's base and buy-button row and at the
-		-- front by the wall. At 12 the run is 96 and it fits with five studs spare.
-		--
-		-- A pedestal is 5 wide, so 12 leaves SEVEN studs of clear floor between two
-		-- pads — below about 10 you could stand on one and not know which.
-		CabinetSlotSpacing = 12,
-
-		-- mechanism: SIDE-TRACK FURNITURE. Each cabinet is a display case standing
-		-- behind a column of its own buy buttons. design:D-03 for why the right half
-		-- of the plot is an armoury aisle and the left half a production line.
-		--
-		-- Positions are DERIVED from the anchor, exactly like DropperDist: adding a
-		-- sixth bat tier should be one row in Config.WeaponButtons and nothing
-		-- else. Hand-listing nine more coordinates in MiscButtons would have been
-		-- nine more chances to place a collision the verifier then has to catch.
-		--
-		-- `slots` is the capacity of the column, not the number of buttons in the
-		-- track; the verifier asserts the track fits, which is what stops a new
-		-- tier silently stacking a pedestal on top of the one before it.
-		--
-		-- ONE FILE, BOTH CASES, WHICH IS WHY THE REBIRTH PAD IS WHERE IT IS. Nine
-		-- pedestals on a 14-stud pitch is 112 studs of column plus 4 studs of case
-		-- overhang at each end: 120 studs of display case looking for a straight
-		-- run. A pad at (42, 40) with a 12x12 body and a 14-stud spacing rule around
-		-- it forbids any pedestal between z 26 and z 54 — one slot above it and
-		-- eight below, and eight below runs off the back of the plot. See
-		-- RebirthPadAt.
-		--
-		-- WHY x = 48 AND NOT HARD AGAINST THE WALL AT 54. Two solids stand at
-		-- x = ±54 for the full height of the ground storey, and neither can move:
-		-- the roof's columns (Structure.Roof.columnInset 3, so x = ±56, 2.4 square)
-		-- and the mezzanine deck's own posts (Floors[1].pillar.insetSide 4, so
-		-- x = ±54 — and widening that inset walks the LEFT pair into belt leg 2's
-		-- base at x -48.6..-39.4). A 4-deep case centred at 54 spans x 52..56 and
-		-- interpenetrates both. At 48 it spans 46..50 and clears the posts by 2.8.
-		--
-		-- The aisle then has to go inboard of the case (buttonX 40), which is the
-		-- correct side anyway: you walk the armoury with the cases on your right,
-		-- the mirror of walking the line with the belt on your left.
-		Tracks = {
-			-- weapons is the FRONT column, nearer the gateway, because refreshButtons
-			-- picks the beacon target by (TrackRank, price) and weapons outranks
-			-- armour — so the marker points at this cabinet first for the whole build,
-			-- and the nearer aisle has to be the one it points at.
-			--
-			-- firstZ is not a free choice for either. Belt leg 1's buy-button row is a
-			-- 95x5 box centred at (1, -45), and these pedestals share its x range, so
-			-- no pedestal centre may sit between z -50 and z -40. armour's column is
-			-- aligned to land on -52 and -38 rather than straddling that band.
-			weapons = { cabinetX = 48, buttonX = 40, firstZ = 14, spacing = 12, slots = 5, depth = 4, height = 13 },
-			armor   = { cabinetX = 48, buttonX = 40, firstZ = -36, spacing = 12, slots = 4, depth = 4, height = 13 },
-		},
 
 		-- MOVED OFF THE RIGHT-HAND WALL, so the armoury can be one straight file.
 		--
@@ -2390,6 +2331,7 @@ __MODULES["Config"] = function()
 		{ id = "siege", after = "walls", gate = true, name = "Raids on your plot", help = "Sahur press your gate now and then. The siren gives you time to run home; repair what breaks." },
 		{ id = "party", after = "walls", name = "Parties", help = "Party up from the left card: no friendly fire, shared gates, +5% income each." },
 		{ id = "recall", after = "walls", name = "Recall", help = "H (or HOME on touch) walks you home after six still seconds. Never with stolen Tung." },
+		{ id = "shop", after = "dropper3", name = "The shop", help = "Bats and armour live in the SHOP now — the rail button, or the merchant by the spawn." },
 		{ id = "raiding", after = "gates", name = "Raiding", help = "Break a storage unit, carry the spill home. Half their cap is always safe; camping pays half each repeat." },
 		{ id = "tower", after = "power1", name = "The tower", help = "The spire at the core's edge. A new deck of floors every day; each floor pays minutes of your income." },
 	}
@@ -3576,8 +3518,8 @@ __MODULES["Config"] = function()
 		-- visible from the moment you claim, which puts a 690000 price tag on the
 		-- plot at minute three; at 2 the roof stays hidden until `gates` is owned.
 		structure = { label = "PLOT", category = "plot", preview = 2, keepOnRebirth = false, paced = "spine", furniture = "misc" },
-		weapons = { label = "WEAPONS", category = "weapons", preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
-		armor   = { label = "ARMORY",  category = "armor",  preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
+		weapons = { label = "WEAPONS", category = "weapons", preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "shop" },
+		armor   = { label = "ARMORY",  category = "armor",  preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "shop" },
 		-- The generator multiplies exactly what a rebirth resets. Keeping it would
 		-- stack x2 on top of MultiplierPerRebirth 2.25 for an effective 4.5x first
 		-- prestige, which makes the asserted CostGrowth/MultiplierPerRebirth ratio
@@ -3995,30 +3937,14 @@ __MODULES["Config"] = function()
 	--- plain table with no operators, so anything that adds or scales a Vector3 at
 	--- require time takes the whole verifier down.
 
-	function Config.trackButtonPosition(track: string, slot: number): Vector3
-		local t = Config.Layout.Tracks[track]
-		return Vector3.new(t.buttonX, 0, t.firstZ + (slot - 1) * t.spacing)
-	end
 
 	--- The cabinet body behind that column: centre, then size. Its long axis is Z,
 	--- running the length of its own button column with four studs of overhang at
 	--- each end so the case reads as containing the buttons rather than starting
 	--- level with them.
-	function Config.trackCabinet(track: string): (Vector3, Vector3)
-		local t = Config.Layout.Tracks[track]
-		local length = (t.slots - 1) * t.spacing + 8
-		return Vector3.new(t.cabinetX, 0,
-				t.firstZ + (t.slots - 1) * t.spacing / 2),
-			Vector3.new(t.depth, t.height, length)
-	end
 
 	--- Shelf slot `slot` on the cabinet — where the display for a bought tier
 	--- stands, so the case visibly fills up as you climb the track.
-	function Config.trackShelfPosition(track: string, slot: number): Vector3
-		local t = Config.Layout.Tracks[track]
-		return Vector3.new(t.cabinetX, 5,
-			t.firstZ + (slot - 1) * t.spacing)
-	end
 
 	function Config.requirementsOf(def)
 		local req = def.requires
@@ -4473,6 +4399,11 @@ __MODULES["Net"] = function()
 		-- Disclosure (#96): the server owns the high-water and pushes the whole
 		-- unlocked set; the client only renders it.
 		"Disclosure",    -- S->C { ids = { id, ... } }
+
+		-- The shop (#108). C->S { action = "buy", id }; S->C { open = true } when
+		-- a world merchant is pressed. The catalog itself is Config, which the
+		-- client already holds, and ownership rides the Stats payload.
+		"Shop",          -- C->S buy; S->C open
 
 		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 		-- demand so a client that connects with a flag off still resolves them and
@@ -6640,6 +6571,7 @@ __MODULES["HUD"] = function()
 	-- above the definition calls it
 	local helpPanel
 	local buildHelp
+	local railFrame
 
 	-- The panel vocabulary, aliased so every call site below reads exactly as it
 	-- did when these were five local functions in this file. They are UiKit's now;
@@ -6884,7 +6816,7 @@ __MODULES["HUD"] = function()
 	--- a button is that the toast column below it is derived from its height: a
 	--- second item makes the rail wider, not taller, and nothing under it moves.
 	local function buildUtilityRail(parent: Instance)
-		local rail = UiKit.dock(parent, {
+		railFrame = UiKit.dock(parent, {
 			name = "Rail",
 			corner = "topRight",
 			width = RAIL.ItemWidth,
@@ -6893,8 +6825,8 @@ __MODULES["HUD"] = function()
 		})
 
 		local slot
-		inviteButton, slot, inviteCaption = UiKit.railItem(rail, "Invite", PALETTE.good)
-		buildHelp(rail)
+		inviteButton, slot, inviteCaption = UiKit.railItem(railFrame, "Invite", PALETTE.good)
+		buildHelp(railFrame)
 		UiKit.personPlus(slot, RAIL.GlyphSize, UiKit.INK, PALETTE.good)
 		-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 		-- control does not exist. See refreshInvite.
@@ -7202,6 +7134,16 @@ __MODULES["HUD"] = function()
 		termsLabel.TextColor3 = state.friends > 0 and PALETTE.good or PALETTE.muted
 	end
 
+	-- #108: rail items other modules hang on the rail, with a visibility rule
+	-- re-asked on every disclosure push. { button, visible }
+	local dynamicRail: { any } = {}
+
+	local function refreshDynamicRail()
+		for _, item in ipairs(dynamicRail) do
+			item.button.Visible = item.visible()
+		end
+	end
+
 	function HUD.applyDisclosure(payload)
 		state.disclosed = {}
 		for _, id in ipairs(payload.ids or {}) do
@@ -7209,9 +7151,35 @@ __MODULES["HUD"] = function()
 		end
 		renderTerms()
 		refreshInvite()
+		refreshDynamicRail()
 		for _, fn in ipairs(disclosureListeners) do
 			fn()
 		end
+	end
+
+	--- The owned-buttons mirror off the last Stats push — ShopUI dresses its
+	--- catalog from this rather than holding state of its own.
+	function HUD.ownedSet()
+		return state.owned or {}
+	end
+
+	-- fired at the end of every applyStats; ShopUI re-dresses through it
+	local statsListeners: { () -> () } = {}
+
+	function HUD.onStats(fn: () -> ())
+		table.insert(statsListeners, fn)
+	end
+
+	--- A rail item owned by another module: label, a visibility rule, a press.
+	function HUD.addRailItem(name: string, label: string, visible: () -> boolean, onPress: () -> ())
+		if not railFrame then
+			return
+		end
+		local button = UiKit.railItem(railFrame, name, PALETTE.gold)
+		button.Text = label
+		button.Visible = visible()
+		button.Activated:Connect(onPress)
+		table.insert(dynamicRail, { button = button, visible = visible })
 	end
 
 	--- BOTH SocialService calls YIELD, so neither may run on the signal thread —
@@ -7442,8 +7410,12 @@ __MODULES["HUD"] = function()
 					owned += 1
 				end
 			end
+			-- #108: a shop row has no pad to walk to, so the card says where the
+			-- counter is instead of leaving the player hunting the plot for it
+			local inShop = Config.TrackInfo[next_.track]
+				and Config.TrackInfo[next_.track].furniture == "shop"
 			nextUp = {
-				name = next_.name,
+				name = inShop and (next_.name .. "  •  in the SHOP") or next_.name,
 				price = next_.price,
 				label = Config.TrackLabel[next_.track] or "STEP",
 				step = owned + 1,
@@ -7458,6 +7430,9 @@ __MODULES["HUD"] = function()
 
 		rebirthButton.Text = ("REBIRTH  %s"):format(Util.abbreviate(state.rebirthCost))
 		rebirthButton.BackgroundColor3 = state.cash >= state.rebirthCost and PALETTE.accent or PALETTE.dead
+		for _, fn in ipairs(statsListeners) do
+			fn()
+		end
 	end
 
 	--- The last wave packet, plus the wall-clock deadline derived from its
@@ -8765,6 +8740,188 @@ __MODULES["SessionUI"] = function()
 end
 
 
+__MODULES["ShopUI"] = function()
+	--[[
+		ShopUI.lua — the storefront's face (#108).
+
+		One overlay card, two sections: BATS and ARMOUR. Every row prints the
+		measured effect the buy pads used to print — "34 dmg • 14% crit", the
+		armour's health — because that legibility was the pads' best feature and
+		it had to survive the move. Rows come straight from Config; ownership
+		comes off the Stats payload the HUD already holds, so the shop needs no
+		state push of its own.
+
+		Two doors in: the SHOP rail item (disclosure-gated, like every earned
+		surface) and the merchant's prompt, which arrives as { open = true } on
+		the Shop remote. Buying sends { action = "buy", id } and nothing else; the
+		server validates everything and answers through the notify stream.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Util = Req("Util")
+	local Net = Req("Net")
+	local UiKit = Req("UiKit")
+	local HUD = Req("HUD")
+	local Style = Req("Style")
+
+	local ShopUI = {}
+
+	local PALETTE = UiKit.PALETTE
+
+	local panel
+	local rows = {}
+
+	local function statLine(def): string
+		if def.track == "weapons" then
+			local bat = Config.BatById[def.grants]
+			if bat then
+				return ("%d dmg • %d%% crit"):format(bat.damage, math.floor(bat.crit * 100 + 0.5))
+			end
+		else
+			for _, tier in ipairs(Config.Armor.Tiers) do
+				if tier.id == def.grants then
+					return ("%d health"):format(tier.health)
+				end
+			end
+		end
+		return ""
+	end
+
+	--- One section of catalog rows; returns the next free y.
+	local function buildSection(title: string, defs, y: number): number
+		UiKit.text(panel, {
+			Size = UDim2.new(1, -24, 0, 18),
+			Position = UDim2.fromOffset(12, y),
+			Font = Style.Font.head,
+			Text = title,
+			TextSize = 14,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = PALETTE.gold,
+		})
+		y += 22
+		for _, def in ipairs(defs) do
+			local row = Instance.new("Frame")
+			row.Size = UDim2.new(1, -16, 0, 34)
+			row.Position = UDim2.fromOffset(8, y)
+			row.BackgroundColor3 = PALETTE.panel
+			row.BackgroundTransparency = 0.35
+			row.BorderSizePixel = 0
+			row.Parent = panel
+			UiKit.corner(row, 6)
+
+			local name = UiKit.text(row, {
+				Size = UDim2.new(1, -160, 0, 16),
+				Position = UDim2.fromOffset(8, 2),
+				Font = Style.Font.body,
+				Text = def.name,
+				TextSize = 13,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = PALETTE.accent,
+			})
+			UiKit.text(row, {
+				Size = UDim2.new(1, -160, 0, 13),
+				Position = UDim2.fromOffset(8, 18),
+				Font = Style.Font.body,
+				Text = statLine(def),
+				TextSize = 11,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = PALETTE.muted,
+			})
+			local button = UiKit.button(row, "", PALETTE.good, {
+				Size = UDim2.fromOffset(130, 26),
+				Position = UDim2.new(1, -138, 0, 4),
+			})
+			button.Activated:Connect(function()
+				Net.event("Shop"):FireServer({ action = "buy", id = def.id })
+			end)
+			rows[def.id] = { def = def, nameLabel = name, button = button }
+			y += 38
+		end
+		return y + 6
+	end
+
+	--- Re-reads ownership off the HUD's Stats mirror and dresses every row.
+	local function refresh()
+		if not panel or not panel.Visible then
+			return
+		end
+		local owned = HUD.ownedSet()
+		for id, row in pairs(rows) do
+			local isOwned = owned[id] == true
+			local blocked
+			for _, req in ipairs(Config.requirementsOf(row.def)) do
+				if not owned[req] then
+					blocked = Config.ButtonById[req]
+					break
+				end
+			end
+			if isOwned then
+				row.button.Text = "OWNED"
+				row.button.BackgroundColor3 = PALETTE.panel
+				row.button.Active = false
+			elseif blocked then
+				row.button.Text = "AFTER " .. blocked.name:upper():sub(1, 12)
+				row.button.BackgroundColor3 = PALETTE.panel
+				row.button.Active = false
+			else
+				row.button.Text = "$" .. Util.abbreviate(row.def.price)
+				row.button.BackgroundColor3 = PALETTE.good
+				row.button.Active = true
+			end
+		end
+	end
+
+	local function open()
+		panel.Visible = true
+		refresh()
+	end
+
+	function ShopUI.start()
+		panel = UiKit.panel(HUD.overlay(), UDim2.fromOffset(340, 60), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+		panel.Name = "Shop"
+		panel.Visible = false
+
+		local y = 10
+		UiKit.text(panel, {
+			Size = UDim2.new(1, -24, 0, 20),
+			Position = UDim2.fromOffset(12, y),
+			Font = Style.Font.head,
+			Text = "THE SHOP",
+			TextSize = 17,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = PALETTE.gold,
+		})
+		local close = UiKit.button(panel, "CLOSE", PALETTE.bad, {
+			Size = UDim2.fromOffset(64, 22),
+			Position = UDim2.new(1, -72, 0, 10),
+		})
+		close.Activated:Connect(function()
+			panel.Visible = false
+		end)
+		y += 30
+		y = buildSection("BATS", Config.WeaponButtons, y)
+		y = buildSection("ARMOUR", Config.ArmorButtons, y)
+		panel.Size = UDim2.fromOffset(340, y)
+
+		-- door one: the merchant's prompt answers { open = true }
+		Net.event("Shop").OnClientEvent:Connect(function(payload)
+			if type(payload) == "table" and payload.open then
+				open()
+			end
+		end)
+		-- door two: the rail item, earned like every surface
+		HUD.addRailItem("Shop", "SHOP", function()
+			return HUD.disclosed("shop")
+		end, open)
+		-- ownership rides Stats; re-dress on every push while open
+		HUD.onStats(refresh)
+	end
+
+	return ShopUI
+end
+
+
 __MODULES["UiKit"] = function()
 	--[[
 		UiKit.lua — the vocabulary every on-screen panel is built out of, plus the
@@ -9721,6 +9878,7 @@ local HUD = Req("HUD")
 local CombatClient = Req("CombatClient")
 local MovementClient = Req("MovementClient")
 local PartyUI = Req("PartyUI")
+local ShopUI = Req("ShopUI")
 local UpgradeUI = Req("UpgradeUI")
 local SessionUI = Req("SessionUI")
 
@@ -9730,6 +9888,7 @@ HUD.start()
 CombatClient.start()
 MovementClient.start()
 PartyUI.start()
+ShopUI.start()
 
 -- Prototype panels. Both return immediately unless their Config.Prototypes
 -- flag is on.

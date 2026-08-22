@@ -352,65 +352,6 @@ __MODULES["Config"] = function()
 		},
 		MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
 
-		-- mechanism: THE SAME RULE FOR A CABINET COLUMN, AND A DIFFERENT NUMBER.
-		-- MiscButtonSpacing paces unrelated purchases so they do not read as one
-		-- object; a cabinet column is nine pads that deliberately are one object, in
-		-- front of one case, in track order.
-		--
-		-- 12 is what makes the armoury a single straight file. Nine pedestals at 14
-		-- need 112 studs of run; the clear band down the right-hand side is 101.5,
-		-- bounded at the back by belt leg 1's base and buy-button row and at the
-		-- front by the wall. At 12 the run is 96 and it fits with five studs spare.
-		--
-		-- A pedestal is 5 wide, so 12 leaves SEVEN studs of clear floor between two
-		-- pads — below about 10 you could stand on one and not know which.
-		CabinetSlotSpacing = 12,
-
-		-- mechanism: SIDE-TRACK FURNITURE. Each cabinet is a display case standing
-		-- behind a column of its own buy buttons. design:D-03 for why the right half
-		-- of the plot is an armoury aisle and the left half a production line.
-		--
-		-- Positions are DERIVED from the anchor, exactly like DropperDist: adding a
-		-- sixth bat tier should be one row in Config.WeaponButtons and nothing
-		-- else. Hand-listing nine more coordinates in MiscButtons would have been
-		-- nine more chances to place a collision the verifier then has to catch.
-		--
-		-- `slots` is the capacity of the column, not the number of buttons in the
-		-- track; the verifier asserts the track fits, which is what stops a new
-		-- tier silently stacking a pedestal on top of the one before it.
-		--
-		-- ONE FILE, BOTH CASES, WHICH IS WHY THE REBIRTH PAD IS WHERE IT IS. Nine
-		-- pedestals on a 14-stud pitch is 112 studs of column plus 4 studs of case
-		-- overhang at each end: 120 studs of display case looking for a straight
-		-- run. A pad at (42, 40) with a 12x12 body and a 14-stud spacing rule around
-		-- it forbids any pedestal between z 26 and z 54 — one slot above it and
-		-- eight below, and eight below runs off the back of the plot. See
-		-- RebirthPadAt.
-		--
-		-- WHY x = 48 AND NOT HARD AGAINST THE WALL AT 54. Two solids stand at
-		-- x = ±54 for the full height of the ground storey, and neither can move:
-		-- the roof's columns (Structure.Roof.columnInset 3, so x = ±56, 2.4 square)
-		-- and the mezzanine deck's own posts (Floors[1].pillar.insetSide 4, so
-		-- x = ±54 — and widening that inset walks the LEFT pair into belt leg 2's
-		-- base at x -48.6..-39.4). A 4-deep case centred at 54 spans x 52..56 and
-		-- interpenetrates both. At 48 it spans 46..50 and clears the posts by 2.8.
-		--
-		-- The aisle then has to go inboard of the case (buttonX 40), which is the
-		-- correct side anyway: you walk the armoury with the cases on your right,
-		-- the mirror of walking the line with the belt on your left.
-		Tracks = {
-			-- weapons is the FRONT column, nearer the gateway, because refreshButtons
-			-- picks the beacon target by (TrackRank, price) and weapons outranks
-			-- armour — so the marker points at this cabinet first for the whole build,
-			-- and the nearer aisle has to be the one it points at.
-			--
-			-- firstZ is not a free choice for either. Belt leg 1's buy-button row is a
-			-- 95x5 box centred at (1, -45), and these pedestals share its x range, so
-			-- no pedestal centre may sit between z -50 and z -40. armour's column is
-			-- aligned to land on -52 and -38 rather than straddling that band.
-			weapons = { cabinetX = 48, buttonX = 40, firstZ = 14, spacing = 12, slots = 5, depth = 4, height = 13 },
-			armor   = { cabinetX = 48, buttonX = 40, firstZ = -36, spacing = 12, slots = 4, depth = 4, height = 13 },
-		},
 
 		-- MOVED OFF THE RIGHT-HAND WALL, so the armoury can be one straight file.
 		--
@@ -2390,6 +2331,7 @@ __MODULES["Config"] = function()
 		{ id = "siege", after = "walls", gate = true, name = "Raids on your plot", help = "Sahur press your gate now and then. The siren gives you time to run home; repair what breaks." },
 		{ id = "party", after = "walls", name = "Parties", help = "Party up from the left card: no friendly fire, shared gates, +5% income each." },
 		{ id = "recall", after = "walls", name = "Recall", help = "H (or HOME on touch) walks you home after six still seconds. Never with stolen Tung." },
+		{ id = "shop", after = "dropper3", name = "The shop", help = "Bats and armour live in the SHOP now — the rail button, or the merchant by the spawn." },
 		{ id = "raiding", after = "gates", name = "Raiding", help = "Break a storage unit, carry the spill home. Half their cap is always safe; camping pays half each repeat." },
 		{ id = "tower", after = "power1", name = "The tower", help = "The spire at the core's edge. A new deck of floors every day; each floor pays minutes of your income." },
 	}
@@ -3576,8 +3518,8 @@ __MODULES["Config"] = function()
 		-- visible from the moment you claim, which puts a 690000 price tag on the
 		-- plot at minute three; at 2 the roof stays hidden until `gates` is owned.
 		structure = { label = "PLOT", category = "plot", preview = 2, keepOnRebirth = false, paced = "spine", furniture = "misc" },
-		weapons = { label = "WEAPONS", category = "weapons", preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
-		armor   = { label = "ARMORY",  category = "armor",  preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
+		weapons = { label = "WEAPONS", category = "weapons", preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "shop" },
+		armor   = { label = "ARMORY",  category = "armor",  preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "shop" },
 		-- The generator multiplies exactly what a rebirth resets. Keeping it would
 		-- stack x2 on top of MultiplierPerRebirth 2.25 for an effective 4.5x first
 		-- prestige, which makes the asserted CostGrowth/MultiplierPerRebirth ratio
@@ -3995,30 +3937,14 @@ __MODULES["Config"] = function()
 	--- plain table with no operators, so anything that adds or scales a Vector3 at
 	--- require time takes the whole verifier down.
 
-	function Config.trackButtonPosition(track: string, slot: number): Vector3
-		local t = Config.Layout.Tracks[track]
-		return Vector3.new(t.buttonX, 0, t.firstZ + (slot - 1) * t.spacing)
-	end
 
 	--- The cabinet body behind that column: centre, then size. Its long axis is Z,
 	--- running the length of its own button column with four studs of overhang at
 	--- each end so the case reads as containing the buttons rather than starting
 	--- level with them.
-	function Config.trackCabinet(track: string): (Vector3, Vector3)
-		local t = Config.Layout.Tracks[track]
-		local length = (t.slots - 1) * t.spacing + 8
-		return Vector3.new(t.cabinetX, 0,
-				t.firstZ + (t.slots - 1) * t.spacing / 2),
-			Vector3.new(t.depth, t.height, length)
-	end
 
 	--- Shelf slot `slot` on the cabinet — where the display for a bought tier
 	--- stands, so the case visibly fills up as you climb the track.
-	function Config.trackShelfPosition(track: string, slot: number): Vector3
-		local t = Config.Layout.Tracks[track]
-		return Vector3.new(t.cabinetX, 5,
-			t.firstZ + (slot - 1) * t.spacing)
-	end
 
 	function Config.requirementsOf(def)
 		local req = def.requires
@@ -4473,6 +4399,11 @@ __MODULES["Net"] = function()
 		-- Disclosure (#96): the server owns the high-water and pushes the whole
 		-- unlocked set; the client only renders it.
 		"Disclosure",    -- S->C { ids = { id, ... } }
+
+		-- The shop (#108). C->S { action = "buy", id }; S->C { open = true } when
+		-- a world merchant is pressed. The catalog itself is Config, which the
+		-- client already holds, and ownership rides the Stats payload.
+		"Shop",          -- C->S buy; S->C open
 
 		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 		-- demand so a client that connects with a flag off still resolves them and
@@ -7384,7 +7315,15 @@ __MODULES["CombatService"] = function()
 		local tier = math.clamp(profile.batTier or 1, 1, #Config.Bats)
 		local def = Config.Bats[tier]
 
-		removeBats(player:FindFirstChildOfClass("Backpack"))
+		-- No Backpack, no tool: the spec harness's players carry none (#108's
+		-- shop grants run headless), and a bat with nowhere to go is a bat the
+		-- next spawn equips anyway.
+		local backpack = player:FindFirstChildOfClass("Backpack")
+		if not backpack then
+			return
+		end
+
+		removeBats(backpack)
 		removeBats(player.Character)
 
 		local tool = TungModels.buildBatTool(def)
@@ -12779,6 +12718,137 @@ __MODULES["SessionService"] = function()
 end
 
 
+__MODULES["ShopService"] = function()
+	--[[
+		ShopService.lua — the storefront for gear (#108).
+
+		design:D-03. The cabinets are gone; weapons and armour sell HERE, and the
+		mechanics deliberately did not move an inch: the catalog is the same
+		Config.Buttons rows (same ids, same prices, same chains — the tuned week
+		walk still spends through them unchanged), a purchase still writes
+		profile.owned and still lands as CombatService.grantBat/grantArmor, and
+		both grants stay monotonic. What changed is the DOOR: a remote instead of
+		a pedestal, so character progression travels with the character.
+
+		TWO DOORS, ONE SHOP. The rail button (client-side, disclosure-gated) and
+		the merchant by the spawn — a prompt whose whole job is FireClient
+		{ open = true }. The server validates everything on buy: the row must be a
+		shop-track row, its chain predecessor owned, its track open
+		(Config.trackUnlocked — the dropper3 plot milestone), the shop disclosed,
+		and the price paid through Economy.spend.
+
+		The tycoon's `owned` mirror is kept in step when the buyer has a plot, so
+		the frontier arithmetic and the replay path agree with the profile — the
+		AdminService.give arrangement.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Util = Req("Util")
+	local Net = Req("Net")
+	local Economy = Req("Economy")
+	local DataService = Req("DataService")
+	local CombatService = Req("CombatService")
+	local DisclosureService = Req("DisclosureService")
+
+	local ShopService = {}
+
+	local remote = Net.event("Shop")
+
+	local SHOP_TRACKS = { weapons = true, armor = true }
+
+	--- Returns (ok, reason); reasons are player-facing. Clock-free and pure over
+	--- the profile, so the whole gate runs headless.
+	function ShopService.tryBuy(player, id: string): (boolean, string)
+		local def = Config.ButtonById[id]
+		if not def or not SHOP_TRACKS[def.track] then
+			return false, "the shop does not sell that"
+		end
+		local profile = DataService.get(player)
+		if not profile then
+			return false, "your save is still loading"
+		end
+		if profile.owned[id] then
+			return false, "you already own that"
+		end
+		if not DisclosureService.unlocked(player, "shop") then
+			return false, "keep building — the shop opens soon"
+		end
+		if not Config.trackUnlocked(def.track, profile.owned) then
+			return false, "keep building — this counter opens soon"
+		end
+		for _, req in ipairs(Config.requirementsOf(def)) do
+			if not profile.owned[req] then
+				local blocker = Config.ButtonById[req]
+				return false, ("buy %s first"):format(blocker and blocker.name or req)
+			end
+		end
+		if not Economy.spend(player, def.price) then
+			return false, ("you need %s more"):format(Util.abbreviate(def.price - Economy.get(player)))
+		end
+
+		profile.owned[id] = true
+		if def.track == "weapons" then
+			CombatService.grantBat(player, def.grants)
+		else
+			CombatService.grantArmor(player, def.grants)
+		end
+		Economy.push(player)
+		return true, def.name
+	end
+
+	function ShopService.start()
+		local PlotService = Req("PlotService")
+
+		remote.OnServerEvent:Connect(function(player, payload)
+			if type(payload) ~= "table" or payload.action ~= "buy" or type(payload.id) ~= "string" then
+				return
+			end
+			local ok, what = ShopService.tryBuy(player, payload.id)
+			Economy.notify(player, { kind = ok and "buy" or "warn", title = "Shop",
+				body = ok and ("%s is yours."):format(what) or what })
+			if ok then
+				-- keep the plot's mirror in step, so the frontier arithmetic and
+				-- the rejoin replay agree with the profile
+				local tycoon = PlotService.plotOf(player)
+				if tycoon then
+					tycoon.owned[payload.id] = true
+				end
+			end
+		end)
+
+		-- the merchant: a Tung by the spawn pad whose prompt opens the shop
+		local TungModels = Req("TungModels")
+		local bearing = math.pi / math.max(Config.plotCountFor(), 1)
+		local base = Vector3.new(
+			math.sin(bearing) * (Config.World.SpawnRadius - 20),
+			Config.World.GroundTopY,
+			math.cos(bearing) * (Config.World.SpawnRadius - 20))
+		local merchant = TungModels.buildStatue("golden", 1.4)
+		merchant.Name = "Merchant"
+		merchant:PivotTo(CFrame.new(base + Vector3.new(0, 4, 0)))
+		merchant.Parent = workspace
+
+		local anchor = merchant.PrimaryPart or merchant:FindFirstChildWhichIsA("BasePart")
+		if anchor then
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.Name = "OpenShop"
+			prompt.ActionText = "Browse"
+			prompt.ObjectText = "The Shop"
+			prompt.HoldDuration = 0.5
+			prompt.MaxActivationDistance = 12
+			prompt.RequiresLineOfSight = false
+			prompt.Parent = anchor
+			prompt.Triggered:Connect(function(player)
+				remote:FireClient(player, { open = true })
+			end)
+		end
+	end
+
+	return ShopService
+end
+
+
 __MODULES["SocialService"] = function()
 	--[[
 		SocialService.lua — who in this server is your friend, and what that is worth.
@@ -15032,10 +15102,9 @@ __MODULES["Buttons"] = function()
 		Studio-only assertion in buildButtons is the half of that no config check can
 		reach: whether the pad that got built is where buttonPosition said.
 
-		A gated track is HIDDEN, not previewed, and takes no ghost — nine dimmed pads
-		with ghost bats on them is the same wall of labels with the brightness turned
-		down, and the point of gating the cabinets is that half the plot is bare
-		ground until it is earned.
+		A gated track is HIDDEN, not previewed, and takes no ghost — nine dimmed
+		pads with ghost machines on them is the same wall of labels with the
+		brightness turned down.
 	]]
 
 	local Req = __Req
@@ -15067,15 +15136,10 @@ __MODULES["Buttons"] = function()
 			return self:pointOnLeg(legIndex, distance, -L.ButtonOffset, pathIndex)
 		end
 		-- Dispatched on what KIND of furniture the track has, not on "is it the
-		-- factory". The old test sent everything non-factory to a cabinet column,
-		-- which is the right answer for a display case standing on the plot floor
-		-- and the wrong one for a row of generators on a slab behind it — and
-		-- Layout.Tracks has no `power` entry, so it would have indexed nil and
-		-- taken the whole plot's construction down with it.
+		-- factory". Shop tracks (#108) never reach here: buildButtons skips them,
+		-- so a shop row has no pedestal and no position to answer.
 		local furniture = def.track and Config.TrackInfo[def.track].furniture
-		if furniture == "cabinet" then
-			return Config.trackButtonPosition(def.track, def.trackOrder)
-		elseif furniture == "yard" then
+		if furniture == "yard" then
 			return Config.yardButtonPosition()
 		elseif furniture == "land" then
 			-- One pedestal per side, on the centre pad. Every rung of a side
@@ -15094,7 +15158,7 @@ __MODULES["Buttons"] = function()
 	--- second storey.
 	---
 	--- All the sources of a button position can answer with a height.
-	--- Config.trackButtonPosition and Config.landButtonPosition answer at ground
+	--- Config.landButtonPosition answers at ground
 	--- level; Layout.MiscButtons is all ground level; and belt buttons come
 	--- through pointOnLeg, which bakes in `path.y`.
 	---
@@ -15107,6 +15171,10 @@ __MODULES["Buttons"] = function()
 
 	function Tycoon:buildButtons()
 		for _, def in ipairs(Config.Buttons) do
+			-- #108: shop rows sell off the plot; no pedestal, no ghost, no entry
+			if def.track and Config.TrackInfo[def.track].furniture == "shop" then
+				continue
+			end
 			local base = self:buttonBaseCF(def)
 
 			local holder = Instance.new("Model")
@@ -15466,16 +15534,10 @@ __MODULES["Buttons"] = function()
 		end
 
 		self:pointAt(target)
-		-- Here rather than as a second ownedChanged listener: refreshButtons
-		-- already runs on install, assign, release and rebirth — every event that
-		-- can open or close a track — and updateCabinetSigns has always lived on
-		-- the end of it. ensureCabinets is idempotent, so the periodic refresh
-		-- costs a FindFirstChild per track.
-		self:ensureCabinets()
-		self:updateCabinetSigns()
-		-- The yard and its generator are refreshed on the same beat and for the
-		-- same reason: this is the one place that runs on install, assign, release
-		-- and rebirth, and both of them have to survive all four.
+		-- The yard and its generator are refreshed on this beat because it is the
+		-- one place that runs on install, assign, release and rebirth, and both
+		-- of them have to survive all four. The cabinets used to hang here too;
+		-- they left with #108.
 		self:ensureYard()
 		self:refreshGenerator()
 	end
@@ -16133,7 +16195,6 @@ __MODULES["Installers"] = function()
 	local Style = Req("Style")
 	local Util = Req("Util")
 	local Fx = Req("Fx")
-	local TungModels = Req("TungModels")
 	local CombatService = Req("CombatService")
 	local Tycoon = Req("Class")
 	local Parts = Req("Parts")
@@ -16412,49 +16473,14 @@ __MODULES["Installers"] = function()
 		self:refreshGenerator()
 	end
 
-	--- A bought tier's display, standing on its own shelf of the track's cabinet.
-	---
-	--- Parented into self.props, NOT self.machines: rebirth clears machines, and a
-	--- weapon you keep across a rebirth must not lose its shelf.
-	function Tycoon:buildShelfDisplay(def, variant: string, label: string)
-		local model = Instance.new("Model")
-		model.Name = "Shelf_" .. def.id
-		model.Parent = self.props
 
-		local spot = Config.trackShelfPosition(def.track, def.trackOrder)
-		local shelfCF = self:at(spot.X, spot.Y, spot.Z)
-		newPart(model, "Shelf", Vector3.new(5, 0.6, 8), shelfCF, COLORS.metal, Enum.Material.Metal)
-
-		-- 0.85 rather than the 1.1 the old free-standing anvil used: the display
-		-- now stands INSIDE a 13-stud case, and the tallest variants scale up by a
-		-- further 1.5 on top of whatever is asked for here.
-		local display = TungModels.buildStatue(variant, 0.85)
-		display:PivotTo(shelfCF * CFrame.new(0, 3.2, 0))
-		display.Parent = model
-
-		local plate = newPart(model, "Plate", Vector3.new(0.4, 1.6, 7),
-			shelfCF * CFrame.new(-2.2, 1, 0), COLORS.metal, Enum.Material.Metal, false)
-		local billboard = Style.billboard(plate, {
-			name = "Plate", width = 7, height = 1.4, distance = "machine", offset = 1.6,
-		})
-		Style.text(billboard, { weight = "body", text = label, color = COLORS.gold })
-
-		return model
-	end
-
+	-- #108: gear and armour sell from the SHOP and build nothing on the plot.
+	-- The installers survive as the replay path — assign() re-walks `owned` and
+	-- these re-grant, which is idempotent because both grants are monotonic.
 	Tycoon.INSTALLERS.Gear = function(self, def, silent)
 		local owner = self.owner
 		if owner then
 			CombatService.grantBat(owner, def.grants)
-		end
-
-		local batDef = Config.BatById[def.grants]
-		local model = self:buildShelfDisplay(def, batDef and batDef.variant or "classic",
-			batDef and batDef.name or def.name)
-
-		local entry = self.objects[def.id]
-		if entry then
-			entry.machine = model
 		end
 	end
 
@@ -16462,15 +16488,6 @@ __MODULES["Installers"] = function()
 		local owner = self.owner
 		if owner then
 			CombatService.grantArmor(owner, def.grants)
-		end
-
-		local tierDef = Config.ArmorById[def.grants]
-		local model = self:buildShelfDisplay(def, tierDef and tierDef.variant or "classic",
-			tierDef and tierDef.name or def.name)
-
-		local entry = self.objects[def.id]
-		if entry then
-			entry.machine = model
 		end
 	end
 
@@ -17097,13 +17114,7 @@ __MODULES["Ownership"] = function()
 			end
 		end
 		self.machines:ClearAllChildren()
-		-- Cabinet bodies USED to be permanent plot furniture and only the shelves
-		-- came down. They are earned now, so they go with everything else: a fresh
-		-- plot has to read as bare ground on the right-hand side, which is the
-		-- entire point of gating them. assign() rebuilds whatever the next owner
-		-- has earned, and ensureCabinets is idempotent.
 		self.props:ClearAllChildren()
-		self.cabinetSigns = {}
 		self:clearDrops()
 		self:setFactoryVisible(false)
 
@@ -17338,19 +17349,19 @@ end
 
 __MODULES["Props"] = function()
 	--[[
-		tycoon/Props.lua — the furniture around the belt: the claim rig, the rebirth
-		pad, the side-track cabinets and their signs, the generator yard and the
-		generator standing on it.
+		tycoon/Props.lua — the furniture around the belt: the claim rig, the
+		rebirth pad, the generator yard and the generator standing on it. The
+		side-track cabinets stood here until #108 moved weapons and armour into
+		the shop.
 
-		THE self.props / self.machines SPLIT IS THE POINT OF THIS FILE. Cabinet
-		bodies and the yard slab go in self.props; the generator that stands on the
-		yard is a machine, so a rebirth — machines:ClearAllChildren() — takes it down
-		and leaves the slab standing. release() clears props as well, because the
-		next owner has different tiers, and that is why ensureCabinets and ensureYard
-		are IDEMPOTENT and re-run from refreshButtons. ensureYard used to be
-		buildYard(), called once from the constructor: the first owner to leave a plot
-		took its slab and fence with them for the rest of the server's life, and
-		every later owner bought generators that stood in mid-air.
+		THE self.props / self.machines SPLIT IS THE POINT OF THIS FILE. The yard
+		slab goes in self.props; the generator that stands on the yard is a
+		machine, so a rebirth — machines:ClearAllChildren() — takes it down and
+		leaves the slab standing. release() clears props as well, and that is why
+		ensureYard is IDEMPOTENT and re-run from refreshButtons. It used to be
+		buildYard(), called once from the constructor: the first owner to leave a
+		plot took its slab and fence with them for the rest of the server's life,
+		and every later owner bought generators that stood in mid-air.
 
 		refreshGenerator is DERIVED STATE, not an install side effect. It shows the
 		LAST owned power rung — the same rule Config.powerFactor uses, because the
@@ -17359,11 +17370,6 @@ __MODULES["Props"] = function()
 		attribute read. It deliberately does not write self.objects[id].machine: four
 		button entries would share one model handle and release() would destroy
 		through one of them and leave three dangling.
-
-		NO SIGN ON THE YARD, and if one is ever wanted it must not go in
-		self.cabinetSigns — updateCabinetSigns rewrites everything in that map with
-		the cabinet format string, which is how a "POWER YARD" board came to read
-		"POWER CABINET - 0/4".
 	]]
 
 	local Req = __Req
@@ -17435,94 +17441,19 @@ __MODULES["Props"] = function()
 
 	-- ── rebirth pad ──────────────────────────────────────────────────────────────
 
-	--- mechanism: the side-track cabinets — a display case standing behind each
-	--- track's column of buy buttons.
-	---
-	--- These carry the wayfinding that the side tracks would otherwise have to
-	--- take from `pointAt`. There is exactly ONE Highlight per plot and it belongs
-	--- to the factory (Highlight is capped at 255 per client and disabled ones
-	--- still occupy a slot), so a cabinet announces itself with a sign instead —
-	--- which is better anyway, because a sign can say what it is and a glow
-	--- cannot.
-	--- Builds the cabinets a plot has earned, and takes down the ones it has not.
-	---
-	--- Called from the constructor and again on every ownership change, because a
-	--- cabinet is no longer permanent plot furniture: it arrives with the second
-	--- floor, it goes when the plot is released, and it survives a rebirth on the
-	--- strength of the tiers you keep. Idempotent, so calling it on every purchase
-	--- costs a table walk and nothing else.
-	function Tycoon:ensureCabinets()
-		self.cabinetSigns = self.cabinetSigns or {}
-
-		for _, track in ipairs(Config.TrackOrder) do
-			if track ~= "factory" and Config.Layout.Tracks[track] then
-				local existing = self.props:FindFirstChild("Cabinet_" .. track)
-				local wanted = Config.trackUnlocked(track, self.owned)
-
-				if not wanted then
-					if existing then
-						existing:Destroy()
-						self.cabinetSigns[track] = nil
-					end
-					continue
-				end
-				if existing then
-					continue
-				end
-
-				local centre, size = Config.trackCabinet(track)
-				local model = Instance.new("Model")
-				model.Name = "Cabinet_" .. track
-				model.Parent = self.props
-
-				-- centre.Y, NOT ZERO. Both side tracks stand on the mezzanine now
-				-- (Layout.Tracks names floor = "mezzanine" and Config.trackCabinet takes
-				-- its Y from Config.floorTopY), and this line is the twin of the bug
-				-- Tycoon:buttonBaseCF was written to fix: the height was thrown away in
-				-- every conversion from a stated position to a CFrame, so anything an
-				-- upper floor unlocked was built on the ground floor underneath the deck.
-				-- Config.TrackUnlock has gated both cabinets on floor2 for two rounds —
-				-- the mezzanine was already what opened them, and they were downstairs.
-				local baseCF = self:at(centre.X, centre.Y, centre.Z)
-				newPart(model, "Back", size, baseCF * CFrame.new(0, size.Y / 2, 0),
-					COLORS.metal, Enum.Material.Metal, true)
-				newPart(model, "Trim", Vector3.new(size.X + 1.2, 0.8, size.Z + 1.2),
-					baseCF * CFrame.new(0, size.Y + 0.4, 0), COLORS.gold, Enum.Material.Metal, false)
-
-				local anchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1),
-					baseCF * CFrame.new(0, size.Y + 2.5, 0), COLORS.metal, Enum.Material.Metal, false)
-				anchor.Transparency = 1
-
-				local billboard = Style.billboard(anchor, {
-					name = "Sign", width = 18, height = 4, distance = "prop",
-				})
-				local label = Style.text(billboard, {
-					name = "Label", color = COLORS.gold,
-					text = (Config.TrackLabel[track] or track:upper()) .. " CABINET",
-				})
-
-				self.cabinetSigns[track] = label
-			end
-		end
-	end
-
 	--- invariant: the generator yard — a small slab behind the plot's back-right
 	--- corner, with a fence around three sides of it.
 	---
-	--- Permanent plot furniture in self.props, exactly like a cabinet body. The
-	--- GENERATOR that stands on it goes into self.machines instead, so a rebirth
-	--- takes it down with the droppers it was speeding up and leaves the yard
-	--- standing — the same split the cabinets and their shelf displays already use.
+	--- Permanent plot furniture in self.props. The GENERATOR that stands on it
+	--- goes into self.machines instead, so a rebirth takes it down with the
+	--- droppers it was speeding up and leaves the yard standing.
 	---
-	--- IDEMPOTENT AND RE-RUN FROM refreshButtons, for the same reason
-	--- ensureCabinets is. release() does props:ClearAllChildren(), so a yard built
-	--- once from the constructor goes with the first owner who leaves and never
-	--- comes back: every subsequent owner buys generators that stand in mid-air.
+	--- IDEMPOTENT AND RE-RUN FROM refreshButtons: release() does
+	--- props:ClearAllChildren(), so a yard built once from the constructor goes
+	--- with the first owner who leaves and never comes back: every subsequent
+	--- owner buys generators that stand in mid-air.
 	---
-	--- NO SIGN, and if one is ever wanted it must NOT go in self.cabinetSigns —
-	--- updateCabinetSigns rewrites everything in there with the cabinet format
-	--- string, which is how a "POWER YARD" billboard came to read
-	--- "POWER CABINET - 0/4". design:D-05: the pad twelve studs away already
+	--- NO SIGN. design:D-05: the pad twelve studs away already
 	--- carries the track, the tier name, the effect and the price.
 	function Tycoon:ensureYard()
 		local Y = L.Yard
@@ -17616,28 +17547,6 @@ __MODULES["Props"] = function()
 		return model
 	end
 
-	--- Keeps each cabinet sign honest about how far up its track you are.
-	function Tycoon:updateCabinetSigns()
-		if not self.cabinetSigns then
-			return
-		end
-		for track, label in pairs(self.cabinetSigns) do
-			-- a cabinet that has been taken down leaves its sign behind in this map
-			if not label.Parent then
-				self.cabinetSigns[track] = nil
-				continue
-			end
-			local defs = Config.Tracks[track]
-			local owned = 0
-			for _, def in ipairs(defs) do
-				if self.owned[def.id] then
-					owned += 1
-				end
-			end
-			label.Text = ("%s CABINET  •  %d/%d"):format(
-				Config.TrackLabel[track] or track:upper(), owned, #defs)
-		end
-	end
 
 	function Tycoon:buildRebirthPad()
 		local folder = Instance.new("Folder")
@@ -18697,6 +18606,7 @@ local PartyService = Req("PartyService")
 local RecallService = Req("RecallService")
 local TowerService = Req("TowerService")
 local DisclosureService = Req("DisclosureService")
+local ShopService = Req("ShopService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -18792,6 +18702,9 @@ TowerService.start()
 -- Disclosure (#96): the beat that grows each player's interface, and the
 -- gate NPCService reads before a plot's first siege.
 DisclosureService.start()
+-- The shop (#108): after PlotService, whose plotOf keeps the owned mirrors
+-- in step.
+ShopService.start()
 SocialService.start()
 
 -- 6. players

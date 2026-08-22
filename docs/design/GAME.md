@@ -37,7 +37,7 @@ timeline
     section Opening
         min 0  : join, plot auto-assigned : buy dropper1 (50 of your 100 Tung)
         min 0.5 : the raid siren : first Sahur Raid lands at 0:30
-        min 3  : dropper3 : the weapons and armoury cabinets appear
+        min 3  : dropper3 : the shop opens — bats and armour
     section Build
         min 3-40 : the factory ladder : droppers, upgraders, the belt, the generator
         min 3+   : the shell, in parallel : walls, gates, windows, roof
@@ -108,7 +108,7 @@ flowchart LR
     W --> P["Buy pads"]
     P -.-> D
     P -.-> U
-    P -.-> S["The shell, the cabinets,<br/>the generator, the land"]
+    P -.-> S["The shell, the shop,<br/>the generator, the land"]
     G["The generator"] -.->|"speeds droppers<br/>AND the belt"| D
     G -.-> B1
 ```
@@ -179,11 +179,11 @@ conveyor outranks everything the card and beacon could point at. Underneath,
 each ladder is a strict chain **ordered only against itself** — table order is
 dependency order, and no requirement ever crosses a track — because the
 chains carry the orderings geometry forces (no West Lot II without West Lot
-I). The cabinets keep their own labels until #108 moves them off the plot.
+I). The shop (#108) sells bats and armour off the plot, from the rail button or the merchant by the spawn.
 
 There is one way a ladder waits on another:
 
-- **A whole ladder waits** — `TrackUnlock`. The cabinets are hidden ground until
+- **A whole ladder waits** — `TrackUnlock`. The shop's counters are shut until
   `dropper3`, the fourth thing you buy, about three minutes in. They used to
   stand there from the moment you claimed: two display cases and nine pedestals
   for upgrades you could not use. That was most of the visual noise in the
@@ -217,7 +217,7 @@ shell is a shell anybody buys is still an open question — see `D-03`.
 | 1 | `dropper1` | Tung Dropper | 50 | 1 / 1.5s |
 | 2 | `dropper2` | Tung Tung Dropper | 75 | 4 / 1.5s |
 | 3 | `upgrader1` | Drum Roll Refiner | 250 | ×1.6 |
-| 4 | `dropper3` | Tung Tung Tung Dropper | 500 | 12 / 1.4s — **opens both cabinets** |
+| 4 | `dropper3` | Tung Tung Tung Dropper | 500 | 12 / 1.4s — **opens the shop** |
 | 5 | `dropper4` | Golden Tung | 2,600 | 40 / 1.4s |
 | 6 | `upgrader2` | Sahur Bat Upgrader | 7,800 | ×1.85 |
 | 7 | `dropper5` | Crimson Tung | 18,000 | 150 / 1.3s |
@@ -336,7 +336,7 @@ flowchart LR
         R4[the generator]
     end
     subgraph keep["KEPT"]
-        K1[bat tier +<br/>the weapons cabinet]
+        K1[bat tier +<br/>the weapons counter]
         K2[armour tier +<br/>the armoury]
         K3[rebirth count, KOs]
     end
@@ -358,8 +358,8 @@ next.
 rebirth resets, and keeping it would stack ×2 on ×2.25 for an effective 4.5×
 first prestige.
 
-**The cabinets do survive**, and stay standing with their lit shelves. Your bat
-is still in your hand; a rebirth should not take it.
+**Your gear survives** — bats and armour are the player's, sold from the shop
+(#108), and a rebirth should not take them. Your bat is still in your hand.
 
 **Known broken: rebirths 4 through 12 collapse into one-to-three-minute loops.**
 No value of the base cost or the growth rate fixes it — the lever is scaling
@@ -398,7 +398,7 @@ gone.
 ## 8. What the player reads
 
 Almost all of this game's interface is **in the world, not on the screen** — buy
-pads, machine plates, the vault gauge, cabinet signs, the plot totem, and the
+pads, machine plates, the vault gauge, the plot totem, and the
 raid banner hung over the arena statue. The raid banner in particular is a
 world sign rather than a bar across your screen, including the shared boss
 health bar, so it is readable at a glance and ignorable the rest of the time.

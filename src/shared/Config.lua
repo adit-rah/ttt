@@ -320,65 +320,6 @@ Config.Layout = {
 	},
 	MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
 
-	-- mechanism: THE SAME RULE FOR A CABINET COLUMN, AND A DIFFERENT NUMBER.
-	-- MiscButtonSpacing paces unrelated purchases so they do not read as one
-	-- object; a cabinet column is nine pads that deliberately are one object, in
-	-- front of one case, in track order.
-	--
-	-- 12 is what makes the armoury a single straight file. Nine pedestals at 14
-	-- need 112 studs of run; the clear band down the right-hand side is 101.5,
-	-- bounded at the back by belt leg 1's base and buy-button row and at the
-	-- front by the wall. At 12 the run is 96 and it fits with five studs spare.
-	--
-	-- A pedestal is 5 wide, so 12 leaves SEVEN studs of clear floor between two
-	-- pads — below about 10 you could stand on one and not know which.
-	CabinetSlotSpacing = 12,
-
-	-- mechanism: SIDE-TRACK FURNITURE. Each cabinet is a display case standing
-	-- behind a column of its own buy buttons. design:D-03 for why the right half
-	-- of the plot is an armoury aisle and the left half a production line.
-	--
-	-- Positions are DERIVED from the anchor, exactly like DropperDist: adding a
-	-- sixth bat tier should be one row in Config.WeaponButtons and nothing
-	-- else. Hand-listing nine more coordinates in MiscButtons would have been
-	-- nine more chances to place a collision the verifier then has to catch.
-	--
-	-- `slots` is the capacity of the column, not the number of buttons in the
-	-- track; the verifier asserts the track fits, which is what stops a new
-	-- tier silently stacking a pedestal on top of the one before it.
-	--
-	-- ONE FILE, BOTH CASES, WHICH IS WHY THE REBIRTH PAD IS WHERE IT IS. Nine
-	-- pedestals on a 14-stud pitch is 112 studs of column plus 4 studs of case
-	-- overhang at each end: 120 studs of display case looking for a straight
-	-- run. A pad at (42, 40) with a 12x12 body and a 14-stud spacing rule around
-	-- it forbids any pedestal between z 26 and z 54 — one slot above it and
-	-- eight below, and eight below runs off the back of the plot. See
-	-- RebirthPadAt.
-	--
-	-- WHY x = 48 AND NOT HARD AGAINST THE WALL AT 54. Two solids stand at
-	-- x = ±54 for the full height of the ground storey, and neither can move:
-	-- the roof's columns (Structure.Roof.columnInset 3, so x = ±56, 2.4 square)
-	-- and the mezzanine deck's own posts (Floors[1].pillar.insetSide 4, so
-	-- x = ±54 — and widening that inset walks the LEFT pair into belt leg 2's
-	-- base at x -48.6..-39.4). A 4-deep case centred at 54 spans x 52..56 and
-	-- interpenetrates both. At 48 it spans 46..50 and clears the posts by 2.8.
-	--
-	-- The aisle then has to go inboard of the case (buttonX 40), which is the
-	-- correct side anyway: you walk the armoury with the cases on your right,
-	-- the mirror of walking the line with the belt on your left.
-	Tracks = {
-		-- weapons is the FRONT column, nearer the gateway, because refreshButtons
-		-- picks the beacon target by (TrackRank, price) and weapons outranks
-		-- armour — so the marker points at this cabinet first for the whole build,
-		-- and the nearer aisle has to be the one it points at.
-		--
-		-- firstZ is not a free choice for either. Belt leg 1's buy-button row is a
-		-- 95x5 box centred at (1, -45), and these pedestals share its x range, so
-		-- no pedestal centre may sit between z -50 and z -40. armour's column is
-		-- aligned to land on -52 and -38 rather than straddling that band.
-		weapons = { cabinetX = 48, buttonX = 40, firstZ = 14, spacing = 12, slots = 5, depth = 4, height = 13 },
-		armor   = { cabinetX = 48, buttonX = 40, firstZ = -36, spacing = 12, slots = 4, depth = 4, height = 13 },
-	},
 
 	-- MOVED OFF THE RIGHT-HAND WALL, so the armoury can be one straight file.
 	--
@@ -2358,6 +2299,7 @@ Config.Disclosure = {
 	{ id = "siege", after = "walls", gate = true, name = "Raids on your plot", help = "Sahur press your gate now and then. The siren gives you time to run home; repair what breaks." },
 	{ id = "party", after = "walls", name = "Parties", help = "Party up from the left card: no friendly fire, shared gates, +5% income each." },
 	{ id = "recall", after = "walls", name = "Recall", help = "H (or HOME on touch) walks you home after six still seconds. Never with stolen Tung." },
+	{ id = "shop", after = "dropper3", name = "The shop", help = "Bats and armour live in the SHOP now — the rail button, or the merchant by the spawn." },
 	{ id = "raiding", after = "gates", name = "Raiding", help = "Break a storage unit, carry the spill home. Half their cap is always safe; camping pays half each repeat." },
 	{ id = "tower", after = "power1", name = "The tower", help = "The spire at the core's edge. A new deck of floors every day; each floor pays minutes of your income." },
 }
@@ -3544,8 +3486,8 @@ Config.TrackInfo = {
 	-- visible from the moment you claim, which puts a 690000 price tag on the
 	-- plot at minute three; at 2 the roof stays hidden until `gates` is owned.
 	structure = { label = "PLOT", category = "plot", preview = 2, keepOnRebirth = false, paced = "spine", furniture = "misc" },
-	weapons = { label = "WEAPONS", category = "weapons", preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
-	armor   = { label = "ARMORY",  category = "armor",  preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
+	weapons = { label = "WEAPONS", category = "weapons", preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "shop" },
+	armor   = { label = "ARMORY",  category = "armor",  preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "shop" },
 	-- The generator multiplies exactly what a rebirth resets. Keeping it would
 	-- stack x2 on top of MultiplierPerRebirth 2.25 for an effective 4.5x first
 	-- prestige, which makes the asserted CostGrowth/MultiplierPerRebirth ratio
@@ -3963,30 +3905,14 @@ end
 --- plain table with no operators, so anything that adds or scales a Vector3 at
 --- require time takes the whole verifier down.
 
-function Config.trackButtonPosition(track: string, slot: number): Vector3
-	local t = Config.Layout.Tracks[track]
-	return Vector3.new(t.buttonX, 0, t.firstZ + (slot - 1) * t.spacing)
-end
 
 --- The cabinet body behind that column: centre, then size. Its long axis is Z,
 --- running the length of its own button column with four studs of overhang at
 --- each end so the case reads as containing the buttons rather than starting
 --- level with them.
-function Config.trackCabinet(track: string): (Vector3, Vector3)
-	local t = Config.Layout.Tracks[track]
-	local length = (t.slots - 1) * t.spacing + 8
-	return Vector3.new(t.cabinetX, 0,
-			t.firstZ + (t.slots - 1) * t.spacing / 2),
-		Vector3.new(t.depth, t.height, length)
-end
 
 --- Shelf slot `slot` on the cabinet — where the display for a bought tier
 --- stands, so the case visibly fills up as you climb the track.
-function Config.trackShelfPosition(track: string, slot: number): Vector3
-	local t = Config.Layout.Tracks[track]
-	return Vector3.new(t.cabinetX, 5,
-		t.firstZ + (slot - 1) * t.spacing)
-end
 
 function Config.requirementsOf(def)
 	local req = def.requires

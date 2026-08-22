@@ -1,17 +1,17 @@
 --[[
-	tycoon/Props.lua — the furniture around the belt: the claim rig, the rebirth
-	pad, the side-track cabinets and their signs, the generator yard and the
-	generator standing on it.
+	tycoon/Props.lua — the furniture around the belt: the claim rig, the
+	rebirth pad, the generator yard and the generator standing on it. The
+	side-track cabinets stood here until #108 moved weapons and armour into
+	the shop.
 
-	THE self.props / self.machines SPLIT IS THE POINT OF THIS FILE. Cabinet
-	bodies and the yard slab go in self.props; the generator that stands on the
-	yard is a machine, so a rebirth — machines:ClearAllChildren() — takes it down
-	and leaves the slab standing. release() clears props as well, because the
-	next owner has different tiers, and that is why ensureCabinets and ensureYard
-	are IDEMPOTENT and re-run from refreshButtons. ensureYard used to be
-	buildYard(), called once from the constructor: the first owner to leave a plot
-	took its slab and fence with them for the rest of the server's life, and
-	every later owner bought generators that stood in mid-air.
+	THE self.props / self.machines SPLIT IS THE POINT OF THIS FILE. The yard
+	slab goes in self.props; the generator that stands on the yard is a
+	machine, so a rebirth — machines:ClearAllChildren() — takes it down and
+	leaves the slab standing. release() clears props as well, and that is why
+	ensureYard is IDEMPOTENT and re-run from refreshButtons. It used to be
+	buildYard(), called once from the constructor: the first owner to leave a
+	plot took its slab and fence with them for the rest of the server's life,
+	and every later owner bought generators that stood in mid-air.
 
 	refreshGenerator is DERIVED STATE, not an install side effect. It shows the
 	LAST owned power rung — the same rule Config.powerFactor uses, because the
@@ -20,11 +20,6 @@
 	attribute read. It deliberately does not write self.objects[id].machine: four
 	button entries would share one model handle and release() would destroy
 	through one of them and leave three dangling.
-
-	NO SIGN ON THE YARD, and if one is ever wanted it must not go in
-	self.cabinetSigns — updateCabinetSigns rewrites everything in that map with
-	the cabinet format string, which is how a "POWER YARD" board came to read
-	"POWER CABINET - 0/4".
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
@@ -96,94 +91,19 @@ end
 
 -- ── rebirth pad ──────────────────────────────────────────────────────────────
 
---- mechanism: the side-track cabinets — a display case standing behind each
---- track's column of buy buttons.
----
---- These carry the wayfinding that the side tracks would otherwise have to
---- take from `pointAt`. There is exactly ONE Highlight per plot and it belongs
---- to the factory (Highlight is capped at 255 per client and disabled ones
---- still occupy a slot), so a cabinet announces itself with a sign instead —
---- which is better anyway, because a sign can say what it is and a glow
---- cannot.
---- Builds the cabinets a plot has earned, and takes down the ones it has not.
----
---- Called from the constructor and again on every ownership change, because a
---- cabinet is no longer permanent plot furniture: it arrives with the second
---- floor, it goes when the plot is released, and it survives a rebirth on the
---- strength of the tiers you keep. Idempotent, so calling it on every purchase
---- costs a table walk and nothing else.
-function Tycoon:ensureCabinets()
-	self.cabinetSigns = self.cabinetSigns or {}
-
-	for _, track in ipairs(Config.TrackOrder) do
-		if track ~= "factory" and Config.Layout.Tracks[track] then
-			local existing = self.props:FindFirstChild("Cabinet_" .. track)
-			local wanted = Config.trackUnlocked(track, self.owned)
-
-			if not wanted then
-				if existing then
-					existing:Destroy()
-					self.cabinetSigns[track] = nil
-				end
-				continue
-			end
-			if existing then
-				continue
-			end
-
-			local centre, size = Config.trackCabinet(track)
-			local model = Instance.new("Model")
-			model.Name = "Cabinet_" .. track
-			model.Parent = self.props
-
-			-- centre.Y, NOT ZERO. Both side tracks stand on the mezzanine now
-			-- (Layout.Tracks names floor = "mezzanine" and Config.trackCabinet takes
-			-- its Y from Config.floorTopY), and this line is the twin of the bug
-			-- Tycoon:buttonBaseCF was written to fix: the height was thrown away in
-			-- every conversion from a stated position to a CFrame, so anything an
-			-- upper floor unlocked was built on the ground floor underneath the deck.
-			-- Config.TrackUnlock has gated both cabinets on floor2 for two rounds —
-			-- the mezzanine was already what opened them, and they were downstairs.
-			local baseCF = self:at(centre.X, centre.Y, centre.Z)
-			newPart(model, "Back", size, baseCF * CFrame.new(0, size.Y / 2, 0),
-				COLORS.metal, Enum.Material.Metal, true)
-			newPart(model, "Trim", Vector3.new(size.X + 1.2, 0.8, size.Z + 1.2),
-				baseCF * CFrame.new(0, size.Y + 0.4, 0), COLORS.gold, Enum.Material.Metal, false)
-
-			local anchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1),
-				baseCF * CFrame.new(0, size.Y + 2.5, 0), COLORS.metal, Enum.Material.Metal, false)
-			anchor.Transparency = 1
-
-			local billboard = Style.billboard(anchor, {
-				name = "Sign", width = 18, height = 4, distance = "prop",
-			})
-			local label = Style.text(billboard, {
-				name = "Label", color = COLORS.gold,
-				text = (Config.TrackLabel[track] or track:upper()) .. " CABINET",
-			})
-
-			self.cabinetSigns[track] = label
-		end
-	end
-end
-
 --- invariant: the generator yard — a small slab behind the plot's back-right
 --- corner, with a fence around three sides of it.
 ---
---- Permanent plot furniture in self.props, exactly like a cabinet body. The
---- GENERATOR that stands on it goes into self.machines instead, so a rebirth
---- takes it down with the droppers it was speeding up and leaves the yard
---- standing — the same split the cabinets and their shelf displays already use.
+--- Permanent plot furniture in self.props. The GENERATOR that stands on it
+--- goes into self.machines instead, so a rebirth takes it down with the
+--- droppers it was speeding up and leaves the yard standing.
 ---
---- IDEMPOTENT AND RE-RUN FROM refreshButtons, for the same reason
---- ensureCabinets is. release() does props:ClearAllChildren(), so a yard built
---- once from the constructor goes with the first owner who leaves and never
---- comes back: every subsequent owner buys generators that stand in mid-air.
+--- IDEMPOTENT AND RE-RUN FROM refreshButtons: release() does
+--- props:ClearAllChildren(), so a yard built once from the constructor goes
+--- with the first owner who leaves and never comes back: every subsequent
+--- owner buys generators that stand in mid-air.
 ---
---- NO SIGN, and if one is ever wanted it must NOT go in self.cabinetSigns —
---- updateCabinetSigns rewrites everything in there with the cabinet format
---- string, which is how a "POWER YARD" billboard came to read
---- "POWER CABINET - 0/4". design:D-05: the pad twelve studs away already
+--- NO SIGN. design:D-05: the pad twelve studs away already
 --- carries the track, the tier name, the effect and the price.
 function Tycoon:ensureYard()
 	local Y = L.Yard
@@ -277,28 +197,6 @@ function Tycoon:refreshGenerator()
 	return model
 end
 
---- Keeps each cabinet sign honest about how far up its track you are.
-function Tycoon:updateCabinetSigns()
-	if not self.cabinetSigns then
-		return
-	end
-	for track, label in pairs(self.cabinetSigns) do
-		-- a cabinet that has been taken down leaves its sign behind in this map
-		if not label.Parent then
-			self.cabinetSigns[track] = nil
-			continue
-		end
-		local defs = Config.Tracks[track]
-		local owned = 0
-		for _, def in ipairs(defs) do
-			if self.owned[def.id] then
-				owned += 1
-			end
-		end
-		label.Text = ("%s CABINET  •  %d/%d"):format(
-			Config.TrackLabel[track] or track:upper(), owned, #defs)
-	end
-end
 
 function Tycoon:buildRebirthPad()
 	local folder = Instance.new("Folder")
