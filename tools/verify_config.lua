@@ -1095,6 +1095,50 @@ do
 			:format(PT.InviteTimeoutSeconds))
 end
 
+-- ── objectives and hints (#97) ─────────────────────────────────────────────
+--
+-- The one number that matters: a day's objectives are a nudge, and the worst
+-- possible draw is bounded so they can never become the reason to log in.
+do
+	local OBJ = Config.Objectives
+	local KNOWN_STATS = { kills = true, buys = true, reputation = true, towerBest = true }
+	local seen = {}
+	local rewards = {}
+	for _, def in ipairs(OBJ.Pool) do
+		check(type(def.id) == "string" and not seen[def.id],
+			("objective %q is missing an id or repeats one"):format(tostring(def.id)))
+		seen[def.id] = true
+		check(KNOWN_STATS[def.stat] == true,
+			("objective %s reads stat %q, which ObjectiveService cannot measure"):format(def.id, tostring(def.stat)))
+		check(def.count >= 1 and def.rewardMinutes > 0,
+			("objective %s has no count or pays nothing"):format(def.id))
+		table.insert(rewards, def.rewardMinutes)
+	end
+	check(#OBJ.Pool >= OBJ.PerDay + 2,
+		("the pool holds %d against %d a day — with no slack the 'draw' is the whole pool every day")
+			:format(#OBJ.Pool, OBJ.PerDay))
+	table.sort(rewards, function(a, b) return a > b end)
+	local worstDay = 0
+	for i = 1, math.min(OBJ.PerDay, #rewards) do
+		worstDay += rewards[i]
+	end
+	check(worstDay <= OBJ.MaxDayMinutes,
+		("the richest possible day pays %d minutes of income against a cap of %d — objectives must stay a nudge")
+			:format(worstDay, OBJ.MaxDayMinutes))
+	check(OBJ.MaxDayMinutes <= 15,
+		("MaxDayMinutes is %d; past 15 the objectives rival the playtime ladder"):format(OBJ.MaxDayMinutes))
+	for seed = 1, 15 do
+		local drawn = Config.objectivesFor(seed)
+		check(#drawn == OBJ.PerDay, ("seed %d dealt %d objectives"):format(seed, #drawn))
+	end
+	local HINT_STATS = { kills = true, reputation = true, rebirths = true }
+	for _, hint in ipairs(Config.Hints) do
+		check(HINT_STATS[hint.stat] == true,
+			("hint %s reads %q, which is not a persisted profile stat"):format(hint.id, tostring(hint.stat)))
+		check(#hint.text <= 160, ("hint %s runs %d chars; past 160 it is a paragraph"):format(hint.id, #hint.text))
+	end
+end
+
 -- ── disclosure (#96) ───────────────────────────────────────────────────────
 --
 -- The sixty-second screen is the always-on set below, and it is held SMALL;

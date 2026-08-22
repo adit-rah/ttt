@@ -2309,6 +2309,62 @@ __MODULES["Config"] = function()
 		PairCooldownSeconds = 300,
 	}
 
+	-- design:D-01, via #97 — DAILY OBJECTIVES AND THE HINT LINE. A short list of
+	-- things to do today, paid in MINUTES OF YOUR OWN INCOME on completion (the
+	-- tower's denomination — it scales with the player and structurally cannot
+	-- out-earn the plot for long, and the verifier bounds the day's total).
+	-- Objectives are per-account per-day: progress is a baseline snapshot taken
+	-- at the day's first beat, measured against live profile stats, and the
+	-- daily reset is the same day-number arithmetic the tower uses. The draw is
+	-- the tower's seeded deal, so every server offers the same three that day.
+	Config.Objectives = {
+		PerDay = 3,
+		-- What one day's objectives may pay IN TOTAL, in minutes of income. The
+		-- streak and the offline grant are why players log in; this is a nudge.
+		MaxDayMinutes = 12,
+		Pool = {
+			{ id = "kills5", name = "Knock down 5 Sahur", stat = "kills", count = 5, rewardMinutes = 3 },
+			{ id = "kills12", name = "Knock down 12 Sahur", stat = "kills", count = 12, rewardMinutes = 4 },
+			{ id = "buys3", name = "Buy 3 upgrades", stat = "buys", count = 3, rewardMinutes = 2 },
+			{ id = "buys7", name = "Buy 7 upgrades", stat = "buys", count = 7, rewardMinutes = 4 },
+			{ id = "kind1", name = "Do somebody a kindness", stat = "reputation", count = 1, rewardMinutes = 3 },
+			{ id = "tower3", name = "Clear 3 tower floors", stat = "towerBest", count = 3, rewardMinutes = 4 },
+		},
+	}
+
+	--- The day's draw: PerDay distinct pool rows, dealt by the same seeded LCG
+	--- the tower uses, identical on every server that day.
+	function Config.objectivesFor(daySeed: number)
+		local pool = Config.Objectives.Pool
+		local state = daySeed * 668265263 + 374761393
+		local function nextRandom(n: number): number
+			state = (state * 1103515245 + 12345) % 2147483648
+			return (state % n) + 1
+		end
+		local indices = {}
+		for i = 1, #pool do
+			indices[i] = i
+		end
+		for i = #indices, 2, -1 do
+			local swap = nextRandom(i)
+			indices[i], indices[swap] = indices[swap], indices[i]
+		end
+		local drawn = {}
+		for i = 1, math.min(Config.Objectives.PerDay, #pool) do
+			drawn[i] = pool[indices[i]]
+		end
+		return drawn
+	end
+
+	-- The hint line: the first of these the player has not done yet, shown on
+	-- the objectives card and spoken by the guide (#100). Non-purchase
+	-- milestones only — the beacon and the NEXT card already own purchases.
+	Config.Hints = {
+		{ id = "firstKill", text = "Sahur roam the grass outside. Knock one down — kills pay.", stat = "kills", atLeast = 1 },
+		{ id = "firstKindness", text = "Repair a stranger's wall, or down a thief. Kindness pays Rep and a boost.", stat = "reputation", atLeast = 1 },
+		{ id = "firstRebirth", text = "The rebirth pad multiplies everything after it. The re-climb is fast.", stat = "rebirths", atLeast = 1 },
+	}
+
 	-- design:D-05, via #96 — PROGRESSIVE DISCLOSURE. The game starts small and
 	-- grows its own interface: a surface takes up space only once the player can
 	-- use it, every arrival is earned by something they just did, and nothing
@@ -2331,6 +2387,7 @@ __MODULES["Config"] = function()
 		{ id = "siege", after = "walls", gate = true, name = "Raids on your plot", help = "Sahur press your gate now and then. The siren gives you time to run home; repair what breaks." },
 		{ id = "party", after = "walls", name = "Parties", help = "Party up from the left card: no friendly fire, shared gates, +5% income each." },
 		{ id = "recall", after = "walls", name = "Recall", help = "H (or HOME on touch) walks you home after six still seconds. Never with stolen Tung." },
+		{ id = "objectives", after = "upgrader1", name = "Daily objectives", help = "Three things to do today, on the left card. Each pays minutes of your income." },
 		{ id = "shop", after = "dropper3", name = "The shop", help = "Bats and armour live in the SHOP now — the rail button, or the merchant by the spawn." },
 		{ id = "raiding", after = "gates", name = "Raiding", help = "Break a storage unit, carry the spill home. Half their cap is always safe; camping pays half each repeat." },
 		{ id = "tower", after = "power1", name = "The tower", help = "The spire at the core's edge. A new deck of floors every day; each floor pays minutes of your income." },
@@ -4404,6 +4461,10 @@ __MODULES["Net"] = function()
 		-- a world merchant is pressed. The catalog itself is Config, which the
 		-- client already holds, and ownership rides the Stats payload.
 		"Shop",          -- C->S buy; S->C open
+
+		-- Objectives (#97). Server-pushed whole state: today's three, progress,
+		-- done flags, and the hint line. The client renders and sends nothing.
+		"Objectives",    -- S->C { rows, hint }
 
 		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 		-- demand so a client that connects with a flag off still resolves them and
@@ -7881,6 +7942,107 @@ __MODULES["MovementClient"] = function()
 end
 
 
+__MODULES["ObjectivesUI"] = function()
+	--[[
+		ObjectivesUI.lua — today's three, and the hint line (#97).
+
+		One card in the left column: the hint (small, ignorable, never modal — it
+		is one line of muted text) and up to three objective rows with "2/5"
+		progress. The server pushes the whole state on the Objectives remote;
+		this file renders it and sends nothing. Disclosure-gated like every
+		earned surface.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Net = Req("Net")
+	local UiKit = Req("UiKit")
+	local HUD = Req("HUD")
+	local Style = Req("Style")
+
+	local ObjectivesUI = {}
+
+	local PALETTE = UiKit.PALETTE
+	local WIDTH = Config.UI.SessionPanel.Width
+
+	local panel
+	local state = { rows = {}, hint = nil }
+
+	local function render()
+		if not panel then
+			return
+		end
+		if not HUD.disclosed("objectives") then
+			panel.Visible = false
+			return
+		end
+		for _, child in ipairs(panel:GetChildren()) do
+			if child:IsA("TextLabel") then
+				child:Destroy()
+			end
+		end
+
+		local y = 4
+		UiKit.text(panel, {
+			Size = UDim2.new(1, -16, 0, 16),
+			Position = UDim2.fromOffset(8, y),
+			Font = Style.Font.body,
+			Text = "TODAY",
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = PALETTE.muted,
+		})
+		y += 18
+
+		for _, row in ipairs(state.rows) do
+			UiKit.text(panel, {
+				Size = UDim2.new(1, -16, 0, 16),
+				Position = UDim2.fromOffset(8, y),
+				Font = Style.Font.body,
+				Text = ("%s  %s"):format(row.done and "✓" or ("%d/%d"):format(row.progress, row.count), row.name),
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = row.done and PALETTE.good or PALETTE.accent,
+			})
+			y += 17
+		end
+
+		if state.hint then
+			local hint = UiKit.text(panel, {
+				Size = UDim2.new(1, -16, 0, 26),
+				Position = UDim2.fromOffset(8, y + 2),
+				Font = Style.Font.body,
+				Text = state.hint,
+				TextSize = 11,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = PALETTE.muted,
+			})
+			hint.TextWrapped = true
+			y += 30
+		end
+
+		panel.Size = UDim2.fromOffset(WIDTH, y + 6)
+		panel.Visible = #state.rows > 0 or state.hint ~= nil
+	end
+
+	function ObjectivesUI.start()
+		panel = UiKit.panel(HUD.column(), UDim2.fromOffset(WIDTH, 20), UDim2.fromOffset(0, 0))
+		panel.Name = "Objectives"
+		panel.LayoutOrder = 4
+		panel.Visible = false
+
+		Net.event("Objectives").OnClientEvent:Connect(function(payload)
+			state.rows = payload.rows or {}
+			state.hint = payload.hint
+			render()
+		end)
+		HUD.onDisclosure(render)
+	end
+
+	return ObjectivesUI
+end
+
+
 __MODULES["PartyUI"] = function()
 	--[[
 		PartyUI.lua — the party card (#102).
@@ -9879,6 +10041,7 @@ local CombatClient = Req("CombatClient")
 local MovementClient = Req("MovementClient")
 local PartyUI = Req("PartyUI")
 local ShopUI = Req("ShopUI")
+local ObjectivesUI = Req("ObjectivesUI")
 local UpgradeUI = Req("UpgradeUI")
 local SessionUI = Req("SessionUI")
 
@@ -9889,6 +10052,7 @@ CombatClient.start()
 MovementClient.start()
 PartyUI.start()
 ShopUI.start()
+ObjectivesUI.start()
 
 -- Prototype panels. Both return immediately unless their Config.Prototypes
 -- flag is on.

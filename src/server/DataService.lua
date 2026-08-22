@@ -100,6 +100,11 @@ local function defaultProfile()
 		-- from profile.rebirths on every read, so it could only ever go stale;
 		-- it is gone, and a save that still carries one is simply ignored.
 		lastSeen = 0,
+		-- #97: the day's objectives — { day, baseline = { kills, buys,
+		-- reputation }, done = { [id] = true } }. The baseline is the day's
+		-- first sight of each stat; progress is live stat minus baseline, and
+		-- the reset is day arithmetic like the tower's.
+		objectives = { day = 0, baseline = {}, done = {} },
 		-- #96: the disclosure high-water — { [surfaceId] = true }. Written
 		-- once per surface, never cleared: nothing disappears once shown, and
 		-- a returning player is never re-onboarded.
@@ -239,6 +244,7 @@ local function payloadOf(profile)
 		kills = profile.kills,
 		playtime = profile.playtime,
 		lastSeen = profile.lastSeen,
+		objectives = profile.objectives,
 		disclosed = profile.disclosed,
 		tower = profile.tower,
 		reputation = profile.reputation,

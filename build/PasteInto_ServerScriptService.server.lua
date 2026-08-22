@@ -2309,6 +2309,62 @@ __MODULES["Config"] = function()
 		PairCooldownSeconds = 300,
 	}
 
+	-- design:D-01, via #97 — DAILY OBJECTIVES AND THE HINT LINE. A short list of
+	-- things to do today, paid in MINUTES OF YOUR OWN INCOME on completion (the
+	-- tower's denomination — it scales with the player and structurally cannot
+	-- out-earn the plot for long, and the verifier bounds the day's total).
+	-- Objectives are per-account per-day: progress is a baseline snapshot taken
+	-- at the day's first beat, measured against live profile stats, and the
+	-- daily reset is the same day-number arithmetic the tower uses. The draw is
+	-- the tower's seeded deal, so every server offers the same three that day.
+	Config.Objectives = {
+		PerDay = 3,
+		-- What one day's objectives may pay IN TOTAL, in minutes of income. The
+		-- streak and the offline grant are why players log in; this is a nudge.
+		MaxDayMinutes = 12,
+		Pool = {
+			{ id = "kills5", name = "Knock down 5 Sahur", stat = "kills", count = 5, rewardMinutes = 3 },
+			{ id = "kills12", name = "Knock down 12 Sahur", stat = "kills", count = 12, rewardMinutes = 4 },
+			{ id = "buys3", name = "Buy 3 upgrades", stat = "buys", count = 3, rewardMinutes = 2 },
+			{ id = "buys7", name = "Buy 7 upgrades", stat = "buys", count = 7, rewardMinutes = 4 },
+			{ id = "kind1", name = "Do somebody a kindness", stat = "reputation", count = 1, rewardMinutes = 3 },
+			{ id = "tower3", name = "Clear 3 tower floors", stat = "towerBest", count = 3, rewardMinutes = 4 },
+		},
+	}
+
+	--- The day's draw: PerDay distinct pool rows, dealt by the same seeded LCG
+	--- the tower uses, identical on every server that day.
+	function Config.objectivesFor(daySeed: number)
+		local pool = Config.Objectives.Pool
+		local state = daySeed * 668265263 + 374761393
+		local function nextRandom(n: number): number
+			state = (state * 1103515245 + 12345) % 2147483648
+			return (state % n) + 1
+		end
+		local indices = {}
+		for i = 1, #pool do
+			indices[i] = i
+		end
+		for i = #indices, 2, -1 do
+			local swap = nextRandom(i)
+			indices[i], indices[swap] = indices[swap], indices[i]
+		end
+		local drawn = {}
+		for i = 1, math.min(Config.Objectives.PerDay, #pool) do
+			drawn[i] = pool[indices[i]]
+		end
+		return drawn
+	end
+
+	-- The hint line: the first of these the player has not done yet, shown on
+	-- the objectives card and spoken by the guide (#100). Non-purchase
+	-- milestones only — the beacon and the NEXT card already own purchases.
+	Config.Hints = {
+		{ id = "firstKill", text = "Sahur roam the grass outside. Knock one down — kills pay.", stat = "kills", atLeast = 1 },
+		{ id = "firstKindness", text = "Repair a stranger's wall, or down a thief. Kindness pays Rep and a boost.", stat = "reputation", atLeast = 1 },
+		{ id = "firstRebirth", text = "The rebirth pad multiplies everything after it. The re-climb is fast.", stat = "rebirths", atLeast = 1 },
+	}
+
 	-- design:D-05, via #96 — PROGRESSIVE DISCLOSURE. The game starts small and
 	-- grows its own interface: a surface takes up space only once the player can
 	-- use it, every arrival is earned by something they just did, and nothing
@@ -2331,6 +2387,7 @@ __MODULES["Config"] = function()
 		{ id = "siege", after = "walls", gate = true, name = "Raids on your plot", help = "Sahur press your gate now and then. The siren gives you time to run home; repair what breaks." },
 		{ id = "party", after = "walls", name = "Parties", help = "Party up from the left card: no friendly fire, shared gates, +5% income each." },
 		{ id = "recall", after = "walls", name = "Recall", help = "H (or HOME on touch) walks you home after six still seconds. Never with stolen Tung." },
+		{ id = "objectives", after = "upgrader1", name = "Daily objectives", help = "Three things to do today, on the left card. Each pays minutes of your income." },
 		{ id = "shop", after = "dropper3", name = "The shop", help = "Bats and armour live in the SHOP now — the rail button, or the merchant by the spawn." },
 		{ id = "raiding", after = "gates", name = "Raiding", help = "Break a storage unit, carry the spill home. Half their cap is always safe; camping pays half each repeat." },
 		{ id = "tower", after = "power1", name = "The tower", help = "The spire at the core's edge. A new deck of floors every day; each floor pays minutes of your income." },
@@ -4404,6 +4461,10 @@ __MODULES["Net"] = function()
 		-- a world merchant is pressed. The catalog itself is Config, which the
 		-- client already holds, and ownership rides the Stats payload.
 		"Shop",          -- C->S buy; S->C open
+
+		-- Objectives (#97). Server-pushed whole state: today's three, progress,
+		-- done flags, and the hint line. The client renders and sends nothing.
+		"Objectives",    -- S->C { rows, hint }
 
 		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 		-- demand so a client that connects with a flag off still resolves them and
@@ -7842,6 +7903,11 @@ __MODULES["DataService"] = function()
 			-- from profile.rebirths on every read, so it could only ever go stale;
 			-- it is gone, and a save that still carries one is simply ignored.
 			lastSeen = 0,
+			-- #97: the day's objectives — { day, baseline = { kills, buys,
+			-- reputation }, done = { [id] = true } }. The baseline is the day's
+			-- first sight of each stat; progress is live stat minus baseline, and
+			-- the reset is day arithmetic like the tower's.
+			objectives = { day = 0, baseline = {}, done = {} },
 			-- #96: the disclosure high-water — { [surfaceId] = true }. Written
 			-- once per surface, never cleared: nothing disappears once shown, and
 			-- a returning player is never re-onboarded.
@@ -7981,6 +8047,7 @@ __MODULES["DataService"] = function()
 			kills = profile.kills,
 			playtime = profile.playtime,
 			lastSeen = profile.lastSeen,
+			objectives = profile.objectives,
 			disclosed = profile.disclosed,
 			tower = profile.tower,
 			reputation = profile.reputation,
@@ -10862,6 +10929,143 @@ __MODULES["NPCService"] = function()
 	end
 
 	return NPCService
+end
+
+
+__MODULES["ObjectiveService"] = function()
+	--[[
+		ObjectiveService.lua — three things to do today (#97).
+
+		design:D-01. The day deals three objectives from the pool (the tower's
+		seeded draw, identical on every server), each pays minutes of the
+		player's OWN income on completion (the tower's denomination), and the
+		verifier bounds what a whole day may pay — the streak and the offline
+		grant are why players log in; this is a nudge.
+
+		PROGRESS IS A BASELINE, NOT A COUNTER. The day's first beat snapshots the
+		live profile stats (kills, owned count, reputation); progress is the live
+		stat minus the snapshot, so nothing has to observe kills or purchases —
+		the stats already persist, and the reset is the tower's day arithmetic.
+		Completion is written into profile.objectives.done and paid once.
+
+		The hint line rides the same push: the first Config.Hints row whose stat
+		the player has not reached. The guide NPC (#100) reads hintFor too.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Util = Req("Util")
+	local Net = Req("Net")
+	local Economy = Req("Economy")
+	local DataService = Req("DataService")
+	local SessionService = Req("SessionService")
+
+	local Players = game:GetService("Players")
+
+	local ObjectiveService = {}
+
+	local remote = Net.event("Objectives")
+
+	local function ownedCount(profile): number
+		local count = 0
+		for _ in pairs(profile.owned or {}) do
+			count += 1
+		end
+		return count
+	end
+
+	--- The live reading for one stat name.
+	local function statOf(profile, stat: string, now: number): number
+		if stat == "kills" then
+			return profile.kills or 0
+		elseif stat == "buys" then
+			return ownedCount(profile)
+		elseif stat == "reputation" then
+			return math.floor(profile.reputation or 0)
+		elseif stat == "towerBest" then
+			local tower = profile.tower
+			return (tower and tower.day == math.floor(now / 86400)) and tower.best or 0
+		end
+		return 0
+	end
+
+	--- The first hint the player has not earned past, or nil when they are past
+	--- all of them. #100's guide speaks this line too.
+	function ObjectiveService.hintFor(profile): string?
+		for _, hint in ipairs(Config.Hints) do
+			if (profile[hint.stat] or 0) < hint.atLeast then
+				return hint.text
+			end
+		end
+		return nil
+	end
+
+	--- One player's pass: roll the day, snapshot baselines, measure progress,
+	--- pay crossings. Returns the renderable rows. `now` is UTC seconds.
+	function ObjectiveService.reconcile(player, now: number)
+		local profile = DataService.get(player)
+		if not profile then
+			return nil
+		end
+		local day = math.floor(now / 86400)
+		local state = profile.objectives
+		if not state or state.day ~= day then
+			state = { day = day, baseline = {}, done = {} }
+			profile.objectives = state
+		end
+
+		local rows = {}
+		for _, def in ipairs(Config.objectivesFor(day)) do
+			-- the baseline is the day's FIRST sight of the stat; towerBest is
+			-- already day-scoped so its baseline is zero by construction
+			local baseline = state.baseline[def.stat]
+			if baseline == nil then
+				baseline = def.stat == "towerBest" and 0 or statOf(profile, def.stat, now)
+				state.baseline[def.stat] = baseline
+			end
+			local progress = math.max(0, statOf(profile, def.stat, now) - baseline)
+
+			if progress >= def.count and not state.done[def.id] then
+				state.done[def.id] = true
+				local reward = math.floor(def.rewardMinutes * 60 * SessionService.incomePerSecondFor(profile))
+				local gained = Economy.add(player, reward, false)
+				Economy.push(player)
+				Economy.notify(player, { kind = "claim", title = "Objective done",
+					body = ("%s  •  +%s"):format(def.name, Util.abbreviate(gained)) })
+			end
+
+			table.insert(rows, {
+				id = def.id,
+				name = def.name,
+				progress = math.min(progress, def.count),
+				count = def.count,
+				done = state.done[def.id] == true,
+			})
+		end
+		return rows
+	end
+
+	function ObjectiveService.start()
+		task.spawn(function()
+			while true do
+				task.wait(5)
+				for _, player in ipairs(Players:GetPlayers()) do
+					local ok, rows = pcall(ObjectiveService.reconcile, player, os.time())
+					if ok and rows then
+						local profile = DataService.get(player)
+						remote:FireClient(player, {
+							rows = rows,
+							hint = profile and ObjectiveService.hintFor(profile) or nil,
+						})
+					elseif not ok then
+						warn("[Tung] objective error: " .. tostring(rows))
+					end
+				end
+			end
+		end)
+	end
+
+	return ObjectiveService
 end
 
 
@@ -18607,6 +18811,7 @@ local RecallService = Req("RecallService")
 local TowerService = Req("TowerService")
 local DisclosureService = Req("DisclosureService")
 local ShopService = Req("ShopService")
+local ObjectiveService = Req("ObjectiveService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -18705,6 +18910,8 @@ DisclosureService.start()
 -- The shop (#108): after PlotService, whose plotOf keeps the owned mirrors
 -- in step.
 ShopService.start()
+-- Objectives (#97): reads persisted stats on a beat; no ordering needs.
+ObjectiveService.start()
 SocialService.start()
 
 -- 6. players
