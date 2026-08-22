@@ -75,6 +75,10 @@ Net.NAMES = {
 	-- done flags, and the hint line. The client renders and sends nothing.
 	"Objectives",    -- S->C { rows, hint }
 
+	-- The rebirth moment (#107): what just became true, derived server-side
+	-- so a stale hand-written list is structurally impossible.
+	"RebirthReport", -- S->C { rebirths, multiplier, rank, rankChanged, keeps, motto }
+
 	-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 	-- demand so a client that connects with a flag off still resolves them and
 	-- never sits in WaitForChild for 30 seconds.

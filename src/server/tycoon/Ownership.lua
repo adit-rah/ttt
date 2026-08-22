@@ -26,6 +26,7 @@ local Config = Req("Config")
 local Util = Req("Util")
 local Fx = Req("Fx")
 local Economy = Req("Economy")
+local Net = Req("Net")
 local DataService = Req("DataService")
 local Analytics = Req("Analytics")
 local Tycoon = Req("Class")
@@ -189,6 +190,35 @@ function Tycoon:rebirth(player: Player): boolean
 		title = "SAHUR REBIRTH #" .. profile.rebirths,
 		body = ("All payouts are now x%.2f."):format(Economy.multiplier(player)),
 	})
+
+	-- #107: the moment's report, DERIVED — every line reads Config or the
+	-- profile, so a new tier row cannot ship with a stale list. The client
+	-- only renders it.
+	do
+		local landCount = 0
+		for id in pairs(kept) do
+			local def = Config.ButtonById[id]
+			if def and (def.track == "landL" or def.track == "landR") then
+				landCount += 1
+			end
+		end
+		local bat = Config.Bats[math.clamp(profile.batTier or 1, 1, #Config.Bats)]
+		local armor = Config.Armor.Tiers[math.clamp(profile.armorTier or 1, 1, #Config.Armor.Tiers)]
+		local row = Config.tierRow(profile.rebirths)
+		Net.event("RebirthReport"):FireClient(player, {
+			rebirths = profile.rebirths,
+			multiplier = Economy.multiplier(player),
+			rank = row.name,
+			motto = row.motto,
+			rankChanged = Config.tierName(profile.rebirths) ~= Config.tierName(profile.rebirths - 1),
+			keeps = {
+				("%s, in your hand"):format(bat and bat.name or "your bat"),
+				("%s, on your back"):format(armor and armor.name or "your armour"),
+				landCount > 0 and ("%d pieces of ground"):format(landCount) or nil,
+				(profile.reputation or 0) >= 1 and ("%d Rep"):format(math.floor(profile.reputation)) or nil,
+			},
+		})
+	end
 
 	local character = player.Character
 	if character and character.PrimaryPart then
