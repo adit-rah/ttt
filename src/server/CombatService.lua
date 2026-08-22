@@ -42,6 +42,17 @@ function CombatService.setDamageObserver(fn: ((Model, Player, number) -> ())?)
 	damageObserver = fn
 end
 
+--- The structure hook (#124), the setDamageObserver shape one target over:
+--- a swing that boxed PARTS hands them to whoever registered, with the
+--- swing-scoped dedup table, so this file never learns what a wall is.
+--- Main.server wires it to Tycoon.siegeStrike — registering here directly
+--- would put a require of Tycoon into a module Tycoon requires.
+local structureObserver: (({ BasePart }, Player, number, { [any]: any }) -> ())? = nil
+
+function CombatService.setStructureObserver(fn: (({ BasePart }, Player, number, { [any]: any }) -> ())?)
+	structureObserver = fn
+end
+
 local function stateFor(player: Player)
 	local s = state[player]
 	if not s then
@@ -306,6 +317,7 @@ local function hitscan(character: Model, reach: number, width: number): { Model 
 
 	local seen = {}
 	local victims = {}
+	local boxed = parts
 	for _, part in ipairs(parts) do
 		-- Walk UP until we find the model that owns a Humanoid, rather than
 		-- stopping at the first Model ancestor. A raider's visible body is a
@@ -323,17 +335,25 @@ local function hitscan(character: Model, reach: number, width: number): { Model 
 			end
 		end
 	end
-	return victims
+	return victims, boxed
 end
 
 --- Resolves one strike: box the area in front of the swinger and damage
 --- whatever is in it that we're allowed to hurt.
 local function resolveStrike(player: Player, character: Model, hit: { [Model]: boolean },
-	reach: number, width: number, damage: number, knockback: number, crit: boolean)
+	struckStructures: { [any]: any }, reach: number, width: number, damage: number,
+	knockback: number, crit: boolean)
 
 	local origin = character:GetPivot().Position
 
-	for _, victim in ipairs(hitscan(character, reach, width)) do
+	local victims, boxed = hitscan(character, reach, width)
+	-- Structures first, dedup'd per SWING by the shared table: the second
+	-- strike sample must not land a second hit on the same wall.
+	if structureObserver then
+		structureObserver(boxed, player, damage, struckStructures)
+	end
+
+	for _, victim in ipairs(victims) do
 		-- one swing damages a given victim once, however many samples see them
 		if not hit[victim] and CombatService.canDamage(player, victim) then
 			hit[victim] = true
@@ -426,6 +446,7 @@ function CombatService.swing(player: Player, tool: Tool)
 	-- can now step out of a telegraphed swing, which is the point.
 	local generation = s.lastSwing
 	local hit: { [Model]: boolean } = {}
+	local struckStructures: { [any]: any } = {}
 
 	local function strike()
 		-- A second swing, a death, a respawn or a disconnect since we were
@@ -441,7 +462,7 @@ function CombatService.swing(player: Player, tool: Tool)
 		then
 			return
 		end
-		resolveStrike(player, character, hit, reach, width, damage, knockback, crit)
+		resolveStrike(player, character, hit, struckStructures, reach, width, damage, knockback, crit)
 	end
 
 	task.delay(cooldown * Config.Combat.SwingStrikeAt, function()

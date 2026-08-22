@@ -21,7 +21,7 @@ container:
 | Source root | Roblox location | Rojo folder | Files |
 | --- | --- | --- | --- |
 | `src/shared` | `ReplicatedStorage` | `TungShared` | 10 |
-| `src/server` | `ServerScriptService` | `TungServer` | 14, plus `tycoon/` (14) |
+| `src/server` | `ServerScriptService` | `TungServer` | 14, plus `tycoon/` (15) |
 | `src/client` | `StarterPlayer.StarterPlayerScripts` | `TungClient` | 6 |
 
 `src/server/tycoon/` is the only nested folder, and it is nested because `Req`
@@ -119,7 +119,7 @@ The `UiKit` argument applies to it; nothing depends on it not being moved.
 | `Economy.lua` | The single place cash is created, spent and replicated. Owns `profile.cash` and the `Stats` remote. | `AdminService`, `CombatService`, `NPCService`, `PlotService`, `SessionService`, `SocialService`, `Tycoon`, `UpgradeService`, `Main.server` | require `SocialService`, `SessionService` or `UpgradeService` — they register through `Economy.setMultiplierHook(name, fn)` precisely so this arrow never reverses |
 | `Analytics.lua` | The seven events, one choke point (`Analytics.emit`), schema from `Config.Analytics`. | `SessionService`, `Tycoon`, `Main.server` | live in `src/shared`; log an economy event per collected drop (≈10/sec/player) |
 | `MapBuilder.lua` | The whole world at runtime: arena, plot pads, ring layout, lighting. | `Tycoon`, `Main.server` | — |
-| `tycoon/` | **One plot**, as fourteen modules over one class table — see the sub-table below. `Req("Tycoon")` resolves to `tycoon/Tycoon.lua`, the aggregator, and that is the whole public surface. | `GateService`, `PlotService`, `VaultService` | require `SessionService`, `PlotService` or any service that requires it; grow a hard-coded content case — add a `Config.Buttons` row instead (§4) |
+| `tycoon/` | **One plot**, as fifteen modules over one class table — see the sub-table below. `Req("Tycoon")` resolves to `tycoon/Tycoon.lua`, the aggregator, and that is the whole public surface. | `GateService`, `PlotService`, `VaultService` | require `SessionService`, `PlotService` or any service that requires it; grow a hard-coded content case — add a `Config.Buttons` row instead (§4) |
 | `PlotService.lua` | Owns the `Tycoon` instances and who stands on what: claim pads, `autoAssign`, release with offline grace, `teleportToPlot`, the `RequestRebirth`/`RequestReset` remotes, and a 3s signage refresh. | `AdminService`, `Main.server` | — |
 | `CombatService.lua` | Bats, swings, damage, knockback, PvP zoning (arena-only), armour. The **only** `TakeDamage` call in the repo. | `NPCService`, `Tycoon`, `UpgradeService`, `Main.server` | learn what a raid is — `NPCService` registers a damage-ledger observer, same shape as the Economy hook |
 | `NPCService.lua` | The Sahur Raid: wave state machine, raider AI, the boss, the `WaveState` remote. One tick loop for all NPCs. | `AdminService`, `Main.server` | spawn a thread per NPC |
@@ -130,7 +130,7 @@ The `UiKit` argument applies to it; nothing depends on it not being moved.
 | `UpgradeService.lua` | **Prototype.** Player upgrade shop + the utility keybind slot. Both flags off ⇒ every entry point returns on line 1. | `Main.server` | make the utility a second `Tool` (only one Tool equips at a time) |
 | `AdminService.lua` | Chat commands (`!give`, `!wave`, `!clear`, `$`) for testing what the verifier cannot see. Authorised per-player: Studio, place owner, or allowlist. | `Main.server` | take a shortcut — `!give` goes through `Tycoon:install`, cash through `Economy`; trust `game.CreatorId` before checking `CreatorType` |
 
-#### `src/server/tycoon/` — one plot, fourteen modules, one table
+#### `src/server/tycoon/` — one plot, fifteen modules, one table
 
 It was one 2,552-line file with ten requires. The split is **mechanical**: the
 methods all hang off one shared table through `Tycoon.__index`, so `Class.lua`
@@ -152,7 +152,8 @@ identical either side of the move.
 | `Drops.lua` | `spawnDrop`, `recycleDrop`, `clearDrops`, the visual budget and the per-variant pool. | 185 | `Class` |
 | `Income.lua` | `incomePerSecond`, `startIncomeLoop` (the payer), `effectLine`, `updateSign`. | 147 | `Class` |
 | `Storage.lua` | The storage unit's state machine: `damageStorage`, `repairStorage`, `storageIntact`, `storedOverflowFraction` (#98's seam), the repair prompt and the attribute mirror. | 131 | `Class` |
-| `Ownership.lua` | `assign`, `release`, `rebirth`. | 199 | `Class` |
+| `Ownership.lua` | `assign`, `release`, `rebirth`. | 208 | `Class` |
+| `Siege.lua` | The walls' and gate's health (#124): `structureHealth` keyed by side and opening, `damageStructure`/`repairStructure`, `siegeStrike` (the observer target), `applySiegeState`, and the profile round trip. | 300 | `Class` |
 
 Three rules hold this together, and the first two are not stylistic:
 
@@ -224,7 +225,7 @@ The layering that actually holds:
 
 **`Tycoon` is the hinge.** It requires the same ten modules it always did —
 `Config`, `Style`, `Util`, `Fx`, `TungModels`, `Economy`, `DataService`,
-`CombatService`, `MapBuilder`, `Analytics` — spread over the fourteen files of
+`CombatService`, `MapBuilder`, `Analytics` — spread over the fifteen files of
 `src/server/tycoon/`, each requiring only what it uses; and it is required *back*
 by the three services that drive it: `PlotService`, `GateService`,
 `VaultService`. There is no cycle, because none of those three is

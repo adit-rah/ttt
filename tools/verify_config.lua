@@ -4051,6 +4051,56 @@ check(elapsed / 60 >= MIN_TOTAL_MINUTES,
 check(elapsed / 60 <= MAX_TOTAL_MINUTES,
 	("full build takes %.0f min (want <= %d) — too grindy"):format(elapsed / 60, MAX_TOTAL_MINUTES))
 
+-- ── the walls can be broken, at a pace worth playing (#124) ─────────────────
+--
+-- The health numbers are a state machine's, so what wants asserting is the
+-- STATES: a gate no bat one-shots, a siege that ends inside a raider's
+-- patience, toughness that actually grows with the land, and a repair that
+-- fits inside the raid's warning window.
+
+do
+	local H = Config.Structure.Health
+	local maxLevel = 1 + #Config.LandLButtons + #Config.LandRButtons
+
+	check(H.WallBase > 0 and H.GateBase > 0,
+		"a wall or gate with no base health is born broken")
+	for level = 2, maxLevel do
+		check(Config.wallMaxHealth(level) > Config.wallMaxHealth(level - 1),
+			("wallMaxHealth is not increasing at level %d — land stopped toughening the wall"):format(level))
+		check(Config.gateMaxHealth(level) > Config.gateMaxHealth(level - 1),
+			("gateMaxHealth is not increasing at level %d"):format(level))
+	end
+
+	check(H.RepairSeconds > 0 and H.RepairSeconds < Config.Waves.WarningTime,
+		("Structure.Health.RepairSeconds (%.1f) must finish inside Waves.WarningTime (%.1f) — a repair you cannot complete before the raid lands is a repair loop that does not exist")
+			:format(H.RepairSeconds, Config.Waves.WarningTime))
+
+	-- The gate against every bat, at both ends of the ladder: never one
+	-- swing, never a siege. 90 seconds of swinging at one door is where
+	-- breaking in stops being a raid and becomes a chore (#94 arrives with
+	-- this verb, so its pacing starts here).
+	local MAX_BREAK_SECONDS = 90
+	for _, bat in ipairs(Config.Bats) do
+		local damage = bat.damage * H.PlayerDamageScale
+		check(Config.gateMaxHealth(1) > damage,
+			("%s one-shots a level-1 gate (%.0f damage against %.0f health) — a door that falls to a single swing is not a door")
+				:format(bat.id, damage, Config.gateMaxHealth(1)))
+		local swings = math.ceil(Config.gateMaxHealth(maxLevel) / damage)
+		local seconds = swings * bat.cooldown
+		check(seconds <= MAX_BREAK_SECONDS,
+			("%s takes %.0f seconds to break a level-%d gate (limit %d) — breaking in is a raid's opening move, not its whole evening")
+				:format(bat.id, seconds, maxLevel, MAX_BREAK_SECONDS))
+	end
+
+	-- A wall out-lasts its own gate at every level: the gate is the door a
+	-- raider is MEANT to use.
+	for level = 1, maxLevel do
+		check(Config.wallMaxHealth(level) > Config.gateMaxHealth(level),
+			("at level %d the wall (%.0f) is no tougher than the gate (%.0f) — a raider would go through the wall and the gate stops meaning anything")
+				:format(level, Config.wallMaxHealth(level), Config.gateMaxHealth(level)))
+	end
+end
+
 -- ── the land alternates, demonstrably ───────────────────────────────────────
 --
 -- The pricing family asserts the margins that make alternation the cheapest

@@ -336,6 +336,36 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   is restated to admit them: a kept land id is a kept model because ensureLand rebuilds
   from `owned`. `[assert]`
 
+### Siege (#124)
+
+- **Authority is `tycoon.structureHealth`; the parts are a picture.** Keys are
+  `wall_<side>` and `gate_<opening>` — stable across every land state while course names
+  shift, which is what lets a dent persist without a rename forgiving it. Assigned from
+  `Config.wallMaxHealth`/`gateMaxHealth` (level = expansions + 1), never accumulated.
+  `[spec]` `siege_spec.lua`.
+- **applySiegeState runs at the end of every buildWallRing.** The refreshButtons beat
+  rebuilds the ring, and without this call every beat would resurrect a wall the raiders
+  earned. A broken wall keeps its sill course as the charred stump the repair prompt
+  stands on; a broken gate loses its leaves, which `GateService.resolve` already
+  nil-skips. `[nothing]` for the wiring; `[spec]` for the state machine it applies.
+- **A broken defence absorbs nothing, and the return value says so.** #94 counts wasted
+  swings by it. `[spec]` falsified by removing the guard.
+- **Damage comes through one door, `Tycoon.siegeStrike`,** wired to CombatService's
+  structure observer from `Main.server` — registering inside CombatService would put a
+  require of `Tycoon` into a module `Tycoon` requires. One hit per key per swing, with the
+  dedup table owned by the CALLER because a swing strikes twice; the plot's own owner is
+  refused; the arena's PvP rule is deliberately not consulted; the player-protection
+  damage caps do not apply to structures. `[spec]` the dedup and the immunity.
+- **Dents persist as FRACTIONS of full health,** in `profile.structure`, both
+  `defaultProfile()` and the save payload — so the same dent survives the max moving when
+  the plot buys land. `[spec]` the round trip, falsified by dropping the payload field.
+- **The health numbers are held to their states**: monotone in level, the wall out-lasting
+  its own gate, no bat one-shotting a level-1 gate, every bat breaking a maxed gate inside
+  90 seconds, the repair hold inside `Waves.WarningTime`. `[assert]`, each falsified.
+- **Mob siege is dark until #89.** The leash cannot reach a wall, so the only caller today
+  is the player observer and `!siege`. Wiring NPCService in without moving the leash would
+  be code nothing can execute. `[nothing]` — this entry is the reminder.
+
 ### The building shell
 
 - **A wall accounts for its whole extent, and `Config.wallSegments` is what says so.** The

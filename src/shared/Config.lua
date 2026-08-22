@@ -2428,6 +2428,39 @@ Config.Structure = {
 	PartBudget = 200,
 }
 
+-- design:D-02, via #124 — the walls and gate are breakable, and their
+-- toughness arrives with the land: level = expansions owned + 1, so a grown
+-- plot is a harder target with no separate wall ladder to climb. The state
+-- machine is tycoon/Siege.lua; players land damage through CombatService's
+-- structure observer, mobs will land theirs when #89 lets them reach a wall.
+Config.Structure.Health = {
+	WallBase = 600,
+	WallPerLevel = 150,
+	-- The gate is the door a raider is MEANT to break (#94): cheaper than a
+	-- wall, and the verifier holds it to "never one swing, never a siege" for
+	-- every bat at every level.
+	GateBase = 300,
+	GatePerLevel = 75,
+	-- Same shape as the storage unit's repair: quick, manual, owner-present,
+	-- and it has to finish inside the raid's warning window (asserted).
+	RepairSeconds = 3,
+	PlayerDamageScale = 1,
+	-- Reserved for #89's mobs; nothing multiplies by it yet.
+	MobDamageScale = 1,
+}
+
+--- A wall's full health at `level` = expansions owned + 1.
+function Config.wallMaxHealth(level: number): number
+	local H = Config.Structure.Health
+	return H.WallBase + H.WallPerLevel * (level - 1)
+end
+
+--- A gate's full health at the same level.
+function Config.gateMaxHealth(level: number): number
+	local H = Config.Structure.Health
+	return H.GateBase + H.GatePerLevel * (level - 1)
+end
+
 -- The one structural line: floor top to the wall's top, which is also the
 -- roof's underside. It was Storeys[1].clear, derived from the mezzanine
 -- deck's underside; the storey system retired with #88 and the shipped number
