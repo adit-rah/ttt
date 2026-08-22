@@ -857,6 +857,13 @@ Config.UI = {
 	-- ladder, and the pending-offline row) and both are visible at once for any
 	-- returning player who has not maxed the vault. A hand-typed TallHeight
 	-- describes the one-optional-row case and is short by a row.
+	PartyPanel = {
+		-- Row heights only; HUD.column() places the panel and sets its width.
+		HeaderHeight = 22,
+		RowHeight = 24,
+		LayoutOrder = 3,
+	},
+
 	SessionPanel = {
 		Width = 280,
 		Pad = 14,          -- the gutter inside the panel
@@ -1293,6 +1300,23 @@ Config.Social = {
 	-- would silently delete the bonus for the rest of the server's life.
 	RetrySeconds = 20,
 	InviteCooldown = 300,     -- per-player floor between RequestInvite remotes
+}
+
+-- design:D-04, via #102 — THE PARTY. Deliberate grouping: invite, accept,
+-- leave, dissolved when one member remains. A party is a trust boundary as
+-- much as a bonus: partymates cannot damage each other, cannot raid each
+-- other's plots, and open each other's gates — the door #89's owner-only
+-- gates promised invited guests. Session-scoped; the tower (#95) enters
+-- through it.
+Config.Party = {
+	-- Tower group size (#95) is what this number serves.
+	MaxSize = 4,
+	-- The income bonus per partymate in the server. A named multiplier hook
+	-- ("party"), composing with the friend bonus and the help boost; the
+	-- verifier bounds the full stack so the three together stay under 2x.
+	BonusPerMate = 0.05,
+	-- An unanswered invite dies quietly after this long.
+	InviteTimeoutSeconds = 45,
 }
 
 -- ─────────────────────────────────────────────────────────────────────────────

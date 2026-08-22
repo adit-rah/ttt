@@ -32,6 +32,7 @@ local Config = Req("Config")
 local Util = Req("Util")
 local Economy = Req("Economy")
 local HelpService = Req("HelpService")
+local PartyService = Req("PartyService")
 
 local Players = game:GetService("Players")
 
@@ -115,7 +116,8 @@ end
 --- attacker now carries from this break.
 function RaidService.onStorageBroken(tycoon, attacker: Player, now: number): number
 	local victim = tycoon.owner
-	if not victim or not attacker or victim == attacker then
+	if not victim or not attacker or victim == attacker
+			or PartyService.sameParty(victim, attacker) then
 		return 0
 	end
 
@@ -191,7 +193,7 @@ function RaidService.onPlayerDied(victim: Player, killer: Player?, now: number)
 		end
 	end
 
-	if killer and killer ~= victim then
+	if killer and killer ~= victim and not PartyService.sameParty(killer, victim) then
 		local steal = math.floor(R.KillStealFraction * RaidService.overflowOf(victim) *
 			RaidService.campingFactor(killer, victim.UserId, now))
 		steal = Economy.take(victim, steal)

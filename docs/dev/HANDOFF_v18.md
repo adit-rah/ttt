@@ -1,7 +1,7 @@
-# HANDOFF v18 — the open world
+# HANDOFF v18 — the open world, and the party
 
-The round shipped #89: the belt, the bands, PvP everywhere, per-plot sieges
-and the central wave. The design is settled in the issue's design-pass comment
+The round shipped #89 (the belt, the bands, PvP everywhere, per-plot sieges
+and the central wave) and #102 (the party). The design is settled in the issue's design-pass comment
 (#89, 2026-08-22); the geometry inverts the old ring's meaning — plots at the
 rim, danger concentrated inward — and every promise the ring made is restated
 in belt form and asserted.
@@ -33,6 +33,13 @@ in belt form and asserted.
   band's living room.
 - `!raidme` collapses your own plot's siege rest, the `!wave` arrangement one
   plot down.
+- **The party (#102)**: `PartyService` owns invite/accept/leave and the one
+  predicate `sameParty`; partymates cannot damage each other, cannot raid each
+  other, and open each other's gates — the door promised to invited guests
+  when gates went owner-only. The `"party"` hook composes onto income and the
+  verifier bounds the whole social stack at 2×. `PartyUI` renders the card in
+  the left column: invites in, INVITE buttons out of a party, members with a
+  live distance in one.
 
 ## 2. What only Studio can tell you
 
@@ -59,7 +66,16 @@ in belt form and asserted.
 7. **Siege siren timing.** The 3-second world-step granularity stretches the
    warning by up to 3s. Confirm the notify lands before the first raider does.
 8. **Owner-only gates and visitors.** A helper (#123) arriving at an intact
-   plot waits at a shut gate unless the owner is near. Watch whether that
-   kills visits; the fix (party access, #102) is already on the roadmap.
+   plot waits at a shut gate unless the owner is near or has partied them in
+   (#102, shipped this round). Watch whether uninvited visits still matter.
 9. **Performance at the ceiling.** 83 bodies is asserted under the part
    budget; frame cost of 83 ticking AIs on a full server is a Studio number.
+10. **Friendly fire, live.** `canDamage` refuses partymates through the ally
+    hook; swing at your partymate in Studio and confirm nothing lands — the
+    hook wiring runs only there.
+11. **A partymate at the gate.** Party access rides GateService's owner sweep;
+    walk a partymate up to a shut gate with the owner far away and watch it
+    open for them alone.
+12. **The party card on a phone.** Rows rebuild on every push and a 1s
+    distance beat; check the card at MinScale in the column, and that INVITE
+    tapping feels sane on touch.

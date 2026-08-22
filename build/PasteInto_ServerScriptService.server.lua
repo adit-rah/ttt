@@ -889,6 +889,13 @@ __MODULES["Config"] = function()
 		-- ladder, and the pending-offline row) and both are visible at once for any
 		-- returning player who has not maxed the vault. A hand-typed TallHeight
 		-- describes the one-optional-row case and is short by a row.
+		PartyPanel = {
+			-- Row heights only; HUD.column() places the panel and sets its width.
+			HeaderHeight = 22,
+			RowHeight = 24,
+			LayoutOrder = 3,
+		},
+
 		SessionPanel = {
 			Width = 280,
 			Pad = 14,          -- the gutter inside the panel
@@ -1325,6 +1332,23 @@ __MODULES["Config"] = function()
 		-- would silently delete the bonus for the rest of the server's life.
 		RetrySeconds = 20,
 		InviteCooldown = 300,     -- per-player floor between RequestInvite remotes
+	}
+
+	-- design:D-04, via #102 — THE PARTY. Deliberate grouping: invite, accept,
+	-- leave, dissolved when one member remains. A party is a trust boundary as
+	-- much as a bonus: partymates cannot damage each other, cannot raid each
+	-- other's plots, and open each other's gates — the door #89's owner-only
+	-- gates promised invited guests. Session-scoped; the tower (#95) enters
+	-- through it.
+	Config.Party = {
+		-- Tower group size (#95) is what this number serves.
+		MaxSize = 4,
+		-- The income bonus per partymate in the server. A named multiplier hook
+		-- ("party"), composing with the friend bonus and the help boost; the
+		-- verifier bounds the full stack so the three together stay under 2x.
+		BonusPerMate = 0.05,
+		-- An unanswered invite dies quietly after this long.
+		InviteTimeoutSeconds = 45,
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -4317,6 +4341,11 @@ __MODULES["Net"] = function()
 		"SetSprint",     -- C->S  boolean
 		"RequestDash",   -- C->S  (no payload) -> server fires back approval
 
+		-- The party (#102). One remote both ways: C->S { action, target? } for
+		-- invite/accept/decline/leave, S->C the whole party state (the SessionState
+		-- arrangement — the server decides everything, the client renders it).
+		"Party",         -- C->S action; S->C { members, invite }
+
 		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 		-- demand so a client that connects with a flag off still resolves them and
 		-- never sits in WaitForChild for 30 seconds.
@@ -7159,6 +7188,14 @@ __MODULES["CombatService"] = function()
 	-- zones
 	-- ─────────────────────────────────────────────────────────────────────────────
 
+	-- Whether two players are allies (#102's party). Registered from Main.server
+	-- — the observer shape, so this module never learns what a party is.
+	local allyCheck: ((Player, Player) -> boolean)? = nil
+
+	function CombatService.setAllyCheck(fn: ((Player, Player) -> boolean)?)
+		allyCheck = fn
+	end
+
 	--- Can `attacker` (a Player) hurt `victimModel`?
 	---
 	--- design:D-04, via #89 — PvP is legal EVERYWHERE, plots included. A raider
@@ -7167,6 +7204,8 @@ __MODULES["CombatService"] = function()
 	--- The guards against grief are economic and already asserted: dying costs
 	--- no cash, the kill-steal is a bounded fraction of overflow, and the safe
 	--- half of the cap is unreachable. The arena gate this replaces lived here.
+	--- The one refusal beyond yourself is your own party (#102) — a party with
+	--- friendly fire is a party nobody forms.
 	function CombatService.canDamage(attacker: Player, victimModel: Model): boolean
 		if victimModel:GetAttribute("IsSahurNPC") then
 			return true
@@ -7175,7 +7214,10 @@ __MODULES["CombatService"] = function()
 		if not victimPlayer then
 			return false
 		end
-		return victimPlayer ~= attacker
+		if victimPlayer == attacker then
+			return false
+		end
+		return not (allyCheck and allyCheck(attacker, victimPlayer))
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -8534,7 +8576,7 @@ __MODULES["GateService"] = function()
 		along the wall, away from the opening centre" is two answers the day either
 		wall moves.
 
-		THE GATE ANSWERS TO ITS OWNER, nobody else. Since #89 hostile things do
+		THE GATE ANSWERS TO ITS OWNER AND THEIR PARTY, nobody else. Since #89 hostile things do
 		reach gates — a plot wave stands at yours, and PvP raiders walk up to
 		anyone's — so a door that opened for any nearby humanoid would hand both
 		of them a free entrance and gut #124's break-in verb. Opening on the
@@ -8546,6 +8588,7 @@ __MODULES["GateService"] = function()
 	local Req = __Req
 	local Config = Req("Config")
 	local Tycoon = Req("Tycoon")
+	local PartyService = Req("PartyService")
 
 	local Players = game:GetService("Players")
 	local TweenService = game:GetService("TweenService")
@@ -8668,7 +8711,8 @@ __MODULES["GateService"] = function()
 
 	local function ownerNear(roots, owner: Player, centre: Vector3): boolean
 		for _, entry in ipairs(roots) do
-			if entry.player == owner and (entry.position - centre).Magnitude <= GATE.triggerRadius then
+			if (entry.player == owner or PartyService.sameParty(entry.player, owner))
+					and (entry.position - centre).Magnitude <= GATE.triggerRadius then
 				return true
 			end
 		end
@@ -10625,6 +10669,234 @@ __MODULES["NPCService"] = function()
 end
 
 
+__MODULES["PartyService"] = function()
+	--[[
+		PartyService.lua — deliberate grouping (#102).
+
+		design:D-04. A party is a TRUST BOUNDARY as much as a bonus: partymates
+		cannot damage each other, cannot raid each other's plots, and open each
+		other's gates — the door #89's owner-only gates promised invited guests.
+		Those three consumers reach the one predicate, sameParty, through hooks
+		wired in Main.server (CombatService's ally check, Tycoon.allyCheck) or by
+		requiring this module (GateService, RaidService); nothing here requires
+		any of them back.
+
+		SESSION-SCOPED. A party lives while two or more members are on this
+		server, and dissolves to nothing below that. Persistence would need a
+		roster nobody present can see; the co-play signal this exists for is
+		per-session anyway.
+
+		THE SERVER DECIDES EVERYTHING. One remote both ways: the client sends
+		{ action, target } and renders whatever state comes back — the
+		SessionState arrangement. Invites die quietly after InviteTimeoutSeconds;
+		the expiry is checked on read, so no timer thread exists to leak.
+
+		THE BONUS COMPOSES. "party" is a named Economy multiplier hook beside
+		"friends" and "help", and the verifier bounds the whole stack. Forming a
+		party is also a kindness: accept credits BOTH sides through
+		HelpService.credit, so a veteran partying with a new player comes out
+		ahead — #123's weighting, for free.
+
+		Clocks are parameters on the ledger functions; start()'s handlers pass
+		os.clock(). The module runs headless in the spec harness.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Net = Req("Net")
+	local Economy = Req("Economy")
+	local HelpService = Req("HelpService")
+
+	local Players = game:GetService("Players")
+
+	local PartyService = {}
+
+	local P = Config.Party
+
+	-- one shared members array per party; every member maps to the SAME table,
+	-- which is what makes sameParty a two-read identity check
+	local partyOf: { [Player]: { Player } } = {}
+
+	-- invitee -> { from, expires }. One pending invite per invitee: a second
+	-- invite overwrites the first, which is the friendly direction — the newest
+	-- ask is the one on screen.
+	local invites: { [Player]: { from: Player, expires: number } } = {}
+
+	local remote = Net.event("Party")
+
+	local function push(player: Player)
+		local members = partyOf[player]
+		local names = {}
+		if members then
+			for _, member in ipairs(members) do
+				table.insert(names, { name = member.DisplayName, userId = member.UserId })
+			end
+		end
+		local invite = invites[player]
+		remote:FireClient(player, {
+			members = names,
+			invite = invite and { fromName = invite.from.DisplayName, fromUserId = invite.from.UserId } or nil,
+		})
+	end
+
+	local function pushParty(members: { Player })
+		for _, member in ipairs(members) do
+			push(member)
+		end
+	end
+
+	function PartyService.partyOf(player: Player): { Player }?
+		return partyOf[player]
+	end
+
+	--- The predicate the trust boundary hangs on: same shared table, or false.
+	function PartyService.sameParty(a: Player?, b: Player?): boolean
+		if not a or not b or a == b then
+			return false
+		end
+		return partyOf[a] ~= nil and partyOf[a] == partyOf[b]
+	end
+
+	--- Partymates present, for the income hook. Zero outside a party.
+	function PartyService.mates(player: Player): number
+		local members = partyOf[player]
+		return members and math.max(0, #members - 1) or 0
+	end
+
+	--- Returns (ok, reason). The reasons are player-facing.
+	function PartyService.invite(from: Player, to: Player, now: number): (boolean, string)
+		if from == to then
+			return false, "that is you"
+		end
+		if PartyService.sameParty(from, to) then
+			return false, "already in your party"
+		end
+		if partyOf[to] then
+			return false, ("%s is in another party"):format(to.DisplayName)
+		end
+		local members = partyOf[from]
+		if members and #members >= P.MaxSize then
+			return false, ("your party is full (%d)"):format(P.MaxSize)
+		end
+		invites[to] = { from = from, expires = now + P.InviteTimeoutSeconds }
+		push(to)
+		return true, to.DisplayName
+	end
+
+	function PartyService.accept(invitee: Player, now: number): (boolean, string)
+		local invite = invites[invitee]
+		invites[invitee] = nil
+		if not invite or now >= invite.expires then
+			push(invitee)
+			return false, "that invite has expired"
+		end
+		local from = invite.from
+		if not from.Parent then
+			push(invitee)
+			return false, "they left the server"
+		end
+		if partyOf[invitee] then
+			return false, "you are already in a party"
+		end
+		local members = partyOf[from]
+		if members and #members >= P.MaxSize then
+			push(invitee)
+			return false, "that party filled up"
+		end
+		if not members then
+			members = { from }
+			partyOf[from] = members
+		end
+		table.insert(members, invitee)
+		partyOf[invitee] = members
+
+		-- forming a party is a kindness both ways; #123's gap weighting rides in
+		HelpService.credit(from, invitee, "partying up", now)
+		HelpService.credit(invitee, from, "partying up", now)
+
+		pushParty(members)
+		return true, from.DisplayName
+	end
+
+	function PartyService.decline(invitee: Player)
+		invites[invitee] = nil
+		push(invitee)
+	end
+
+	function PartyService.leave(player: Player)
+		local members = partyOf[player]
+		if not members then
+			return
+		end
+		partyOf[player] = nil
+		for index, member in ipairs(members) do
+			if member == player then
+				table.remove(members, index)
+				break
+			end
+		end
+		-- a party of one is nobody's party
+		if #members == 1 then
+			partyOf[members[1]] = nil
+		end
+		push(player)
+		pushParty(members)
+	end
+
+	function PartyService.start()
+		-- the bonus: an O(1) read, per the Economy hook contract
+		Economy.setMultiplierHook("party", function(player)
+			return 1 + P.BonusPerMate * math.min(PartyService.mates(player), P.MaxSize - 1)
+		end)
+
+		remote.OnServerEvent:Connect(function(player, payload)
+			if type(payload) ~= "table" then
+				return
+			end
+			local now = os.clock()
+			if payload.action == "invite" then
+				local target = type(payload.target) == "number" and Players:GetPlayerByUserId(payload.target)
+				if target then
+					local ok, what = PartyService.invite(player, target, now)
+					Economy.notify(player, { kind = ok and "info" or "warn", title = "Party",
+						body = ok and ("Invited %s."):format(what) or what })
+					if ok then
+						Economy.notify(target, { kind = "info", title = "Party",
+							body = ("%s invited you — check your party card."):format(player.DisplayName) })
+					end
+				end
+			elseif payload.action == "accept" then
+				local ok, what = PartyService.accept(player, now)
+				Economy.notify(player, { kind = ok and "claim" or "warn", title = "Party",
+					body = ok and ("You joined %s's party."):format(what) or what })
+			elseif payload.action == "decline" then
+				PartyService.decline(player)
+			elseif payload.action == "leave" then
+				PartyService.leave(player)
+				Economy.notify(player, { kind = "info", title = "Party", body = "You left the party." })
+			end
+		end)
+
+		Players.PlayerRemoving:Connect(function(player)
+			PartyService.leave(player)
+			invites[player] = nil
+			-- and any invite FROM them dies with them
+			for invitee, invite in pairs(invites) do
+				if invite.from == player then
+					invites[invitee] = nil
+					push(invitee)
+				end
+			end
+		end)
+		Players.PlayerAdded:Connect(function(player)
+			task.defer(push, player)
+		end)
+	end
+
+	return PartyService
+end
+
+
 __MODULES["PlotService"] = function()
 	--[[
 		PlotService.lua — who owns which factory, and the only door in or out of one.
@@ -10926,6 +11198,7 @@ __MODULES["RaidService"] = function()
 	local Util = Req("Util")
 	local Economy = Req("Economy")
 	local HelpService = Req("HelpService")
+	local PartyService = Req("PartyService")
 
 	local Players = game:GetService("Players")
 
@@ -11009,7 +11282,8 @@ __MODULES["RaidService"] = function()
 	--- attacker now carries from this break.
 	function RaidService.onStorageBroken(tycoon, attacker: Player, now: number): number
 		local victim = tycoon.owner
-		if not victim or not attacker or victim == attacker then
+		if not victim or not attacker or victim == attacker
+				or PartyService.sameParty(victim, attacker) then
 			return 0
 		end
 
@@ -11085,7 +11359,7 @@ __MODULES["RaidService"] = function()
 			end
 		end
 
-		if killer and killer ~= victim then
+		if killer and killer ~= victim and not PartyService.sameParty(killer, victim) then
 			local steal = math.floor(R.KillStealFraction * RaidService.overflowOf(victim) *
 				RaidService.campingFactor(killer, victim.UserId, now))
 			steal = Economy.take(victim, steal)
@@ -17111,12 +17385,21 @@ __MODULES["Siege"] = function()
 		return false
 	end
 
+	-- Whether two players are allies (#102). Main.server points this at the
+	-- party predicate; a mixin cannot require a service.
+	Tycoon.allyCheck = nil :: ((Player, Player) -> boolean)?
+
+	local function isAlly(owner: Player?, attacker: Player): boolean
+		return owner ~= nil and Tycoon.allyCheck ~= nil and Tycoon.allyCheck(owner, attacker)
+	end
+
 	--- The one door swing damage comes through. `parts` is everything one swing
 	--- boxed; each siege key it touched takes ONE hit — `struck` is the dedup
 	--- and the CALLER owns it, because a swing strikes twice (CombatService
 	--- samples the arc a frame apart) and the second sample must not land a
 	--- second hit. The plot's own owner is refused — no accidental
-	--- self-demolition — and the arena's PvP rule is deliberately not consulted:
+	--- self-demolition — and so is the owner's party (#102): a partymate's plot
+	--- is your plot's trust boundary. No PvP-zone rule exists to consult (#89):
 	--- a raider breaks a gate wherever the gate is.
 	function Tycoon.siegeStrike(parts: { BasePart }, attacker: Player, damage: number, struck: { [any]: any }?)
 		struck = struck or {}
@@ -17128,7 +17411,8 @@ __MODULES["Siege"] = function()
 			if key then
 				for _, tycoon in ipairs(Tycoon.all()) do
 					if tycoon.model and isUnder(part, tycoon.model) then
-						if tycoon.owner ~= attacker and not struck[tycoon] then
+						if tycoon.owner ~= attacker and not isAlly(tycoon.owner, attacker)
+								and not struck[tycoon] then
 							struck[tycoon] = {}
 						end
 						if struck[tycoon] and not struck[tycoon][key] then
@@ -17682,6 +17966,7 @@ local CombatService = Req("CombatService")
 local MovementService = Req("MovementService")
 local RaidService = Req("RaidService")
 local HelpService = Req("HelpService")
+local PartyService = Req("PartyService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -17764,6 +18049,11 @@ Tycoon.repairObserver = function(tycoon, player)
 	HelpService.credit(player, tycoon.owner, "repairs", os.clock())
 end
 HelpService.start()
+-- The party (#102): the trust boundary reaches combat and the plot through
+-- the same observer shape as everything above.
+CombatService.setAllyCheck(PartyService.sameParty)
+Tycoon.allyCheck = PartyService.sameParty
+PartyService.start()
 SocialService.start()
 
 -- 6. players

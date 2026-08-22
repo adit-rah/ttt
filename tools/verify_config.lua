@@ -1072,6 +1072,29 @@ do
 				Config.Waves.WarningTime + storageBreach, runFromMid))
 end
 
+-- ── the party (#102) ───────────────────────────────────────────────────────
+--
+-- The party is a trust boundary and a small bonus. The one number that can
+-- rot silently is the stacked multiplier: friends, party and the help boost
+-- all compose, and each looks harmless alone.
+do
+	local PT = Config.Party
+	check(PT.MaxSize >= 2 and PT.MaxSize <= 8,
+		("Party.MaxSize is %d; under 2 is no party and past 8 outgrows every piece of content sized for one")
+			:format(PT.MaxSize))
+	check(PT.BonusPerMate > 0,
+		"Party.BonusPerMate must pay something, or forming a party is pure ceremony")
+	local stacked = (1 + Config.Social.BonusPerFriend * Config.Social.MaxFriends)
+		* (1 + PT.BonusPerMate * (PT.MaxSize - 1))
+		* Config.Help.BoostMultiplier
+	check(stacked <= 2.0,
+		("friends x party x help stacks to %.2fx; past 2x the social bonuses stop being bonuses and start being the game")
+			:format(stacked))
+	check(PT.InviteTimeoutSeconds >= 10 and PT.InviteTimeoutSeconds <= 120,
+		("InviteTimeoutSeconds is %d; under 10 an invite dies while its toast is still up, past 120 stale invites ambush people")
+			:format(PT.InviteTimeoutSeconds))
+end
+
 -- ── raiding (#94) ──────────────────────────────────────────────────────────
 --
 -- The loot numbers are KPIs made config. Every bound here is a promise the

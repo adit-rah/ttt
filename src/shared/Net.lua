@@ -53,6 +53,11 @@ Net.NAMES = {
 	"SetSprint",     -- C->S  boolean
 	"RequestDash",   -- C->S  (no payload) -> server fires back approval
 
+	-- The party (#102). One remote both ways: C->S { action, target? } for
+	-- invite/accept/decline/leave, S->C the whole party state (the SessionState
+	-- arrangement — the server decides everything, the client renders it).
+	"Party",         -- C->S action; S->C { members, invite }
+
 	-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 	-- demand so a client that connects with a flag off still resolves them and
 	-- never sits in WaitForChild for 30 seconds.
