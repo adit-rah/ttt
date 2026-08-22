@@ -39,17 +39,17 @@ timeline
         min 0.5 : the raid siren : first Sahur Raid lands at 0:30
         min 3  : dropper3 : the weapons and armoury cabinets appear
     section Build
-        min 3-35 : the factory ladder : droppers, upgraders, the belt, the generator
+        min 3-40 : the factory ladder : droppers, upgraders, the belt, the generator
         min 3+   : the shell, in parallel : walls, gates, windows, roof
-        min 35   : the mezzanine : a second storey, arriving barren over 5.2s
+        min 20+  : the land : ten expansions, west and east alternating
     section Close
-        min 42 : the rebirth pad lights up : six spine rungs still unbought
-        min 53 : the full factory : if you refuse the rebirth and finish
+        min 50 : the rebirth pad lights up : six spine rungs still unbought
+        min 59 : the full factory : if you refuse the rebirth and finish
 ```
 
 **The target is one satisfying arc in about fifty minutes, ending on a choice
-rather than on being finished.** The measured build is **53 minutes**; the
-rebirth pad becomes affordable at **minute 42**, with **six** ladder rungs still
+rather than on being finished.** The measured build is **59 minutes**; the
+rebirth pad becomes affordable at **minute 50**, with **six** ladder rungs still
 unbought. That gap is deliberate and is guaranteed by construction, not by
 tuning — see §6.
 
@@ -57,7 +57,7 @@ tuning — see §6.
 credits at most 60 minutes per user per experience per day toward its ranking
 signal, so anything past minute 60 of a sitting is work the platform cannot
 see. The build once ran 88 minutes, which made the last third of the ladder
-worth zero to discovery. The current curve leaves 7 minutes of headroom.
+worth zero to discovery. The current curve leaves 1 minute of headroom.
 
 ---
 
@@ -107,7 +107,7 @@ flowchart LR
     W --> P["Buy pads"]
     P -.-> D
     P -.-> U
-    P -.-> S["The shell, the cabinets,<br/>the generator, the storey"]
+    P -.-> S["The shell, the cabinets,<br/>the generator, the land"]
     G["The generator"] -.->|"speeds droppers<br/>AND the belt"| D
     G -.-> B1
 ```
@@ -149,14 +149,16 @@ live, and it is what keeps the plot readable as one thing rather than as a maze.
 
 ---
 
-## 4. The five ladders
+## 4. The seven ladders
 
 ```mermaid
 graph TD
     subgraph spine["THE SPINE — walked by the pacing simulation"]
-        F["<b>FACTORY</b> — 20 rungs<br/>droppers, upgraders, the belt,<br/>the mezzanine and its line"]
+        F["<b>FACTORY</b> — 17 rungs<br/>droppers, upgraders, the belt"]
         S["<b>STRUCTURE</b> — 4 rungs<br/>walls → gates → windows → roof"]
         P["<b>POWER</b> — 4 rungs<br/>one generator, upgraded in place"]
+        LL["<b>WEST LAND</b> — 5 strips"]
+        LR2["<b>EAST LAND</b> — 5 strips"]
     end
     subgraph side["DETOURS — priced against the spine"]
         W["<b>WEAPONS</b> — 5 rungs<br/>Sahur Bat → Eclipse"]
@@ -165,7 +167,8 @@ graph TD
     F -->|"dropper1 opens"| S
     F -->|"dropper3 opens"| W
     F -->|"dropper3 opens"| A
-    S -->|"<b>roof</b> gates <b>floor2</b>"| F
+    F -->|"dropper5 opens"| LL
+    F -->|"dropper5 opens"| LR2
 ```
 
 Each ladder is a strict chain **ordered only against itself** — table order is
@@ -177,10 +180,10 @@ ways one ladder can wait on another, and they are different things:
   stand there from the moment you claimed: two display cases and nine pedestals
   for upgrades you could not use. That was most of the visual noise in the
   opening minutes.
-- **One purchase waits** — `ButtonUnlock`. There is exactly one, and it should
-  stay that way: **the mezzanine needs the roof**, because the storey stands its
-  own walls up and nothing else ever roofs them. A deck bought first is a room
-  open to the sky.
+- **One purchase waits** — `ButtonUnlock`. The table is empty today — its one
+  entry gated the second storey on the roof, and it retired with the storey
+  system when land became the growth axis (#88). The mechanism stays for the
+  next cross-ladder precondition.
 
 ### Spine vs detour
 
@@ -188,11 +191,11 @@ ways one ladder can wait on another, and they are different things:
 walks the spine buying whichever rung is cheapest, and prices each detour rung
 as "how many minutes of your current income does this cost" — capped at four.
 
-`structure` is on the spine despite being parallel, because the detour model
-assumes you can *decline* a track, and `roof` gating the mezzanine means you
-cannot. Measured as a detour the build reads 46.2 minutes against a floor of 45
-— the four purchases did not stop happening, the verifier just stopped counting
-them.
+`structure` and both land tracks are on the spine despite being parallel: the
+detour model prices a track against a curve it does not change and assumes you
+can decline it, and the plot's own growth is neither. Measured as detours the
+build once read 46 minutes against a floor of 45 — the purchases did not stop
+happening, the verifier just stopped counting them.
 
 **The shell used to be four rungs of the factory chain**, which meant three
 consecutive purchases that drop, refine and multiply nothing, sitting on the one
@@ -216,18 +219,21 @@ shell is a shell anybody buys is still an open question — see `D-03`.
 | 10 | `dropper6` | Neon Tung | 152,000 | 620 / 1.25s |
 | 11 | `dropper7` | Void Tung | 800,000 | 2,600 / 1.2s |
 | 12 | `upgrader4` | Void Furnace | 3,900,000 | ×2.4 |
-| 13 | `floor2` | The Mezzanine | 9,300,000 | the storey — **needs `roof`** |
-| 14 | `dropper8` | Eclipse Tung | 10,000,000 | 11,000 / 1.15s |
-| 15 | `upgrader5` | Eclipse Ascension | 41,000,000 | ×2.8 |
-| 16 | `dropper9` | Galaxy Tung | 115,000,000 | 48,000 / 1.1s |
-| 17 | `upgrader6` | Tung Singularity | 650,000,000 | ×3.4 |
-| 18 | `dropper10` | INFINITY TUNG TUNG TUNG SAHUR | 2,200,000,000 | 240,000 / 1.0s |
-| 19 | `mezz_line` | The Upstairs Line | 10,000,000,000 | the upstairs conveyor |
-| 20 | `mezz_dropper1` | Mezzanine Tung | 12,000,000,000 | 160,000 / 1.0s upstairs |
+| 13 | `dropper8` | Eclipse Tung | 10,000,000 | 11,000 / 1.15s |
+| 14 | `upgrader5` | Eclipse Ascension | 41,000,000 | ×2.8 |
+| 15 | `dropper9` | Galaxy Tung | 115,000,000 | 48,000 / 1.1s |
+| 16 | `upgrader6` | Tung Singularity | 650,000,000 | ×3.4 |
+| 17 | `dropper10` | INFINITY TUNG TUNG TUNG SAHUR | 2,400,000,000 | 240,000 / 1.0s |
+
+**Land** interleaves with the top half of that ladder, west then east:
+120,000 / 132,000, then 340,000 / 374,000, 1,350,000 / 1,480,000,
+5,600,000 / 6,100,000, and 480,000,000 / 528,000,000 for the frontier lots.
+The simulated build buys them strictly alternating, which the verifier
+asserts.
 
 The other four: **structure** `walls` 1,500 → `gates` 1,600 → `windows` 1,900 →
-`roof` 690,000. **Weapons** `batforge` 2,500 → Ash 60,000 → Crimson 600,000 →
-Void 6,000,000 → Eclipse 120,000,000, granting bats from 18 to 86 damage.
+`roof` 690,000. **Weapons** `batforge` 2,500 → Ash 45,000 → Crimson 520,000 →
+Void 5,200,000 → Eclipse 84,000,000, granting bats from 18 to 86 damage.
 **Armory** 4,500 / 150,000 / 2,500,000 / 40,000,000, granting 140 / 190 / 250 /
 320 max health. **Power** 14,000 / 550,000 / 3,000,000 / 400,000,000, one
 generator upgraded in place from ×1.19 to ×2.00.
@@ -412,7 +418,7 @@ on the issue named.
 | --- | --- |
 | Rebirths 4–12 collapse to one-to-three-minute loops | `D-03` |
 | Is a declinable shell a shell anybody buys? | `D-03` |
-| The mezzanine's landing is 116 × 76 studs of deliberately empty deck — does it want filling, and with what? | `D-03` |
+| What stands on a new land strip beyond ground and walls — machines are #109's decision | `D-02` |
 | Does the beacon swinging to the shell read as helpful or as nagging? | `D-05` |
 | Is 170 design px the right bottom reserve on a phone? | `D-05` |
 | Is sub-446px-tall landscape supported at all? | `D-05` |

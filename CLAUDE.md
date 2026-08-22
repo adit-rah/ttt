@@ -164,9 +164,9 @@ third value neither round had guessed.
 | add a dropper / upgrader / bat tier | a row in the relevant `Config.*Buttons` table | duplicate ids, dangling `requires`, slot collisions, upstream upgraders |
 | retune the curve | `price` values | the economy simulation: build length band, per-purchase waits, the floor's position |
 | move the belt | `Config.Layout.BeltStart/BeltCorner/BeltEnd` | `inPlot`, machine spacing, trigger dwell, drop budget |
-| change the plot's walls or roof | `INSTALLERS.Structure` in `src/server/tycoon/Installers.lua`, `Config.Layout.Roof*`, `GateCentre/GateWidth`; the PURCHASES are `Config.StructureButtons` | the doorway span, the gateway vs the belt, deck-vs-roof clearance |
-| change the second floor | `Config.Floors[1]` | the mezzanine family: deck vs walls, belt legs vs zone, hatch vs guard, the raise table |
-| change what a storey is lit by | `Config.Structure.Lights` | fixtures inside the ring, above the machines and the cabinet signs, `Range` under Roblox's silent 60 clamp, and a sampled coverage check |
+| change the plot's walls or roof | `Config.Structure` (`WallHeight`, `Openings`, `Window`), `GateCentre/GateWidth`; the builder is `buildWallRing` in `src/server/tycoon/Installers.lua`; the PURCHASES are `Config.StructureButtons` | the doorway span, the gateway vs the belt, openings staying on the centre span, the part budget at every land state |
+| buy the plot more ground | a row pair in `Config.LandLButtons`/`LandRButtons` — widths mirror, prices interleave | the land family: shrinking widths, the 2.5× sum, the pricing margins, the simulated buy order alternating, and the per-state shell checks |
+| change what the room is lit by | `Config.Structure.Lights` | fixtures inside the ring, above the machines and the cabinet signs, `Range` under Roblox's silent 60 clamp, and a sampled coverage check per land state |
 | change the belt's guard rails | `Config.Layout.BeltGuard` | a leg's rail may not overlap another leg's running surface — set `corner` to 0 and watch the deleted rails' bug come back |
 | add a UI panel | build into `HUD.root()` — or `HUD.column()` if it belongs in the left stack — via `UiKit.dock`; geometry in `Config.UI` | one-ScreenGui, card-scale literals, the column fits at `MinScale` |
 | put anything near a screen edge | a `UiKit.dock` corner; `Config.UI.TouchReserve` if it is near the bottom | the reserve assertions — both bottom corners are the engine's thumbstick and jump button |

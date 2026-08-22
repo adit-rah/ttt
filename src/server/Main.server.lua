@@ -18,13 +18,12 @@ local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
 
--- SessionService (offline earnings, the session loops), FloorService (the second
--- storey) and GateService (the doors in the shell) have graduated and always run.
+-- SessionService (offline earnings, the session loops) and GateService (the
+-- doors in the shell) have graduated and always run.
 -- UpgradeService is still a prototype and is a no-op unless
 -- Config.Prototypes.PlayerUpgrades is on, so it costs nothing in a shipping build.
 local UpgradeService = Req("UpgradeService")
 local SessionService = Req("SessionService")
-local FloorService = Req("FloorService")
 local VaultService = Req("VaultService")
 local GateService = Req("GateService")
 
@@ -60,13 +59,12 @@ NPCService.start()
 -- because !wave and !clear drive its schedule.
 AdminService.start()
 
--- 5. sessions, floors, and the one remaining prototype
+-- 5. sessions and the one remaining prototype
 UpgradeService.start()
 SessionService.start()
 -- after SessionService: it registers listeners on plots that are already built
 -- and reads the projection SessionService owns
 VaultService.start()
-FloorService.start()
 -- The gates in the shell's two openings. Anywhere after PlotService.build: it
 -- walks Tycoon.all() on its own fixed beat and finds the leaves inside the walls
 -- model, so the plots have to exist, but it registers no listener and reacts to

@@ -21,7 +21,7 @@ container:
 | Source root | Roblox location | Rojo folder | Files |
 | --- | --- | --- | --- |
 | `src/shared` | `ReplicatedStorage` | `TungShared` | 10 |
-| `src/server` | `ServerScriptService` | `TungServer` | 15, plus `tycoon/` (13) |
+| `src/server` | `ServerScriptService` | `TungServer` | 14, plus `tycoon/` (14) |
 | `src/client` | `StarterPlayer.StarterPlayerScripts` | `TungClient` | 6 |
 
 `src/server/tycoon/` is the only nested folder, and it is nested because `Req`
@@ -99,7 +99,7 @@ that throws at load takes down whatever required it, which is how a deleted
 | `Config.lua` | **Every tunable number**, all geometry, all button/track/wave/analytics data, plus derived lookups (`ButtonById`, `Tracks`, `TrackRank`, `powerFactor`) and the shell's geometry functions (`storey`, `wallExtent`, `wallSegments`, `wallBays`, `roofUnderside`, `shellPartCount`). 3,700 lines. | 37 of 43 modules — everything except `Config` itself, `Util`, `Net`, `Req`, `Main.client` and `tycoon/Tycoon.lua` | require anything (it is the graph root); hold anything that is not data or a pure derivation — `tools/verify_config.lua` executes this file against stubs and nothing else |
 | `Util.lua` | Number abbreviation, welding, `platformFrom`, misc helpers. No Roblox services. | 20 modules | — |
 | `Net.lua` | Declares `Net.NAMES` and hands out RemoteEvents; server creates them eagerly, client waits. | 13 modules | require anything (it is the other graph root) |
-| `Style.lua` | The only place `Config.Style` becomes instances. Every label in the world and on screen. | `FloorService`, `Fx`, `HUD`, `MapBuilder`, `SessionUI`, `TungModels`, `Tycoon`, `UiKit`, `UpgradeUI` | — |
+| `Style.lua` | The only place `Config.Style` becomes instances. Every label in the world and on screen. | `Fx`, `HUD`, `MapBuilder`, `SessionUI`, `TungModels`, `Tycoon`, `UiKit`, `UpgradeUI` | — |
 | `Sound.lua` | The whole audio layer, on `rbxasset://sounds/*`. Fixed pools per name; one SoundGroup. Gated on `Config.Prototypes.Sound`. | `Fx`, `SessionUI` | `Instance.new("Sound")` per event (≈400 live Sounds is where A/V desync starts) |
 | `Fx.lua` | Particle / light / sound recipes, on built-in engine textures. | `CombatService`, `NPCService`, `TungModels`, `Tycoon`, `UpgradeService` | reference an uploaded asset |
 | `TungModels.lua` | Procedural Sahur models: character, drop, NPC rig, weapon, statue. Faces along `-Z`. | `CombatService`, `MapBuilder`, `NPCService`, `Tycoon` | reference an uploaded asset |
@@ -119,19 +119,18 @@ The `UiKit` argument applies to it; nothing depends on it not being moved.
 | `Economy.lua` | The single place cash is created, spent and replicated. Owns `profile.cash` and the `Stats` remote. | `AdminService`, `CombatService`, `NPCService`, `PlotService`, `SessionService`, `SocialService`, `Tycoon`, `UpgradeService`, `Main.server` | require `SocialService`, `SessionService` or `UpgradeService` — they register through `Economy.setMultiplierHook(name, fn)` precisely so this arrow never reverses |
 | `Analytics.lua` | The seven events, one choke point (`Analytics.emit`), schema from `Config.Analytics`. | `SessionService`, `Tycoon`, `Main.server` | live in `src/shared`; log an economy event per collected drop (≈10/sec/player) |
 | `MapBuilder.lua` | The whole world at runtime: arena, plot pads, ring layout, lighting. | `Tycoon`, `Main.server` | — |
-| `tycoon/` | **One plot**, as thirteen modules over one class table — see the sub-table below. `Req("Tycoon")` resolves to `tycoon/Tycoon.lua`, the aggregator, and that is the whole public surface. | `FloorService`, `GateService`, `PlotService`, `VaultService` | require `SessionService`, `PlotService` or any service that requires it; grow a hard-coded content case — add a `Config.Buttons` row instead (§4) |
+| `tycoon/` | **One plot**, as fourteen modules over one class table — see the sub-table below. `Req("Tycoon")` resolves to `tycoon/Tycoon.lua`, the aggregator, and that is the whole public surface. | `GateService`, `PlotService`, `VaultService` | require `SessionService`, `PlotService` or any service that requires it; grow a hard-coded content case — add a `Config.Buttons` row instead (§4) |
 | `PlotService.lua` | Owns the `Tycoon` instances and who stands on what: claim pads, `autoAssign`, release with offline grace, `teleportToPlot`, the `RequestRebirth`/`RequestReset` remotes, and a 3s signage refresh. | `AdminService`, `Main.server` | — |
 | `CombatService.lua` | Bats, swings, damage, knockback, PvP zoning (arena-only), armour. The **only** `TakeDamage` call in the repo. | `NPCService`, `Tycoon`, `UpgradeService`, `Main.server` | learn what a raid is — `NPCService` registers a damage-ledger observer, same shape as the Economy hook |
 | `NPCService.lua` | The Sahur Raid: wave state machine, raider AI, the boss, the `WaveState` remote. One tick loop for all NPCs. | `AdminService`, `Main.server` | spawn a thread per NPC |
 | `SessionService.lua` | Offline earnings, the four session loops (daily streak, playtime ladder, boost, weekend), the vault projection, rebirth grants. | `VaultService`, `Main.server` | require `Tycoon` or `PlotService` — it derives income from a **saved profile** so an absent player can be paid with no plot to ask; use `tick()` or `os.date("%j")` for anything persisted |
 | `SocialService.lua` | Friends in this server and what they are worth. Pairwise `IsFriendsWith`, cached; `SocialState` remote; `RequestInvite` cooldown. | `Main.server` | use `GetFriendsAsync` (unbounded pagination for ≤9 known ids); cache a failed web call as `false` |
-| `FloorService.lua` | The second storey, whole: a deck that **spans the plot** in pieces around `Floors[1].hatch`, the railing round that stairwell, a `TrussPart` ladder standing **inside** it, the floor's own belt + collector, **and the upper storey's walls** (`buildStoreyWalls(model, "upper")`) with `refreshRoof` on top. Driven off `Tycoon:onOwnedChanged`. | `Main.server` | build from the `Floor` installer — the deck outlives the purchase (release, rebirth, re-claim never go through `install()`); build the slab as one box, or list its pieces by hand instead of deriving them from the deck and hatch rectangles |
 | `GateService.lua` | The doors in the shell's openings: opens a `Config.Structure.Openings` entry's leaves when a humanoid is inside `Gate.triggerRadius`, closes them when none is. **One** `Gate.tickRate` loop for the whole server, over `Tycoon.all()`. | `Main.server` | use `Touched`/`TouchEnded` (a character resting on a trigger bounces off its own physics jitter — that is what cost the deleted teleport pads a cooldown, an arrival lock and a sweep); run a loop per plot; hold a leaf reference across ticks without checking `Parent`; learn what a raider is (leash 124 vs a plot edge at 140) |
 | `VaultService.lua` | The number on the side of the vault: capacity/banked/fraction gauge, the collect prompt and its drain animation. Driven off `onOwnedChanged` plus a slow beat. | `Main.server` | send a net message — it has **zero**; parts and BillboardGuis replicate on their own and the claim is a `ProximityPrompt` |
 | `UpgradeService.lua` | **Prototype.** Player upgrade shop + the utility keybind slot. Both flags off ⇒ every entry point returns on line 1. | `Main.server` | make the utility a second `Tool` (only one Tool equips at a time) |
 | `AdminService.lua` | Chat commands (`!give`, `!wave`, `!clear`, `$`) for testing what the verifier cannot see. Authorised per-player: Studio, place owner, or allowlist. | `Main.server` | take a shortcut — `!give` goes through `Tycoon:install`, cash through `Economy`; trust `game.CreatorId` before checking `CreatorType` |
 
-#### `src/server/tycoon/` — one plot, thirteen modules, one table
+#### `src/server/tycoon/` — one plot, fourteen modules, one table
 
 It was one 2,552-line file with ten requires. The split is **mechanical**: the
 methods all hang off one shared table through `Tycoon.__index`, so `Class.lua`
@@ -149,7 +148,7 @@ identical either side of the move.
 | `Props.lua` | Claim rig, rebirth pad, cabinets and their signs, the yard, `refreshGenerator`. | 346 | `Class`, `Parts` |
 | `Buttons.lua` | Button positions, `buildButtons`, ghosts, the two label voices, `refreshButtons`, `pointAt`. | 517 | `Class`, `Parts` |
 | `Purchase.lua` | `playerFromHit`, `tryPurchase`, `install`. | 119 | `Class` |
-| `Installers.lua` | `Tycoon.INSTALLERS` (all eight kinds), the dropper machine, the drop loop, shelf displays, and **the building shell**: `buildStoreyWalls` (one storey's courses, window bays, trim and interior strip), `gateLeafSpecs` (the leaf geometry `GateService` also reads), `buildRoofModel` / `refreshRoof`. | 629 | `Class`, `Parts` |
+| `Installers.lua` | `Tycoon.INSTALLERS` (all eight kinds), the dropper machine, the drop loop, shelf displays, and **the building shell**: `buildWallRing` (the ring's courses, window bays, trim and interior strip), `gateLeafSpecs` (the leaf geometry `GateService` also reads), `buildRoofModel` / `refreshRoof`. | 790 | `Class`, `Parts` |
 | `Drops.lua` | `spawnDrop`, `recycleDrop`, `clearDrops`, the visual budget and the per-variant pool. | 185 | `Class` |
 | `Income.lua` | `incomePerSecond`, `startIncomeLoop` (the payer), `effectLine`, `updateSign`. | 147 | `Class` |
 | `Storage.lua` | The storage unit's state machine: `damageStorage`, `repairStorage`, `storageIntact`, `storedOverflowFraction` (#98's seam), the repair prompt and the attribute mirror. | 131 | `Class` |
@@ -213,7 +212,7 @@ The layering that actually holds:
                              |         inside the folder anything requires)
         +--------------------+--------------------+
         |                    |                    |
-   PlotService     FloorService  GateService  VaultService -> SessionService
+   PlotService          GateService     VaultService -> SessionService
         ^                                                        ^
         |                    Main.server.lua                      |
         +---------------------------+-----------------------------+
@@ -225,10 +224,10 @@ The layering that actually holds:
 
 **`Tycoon` is the hinge.** It requires the same ten modules it always did —
 `Config`, `Style`, `Util`, `Fx`, `TungModels`, `Economy`, `DataService`,
-`CombatService`, `MapBuilder`, `Analytics` — now spread over the twelve files of
+`CombatService`, `MapBuilder`, `Analytics` — spread over the fourteen files of
 `src/server/tycoon/`, each requiring only what it uses; and it is required *back*
-by the four services that drive it: `PlotService`, `FloorService`,
-`GateService`, `VaultService`. There is no cycle, because none of those four is
+by the three services that drive it: `PlotService`, `GateService`,
+`VaultService`. There is no cycle, because none of those three is
 required by anything `Tycoon` requires. `Req` would `error("circular dependency")` if one
 appeared (`Req.lua:70-73`), and both `pack.py` and `test.py` reproduce that guard.
 
@@ -251,8 +250,7 @@ in Studio while passing every pass of `verify.py`.
 2. **`VaultService` exists only to keep the arrows straight.** It needs
    `Tycoon` (to draw a gauge on a plot) *and* `SessionService` (to read the
    projection). Neither may require the other, so a leaf requiring both is the
-   shape. `FloorService` is the same pattern one dependency lighter. See
-   `VaultService.lua:31-36`.
+   shape. See `VaultService.lua:31-36`.
 3. **The income model is `Config.incomeRate`, and its readers are wrappers.**
    `Tycoon:incomePerSecond()` (`tycoon/Income.lua`) adds the live multiplier
    stack; `SessionService.incomePerSecondFor(profile)` adds the saved rebirth
@@ -285,28 +283,21 @@ outside Roblox against four stubs and asserts the data is internally
 consistent. It reads **exactly one file**: `verify.py:check_config` finds the
 `--@INJECT src/shared/Config.lua` marker (`verify_config.lua:33`) and splices
 that file in. A number that lives anywhere else is a number the suite cannot
-see. That is not theoretical — `FloorService.lua:47-51` says so in as many
-words: the mezzanine's belt path was built in *code*, so none of the belt-path
-assertions ever saw it, and two of them were wrong.
+see. That is not theoretical — the second storey's belt path was once built in
+*code*, so none of the belt-path assertions ever saw it, and two of them were
+wrong for two rounds.
 
 Geometry therefore lives in `Config.Layout` and
 `Config.World`, with the per-track furniture positions derived by
 `Config.trackButtonPosition` / `trackCabinet` / `trackShelfPosition` and the yard
 by `Config.yardMachinePosition` / `yardButtonPosition`.
 
-**All three track helpers take their Y from `Config.floorTopY(t.floor)`.**
-Neither side track names a `floor` today, so both cabinets, their nine
-buy-button pedestals and their shelf displays stand on the **ground floor**, in
-one file down the right-hand side — `Config.floorTopY(nil)` is 0, and that is a
-documented legitimate answer rather than a missing key. The mezzanine's zones
-are `line` and `landing`; there is no `armoury` zone any more.
-
-The Y still matters, and dropping it is a real defect that has happened in
-three separate places (`Tycoon:buttonBaseCF`, `Tycoon:ensureCabinets`,
-`buildShelfDisplay`): `Layout.Tracks[t].floor` is the only thing that would
-ever tie a track's furniture to a deck, so the first track that goes back
-upstairs is built *underneath* it by any builder that writes
-`self:at(pos.X, 0, pos.Z)`.
+**Every position helper answers with a height, and the height matters.**
+Dropping it is a real defect that has happened in three separate places
+(`Tycoon:buttonBaseCF`, `Tycoon:ensureCabinets`, `buildShelfDisplay`). The
+storey system retired with #88 and every column stands on the plot floor, so
+the verifier now REFUSES a `floor` key on a `Layout.Tracks` entry rather than
+measuring the ground on a stale one.
 
 Two escapes, both principled: `tycoon/Class.lua` keeps `MIN_PART = 0.05` on
 the class table because it is a property of the engine, not a knob; and `Config.Admin`
@@ -342,8 +333,7 @@ asserts it. Every row needs `id`, `name`, `price`
 | `Structure` | `structure` ∈ `{ "walls", "gates", "windows", "roof" }` | `INSTALLERS.Structure` — a two-line dispatch; it emits what `Config.wallSegments` / `Config.wallBays` / `Config.roofUnderside` describe and decides no geometry of its own |
 | `Gear` | `grants` → a `Config.Bats` id | `INSTALLERS.Gear` |
 | `Armor` | `grants` → a `Config.Armor` id | `INSTALLERS.Armor` |
-| `Floor` | a matching `Config.Floors` entry naming this button id as its `button` |
-| `Line` | a matching `Config.Floors` entry naming this button id as its `lineButton` — the conveyor ON a floor, a separate purchase from the floor | a **documented no-op**, same reason as `Floor`; `FloorService.buildLine` runs off `onOwnedChanged` |
+| `Land` | `side` ∈ `{ "left", "right" }`, `width` — one expansion strip of ground, outward from the centre | `INSTALLERS.Land` calls `ensureLand`, and the same reconciler runs on every `refreshButtons` beat |
 
 *Placement* is exclusive-or: either `slot` (an index into
 `Layout.DropperDist` / `Layout.UpgraderDist`, the ground floor's two legs — must
@@ -373,15 +363,13 @@ for" — `verify_config.lua`'s wording, from before the split).
 | `NPCService` | wave schedule, raider AI, boss | not at all — it goes through `Economy` and `CombatService` |
 | `DataService` | load / autosave / lock / shutdown flush | not at all — `Tycoon` requires *it* |
 | `SessionService` | daily streak, playtime ladder, boost, weekend, offline grant | not at all — profile-only, by design |
-| `FloorService` | the deck's existence across purchase, release, rebirth, re-claim | `Tycoon.all()`, `:onOwnedChanged`, `:refreshRoof` |
 | `GateService` | whether each opening's leaves are open or closed | `Tycoon.all()`, `:gateLeafSpecs`, `tycoon.machines`, `tycoon.owned` — and **no** `onOwnedChanged`: a gate is a distance test on a fixed beat, not a reaction to a purchase |
 | `VaultService` | the gauge, the collect prompt, the drain | `Tycoon.all()`, `:onOwnedChanged`, `:setVaultGauge`, `tycoon.vaultPrompt` |
 
 `Tycoon:onOwnedChanged(fn)` (`tycoon/Class.lua:163`) is the seam. It is a **list**
 of listeners now, each `pcall`'d individually in `fireOwnedChanged`
 (`tycoon/Class.lua:169`) so one that throws takes down neither the purchase nor
-the listeners behind it. Two consumers today: `FloorService.sync` and
-`VaultService.refresh`.
+the listeners behind it. One consumer today: `VaultService.refresh`.
 
 `Tycoon.all()` (`tycoon/Class.lua:43`) returns every plot built this session, in
 plot order. `PlotService` hands plots out *by player*; a service that must walk all
@@ -444,7 +432,7 @@ these, it does not survive.
 :52-53     3. PlotService.build(world); PlotService.start()      -> Config.World.PlotCount Tycoons
 :56        4. NPCService.start()
 :61        4b. AdminService.start()   (after NPCService: !wave drives its schedule)
-:64-75     5. UpgradeService / SessionService / VaultService / FloorService /
+:64-75     5. UpgradeService / SessionService / VaultService /
               GateService / SocialService .start()
 :129       6. Players.PlayerAdded -> onPlayerAdded
 ```
@@ -542,34 +530,18 @@ after a rebirth (`tycoon/Ownership.lua:174`) — where the update must not wait 
 Anything that changes cash outside `Economy.add` / `spend` / `steal` must call
 `markDirty` itself, or the HUD keeps the old number until the next dropper.
 
-### `FloorService.sync` off `onOwnedChanged` — `FloorService.lua:264-278`
+### `Tycoon:ensureLand()` on the `refreshButtons` beat — `tycoon/Land.lua`
 
-```lua
-local unlocked = tycoon.owner ~= nil and tycoon.owned[FLOOR.button] == true
-```
+The ground reconciles from `owned` at the top of every `refreshButtons` call:
+slabs and edge strips per expansion, the wall ring re-emitted around whatever
+ground stands, the roof and its lights re-spanned. Purchase, release, rebirth
+and re-claim all reach that beat, which is why land has no service and no
+listener — the `FloorService` it replaced existed to catch exactly those four
+events. `rebuildWallRing` destroys the ring's courses and spares every
+`Gate_*` part by name, because a leaf may be mid-tween and the openings it
+hangs in live on the centre span and cannot move.
 
-Build if unlocked and not built; tear down if built and not unlocked; then
-`tycoon:refreshRoof()` either way. **That call is the beat that raises the
-building.** The roof sits on the top storey that exists — `Config.roofUnderside`
-reads `owned[floor2]` and answers 20.4 or 42 — so without the rebuild the roof
-stays on the ground storey's line with a deck at 22 growing through it. It used
-to *shrink* instead, pulling its back edge in to clear the deck and leaving open
-sky over the back half; there is one structural line now and the roof always
-spans the whole plot.
-
-`build()` puts the **upper storey's walls** up in the same pass, into the deck's
-own folder. They are structure, but they are not the `Structure` installer's:
-`walls` is bought around minute three, when there is no deck to stand a wall on,
-and an installer never runs again — that is the hole `refreshRoof` exists to
-cover, and rebuilding the ground ring to add a storey above it would destroy the
-gate leaves `GateService` may be mid-tween on. Off `onOwnedChanged` the storey
-arrives and leaves as one object across purchase, release, rebirth and re-claim,
-and there is no state in which a deck has no walls. The one thing that assumes
-otherwise is `GateService`'s `tycoon.machines:FindFirstChild(name, true)`; no
-upper-storey `Openings` entry exists today, so no leaf is built up there.
-`FloorService.start()` (`:280`) registers it on every plot **and calls it once
-immediately** (`:291-292`), which is what makes a server restart with saved
-plots correct. `VaultService.start()` (`:197`) has the same shape plus a slow
+`VaultService.start()` (`:197`) has the same shape plus a slow
 `BEAT` loop behind it, for the things that move without a purchase — a rebirth,
 a Vault Timer upgrade, a grant arriving.
 
@@ -692,7 +664,6 @@ aggregator alone would fail at load with `module not found in spec bundle: Class
 | `PlotService` | needs `Touched` on claim pads |
 | `UpgradeService` | not in the list |
 | `VaultService` | not in the list |
-| `FloorService` | not in the list |
 | `GateService` | not in the list — and it needs `TweenService`, a `Character` and a physics position to mean anything |
 | `AdminService` | not in the list |
 | `HUD.toast`, the rebirth modal, the welcome-back modal | no tween advances. Deliberately not faked: a tween mock that jumps to its goal makes those paths look tested while proving the opposite |

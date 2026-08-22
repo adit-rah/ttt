@@ -156,30 +156,6 @@ local function give(player: Player, id: string): (boolean, string)
 	return true, def.name
 end
 
---- Put the player on the mezzanine.
----
---- Reads the deck's height out of Config rather than raycasting, and lands them
---- a stud above it. If the floor is not built this refuses rather than dropping
---- them through the sky, because "teleport me to a thing that does not exist"
---- has no sensible answer.
-local function toMezzanine(player: Player): (boolean, string)
-	local tycoon = PlotService.plotOf(player)
-	if not tycoon then
-		return false, "you do not have a plot"
-	end
-	local floor = Config.Floors[1]
-	if not tycoon.owned[floor.button] then
-		return false, ("buy %s first"):format(Config.ButtonById[floor.button].name)
-	end
-	local character = player.Character
-	if not character or not character.PrimaryPart then
-		return false, "no character"
-	end
-	local at = floor.deckAt
-	character:PivotTo(tycoon:at(at.X, floor.height + 4, at.Z))
-	return true, "mezzanine"
-end
-
 -- ─────────────────────────────────────────────────────────────────────────────
 -- parsing
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -264,16 +240,6 @@ function AdminService.handle(player: Player, message: string): boolean
 		local ok = NPCService.forceClear()
 		say(player, "Admin", ok and "Wave cleared." or "No raid to clear.",
 			ok and "wave" or "warn")
-		return true
-	end
-
-	if verb == "tp" then
-		if rest:lower() ~= "mezz" and rest:lower() ~= "mezzanine" then
-			say(player, "Admin", "!tp mezz", "warn")
-			return true
-		end
-		local ok, what = toMezzanine(player)
-		say(player, "Admin", ok and "Up you go." or what, ok and "info" or "warn")
 		return true
 	end
 

@@ -89,19 +89,14 @@ local function stateFor(tycoon)
 	end
 
 	local openings, byId = {}, {}
-	-- EVERY STOREY, not just the ground one. Only the ground storey's walls are
-	-- built today, so the upper storey contributes no specs and this loop is free;
-	-- the day it does, this file needs no edit.
-	for _, storey in ipairs(Config.Structure.Storeys) do
-		for _, spec in ipairs(tycoon:gateLeafSpecs(storey.id)) do
-			local opening = byId[spec.opening]
-			if not opening then
-				opening = { centre = spec.centre, leaves = {} }
-				byId[spec.opening] = opening
-				table.insert(openings, opening)
-			end
-			table.insert(opening.leaves, { spec = spec, part = nil, open = false, tween = nil })
+	for _, spec in ipairs(tycoon:gateLeafSpecs()) do
+		local opening = byId[spec.opening]
+		if not opening then
+			opening = { centre = spec.centre, leaves = {} }
+			byId[spec.opening] = opening
+			table.insert(openings, opening)
 		end
+		table.insert(opening.leaves, { spec = spec, part = nil, open = false, tween = nil })
 	end
 
 	entry = { openings = openings }

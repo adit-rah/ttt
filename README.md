@@ -74,10 +74,11 @@ source of truth and re-run the packer after any change.
   it is a sign over the statue in the middle of the arena.
 - The weapon and armour cabinets appear on the right-hand side of your plot at
   your **fourth purchase**, about three minutes in — bare ground until then.
-- Two thirds of the way in you buy **the mezzanine**: a whole second storey,
-  spanning the plot, with a truss up through a hatch in its deck. You need the
-  **roof** first, because nothing else ever roofs a storey. It arrives **empty**
-  — its conveyor and its dropper are the last two purchases in the game.
+- From the middle of the build you buy **land**: ten expansions, five a side,
+  each narrower than the one before, and the walls and roof move outward with
+  every one. Prices alternate west and east, so a plot bought cheapest-first
+  grows symmetric — and a maxed plot is three and a half times the ground you
+  started on.
 - Behind the plot's back-right corner is the **generator yard**: one generator
   and one pad, and the pad upgrades what is standing there rather than adding
   another one beside it. Each rung speeds up the droppers and the belt together
@@ -131,10 +132,11 @@ src/server/
     Purchase.lua      tryPurchase and install
     Installers.lua    one case per `kind`, and the machines they build
     Drops.lua         spawning what the belt carries, and the drop budget
-    Income.lua        Tung/sec, the refinery multiplier, the signs
+    Income.lua        Tung/sec, the income tick, the signs
+    Land.lua          the ground the plot grows into, reconciled from owned
+    Storage.lua       the storage unit's health and repair
     Ownership.lua     assign, release, rebirth
   PlotService.lua   claiming, releasing, offline grace period
-  FloorService.lua  the second storey: deck, its belt, its collector, the ladder
   VaultService.lua  the fill gauge and the number on the way out
   SessionService.lua  offline earnings, streaks, the playtime ladder, boosts
   SocialService.lua friend bonus and the invite prompt
@@ -188,7 +190,7 @@ dropper.** Add a row to `Config.FactoryButtons` — one of four per-track tables
 
 Note the absence of `requires`: **table order is dependency order** within a
 track, and the loader derives the chain from it. Restating a requirement is what
-once hid a fork that made the whole mezzanine a dead-end branch.
+once hid a fork that made the whole second storey a dead-end branch.
 
 …then add a distance to `Config.Layout.DropperDist` for slot 11 (how far along
 the belt's back leg it sits). That's the whole change. The button, the machine, the drop loop, the save key, the unlock
@@ -204,8 +206,8 @@ Supported `kind` values and what each needs:
 | `Structure` | `structure` (`"walls"` / `"gates"` / `"windows"` / `"roof"`) | plot buildout, one instalment at a time |
 | `Gear` | `grants` (a `Config.Bats` id) | anvil display + weapon upgrade |
 | `Armor` | `grants` (a `Config.Armor.Tiers` id) | cabinet shelf + max-health upgrade |
-| `Floor` | `floor` (a `Config.Floors` id) | the mezzanine deck, belt, collector and ladder |
 | `Power` | `factor`, `variant` | the generator in the yard; speeds up droppers and belt together |
+| `Land` | `side`, `width` | one expansion strip of ground, outward from the centre |
 
 To invent a new kind, add an entry to `Tycoon.INSTALLERS`.
 

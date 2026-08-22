@@ -31,7 +31,6 @@
 	so an absent player can be paid without a plot to ask — and Tycoon must not
 	require SessionService, because Tycoon is required BY it in the other
 	direction of the same argument. A leaf that requires all three keeps both
-	arrows pointing one way. FloorService is the same shape for the same reason.
 
 	AND WHY onOwnedChanged RATHER THAN CLAIM TIME. On return you land on a plot
 	that is not the one you left, and assign() replays your purchases onto it as

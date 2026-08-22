@@ -111,10 +111,12 @@ __MODULES["Config"] = function()
 		                       bossHealthFactor / bossRewardFactor / bossShare). If you
 		                       are hunting a combat number, it is here, not under the
 		                       COMBAT banner above.
-		  BELT PATHS AND FLOORS
-		                       Config.BeltPaths (the ground floor, derived from Layout
-		                       so the two cannot drift), Config.Floors (the mezzanine)
-		                       and floorBeltPath().
+		  BELT PATHS           Config.BeltPaths (the ground line, derived from Layout
+		                       so the two cannot drift). Expansion sub-belts arrive
+		                       with #109.
+		  LAND                 Config.LandLButtons/LandRButtons and the land helpers
+		                       — the ground a plot grows into, outward from the
+		                       centre.
 		  PROTOTYPES, and the graduates that used to be here
 		                       Config.Prototypes — every flag ships false, and
 		                       graduating a feature DELETES its flag rather than
@@ -171,7 +173,9 @@ __MODULES["Config"] = function()
 		MinPlotRadius = 210,     -- closest the first ring may ever sit to the centre
 
 		PlotSize = Vector3.new(120, 2, 140),
-		BaseplateSize = 1800,
+		-- 2000 since #88: the ring packs maxed plots, and the furthest generator
+		-- yard reaches ~918 studs out. Asserted against the packing.
+		BaseplateSize = 2000,
 		ArenaRadius = 70,
 		ArenaWallHeight = 22,
 		-- The plinth the statue stands on, in the middle of the arena. It was a 26
@@ -211,7 +215,10 @@ __MODULES["Config"] = function()
 	--- `2r·sin(π/n)` apart, and using the arc length instead (the old
 	--- `2πr/pitch` capacity formula) silently under-spaces small rings.
 	function Config.plotPlacements(count: number)
-		local pitch = Config.World.PlotSize.X + Config.World.PlotGap
+		-- The pitch reserves the MAXED footprint: land is acquired rather than
+		-- reserved, so the ring has to hold every plot fully grown or two
+		-- neighbours' fifth expansions meet in the grass.
+		local pitch = (Config.World.PlotMaxWidth or Config.World.PlotSize.X) + Config.World.PlotGap
 		local depth = Config.World.PlotSize.Z + Config.World.RingGap
 
 		local placements = {}
@@ -359,7 +366,6 @@ __MODULES["Config"] = function()
 			windows   = Vector3.new(0, 0,  -6),
 			belt1     = Vector3.new(0, 0,   8),
 			roof      = Vector3.new(0, 0,  22),
-			floor2    = Vector3.new(0, 0,  36),
 			-- The column runs in purchase order with the later steps nearer the
 			-- gate, so the floor goes at the near end. A button with no entry here
 			-- gets built at the plot origin, on top of the belt — buttonPosition
@@ -393,10 +399,6 @@ __MODULES["Config"] = function()
 		-- `slots` is the capacity of the column, not the number of buttons in the
 		-- track; the verifier asserts the track fits, which is what stops a new
 		-- tier silently stacking a pedestal on top of the one before it.
-		--
-		-- `floor` is ABSENT rather than set — Config.floorTopY documents nil as "the
-		-- ground floor, and a legitimate answer", so the three position helpers at
-		-- the bottom of this file take y = 0 for both tracks.
 		--
 		-- ONE FILE, BOTH CASES, WHICH IS WHY THE REBIRTH PAD IS WHERE IT IS. Nine
 		-- pedestals on a 14-stud pitch is 112 studs of column plus 4 studs of case
@@ -494,9 +496,8 @@ __MODULES["Config"] = function()
 	-- studs it is 135ms, which is four steps even demoted.
 	Config.Layout.TriggerThickness = 5
 
-	-- THE ROOF AND THE WALLS NOW LIVE IN Config.Structure, near the bottom of this
-	-- file, because the ground storey's height is DERIVED from the mezzanine deck's
-	-- underside and Config.Floors is not defined until then.
+	-- THE ROOF AND THE WALLS LIVE IN Config.Structure, near the bottom of this
+	-- file, with the rest of the shell's spec.
 	--
 	-- Config.Layout.RoofY/RoofThickness/RoofColumn/RoofColumnInset are gone. RoofY
 	-- was 20 while the deck's underside was 20.4, and the roof carried a shrink rule
@@ -664,9 +665,9 @@ __MODULES["Config"] = function()
 		-- next depending on what was casting a shadow over it.
 		LightInfluence = 0,
 
-		-- FOUR NAMED VIEW DISTANCES. Every label picks one of these by name, so the
-		-- question at each site is "how far away does this stop mattering" rather
-		-- than "what number did the last one use".
+		-- mechanism: FOUR NAMED VIEW DISTANCES. Every label picks one of these by
+		-- name, so the question at each site is "how far away does this stop
+		-- mattering" rather than "what number did the last one use".
 		--
 		--   machine  a plate on the machine you are standing at
 		--   prop     something you walk up to and use: buttons, pads, cabinets
@@ -676,11 +677,15 @@ __MODULES["Config"] = function()
 		-- `world` is not decoration: the two plots furthest apart on the ring are
 		-- 2 * PlotRadius apart, and the claim beacon has to be findable across that
 		-- gap. The verifier asserts it against the ring rather than trusting 1200.
+		-- plot and world grew with the ring (#88): the pitch reserves a maxed
+		-- plot's footprint, so the far side of the world moved out and a sign
+		-- that cuts out before the thing it labels is a sign that lies. The
+		-- verifier derives the floors these have to clear from the packing.
 		Distance = {
 			machine = 140,
 			prop    = 220,
-			plot    = 500,
-			world   = 900,
+			plot    = 800,
+			world   = 1600,
 		},
 
 		-- THE BUY BUTTON, IN TWO VOICES.
@@ -1242,8 +1247,8 @@ __MODULES["Config"] = function()
 		-- THE RANK IS THE THING TO PRESERVE, not the number. If the spine grows or
 		-- shrinks, check that rank 6 still names a rung near the top of the build —
 		-- it is currently `dropper9` at 115000000, which rounds to a BaseCost of
-		-- 120000000, and the five rungs above it are power4, upgrader6, dropper10,
-		-- mezz_line and mezz_dropper1.
+		-- 120000000, and the five rungs above it are power4, landL5, landR5,
+		-- upgrader6 and dropper10.
 		PriceRung = 6,
 		CostGrowth = 3.4,            -- cost multiplier per rebirth
 		MultiplierPerRebirth = 2.25, -- payout multiplier is this ^ rebirths
@@ -1438,7 +1443,7 @@ __MODULES["Config"] = function()
 	--  name      shown on the button billboard
 	--  price     cost in Tung
 	--  kind      "Dropper" | "Upgrader" | "Belt" | "Power" | "Structure"
-	--            | "Gear" | "Armor" | "Floor" | "Line"
+	--            | "Gear" | "Armor" | "Land"
 	--            Tycoon.INSTALLERS is the list; KNOWN_KINDS in verify_config.lua
 	--            is checked against it. This line is checked by nobody.
 	--  requires  id (or list of ids) that must be owned first.
@@ -1454,8 +1459,7 @@ __MODULES["Config"] = function()
 	--  Structure: structure ("walls" | "gates" | "windows" | "roof")
 	--  Gear:      grants (a Config.Bats id)
 	--  Armor:     grants (a Config.Armor.Tiers id)
-	--  Floor:     floor (a Config.Floors id)
-	--  Line:      the matching Config.Floors[].lineButton
+	--  Land:      side ("left" | "right"), width (studs of X; depth is the plot's)
 	--
 	-- The tables are merged into a single Config.Buttons at the bottom of this
 	-- file, in track order, so every consumer still iterates one array.
@@ -1552,25 +1556,6 @@ __MODULES["Config"] = function()
 			multiplier = 2.4,
 			blurb = "Melts them into money. x2.4",
 		},
-		-- design:D-03 — where a second storey belongs, why it arrives barren, and
-		-- why its conveyor is sold separately.
-		--
-		-- AFTER THE ROOF, AND THAT IS A GATE RATHER THAN A ROW POSITION.
-		-- FloorService stands this storey's own wall ring up and nothing else ever
-		-- roofs it, so a deck bought before the roof is a room open to the sky.
-		-- While the shell was welded into this chain that was guaranteed by
-		-- ORDERING. A parallel track is one you can decline, so the guarantee moved
-		-- to Config.ButtonUnlock — a precondition on THIS PURCHASE rather than a
-		-- link in the chain. See that table for why it is not a `requires`.
-		--
-		-- TWO BUTTONS, NOT ONE. The deck is this purchase; the machine that stands
-		-- on it is an ORDINARY Dropper row pinned to the mezzanine's belt path,
-		-- which is what lets the income readout see it.
-		{
-			id = "floor2", name = "The Mezzanine", price = 9300000,
-			kind = "Floor", floor = "mezzanine",
-			blurb = "A second storey. Empty, for now.",
-		},
 		{
 			id = "dropper8", name = "Eclipse Tung", price = 10000000,
 			kind = "Dropper", slot = 8, variant = "eclipse",
@@ -1596,52 +1581,10 @@ __MODULES["Config"] = function()
 			blurb = "Do not look directly at it. x3.4",
 		},
 		{
-			id = "dropper10", name = "INFINITY TUNG TUNG TUNG SAHUR", price = 2200000000,
+			id = "dropper10", name = "INFINITY TUNG TUNG TUNG SAHUR", price = 2400000000,
 			kind = "Dropper", slot = 10, variant = "infinity",
 			dropValue = 240000, dropRate = 1.0,
 			blurb = "TUNG TUNG TUNG TUNG TUNG TUNG SAHUR",
-		},
-		{
-			-- THE UPSTAIRS LINE, AND IT IS NOT THE STOREY. TODO.md items 4 and 5:
-			-- the mezzanine arrives barren — deck, ladder and its own wall ring —
-			-- and the conveyor on it is a later purchase. Placed here in the table
-			-- so the derived chain runs floor2 -> mezz_line -> mezz_dropper1; the
-			-- AFTER THE WHOLE GROUND FLOOR, which is TODO.md item 5 exactly: the
-			-- last thing on the ladder, past dropper10. The storey is bought at 67%
-			-- of the build and stands barren for the fifteen minutes it takes to
-			-- afford this — which is the shape item 4 asks for, and the reason the
-			-- line's own buy pad stands upstairs where the emptiness is.
-			--
-			-- `kind = "Line"` rather than a second Floor row: verify_config refuses
-			-- two Floor buttons naming one floor, and it is right to — Floors[n].button
-			-- is read as "the button that builds this storey" by the rebirth perks
-			-- and by FloorService. A named kind also gives every assertion below
-			-- something to be about.
-			id = "mezz_line", name = "The Upstairs Line", price = 10000000000,
-			kind = "Line", floor = "mezzanine",
-			blurb = "A conveyor for the empty storey.",
-		},
-		{
-			id = "mezz_dropper1", name = "Mezzanine Tung", price = 12000000000,
-			kind = "Dropper", variant = "eclipse",
-			-- `path` is an id, not an index: pathIndex is assigned at runtime by
-			-- addBeltPath and Config cannot know it. legIndex/legDistance pin the
-			-- machine to a leg of that path, exactly as Config.Layout.DropperDist
-			-- pins one to a leg of the ground floor's.
-			path = "mezzanine", legIndex = 1, legDistance = 14,
-			-- dropValue HAS BEEN 1400, THEN 12, AND IS NOW 160000, and all three
-			-- were the same decision made against a different neighbour. It is
-			-- always priced so the upstairs line is a PEER of the ground floor as it
-			-- stands when the line opens — a third of plot income, not a decoration
-			-- on top of it and not a replacement for it.
-			--
-			-- 1400 was for a machine bought at minute forty-four beside seven ground
-			-- droppers. 12 was for minute eight beside three. This one stands beside
-			-- all ten, at minute fifty, and the verifier measures the share at the
-			-- LINE's purchase rather than the deck's — which it could not do while
-			-- the two were one button.
-			dropValue = 160000, dropRate = 1.0,
-			blurb = "The upstairs line.",
 		},
 	}
 
@@ -1681,6 +1624,150 @@ __MODULES["Config"] = function()
 			blurb = "Now it's a real business.",
 		},
 	}
+
+	-- design:D-02, via #88 — LAND, bought outward from the centre. Five expansions
+	-- a side, each narrower than the one before, so the centre pad stays the
+	-- largest piece and a maxed plot is 3-4x the starting footprint. Depth never
+	-- changes: a strip is `width` studs of X and the full PlotSize.Z of Z.
+	--
+	-- TWO TRACKS, ONE PER SIDE. Geometry forces the order within a side (L2 has
+	-- no meaning without L1), so each side is an ordinary chain with one
+	-- requirement-free root and every track assertion applies unchanged.
+	-- Alternation is PRICING: each pair interleaves (Ln just under Rn) with a
+	-- large step between pairs, so the cheapest available land purchase always
+	-- swings sides. A player determined to go lopsided pays the pair step for it;
+	-- nothing forbids it. The simulation demonstrates the alternation and the
+	-- verifier asserts it.
+	--
+	-- `width` on the row rather than in a second geometry table, the same way a
+	-- Dropper row carries dropValue: one row is the whole fact of one expansion.
+	Config.LandLButtons = {
+		{
+			id = "landL1", name = "West Lot I", price = 85000,
+			kind = "Land", side = "left", width = 44,
+			blurb = "Ground to grow on.",
+		},
+		{
+			id = "landL2", name = "West Lot II", price = 340000,
+			kind = "Land", side = "left", width = 36,
+			blurb = "The factory spreads west.",
+		},
+		{
+			id = "landL3", name = "West Lot III", price = 1350000,
+			kind = "Land", side = "left", width = 28,
+			blurb = "Further west.",
+		},
+		{
+			id = "landL4", name = "West Lot IV", price = 5600000,
+			kind = "Land", side = "left", width = 23,
+			blurb = "The neighbours moved out.",
+		},
+		{
+			id = "landL5", name = "West Lot V", price = 480000000,
+			kind = "Land", side = "left", width = 19,
+			blurb = "The western frontier.",
+		},
+	}
+
+	Config.LandRButtons = {
+		{
+			id = "landR1", name = "East Lot I", price = 93000,
+			kind = "Land", side = "right", width = 44,
+			blurb = "Ground to grow on.",
+		},
+		{
+			id = "landR2", name = "East Lot II", price = 374000,
+			kind = "Land", side = "right", width = 36,
+			blurb = "The factory spreads east.",
+		},
+		{
+			id = "landR3", name = "East Lot III", price = 1480000,
+			kind = "Land", side = "right", width = 28,
+			blurb = "Further east.",
+		},
+		{
+			id = "landR4", name = "East Lot IV", price = 6100000,
+			kind = "Land", side = "right", width = 23,
+			blurb = "The neighbours moved out.",
+		},
+		{
+			id = "landR5", name = "East Lot V", price = 528000000,
+			kind = "Land", side = "right", width = 19,
+			blurb = "The eastern frontier.",
+		},
+	}
+
+	--- The land rows for one side, in purchase order, outward.
+	function Config.landRows(side: string)
+		return side == "left" and Config.LandLButtons or Config.LandRButtons
+	end
+
+	--- Cumulative outer |x| after each expansion on one side: one entry per row,
+	--- starting from the centre pad's half-width. Component arithmetic only — the
+	--- verifier's Vector3 is a bare table with no operators.
+	function Config.landSteps(side: string): { number }
+		local steps = {}
+		local x = Config.World.PlotSize.X / 2
+		for _, def in ipairs(Config.landRows(side)) do
+			x += def.width
+			table.insert(steps, x)
+		end
+		return steps
+	end
+
+	--- The plot's ground extents when it owns `left`/`right` expansions per side:
+	--- signed plot-local x, min and max.
+	function Config.landExtents(left: number, right: number)
+		local halfX = Config.World.PlotSize.X / 2
+		local leftSteps, rightSteps = Config.landSteps("left"), Config.landSteps("right")
+		local minX = (left > 0) and -leftSteps[math.min(left, #leftSteps)] or -halfX
+		local maxX = (right > 0) and rightSteps[math.min(right, #rightSteps)] or halfX
+		return { minX = minX, maxX = maxX }
+	end
+
+	--- One expansion's ground slab, as signed plot-local x bounds. The strip runs
+	--- the plot's full depth; only x varies.
+	function Config.landRect(id: string)
+		for _, side in ipairs({ "left", "right" }) do
+			local steps = Config.landSteps(side)
+			for index, def in ipairs(Config.landRows(side)) do
+				if def.id == id then
+					local inner = (index == 1) and Config.World.PlotSize.X / 2 or steps[index - 1]
+					local outer = steps[index]
+					if side == "left" then
+						return { fromX = -outer, toX = -inner, side = side, index = index }
+					end
+					return { fromX = inner, toX = outer, side = side, index = index }
+				end
+			end
+		end
+		return nil
+	end
+
+	--- How many expansions each side of a plot owns. The chains make ownership a
+	--- prefix, so a count is the whole state.
+	function Config.landCounts(owned): { left: number, right: number }
+		local counts = { left = 0, right = 0 }
+		for _, side in ipairs({ "left", "right" }) do
+			for _, def in ipairs(Config.landRows(side)) do
+				if owned[def.id] == true then
+					counts[side] += 1
+				end
+			end
+		end
+		return counts
+	end
+
+	--- Where a side's land pedestal stands, on the centre pad — always-owned
+	--- ground, whatever else is bought. One pedestal per side: every rung of a
+	--- side resolves here, which is why the land tracks preview 0 rungs (the
+	--- power-track precedent — a previewed pad would be built inside the lit one).
+	function Config.landButtonPosition(track: string): Vector3
+		if track == "landL" then
+			return Vector3.new(-16, 0, 30)
+		end
+		return Vector3.new(16, 0, 30)
+	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- COMBAT
@@ -1732,22 +1819,22 @@ __MODULES["Config"] = function()
 			blurb = "Unlocks the Oak Sahur Bat.",
 		},
 		{
-			id = "batforge_ash", name = "Ash Bat Forge", price = 60000,
+			id = "batforge_ash", name = "Ash Bat Forge", price = 45000,
 			kind = "Gear", grants = "ash",
 			blurb = "Unlocks the Ash Sahur Bat.",
 		},
 		{
-			id = "batforge_crimson", name = "Crimson Bat Forge", price = 600000,
+			id = "batforge_crimson", name = "Crimson Bat Forge", price = 520000,
 			kind = "Gear", grants = "crimson",
 			blurb = "Unlocks the Crimson Sahur Bat.",
 		},
 		{
-			id = "batforge2", name = "Void Bat Forge", price = 6000000,
+			id = "batforge2", name = "Void Bat Forge", price = 5200000,
 			kind = "Gear", grants = "void",
 			blurb = "Unlocks the Void Sahur Bat.",
 		},
 		{
-			id = "batforge_eclipse", name = "Eclipse Bat Forge", price = 120000000,
+			id = "batforge_eclipse", name = "Eclipse Bat Forge", price = 84000000,
 			kind = "Gear", grants = "eclipse",
 			blurb = "Unlocks the Eclipse Sahur Bat.",
 		},
@@ -1812,12 +1899,12 @@ __MODULES["Config"] = function()
 			blurb = "Bat-resistant.",
 		},
 		{
-			id = "armor_void", name = "Void Carapace", price = 2500000,
+			id = "armor_void", name = "Void Carapace", price = 1000000,
 			kind = "Armor", grants = "void",
 			blurb = "It absorbs the tung.",
 		},
 		{
-			id = "armor_eclipse", name = "Eclipse Aegis", price = 40000000,
+			id = "armor_eclipse", name = "Eclipse Aegis", price = 28000000,
 			kind = "Armor", grants = "eclipse",
 			blurb = "Sahur cannot reach you here.",
 		},
@@ -1866,7 +1953,7 @@ __MODULES["Config"] = function()
 			blurb = "The whole line runs 68% faster.",
 		},
 		{
-			id = "power4", name = "Tung Fusion Core", price = 400000000,
+			id = "power4", name = "Tung Fusion Core", price = 300000000,
 			kind = "Power", factor = 2.00, variant = "infinity",
 			blurb = "Double production. Droppers and belt alike.",
 		},
@@ -2216,373 +2303,11 @@ __MODULES["Config"] = function()
 		},
 	}
 
-	--- The upper floor. NOT stacked on the ground floor: a ceiling is the one thing
-	--- Roblox's camera has no good answer for (opaque snaps the camera to head
-	--- height, transparent lets it pop through, and LocalTransparencyModifier is
-	--- overwritten by the default camera scripts every frame). An open mezzanine
-	--- over the BACK half of the plot leaves the aisle you walk open to the sky.
-	Config.Floors = {
-		{
-			id = "mezzanine",
-			-- The button that BUILDS this floor. It used to be `requires =
-			-- "dropper10"` — own the last dropper and the whole deck appeared for
-			-- free, at the very end of the build. Then a purchase at the halfway
-			-- mark. It is now the purchase straight after the walls, around minute
-			-- six: the storey the enclosure made room for, and the gate on both
-			-- side-track cabinets, which is the reason it could not stay at forty.
-			--
-			-- IT NO LONGER GATES THE CABINETS — round 8 moved both downstairs and
-			-- put their gate on dropper3 — so the argument that pinned this button to
-			-- minute six is gone with them. Where it lands now is TODO.md item 3's
-			-- question and it is answered when the ladder is reordered.
-			button = "floor2",
-
-			-- ...AND WHAT IT BUILDS IS THE STOREY, NOT THE LINE ON IT. TODO.md item
-			-- 4: the mezzanine arrives BARREN. `button` gets you the deck, its
-			-- guards, the ladder and the storey's own wall ring; `lineButton` gets
-			-- you the conveyor, its corner sensors and the hopper it ends in.
-			--
-			-- Two buttons because they are two purchases with two different reasons.
-			-- The deck is somewhere to stand and the room the building grows; the
-			-- line is income. Bundling them made the storey a machine you bought
-			-- rather than a place you filled, which is the thing item 4 is about.
-			--
-			-- The belt PATH is registered at plot construction either way and always
-			-- has been — a path is pure maths, registering one builds nothing, and a
-			-- buy button standing on this deck needs it to exist to know its own
-			-- height.
-			lineButton = "mezz_line",
-			height = 22,             -- floor top, plot-local
-
-			-- THE DECK SPANS THE PLOT, wall face to wall face on both axes: x -58..58
-			-- and z -68..68 inside a 2-stud ring at ±59/±69. It covered the back 60
-			-- studs of a 140-deep plot, so the deck stopped in mid-air at z = -8 and
-			-- the ladder had to stand in front of that edge.
-			--
-			-- The cost is named rather than hidden: FloorService's header argued for
-			-- the back half because "Roblox has no good answer for a ceiling", and a
-			-- full-span deck roofs the ground floor. What makes it liveable is that the
-			-- ground storey has 20.4 studs of headroom and PopperCam sits under it, and
-			-- what makes it legible is that the walls are now glazed. It is the first
-			-- item in this round's Studio list, and the levers if it plays badly are,
-			-- cheapest first: more glass, a taller ground storey, or a light well over
-			-- the aisle.
-			deckSize = Vector3.new(116, 1.6, 136),
-			deckAt = Vector3.new(0, 0, 0),
-
-			-- invariant: WHAT IS ON THE FLOOR, AS NAMED ZONES, AND THE PAIR MUST
-			-- TILE THE SLAB. Floor that belongs to neither zone is floor nothing
-			-- describes, and every containment check goes blind over it.
-			--
-			-- `line` IS DELIBERATELY THE OLD DECK RECTANGLE, to the stud. The belt
-			-- derives from this zone rather than from the deck (Config.floorBeltPath
-			-- below), so widening the deck moves no belt leg, no machine and no
-			-- collector, and every belt assertion, the drop budget and the trigger
-			-- dwell go on measuring what they measured before.
-			--
-			-- `landing` is the stairwell and the way onto the storey. It keeps the
-			-- full deck width for the tiling rule above. design:D-03 — it is
-			-- deliberately barren, and whether it wants filling is open.
-			zones = {
-				line = {
-					at = Vector3.new(0, 0, -38),
-					size = Vector3.new(112, 0, 60),
-					holds = "the mezzanine belt, its dropper and its hopper",
-				},
-				landing = {
-					at = Vector3.new(0, 0, 30),
-					size = Vector3.new(116, 0, 76),
-					holds = "the stairwell, its guard, and the open floor you arrive on",
-				},
-			},
-
-			-- invariant: THE STAIRWELL IS A VOID IN THE SLAB, not a ladder in front
-			-- of it — a deck that spans the plot has no front edge to stand in front
-			-- of, so the slab is built in pieces around this rectangle and the guard
-			-- runs round three sides of it.
-			--
-			-- DO NOT MOVE IT IN LINE WITH THE GATEWAY. x = Layout.GateCentre 14 is
-			-- the obvious spot and the aisle at x 9..19, z -16..-6 is the most
-			-- contested strip on the storey. It has failed there twice:
-			--
-			--   * against the mezzanine belt's BASE. The return leg runs at z = -22
-			--     with an 8-stud running surface, but Belt.lua builds the base at
-			--     BeltWidth + 1.2, so its inboard edge is z = -17.4 and the hatch's
-			--     guard landed 0.1 studs inside it. Measuring against the surface said
-			--     it cleared by a stud.
-			--   * against that leg's MACHINE ROW, x -46.5..14.5, z -16.5..-11.5. Every
-			--     x from the left wall to 14.5 is spoken for by a machine that could
-			--     stand on leg 3, and nothing stands there today only because the
-			--     floor's one dropper is on leg 1. A hole in the slab where a future
-			--     dropper goes is a dropper built in mid-air.
-			--
-			-- So it goes in the deck's front-left quarter instead: inside the armoury
-			-- zone, clear of every belt leg's machine and button bands, clear of both
-			-- cabinets and their columns, and — because the truss runs from the plot
-			-- floor up through the void — clear of the vault, the claim pad and the
-			-- misc spine on the ground floor below. You come in the gateway and the
-			-- stairs are on your left. Arrival is on the -Z lip so you step off facing
-			-- into the armoury rather than out at the front wall.
-			hatch = {
-				-- z = 58, not 60: the slab is built in PIECES around this rectangle, so
-				-- the hatch needs enough deck between it and the edge to leave a piece
-				-- worth building — six studs, which is also what the perimeter guard
-				-- would stand on if the deck ever pulls back from a wall.
-				at = Vector3.new(-16, 0, 58),
-				size = Vector3.new(8, 0, 8),
-				-- WHICH LIP YOU ARRIVE OVER. The guard closes the other three sides and
-				-- `ladder.gate` is the opening cut in this one. -Z faces back into the
-				-- armoury, so the climb ends looking at the thing the storey is for
-				-- rather than at the front wall two studs away.
-				--
-				-- Stated rather than chosen in the builder because two things have to
-				-- agree about it — where the truss stands and where the gap is cut —
-				-- and a builder that decides for itself is a builder the verifier
-				-- cannot check against.
-				arrival = "-Z",
-			},
-			-- WHERE THE LINE'S OWN BUY BUTTON STANDS, and it stands UPSTAIRS.
-			--
-			-- It could have gone in the misc column downstairs with the walls and the
-			-- roof, and that would be one fewer moving part. It is up here because
-			-- the storey is barren for as long as it takes to afford this, and a
-			-- barren room with nothing in it to press is a room you climb once. It is
-			-- also the only thing that makes the ladder worth using before the line
-			-- exists.
-			--
-			-- In the landing zone, on the deck's centre line, well clear of the
-			-- stairwell at (-16, 58) and of every leg of the belt it buys — the belt
-			-- lives in the `line` zone, which ends at z = -8.
-			lineButtonAt = Vector3.new(0, 0, 20),
-
-			-- design:D-03 — HOW THE STOREY ARRIVES, and why it is staged at all
-			-- rather than appearing in one frame.
-			--
-			-- invariant: THE PIECES DESCEND. A slab rising from y = 0 sweeps through every
-			-- player standing on the ground floor, and Roblox's answer to an
-			-- anchored part moving through a character is to eject or wedge them.
-			-- Arriving from `lift` studs above with collision off cannot touch
-			-- anyone; collision and transparency are set on the tween's Completed.
-			--
-			-- The ladder is LAST, and not for looks: the climb must not open until
-			-- there is a floor at the top of it. Nothing guards that but the order.
-			--
-			-- `total` is asserted equal to the last stage's finish, so this table
-			-- cannot claim a duration it does not take.
-			-- THREE STAGES, NOT FIVE, and the count is the builder's rather than a
-			-- preference: FloorService.buildDeck emits the slabs, the four posts and
-			-- every guard in one call, so "posts" and "guards" as separate stages
-			-- would be stages nothing dispatches. FloorService asserts at boot that
-			-- the ids here and the ids it raises are the same set.
-			--
-			-- `at` may overlap the stage before it but must not leave a GAP — a pause
-			-- between one stage finishing and the next starting reads as a hitch
-			-- rather than as building, and the verifier refuses it. `total` is the
-			-- nominal finish (the last stage's at + time); `stagger` extends each
-			-- stage's own tail past that by stagger x however many parts it emitted,
-			-- which Config cannot know.
-			raise = {
-				lift = 16,          -- how far above its resting place a piece starts
-				fade = 0.55,        -- transparency a piece descends at
-				total = 5.2,
-				stages = {
-					{ id = "deck",   at = 0.0, time = 2.2, stagger = 0.15 },
-					{ id = "walls",  at = 2.0, time = 2.6, stagger = 0.04 },
-					{ id = "ladder", at = 4.4, time = 0.8, stagger = 0.00 },
-				},
-			},
-
-			-- belt and machines float this far over the deck: a belt base whose
-			-- underside is coplanar with the deck's top face is two surfaces at one
-			-- Y, which z-fights
-			deckLift = 0.1,
-			railHeight = 5,          -- falling off is the obvious new failure mode
-
-			-- BELT MARGINS, in from each deck edge.
-			--
-			-- Each has to clear MachineOffset + MachineFootprint/2 + rail thickness
-			-- or a machine standing on that leg hangs over the railing. `side` was
-			-- 10 and needed 11.5, so leg 2's machine strip overshot the deck by a
-			-- stud and a half; `back` was 12 against 11.5, half a stud of margin.
-			-- Nothing stood there only because the floor carried one dropper on leg
-			-- 1 — which is the whole reason this geometry had to become data before
-			-- anything could be bought on it.
-			belt = {
-				back = 13,
-				side = 12,
-				front = 14,
-				collectorRun = 16,   -- run-off between the belt's end and the hopper
-				-- WHERE THE HOPPER STANDS, stated rather than derived.
-				--
-				-- This was `pads.up.X - padClearance`: the collector's position was
-				-- worked out backwards from a teleport pad. The pads are gone and
-				-- the number they produced (40 - 12) is kept exactly, because the
-				-- belt geometry was right and only its justification was borrowed.
-				-- A collector that moves because a piece of furniture moved is a
-				-- coupling nobody asked for.
-				collectorX = 28,
-				ladderClearance = 10,   -- keep the hopper this clear of the landing
-				outboard = { 1, 1, 1 },
-			},
-
-			rail = { thickness = 1, bar = 1.4 },
-
-			-- Support posts down to the plot floor, inset from the DECK's edges — and
-			-- the deck is now the whole plot, so they land at x = +-54 and
-			-- z = -64 / +60 rather than the x = +-52, z = -16 this comment described
-			-- when the deck was the back half. They are in the corners of the building
-			-- now instead of standing in the middle of the ground floor, which is a
-			-- better place for a post. The verifier re-derives them and asserts they
-			-- clear every dropper and upgrader box, so the numbers here are
-			-- illustrative and that check is the authority.
-			pillar = { size = 2.4, insetSide = 4, insetBack = 4, insetFront = 8 },
-
-			-- mechanism: A TRUSS, NOT A PAIR OF TELEPORT PADS. Roblox humanoids
-			-- climb truss natively in both directions with no script at all — no
-			-- cooldown, no arrival lock, no per-frame work, and you can see where it
-			-- goes from the bottom of it. The pads it replaced were about a hundred
-			-- lines to walk up a flight of stairs.
-			--
-			-- invariant: WHERE IT STANDS is the tight part. The deck's front edge is at
-			-- z = -8, and the ladder has to be in front of it rather than under it:
-			-- coming up THROUGH the deck needs a hatch in the slab and a hole in
-			-- the guard. Along that edge x is nearly all spoken for —
-			--
-			--    x  5.5..10.5   belt1's misc pedestal at MiscButtons.belt1
-			--    x 18  ..22     the weapons cabinet body (Tracks.weapons.cabinetX)
-			--    x 27.5..32.5   the weapons button column, slot 3 at z = -6
-			--    x 41.5..46.5   the armour button column, slot 3 at z = -6
-			--
-			-- — and x = 14 is the gap. It is also Layout.GateCentre and the x of
-			-- OwnerSpawnAt, so the ladder stands directly ahead of the gateway you
-			-- walk in through: not beside the main entrance, but in line with it.
-			-- It clears belt1 by 2.5 studs and the weapons cabinet by 3.
-			ladder = {
-				-- THERE IS NO `ladder.at` ANY MORE, and that is the point. It was
-				-- Vector3.new(14, 0, -6.6): a spot just proud of the deck's front
-				-- edge, correct while the deck stopped at z = -8 and meaningless once
-				-- it spans the plot. It survived this round's first pass as a number
-				-- the VERIFIER still measured while the builder had started deriving
-				-- its own — a box nothing builds, checked for clearances against
-				-- furniture it is nowhere near. Deleted, and replaced by
-				-- Config.floorLadderAt below so both read one derivation.
-				width = 2,                       -- a TrussPart's cross-section is 2x2
-				rise = 1.5,                      -- overshoot above the deck, to step off onto
-				-- The hatch guard is cut this wide on the arrival lip, because a
-				-- ladder that arrives at a railing is a ladder to nowhere. The visible
-				-- bar is cut with it. Six in an eight-stud lip leaves a jamb a full
-				-- rail thickness wide at each end; seven would leave half of one.
-				gate = 6,
-			},
-		},
-	}
-
-	--- WHERE THE TRUSS STANDS: inside the hatch, against its arrival lip.
-	---
-	--- Against the lip and not in the middle of the void, because at the top of a
-	--- truss you step off HORIZONTALLY. From the centre of a 10-stud hole there is
-	--- nothing within reach to step onto; from the far lip the hole is between you
-	--- and the floor. So the column hugs the lip the guard is cut in.
-	---
-	--- This exists because the builder and the verifier both need it and briefly had
-	--- different answers: `ladder.at` said z = -6.6 and the builder derived z = -8,
-	--- so every ladder clearance check measured a box nothing built. One function,
-	--- read by both. Component arithmetic only — the verifier's Vector3 has no
-	--- operators.
-	function Config.floorLadderAt(floor)
-		local h = floor.hatch
-		local inset = floor.ladder.width / 2
-		if h.arrival == "-Z" then
-			return Vector3.new(h.at.X, 0, h.at.Z - h.size.Z / 2 + inset)
-		elseif h.arrival == "+X" then
-			return Vector3.new(h.at.X + h.size.X / 2 - inset, 0, h.at.Z)
-		elseif h.arrival == "-X" then
-			return Vector3.new(h.at.X - h.size.X / 2 + inset, 0, h.at.Z)
-		end
-		return Vector3.new(h.at.X, 0, h.at.Z + h.size.Z / 2 - inset)
-	end
-
-	--- Where you actually stand when you step off it: just past the arrival lip, on
-	--- the deck. This is the point the hopper has to keep `belt.ladderClearance`
-	--- away from — the old check measured the deck's front edge, which after the deck
-	--- grew was 74 studs from the truss and passed for entirely the wrong reason.
-	function Config.floorLandingAt(floor)
-		local h = floor.hatch
-		local step = floor.ladder.width
-		if h.arrival == "-Z" then
-			return Vector3.new(h.at.X, 0, h.at.Z - h.size.Z / 2 - step)
-		elseif h.arrival == "+X" then
-			return Vector3.new(h.at.X + h.size.X / 2 + step, 0, h.at.Z)
-		elseif h.arrival == "-X" then
-			return Vector3.new(h.at.X - h.size.X / 2 - step, 0, h.at.Z)
-		end
-		return Vector3.new(h.at.X, 0, h.at.Z + h.size.Z / 2 + step)
-	end
-
-	--- invariant: the mezzanine's belt, as a Config.BeltPaths entry. DERIVED FROM
-	--- THE LINE ZONE, NEVER FROM THE DECK.
-	---
-	--- Three legs around the back and left of the LINE ZONE, then a return leg back
-	--- across it to the hopper. Derived from that zone's rectangle rather than from
-	--- the deck, which is the change that let the deck grow to span the plot without
-	--- moving a single belt leg: the zone is the old deck rectangle to the stud, so
-	--- every point this function returns is byte-identical to what it returned when
-	--- the deck WAS that rectangle. A belt derived from the deck would have spread
-	--- itself across the whole storey the moment the deck did, and taken the drop
-	--- budget, the trigger dwell and the mezzanine dropper's position with it.
-	---
-	--- The return leg is what the old inferred-outboard heuristic could not do: its
-	--- midpoint sits near the middle of the plot, so "point away from the origin"
-	--- picks the wrong side and hangs the machines over the walkway. Every leg's
-	--- side is stated.
-	---
-	--- COMPONENT ARITHMETIC ONLY. tools/verify_config.lua stubs Vector3 as a plain
-	--- table with no operators, so `deckSize * 0.5` here would take the entire
-	--- 1200-check suite down at require time. This function is the reason the
-	--- mezzanine's belt is visible to the belt assertions at all, so it would be a
-	--- particularly silly place to break them.
-	function Config.floorBeltPath(floor)
-		local b = floor.belt
-		local zone = floor.zones.line
-		local halfX, halfZ = zone.size.X / 2, zone.size.Z / 2
-
-		local backZ = zone.at.Z - halfZ + b.back
-		local frontZ = zone.at.Z + halfZ - b.front
-		local rightX = zone.at.X + halfX - b.side
-		local leftX = zone.at.X - halfX + b.side
-		local collectorX = b.collectorX
-
-		return {
-			id = floor.id,
-			y = floor.height + floor.deckLift,
-			points = {
-				Vector3.new(rightX, 0, backZ),
-				Vector3.new(leftX, 0, backZ),
-				Vector3.new(leftX, 0, frontZ),
-				Vector3.new(collectorX - b.collectorRun, 0, frontZ),
-			},
-			outboard = b.outboard,
-			collectorAt = Vector3.new(collectorX, 0, frontZ),
-		}
-	end
-
-	for _, floor in ipairs(Config.Floors) do
-		table.insert(Config.BeltPaths, Config.floorBeltPath(floor))
-	end
-
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- invariant: THE BUILDING SHELL — walls, windows, gates and the roof.
 	--
-	-- It lives HERE, after Config.Floors, because the ground storey's clear height
-	-- is derived from the mezzanine deck's underside, and Config.Floors is the thing
-	-- that states where the deck is.
-	--
-	-- ONE STRUCTURAL LINE. A storey's ceiling is the floor above it. The ground
-	-- storey stops at the deck's underside whether or not the deck has been bought:
-	-- before floor2 the roof sits on that line, after it the deck does. That is why
-	-- the roof's old "shrink to dodge the deck" rule is gone rather than extended —
-	-- it existed because two pieces of geometry were each derived separately and had
-	-- to be kept out of each other's way.
+	-- ONE STRUCTURAL LINE. Config.Structure.WallHeight is the wall's top and the
+	-- roof's underside, and everything at ceiling height derives from it.
 	--
 	-- SPANS ARE A LIST, NOT ARITHMETIC IN A LOOP. Config.wallSegments returns the
 	-- solid runs and the openings of one wall of one storey, and the builder emits
@@ -2603,15 +2328,6 @@ __MODULES["Config"] = function()
 		-- the budget was being asserted against a number 13% below what is built.
 		Trim = { section = 1, proud = 0.4 },
 
-		-- Ground clear height is DERIVED (see below). `upper` is chosen, and the
-		-- binding constraint is not headroom: a cabinet body is 13 tall and hangs its
-		-- sign anchor at 15.5 with an 18x4 billboard on it, so the label reaches 17.5
-		-- above the deck. At 16 the top two studs of every cabinet sign were inside
-		-- the ceiling. 20 clears the sign, the dropper's arm (MachineTopY 6.9) and a
-		-- player, and leaves the storey a shade lower than the ground floor's 20.4 —
-		-- which is what a mezzanine should read as.
-		UpperClear = 20,
-
 		-- WINDOW BAYS. A solid run is built as three courses: a sill course from the
 		-- floor to `sill`, a bay course of alternating piers and glass panes, and a
 		-- head course from `sill + height` to the wall top.
@@ -2622,8 +2338,8 @@ __MODULES["Config"] = function()
 		Window = {
 			pane = 16,
 			pier = 8,
-			ground = { sill = 6, height = 9 },
-			upper  = { sill = 4, height = 8 },
+			sill = 6,
+			height = 9,
 			-- GLASS MUST STAY AT OR ABOVE 0.25. Roblox's PopperCam only treats a
 			-- part as occluding when `Transparency < 0.25 and CanCollide`, so at
 			-- 0.45 a glazed bay passes the camera and the light while staying solid
@@ -2636,7 +2352,7 @@ __MODULES["Config"] = function()
 		-- with a lintel course above, because a 20-stud gateway is not a door.
 		Openings = {
 			{
-				id = "gateway", side = "front", storey = "ground",
+				id = "gateway", side = "front",
 				centre = Config.Layout.GateCentre, width = Config.Layout.GateWidth,
 				height = 13, leaves = 2,
 				-- Which face the leaves hang on and slide along. INBOARD here: the
@@ -2645,7 +2361,7 @@ __MODULES["Config"] = function()
 				face = "inboard",
 			},
 			{
-				id = "yardDoor", side = "back", storey = "ground",
+				id = "yardDoor", side = "back",
 				-- The cut in the back wall onto the generator yard. Derived from the
 				-- yard's own DoorFrom and the wall ring, so it cannot drift from the
 				-- slab it opens onto: x = DoorFrom .. halfX.
@@ -2744,63 +2460,41 @@ __MODULES["Config"] = function()
 		PartBudget = 200,
 	}
 
-	--- The two storeys, ground first. `clear` is floor-top to the underside of the
-	--- floor above — which for the ground storey IS the mezzanine deck's underside,
-	--- derived rather than typed so the wall cannot stop short of it again.
-	Config.Structure.Storeys = {
-		{
-			id = "ground",
-			floorY = 0,
-			-- The deck's TOP is `height`, so its underside is a full thickness below
-			-- that — not half. FloorService builds the slab centred at
-			-- `height - deckSize.Y/2`, which spans 20.4 .. 22.0 for today's numbers.
-			-- Getting this wrong by 0.8 is a wall that ends inside the floor above it.
-			clear = Config.Floors[1].height - Config.Floors[1].deckSize.Y,
-		},
-		{
-			id = "upper",
-			floorY = Config.Floors[1].height,
-			clear = Config.Structure.UpperClear,
-		},
-	}
+	-- The one structural line: floor top to the wall's top, which is also the
+	-- roof's underside. It was Storeys[1].clear, derived from the mezzanine
+	-- deck's underside; the storey system retired with #88 and the shipped number
+	-- stays, verbatim, so the roof line, the trim, the light plane and every
+	-- label assertion hold still.
+	Config.Structure.WallHeight = 20.4
 
-	--- Storey by id.
-	function Config.storey(id: string)
-		for _, storey in ipairs(Config.Structure.Storeys) do
-			if storey.id == id then
-				return storey
-			end
-		end
-		return nil
-	end
-
-	--- The underside of the roof. It sits on the top storey that exists: on the
-	--- ground storey's line before the mezzanine is bought, on the upper storey's
-	--- after. There is no half-roof state, which is the whole reason the old shrink
-	--- rule could go.
-	function Config.roofUnderside(hasFloor: boolean): number
-		local storey = hasFloor and Config.storey("upper") or Config.storey("ground")
-		return storey.floorY + storey.clear
+	--- The underside of the roof: the wall's top. One line, one reader each side.
+	function Config.roofUnderside(): number
+		return Config.Structure.WallHeight
 	end
 
 	--- One wall of the ring: the axis it runs along, its fixed coordinate on the
-	--- other axis, and its extent.
+	--- other axis, and its extent — for a plot owning `left`/`right` expansions a
+	--- side (both default 0, the bare centre).
 	---
 	--- Note the asymmetry, which is how the shell has always been built: the side
 	--- walls run the FULL plot depth and the front and back walls sit between them.
-	--- Changing that changes four corners at once.
-	function Config.wallExtent(side: string)
-		local halfX = Config.World.PlotSize.X / 2 - 1
+	--- Changing that changes four corners at once. Land grows the ring along X
+	--- only: the front and back walls lengthen, the side walls MOVE outward, and
+	--- depth never changes — which is what keeps the leash, gate-trap and
+	--- warning-walk arithmetic still about the same distances.
+	function Config.wallExtent(side: string, left: number?, right: number?)
+		local extents = Config.landExtents(left or 0, right or 0)
+		local minX, maxX = extents.minX + 1, extents.maxX - 1
 		local halfZ = Config.World.PlotSize.Z / 2 - 1
 		if side == "back" then
-			return { axis = "X", fixed = -halfZ, from = -halfX, to = halfX, outward = -1 }
+			return { axis = "X", fixed = -halfZ, from = minX, to = maxX, outward = -1 }
 		elseif side == "front" then
-			return { axis = "X", fixed = halfZ, from = -halfX, to = halfX, outward = 1 }
+			return { axis = "X", fixed = halfZ, from = minX, to = maxX, outward = 1 }
 		elseif side == "left" then
-			return { axis = "Z", fixed = -halfX, from = -Config.World.PlotSize.Z / 2,
+			return { axis = "Z", fixed = minX, from = -Config.World.PlotSize.Z / 2,
 				to = Config.World.PlotSize.Z / 2, outward = -1 }
 		elseif side == "right" then
-			return { axis = "Z", fixed = halfX, from = -Config.World.PlotSize.Z / 2,
+			return { axis = "Z", fixed = maxX, from = -Config.World.PlotSize.Z / 2,
 				to = Config.World.PlotSize.Z / 2, outward = 1 }
 		end
 		return nil
@@ -2808,11 +2502,11 @@ __MODULES["Config"] = function()
 
 	Config.Structure.Sides = { "back", "front", "left", "right" }
 
-	--- Every opening in one wall of one storey, in order along the wall.
-	function Config.openingsIn(side: string, storey: string)
+	--- Every opening in one wall, in order along the wall.
+	function Config.openingsIn(side: string)
 		local found = {}
 		for _, opening in ipairs(Config.Structure.Openings) do
-			if opening.side == side and opening.storey == storey then
+			if opening.side == side then
 				table.insert(found, opening)
 			end
 		end
@@ -2828,22 +2522,67 @@ __MODULES["Config"] = function()
 	--- This is the function the builder emits from, the verifier sums, and a runtime
 	--- spec exercises. A wall that does not account for its own span is now a failed
 	--- check rather than a seven-stud band of daylight nobody measured.
-	function Config.wallSegments(side: string, storey: string)
-		local extent = Config.wallExtent(side)
+	---
+	--- ON A GROWN PLOT the front and back walls also split their solid runs at
+	--- every land boundary, so each expansion's frontage is its own span. The
+	--- centre's boxes never change size when land arrives — an expansion ADDS
+	--- spans — and every opening stays on the centre span, which is what keeps
+	--- "gates and windows are never rebuilt" true whatever the plot owns.
+	function Config.wallSegments(side: string, left: number?, right: number?)
+		local extent = Config.wallExtent(side, left, right)
 		local segments = {}
-		local cursor = extent.from
-		for _, opening in ipairs(Config.openingsIn(side, storey)) do
-			local left = opening.centre - opening.width / 2
-			local right = opening.centre + opening.width / 2
-			if left > cursor then
-				table.insert(segments, { kind = "solid", from = cursor, to = left })
+
+		-- The split points: the centre pad's edges and each owned expansion's
+		-- outer boundary, where they fall strictly inside the extent.
+		local splits = {}
+		if extent.axis == "X" then
+			-- The centre/expansion boundary sits at the wall's INSET edge, the
+			-- same 1 stud in from the ground joint the bare ring has always used,
+			-- so the centre's spans are byte-identical at every land state and
+			-- the first expansion adds a span without resizing a standing box.
+			local halfX = Config.World.PlotSize.X / 2 - 1
+			for _, boundary in ipairs({ -halfX, halfX }) do
+				if boundary > extent.from and boundary < extent.to then
+					table.insert(splits, boundary)
+				end
 			end
-			table.insert(segments, { kind = "opening", from = left, to = right, opening = opening })
-			cursor = right
+			for _, sideName in ipairs({ "left", "right" }) do
+				local count = (sideName == "left") and (left or 0) or (right or 0)
+				local steps = Config.landSteps(sideName)
+				local sign = (sideName == "left") and -1 or 1
+				for index = 1, math.min(count, #steps) do
+					local boundary = sign * steps[index]
+					if boundary > extent.from and boundary < extent.to then
+						table.insert(splits, boundary)
+					end
+				end
+			end
+			table.sort(splits)
 		end
-		if cursor < extent.to then
-			table.insert(segments, { kind = "solid", from = cursor, to = extent.to })
+
+		local function pushSolid(from, to)
+			if to <= from then
+				return
+			end
+			local cursor = from
+			for _, split in ipairs(splits) do
+				if split > cursor and split < to then
+					table.insert(segments, { kind = "solid", from = cursor, to = split })
+					cursor = split
+				end
+			end
+			table.insert(segments, { kind = "solid", from = cursor, to = to })
 		end
+
+		local cursor = extent.from
+		for _, opening in ipairs(Config.openingsIn(side)) do
+			local openFrom = opening.centre - opening.width / 2
+			local openTo = opening.centre + opening.width / 2
+			pushSolid(cursor, openFrom)
+			table.insert(segments, { kind = "opening", from = openFrom, to = openTo, opening = opening })
+			cursor = openTo
+		end
+		pushSolid(cursor, extent.to)
 		return segments, extent
 	end
 
@@ -2877,43 +2616,48 @@ __MODULES["Config"] = function()
 	--- above so the verifier can hold it to Config.Structure.PartBudget.
 	---
 	--- Per solid run: a sill course, a head course, and the bay course's piers and
-	--- panes. Per opening: a lintel course over it, plus its leaves. Per side, per
-	--- storey: a trim cap and an interior light strip. Plus the roof slab, its four
-	--- columns and its sign anchor. `hasFloor` because the upper storey only exists
-	--- once the mezzanine is bought — the budget is asserted against the full build.
+	--- panes. Per opening: a lintel course over it, plus its leaves. Per side: a
+	--- trim cap and an interior light strip. Plus the roof slab, its four columns
+	--- and its sign anchor.
 	---
 	--- IT MUST COUNT WHAT THE BUILDER EMITS, not what the wall spec implies. Its
 	--- first version left out the trim, the light strip and the sign anchor, so it
 	--- reported 59 against 68 actually built and 107 against 124 — a budget asserted
 	--- 13% under the truth, which is a budget that passes right up until it matters.
 	--- Both numbers were reconciled against a count taken from the real builder.
-	--- mechanism: WHERE ONE STOREY'S CEILING FIXTURES HANG, in plot-local
-	--- coordinates.
+	--- mechanism: WHERE THE CEILING FIXTURES HANG, in plot-local coordinates.
 	---
-	--- Derived from the wall ring and the storey, so a fixture cannot end up
-	--- outside the room or below the machines. Component arithmetic only: the
-	--- verifier's Vector3 is a bare table with no operators.
-	---
-	--- The ceiling plane never moves. Storeys[1].clear is 20.4 and
-	--- Config.roofUnderside(false) is the same 20.4 — before the mezzanine the roof
-	--- is on that line, after it the deck's underside is — so a height derived from
-	--- the storey is right in both states and needs no rebuild when the deck lands.
-	function Config.storeyLightPositions(storeyId: string): { Vector3 }
+	--- Derived from the wall ring, so a fixture cannot end up outside the room or
+	--- below the machines. Component arithmetic only: the verifier's Vector3 is a
+	--- bare table with no operators.
+	--- The room grows along X with the land, so the COLUMN COUNT grows with it:
+	--- a fixed grid stretched over a maxed plot leaves the middle of each wing
+	--- past the fixtures' range, and the sampled coverage check is what chose
+	--- the divisor.
+	function Config.lightColumnsFor(left: number?, right: number?): number
 		local L = Config.Structure.Lights
-		local storey = Config.storey(storeyId)
-		local halfX = Config.World.PlotSize.X / 2 - 1 - Config.Structure.WallThickness / 2
+		local extents = Config.landExtents(left or 0, right or 0)
+		local width = extents.maxX - extents.minX
+		return math.max(L.columns, math.ceil(width / 42))
+	end
+
+	function Config.storeyLightPositions(left: number?, right: number?): { Vector3 }
+		local L = Config.Structure.Lights
+		local extents = Config.landExtents(left or 0, right or 0)
+		local inset = 1 + Config.Structure.WallThickness / 2 + L.inset
+		local fromX, toX = extents.minX + inset, extents.maxX - inset
 		local halfZ = Config.World.PlotSize.Z / 2 - 1 - Config.Structure.WallThickness / 2
-		local y = storey.floorY + storey.clear - L.drop - L.batten.thickness / 2
+		local y = Config.Structure.WallHeight - L.drop - L.batten.thickness / 2
+		local columns = Config.lightColumnsFor(left, right)
 
 		local spots = {}
 		local spanZ = halfZ - L.inset
-		for column = 1, L.columns do
-			-- evenly across X, symmetric about the centre line
-			local x = -(halfX - L.inset)
-			if L.columns > 1 then
-				x += (column - 1) * (2 * (halfX - L.inset)) / (L.columns - 1)
+		for column = 1, columns do
+			local x = fromX
+			if columns > 1 then
+				x += (column - 1) * (toX - fromX) / (columns - 1)
 			else
-				x = 0
+				x = (fromX + toX) / 2
 			end
 			for row = 1, L.rows do
 				local z = -spanZ
@@ -2928,25 +2672,22 @@ __MODULES["Config"] = function()
 		return spots
 	end
 
-	function Config.shellPartCount(hasFloor: boolean): number
+	function Config.shellPartCount(left: number?, right: number?): number
 		local total = 0
-		local storeys = hasFloor and { "ground", "upper" } or { "ground" }
-		for _, storey in ipairs(storeys) do
-			-- the ceiling fixtures this storey hangs. They are Parts; the Lights
-			-- themselves are not, so this counts battens and not lights.
-			total += #Config.storeyLightPositions(storey)
-			for _, side in ipairs(Config.Structure.Sides) do
-				-- the neon cap along this wall's top, and the light strip inside it
-				total += 2
-				for _, segment in ipairs(Config.wallSegments(side, storey)) do
-					if segment.kind == "solid" then
-						total += 2   -- sill course + head course
-						for _, _bay in ipairs(Config.wallBays(segment.from, segment.to)) do
-							total += 1
-						end
-					else
-						total += 1 + segment.opening.leaves   -- lintel + gate leaves
+		-- the ceiling fixtures. They are Parts; the Lights themselves are not, so
+		-- this counts battens and not lights.
+		total += #Config.storeyLightPositions(left, right)
+		for _, side in ipairs(Config.Structure.Sides) do
+			-- the neon cap along this wall's top, and the light strip inside it
+			total += 2
+			for _, segment in ipairs(Config.wallSegments(side, left, right)) do
+				if segment.kind == "solid" then
+					total += 2   -- sill course + head course
+					for _, _bay in ipairs(Config.wallBays(segment.from, segment.to)) do
+						total += 1
 					end
+				else
+					total += 1 + segment.opening.leaves   -- lintel + gate leaves
 				end
 			end
 		end
@@ -3055,8 +2796,8 @@ __MODULES["Config"] = function()
 		-- every Nth rebirth grants a permanent extra machine slot
 		SlotEveryRebirths = 3,
 		-- Milestone unlocks: rebirth -> what opens up. A milestone must name
-		-- something NOTHING ELSE SELLS, and the verifier asserts that against both
-		-- Config.Floors and Config.Buttons.
+		-- something NOTHING ELSE SELLS, and the verifier asserts that against
+		-- Config.Buttons.
 		--
 		-- `[2] = { unlock = "mezzanine" }` used to sit at the top of this table and
 		-- was stale from the day the second floor graduated: the mezzanine became
@@ -3185,6 +2926,19 @@ __MODULES["Config"] = function()
 	-- ─────────────────────────────────────────────────────────────────────────────
 
 	-- Resolved once, at require time, so every module sees the same numbers.
+	-- The widest a plot can get: the centre plus every expansion on both sides.
+	-- Derived here, after the land tables exist. Ring packing reserves this — a
+	-- plot can max out, so the world has to hold the maxed chord.
+	do
+		local width = Config.World.PlotSize.X
+		for _, side in ipairs({ "left", "right" }) do
+			for _, def in ipairs(Config.landRows(side)) do
+				width += def.width
+			end
+		end
+		Config.World.PlotMaxWidth = width
+	end
+
 	Config.World.PlotCount = Config.plotCountFor()
 	Config.World.PlotPlacements = Config.plotPlacements(Config.World.PlotCount)
 	Config.World.PlotRadius = Config.World.PlotPlacements[1].radius   -- inner ring
@@ -3223,13 +2977,15 @@ __MODULES["Config"] = function()
 	-- card rank candidates by (rank, price). Nothing in the verifier can catch a
 	-- beacon that points somewhere useless; it is a property of this list and it
 	-- has to be decided here.
-	Config.TrackOrder = { "factory", "structure", "weapons", "armor", "power" }
+	Config.TrackOrder = { "factory", "structure", "weapons", "armor", "power", "landL", "landR" }
 	Config.Tracks = {
 		factory   = Config.FactoryButtons,
 		structure = Config.StructureButtons,
 		weapons   = Config.WeaponButtons,
 		armor     = Config.ArmorButtons,
 		power     = Config.PowerButtons,
+		landL     = Config.LandLButtons,
+		landR     = Config.LandRButtons,
 	}
 
 	-- invariant: EVERYTHING THAT IS TRUE OF A TRACK RATHER THAN OF A BUTTON, in
@@ -3295,6 +3051,20 @@ __MODULES["Config"] = function()
 		-- none of them, which is most of what "the generator is visually intrusive
 		-- on plot creation" was about. The verifier asserts this is 0.
 		power   = { label = "POWER",   preview = 0, keepOnRebirth = false, paced = "spine", furniture = "yard" },
+		-- design:D-03 — LAND SURVIVES A REBIRTH (#88, via #78: rebirth raises the
+		-- ceiling on what can exist; the ground is the ceiling). keepOnRebirth
+		-- works here because ensureLand rebuilds the slabs from `owned` on the
+		-- refreshButtons beat, so land needs no exempt props folder — the
+		-- cabinet-only argument the verifier states is widened to name land.
+		--
+		-- preview = 0 for the power track's reason, which is load-bearing: every
+		-- rung of a side resolves to ONE pedestal, so a preview pad would be built
+		-- inside the lit one.
+		--
+		-- paced = "spine": land is the plot's own growth and the simulation walks
+		-- it; priced as a detour it would stop counting toward the build.
+		landL   = { label = "WEST LAND", preview = 0, keepOnRebirth = true, paced = "spine", furniture = "land" },
+		landR   = { label = "EAST LAND", preview = 0, keepOnRebirth = true, paced = "spine", furniture = "land" },
 	}
 
 	Config.TrackLabel = {}
@@ -3320,38 +3090,35 @@ __MODULES["Config"] = function()
 	-- `structure` opening on the first rung is also what keeps the "no side track's
 	-- first rung is affordable at spawn" check meaningful for it — you cannot buy
 	-- walls at minute zero at any price.
-	Config.TrackUnlock = { weapons = "dropper3", armor = "dropper3", structure = "dropper1" }
+	Config.TrackUnlock = {
+		weapons = "dropper3", armor = "dropper3", structure = "dropper1",
+		-- Land opens once the centre pad is earning properly: mid-build, when the
+		-- line is established and the next thing to want is room.
+		landL = "dropper5", landR = "dropper5",
+	}
 
-	-- invariant: WHAT A SINGLE PURCHASE WAITS ON, WHEN THE THING IT WAITS ON IS NOT
-	-- ON ITS OWN LADDER. There is exactly one of these and it should stay that way.
+	-- invariant: WHAT A SINGLE PURCHASE WAITS ON, WHEN THE THING IT WAITS ON IS
+	-- NOT ON ITS OWN LADDER. Empty since the mezzanine retired with #88 — its one
+	-- entry gated `floor2` on `roof`. The MECHANISM stays: the reachability
+	-- fixpoint in the verifier exists because a gate can strand a chain in a way
+	-- the naive requirement walk cannot see, and #125 owns deciding whether the
+	-- table and the fixpoint retire together.
 	--
-	-- `floor2` builds a storey whose own wall ring FloorService stands up and
-	-- nothing else ever roofs, so a mezzanine bought before the roof is a room open
-	-- to the sky. While the shell was welded into the factory chain that was
-	-- guaranteed by ORDERING. A parallel track is declinable, which took the
-	-- guarantee with it. design:D-03.
-	--
-	-- WHY THIS IS NOT A `requires`. The loader derives `requires` from the row
-	-- above and the verifier asserts that the derived chain IS the table order, so
-	-- a hand-typed cross-track requirement would either be overwritten or would
-	-- silently fork the chain — which is the precise defect that made the mezzanine
-	-- a skippable dead-end branch two rounds ago. `requires` is a link inside a
-	-- chain. This is a precondition on a purchase, the same kind of thing
-	-- TrackUnlock is for a whole ladder, and keeping the two kinds apart is what
-	-- lets "no requirement ever crosses a track" stay a property of the loader
-	-- rather than a promise somebody has to keep.
-	Config.ButtonUnlock = { floor2 = "roof" }
+	-- A row here is a precondition on a purchase, the same kind of thing
+	-- TrackUnlock is for a whole ladder. It is never a `requires`: the loader
+	-- derives `requires` from the row above and the verifier asserts the derived
+	-- chain IS the table order, so a hand-typed cross-track requirement would
+	-- either be overwritten or silently fork the chain.
+	Config.ButtonUnlock = {}
 
 	--- Whether `id` may be bought on a plot that owns `owned`.
 	---
 	--- DELIBERATELY NOT STICKY, which is the one way this differs from
 	--- Config.trackUnlocked. That function forgives a missing gate because rebirth
 	--- wipes the factory while keeping the cabinets, so the gate button can be gone
-	--- while the track it opened is still owned. Nothing like that can happen here:
-	--- `factory` and `structure` are both keepOnRebirth = false, so a rebirth takes
-	--- `roof` and `floor2` together and the next build re-earns both in order. A
-	--- copied "owning the gated button counts" clause would be unreachable code —
-	--- you cannot own floor2 without having satisfied this.
+	--- while the track it opened is still owned. A gate here binds a single
+	--- purchase, and the table is empty today; the shape is kept for the next
+	--- cross-track precondition.
 	function Config.buttonUnlocked(id: string, owned): boolean
 		local gate = Config.ButtonUnlock[id]
 		return gate == nil or owned[gate] == true
@@ -3494,7 +3261,10 @@ __MODULES["Config"] = function()
 		-- Platform limits. Named rather than written as literals in the verifier so
 		-- the failure message can quote the number that was exceeded.
 		MaxFields = 3,
-		MaxFieldValues = 40,      -- widest single value set we will allow ourselves
+		-- Raised from 40 when the ten land rows joined the milestone set: the set
+		-- is every button plus "none", and the binding budget is MaxCombinations,
+		-- which is asserted separately.
+		MaxFieldValues = 48,      -- widest single value set we will allow ourselves
 		MaxCombinations = 8000,
 		MaxEventNames = 100,
 		MaxEconomySkus = 100,
@@ -3676,82 +3446,9 @@ __MODULES["Config"] = function()
 	--- plain table with no operators, so anything that adds or scales a Vector3 at
 	--- require time takes the whole verifier down.
 
-	--- invariant: the top face a floor's furniture stands on, plot-local. 0 for the
-	--- floor, the deck's top for anything naming a Config.Floors id.
-	---
-	--- A SCALAR, because the verifier's Vector3 has no arithmetic and the three
-	--- helpers below have to add this to a component. It is also why `floor` is an
-	--- id rather than a height: a height in Layout.Tracks would be a second copy of
-	--- Config.Floors[n].height, and the two would disagree the first time the deck
-	--- moved.
-	--- AN UNKNOWN ID RAISES, it does not fall back to 0.
-	---
-	--- `floor = nil` means the ground floor and is a legitimate answer. `floor =
-	--- "mezanine"` is a typo, and returning 0 for it would put the entire armoury
-	--- back on the ground floor — the exact defect this round exists to fix — with
-	--- nothing warned, nothing logged, and every verifier check still passing,
-	--- because 0 == 0. A silent fallback to the safe-looking value is how the
-	--- generator multiplied by one for two rounds.
-	---
-	--- Style.distance(tier) sets the precedent: an unknown tier is a programming
-	--- mistake, so it errors at the call site rather than picking something.
-	function Config.floorTopY(floorId: string?): number
-		if not floorId then
-			return 0
-		end
-		for _, floor in ipairs(Config.Floors) do
-			if floor.id == floorId then
-				return floor.height
-			end
-		end
-		error(("[Tung] Config.floorTopY: no floor with id %q"):format(tostring(floorId)), 2)
-	end
-
-	--- The floor a `Line` button builds the conveyor on, or nil.
-	function Config.floorForLineButton(id: string)
-		for _, floor in ipairs(Config.Floors) do
-			if floor.lineButton == id then
-				return floor
-			end
-		end
-		return nil
-	end
-
-	--- Where that button's pedestal stands: on the deck it belongs to.
-	function Config.floorLineButtonPosition(floor): Vector3
-		local at = floor.lineButtonAt
-		return Vector3.new(at.X, Config.floorTopY(floor.id), at.Z)
-	end
-
-	--- Whether `floor`'s conveyor should be standing on a plot that owns `owned`.
-	---
-	--- STICKY, and derived rather than stored, for the same reason
-	--- Config.trackUnlocked is: a save written before the line was a purchase holds
-	--- `mezz_dropper1` and no `mezz_line`, and installing that dropper onto a path
-	--- with no conveyor under it drops its output through the deck. Owning anything
-	--- pinned to this floor's belt counts as owning the belt.
-	---
-	--- It costs no persisted field and no migration, which is the whole argument —
-	--- DataService already carries LEGACY_BAT_TIERS, so live saves are a real thing
-	--- to be careful of rather than a hypothetical.
-	function Config.floorLineBuilt(floor, owned): boolean
-		if not floor.lineButton then
-			return true
-		end
-		if owned[floor.lineButton] then
-			return true
-		end
-		for _, def in ipairs(Config.Buttons) do
-			if def.path == floor.id and owned[def.id] then
-				return true
-			end
-		end
-		return false
-	end
-
 	function Config.trackButtonPosition(track: string, slot: number): Vector3
 		local t = Config.Layout.Tracks[track]
-		return Vector3.new(t.buttonX, Config.floorTopY(t.floor), t.firstZ + (slot - 1) * t.spacing)
+		return Vector3.new(t.buttonX, 0, t.firstZ + (slot - 1) * t.spacing)
 	end
 
 	--- The cabinet body behind that column: centre, then size. Its long axis is Z,
@@ -3761,7 +3458,7 @@ __MODULES["Config"] = function()
 	function Config.trackCabinet(track: string): (Vector3, Vector3)
 		local t = Config.Layout.Tracks[track]
 		local length = (t.slots - 1) * t.spacing + 8
-		return Vector3.new(t.cabinetX, Config.floorTopY(t.floor),
+		return Vector3.new(t.cabinetX, 0,
 				t.firstZ + (t.slots - 1) * t.spacing / 2),
 			Vector3.new(t.depth, t.height, length)
 	end
@@ -3770,7 +3467,7 @@ __MODULES["Config"] = function()
 	--- stands, so the case visibly fills up as you climb the track.
 	function Config.trackShelfPosition(track: string, slot: number): Vector3
 		local t = Config.Layout.Tracks[track]
-		return Vector3.new(t.cabinetX, Config.floorTopY(t.floor) + 5,
+		return Vector3.new(t.cabinetX, 5,
 			t.firstZ + (slot - 1) * t.spacing)
 	end
 
@@ -4218,7 +3915,6 @@ __MODULES["Net"] = function()
 		"SessionState",   -- S->C  { daily, playtime, boost, offline }
 		"RequestClaim",   -- C->S  { kind = "daily" | "playtime" | "offline", index }
 		"RequestBoost",   -- C->S
-		"FloorState",     -- S->C  { unlocked = boolean }
 
 		-- Roblox exposes no server-side device API, so the ONE thing the client has
 		-- to tell us about itself is which kind of machine it is. Declared here

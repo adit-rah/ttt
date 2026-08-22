@@ -41,7 +41,7 @@ local function check(condition, message)
 end
 
 -- installers that Tycoon.lua actually implements
-local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Floor = true, Line = true, Power = true }
+local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Power = true, Land = true }
 local KNOWN_STRUCTURES = { walls = true, gates = true, windows = true, roof = true }
 
 local seenIds, dropperSlots, upgraderSlots = {}, {}, {}
@@ -124,41 +124,6 @@ for index, def in ipairs(Config.Buttons) do
 		checkPlacement("upgrader", Config.Layout.UpgraderDist, upgraderSlots)
 		check(type(def.multiplier) == "number" and def.multiplier > 1, where .. ": multiplier must be > 1")
 		check(Config.Variants[def.variant] ~= nil, where .. ": unknown variant " .. tostring(def.variant))
-	elseif def.kind == "Floor" then
-		local floor
-		for _, entry in ipairs(Config.Floors) do
-			if entry.button == def.id then
-				check(floor == nil,
-					("two Floor buttons both build %s; the second would charge and do nothing"):format(entry.id))
-				floor = entry
-			end
-		end
-		check(floor ~= nil,
-			("%s is a Floor button but no Config.Floors entry names it; it would charge and build nothing"):format(where))
-		check(def.floor == nil or (floor and floor.id == def.floor),
-			("%s says it builds floor %q but Config.Floors disagrees"):format(where, tostring(def.floor)))
-	elseif def.kind == "Line" then
-		-- THE CONVEYOR ON A FLOOR, which is a different purchase from the floor
-		-- (TODO.md item 4). Same shape of contract as Floor and for the same
-		-- reason: the installer is a documented no-op and FloorService builds it
-		-- off onOwnedChanged, so a row that no Config.Floors entry claims charges
-		-- money and builds nothing, silently, forever.
-		local floor
-		for _, entry in ipairs(Config.Floors) do
-			if entry.lineButton == def.id then
-				check(floor == nil,
-					("two Line buttons both build %s's conveyor; the second would charge and do nothing"):format(entry.id))
-				floor = entry
-			end
-		end
-		check(floor ~= nil,
-			("%s is a Line button but no Config.Floors entry names it as its lineButton; it would charge and build nothing"):format(where))
-		check(def.floor == nil or (floor and floor.id == def.floor),
-			("%s says it builds the line on floor %q but Config.Floors disagrees"):format(where, tostring(def.floor)))
-	elseif def.kind == "Belt" then
-		check(type(def.speedBonus) == "number" and def.speedBonus > 0, where .. ": bad speedBonus")
-	elseif def.kind == "Structure" then
-		check(KNOWN_STRUCTURES[def.structure], where .. ": unknown structure " .. tostring(def.structure))
 	elseif def.kind == "Power" then
 		-- `factor` is CUMULATIVE, so the ladder is checked as a ladder: each
 		-- rung must actually grant more than the one below it, and the step
@@ -493,7 +458,7 @@ end
 -- housekeeping and silently switches a shipped feature back off, in a table
 -- whose whole contract is that everything in it is unshipped.
 local GRADUATED = {
-	Floors = "the second floor is a factory-track purchase (Config.Floors)",
+	Floors = "the storey system retired with #88; land is the growth axis and a re-added flag would gate nothing",
 	Offline = "offline earnings and the Vault Timer ship (Config.Offline)",
 	Sessions = "the streak, ladder, boost and weekend bonus ship (Config.Sessions)",
 }
@@ -573,17 +538,21 @@ check(Config.TrackInfo.factory.paced == "spine",
 --
 -- Tycoon:rebirth clears self.machines unconditionally and deliberately spares
 -- self.props. Cabinet tracks build their shelf displays into props, so their
--- purchases can honestly outlive the reset; every other track builds into
--- machines, so a kept `owned` entry there means a button hidden as bought for a
--- model that has just been destroyed — the pad never comes back and the plot
--- keeps the hole for the rest of that owner's session. `furniture` is the field
--- that already records which folder a track builds into, so the two cannot be
--- set independently and this says so.
+-- purchases can honestly outlive the reset. Land survives for a different
+-- reason with the same shape (design:D-03 via #88 — rebirth raises the
+-- ceiling; the ground is the ceiling): ensureLand rebuilds the slabs from
+-- `owned` on the refreshButtons beat, so a kept land id is a kept model.
+-- Every other track builds into machines, so a kept `owned` entry there means
+-- a button hidden as bought for a model that has just been destroyed — the
+-- pad never comes back and the plot keeps the hole for the rest of that
+-- owner's session. `furniture` is the field that already records where a
+-- track's models live, so the two cannot be set independently and this says
+-- so.
 for _, track in ipairs(Config.TrackOrder) do
 	local info = Config.TrackInfo[track]
 	if info then
-		check(info.keepOnRebirth == (info.furniture == "cabinet"),
-			("TrackInfo.%s has keepOnRebirth=%s and furniture=%q; only cabinet tracks build into self.props, and rebirth() clears self.machines unconditionally — so a non-cabinet track that survives is a bought button with no model, and a cabinet track that does not is a shelf of tiers you paid for and lost")
+		check(info.keepOnRebirth == (info.furniture == "cabinet" or info.furniture == "land"),
+			("TrackInfo.%s has keepOnRebirth=%s and furniture=%q; cabinet tracks build into self.props and land is rebuilt from `owned` by ensureLand — anything else lives in self.machines, which rebirth() clears unconditionally, so a surviving entry is a bought button with no model and a cabinet or land track that does not survive is progress you paid for and lost")
 				:format(track, tostring(info.keepOnRebirth), tostring(info.furniture)))
 	end
 end
@@ -641,20 +610,6 @@ for id, gate in pairs(Config.ButtonUnlock) do
 			("ButtonUnlock.%s waits on %s, which is on the %s track — that track is paced as a detour, so this puts an optional purchase between the player and a spine rung")
 				:format(id, gate, gateDef.track))
 	end
-end
-
--- THE GATE EXISTS BECAUSE OF A FACT ABOUT THE BUILDING, so assert it against
--- that fact rather than against the pair of ids. FloorService stands each
--- storey's own wall ring up and nothing roofs it, so a storey is buyable only
--- once something has bought a roof. Written this way it fires if someone
--- deletes the ButtonUnlock row while keeping the floor, which is the way this
--- gets lost — the row looks like a special case until you know why it is there.
-for _, floor in ipairs(Config.Floors) do
-	local gate = Config.ButtonUnlock[floor.button]
-	local gateDef = gate and Config.ButtonById[gate]
-	check(gateDef ~= nil and gateDef.kind == "Structure" and gateDef.structure == "roof",
-		("Floors.%s is built by %s and nothing in ButtonUnlock makes it wait for a roof; FloorService stands this storey's own wall ring up and nothing else ever roofs it, so the storey would be open to the sky")
-			:format(floor.id, tostring(floor.button)))
 end
 
 -- ── analytics ───────────────────────────────────────────────────────────────
@@ -856,49 +811,6 @@ for id, spot in pairs(Config.Layout.MiscButtons) do
 			:format(id, spot.Y))
 end
 
--- Floors. The deck must clear everything the ground floor stands up, and the
--- button that builds it must be a real one — a floor gated on a typo never
--- opens.
---
--- WHERE the floor lands in the build is asserted separately, below the
--- progression simulation, because it is a question about MINUTES and this block
--- runs before the curve exists. It used to live here as
--- `trackOrder >= #factory - 1` — "finish the ground floor first" — which is
--- index-based, so it could express "at the end" and could not express "halfway"
--- at all. HANDOFF_v4 predicted this exact break: an assertion written against a
--- global that quietly became a per-track one, and now a positional one that
--- had to become a measured one.
-local plotHalfX, plotHalfZ = Config.World.PlotSize.X / 2, Config.World.PlotSize.Z / 2
-for _, floor in ipairs(Config.Floors) do
-	local unlock = Config.ButtonById[floor.button]
-	check(unlock ~= nil,
-		("Floors.%s is built by %q, which is not a button"):format(floor.id, tostring(floor.button)))
-	if unlock then
-		check(unlock.kind == "Floor",
-			("Floors.%s is built by %s, which is a %s button — a floor needs a Floor button so the installer knows what it is")
-				:format(floor.id, unlock.id, tostring(unlock.kind)))
-		check(unlock.track == "factory",
-			("Floors.%s is bought on the %s track; a floor is factory progression")
-				:format(floor.id, tostring(unlock.track)))
-		-- Without a MiscButtons entry buttonPosition falls back to (0,0,0) and
-		-- says nothing about it: the button gets built at the plot origin, on
-		-- top of the belt.
-		check(Config.Layout.MiscButtons[unlock.id] ~= nil,
-			("Floors.%s's buy button %s has no Layout.MiscButtons position — it would be built at the plot origin, on the belt")
-				:format(floor.id, unlock.id))
-	end
-	-- headroom over the tallest thing the ground floor stands up (the vault
-	-- statue, ~13.5) plus a player
-	check(floor.height >= 18,
-		("Floors.%s sits at y=%.0f; the ground floor needs ~18 studs of headroom"):format(floor.id, floor.height))
-	check(math.abs(floor.deckAt.X) + floor.deckSize.X / 2 <= plotHalfX,
-		("Floors.%s deck overhangs the plot on X"):format(floor.id))
-	check(math.abs(floor.deckAt.Z) + floor.deckSize.Z / 2 <= plotHalfZ,
-		("Floors.%s deck overhangs the plot on Z"):format(floor.id))
-	check(floor.railHeight >= 4,
-		("Floors.%s rail is %.0f studs; a humanoid steps over that"):format(floor.id, floor.railHeight))
-end
-
 -- Player upgrades: geometric costs, and a cap that doesn't break the world.
 for _, def in ipairs(Config.PlayerUpgrades) do
 	check(def.levels >= 1, ("PlayerUpgrades.%s has no levels"):format(def.id))
@@ -938,11 +850,6 @@ do
 	check(RP.SlotEveryRebirths >= 1, "RebirthPerks.SlotEveryRebirths must be at least 1")
 	check(RP.StartingCashGrowth >= 1, "RebirthPerks.StartingCashGrowth must not shrink with each rebirth")
 
-	local floorById = {}
-	for _, floor in ipairs(Config.Floors) do
-		floorById[floor.id] = floor.button
-	end
-
 	for at, milestone in pairs(RP.Milestones) do
 		local where = ("RebirthPerks.Milestones[%s]"):format(tostring(at))
 		check(type(at) == "number" and at >= 1 and at <= Config.Rebirth.MaxRebirths,
@@ -951,10 +858,6 @@ do
 			("%s has no unlock id"):format(where))
 		check(type(milestone.label) == "string" and #milestone.label > 0,
 			("%s has no label, so the rebirth notification would name nothing"):format(where))
-		check(floorById[milestone.unlock] == nil,
-			("%s grants %q, which is Floors.%s — bought with %s on the factory track. A rebirth cannot unlock something the game already sells")
-				:format(where, tostring(milestone.unlock), tostring(milestone.unlock),
-					tostring(floorById[milestone.unlock])))
 		check(Config.ButtonById[milestone.unlock] == nil,
 			("%s grants %q, which is a buy button — a rebirth cannot unlock something the game already sells")
 				:format(where, tostring(milestone.unlock)))
@@ -1716,15 +1619,10 @@ end
 -- piece of furniture carries the floor it stands on, and a collision check
 -- compares that before it compares geometry.
 --
--- The key is deliberately also a Config.BeltPaths id — the plot floor's path is
--- `"ground"` and a Config.Floors path is that floor's own id — which is what
--- lets a piece of furniture find the belt it has to stay off without a second
--- table mapping one to the other.
+-- The key is deliberately also a Config.BeltPaths id — the plot floor's path
+-- is `"ground"` — which is what lets a piece of furniture find the belt it has
+-- to stay off without a second table mapping one to the other.
 local GROUND = "ground"
-local floorsById = {}
-for _, floor in ipairs(Config.Floors) do
-	floorsById[floor.id] = floor
-end
 local beltPathById = {}
 for _, path in ipairs(Config.BeltPaths) do
 	beltPathById[path.id] = path
@@ -2028,18 +1926,15 @@ end
 for _, track in ipairs(Config.TrackOrder) do
 	local layout = L.Tracks[track]
 	if layout then
-		-- WHICH STOREY THE COLUMN STANDS ON. `floor` names a Config.Floors id, and
-		-- this is checked BEFORE anything reads a position, so that a mistyped id
-		-- comes out of this file as a named failure rather than as the stack trace
-		-- Config.floorTopY now raises from underneath the whole suite. Every
-		-- geometric check below would otherwise pass on a typo, consistently,
-		-- because they would all be measuring the ground floor and agreeing with
-		-- each other.
-		local floorKey = layout.floor or GROUND
-		local known = layout.floor == nil or floorsById[layout.floor] ~= nil
+		-- THE COLUMN STANDS ON THE PLOT FLOOR. The storey system retired with
+		-- #88, so a `floor` key on a Layout.Tracks entry names a height nothing
+		-- can build any more — refuse it rather than measuring the ground floor
+		-- on a stale key and agreeing with every other check that did the same.
+		local floorKey = GROUND
+		local known = layout.floor == nil
 		placedTracks[track] = known
 		check(known,
-			("Layout.Tracks.%s stands on floor %q, which is not a Config.Floors id; the whole column has no stated height")
+			("Layout.Tracks.%s names floor %q; storeys retired with #88 and every column stands on the plot floor")
 				:format(track, tostring(layout.floor)))
 		check(beltPathById[floorKey] ~= nil,
 			("Layout.Tracks.%s stands on floor %q, which has no belt path, so its pedestals cannot be checked against the belt they share a storey with")
@@ -2247,8 +2142,7 @@ for _, track in ipairs(Config.TrackOrder) do
 	if layout and placedTracks[track] then
 		local centre, size = Config.trackCabinet(track)
 		local where = "Tracks." .. track .. " cabinet"
-		local floorKey = layout.floor or GROUND
-		local floor = floorsById[layout.floor]
+		local floorKey = GROUND
 
 		-- inside the wall ring, which stands 1 stud in from the pad edge. NOT
 		-- floor-aware, and must not become so: the shell is a ring at every
@@ -2360,36 +2254,6 @@ for _, track in ipairs(Config.TrackOrder) do
 		end
 		table.insert(column, { id = where, at = centre, size = size })
 
-		-- THE MEZZANINE DECK'S POSTS, which are the only solids besides the roof
-		-- columns that run the full height of the ground storey. They stand at
-		-- deckHalfX - pillar.insetSide, which is x = ±54 for today's deck — three
-		-- studs from a case at x 46..50 and directly in the file's line. The deck
-		-- is bought late and these appear under a cabinet that has been standing
-		-- there for half an hour, which is exactly the kind of arrival nothing
-		-- would have caught.
-		for _, deck in ipairs(Config.Floors) do
-			if deck.pillar and deck.deckAt and deck.deckSize then
-				local px = deck.deckSize.X / 2 - deck.pillar.insetSide
-				local pz = {
-					deck.deckAt.Z - deck.deckSize.Z / 2 + deck.pillar.insetBack,
-					deck.deckAt.Z + deck.deckSize.Z / 2 - deck.pillar.insetFront,
-				}
-				local postSize = Vector3.new(deck.pillar.size, 1, deck.pillar.size)
-				for _, sx in ipairs({ -1, 1 }) do
-					for _, z in ipairs(pz) do
-						local at = Vector3.new(deck.deckAt.X + sx * px, 0, z)
-						for _, piece in ipairs(column) do
-							furniturePairs += 1
-							local gap = boxBoxGap(piece.at, piece.size, at, postSize)
-							check(gap >= FURNITURE_GAP,
-								("%s is %.1f studs from %s's deck post at (%.0f, %.0f) (need %d) — the post runs from the plot floor to the slab, so it arrives THROUGH anything standing here")
-									:format(piece.id, gap, deck.id, at.X, z, FURNITURE_GAP))
-						end
-					end
-				end
-			end
-		end
-
 		-- THE DOORWAY ONTO THE GENERATOR YARD. `clearsGate` above covers the
 		-- front gateway and has since the cabinets were first placed; the back
 		-- wall's door has never been covered by anything. It is the only way to
@@ -2402,7 +2266,7 @@ for _, track in ipairs(Config.TrackOrder) do
 		-- the wall beside it still fails, which is the shape of the mistake.
 		local DOORWAY_WALK = 8
 		for _, opening in ipairs(Config.Structure.Openings) do
-			if opening.side == "back" and opening.storey == "ground" then
+			if opening.side == "back" then
 				local mouth = Vector3.new(opening.centre, 0, -Config.World.PlotSize.Z / 2 + DOORWAY_WALK / 2)
 				local mouthSize = Vector3.new(opening.width, 1, DOORWAY_WALK)
 				-- boxBoxOverlap, NOT boxBoxGap. boxBoxGap saturates at zero — it
@@ -2421,41 +2285,21 @@ for _, track in ipairs(Config.TrackOrder) do
 			end
 		end
 
-		-- ── the storey it stands IN, not the floor it stands ON ──────────────
+		-- ── the room it stands IN, not just the floor it stands ON ───────────
 		--
-		-- NEW, and it is the relationship that moved Structure.UpperClear from 16
-		-- to 20. A cabinet is not `height` tall: the trim caps the body, the sign
-		-- anchor stands above the trim and the billboard hangs on the anchor, so
-		-- the tallest part of the object is its LABEL, 4.5 studs over the case. At
-		-- 16 the top 1.5 studs of every cabinet sign were inside the ceiling — a
-		-- defect found by eye, in Studio, on the one class of relationship this
-		-- file exists to hold: two numbers in Config that have to clear each other.
-		--
-		-- The storey is found by matching the floor it stands on to a
-		-- Structure.Storeys `floorY`, because that IS the link between the two
-		-- tables — Storeys[2].floorY is Floors[1].height — and nothing else states
-		-- it. A floor with no storey over it has no stated headroom at all.
-		local floorY = Config.floorTopY(layout.floor)
-		local storey
-		for _, candidate in ipairs(Config.Structure.Storeys) do
-			if math.abs(candidate.floorY - floorY) < 1e-9 then
-				storey = candidate
-			end
-		end
-		check(storey ~= nil,
-			("%s stands at y=%.1f, which is not the floorY of any Config.Structure.Storeys entry, so nothing states how much headroom it has")
-				:format(where, floorY))
-		if storey then
-			for _, part in ipairs({
-				{ "case", size.Y },
-				{ "trim cap", size.Y + CABINET_TRIM_LIFT + CABINET_TRIM_THICK / 2 },
-				{ "sign anchor", size.Y + CABINET_SIGN_LIFT + CABINET_ANCHOR / 2 },
-				{ "sign", size.Y + CABINET_SIGN_LIFT + CABINET_SIGN_HEIGHT / 2 },
-			}) do
-				check(part[2] <= storey.clear,
-					("%s's %s reaches %.1f studs above the %s storey's floor, which has %.1f studs of clear height — the top %.1f studs are inside the ceiling")
-						:format(where, part[1], part[2], storey.id, storey.clear, part[2] - storey.clear))
-			end
+		-- The relationship that once moved a clear height from 16 to 20: a
+		-- cabinet is taller than `height` — trim, sign anchor and the billboard
+		-- stack above the case, so the tallest part of the object is its LABEL.
+		-- Every one of those has to clear the wall's top, which is the ceiling.
+		for _, part in ipairs({
+			{ "case", size.Y },
+			{ "trim cap", size.Y + CABINET_TRIM_LIFT + CABINET_TRIM_THICK / 2 },
+			{ "sign anchor", size.Y + CABINET_SIGN_LIFT + CABINET_ANCHOR / 2 },
+			{ "sign", size.Y + CABINET_SIGN_LIFT + CABINET_SIGN_HEIGHT / 2 },
+		}) do
+			check(part[2] <= Config.Structure.WallHeight,
+				("%s's %s reaches %.1f studs over a floor with %.1f studs of clear height — the top %.1f studs are inside the ceiling")
+					:format(where, part[1], part[2], Config.Structure.WallHeight, part[2] - Config.Structure.WallHeight))
 		end
 	end
 end
@@ -2479,537 +2323,6 @@ for i, track in ipairs(Config.TrackOrder) do
 			check(gap >= FURNITURE_GAP,
 				("the %s and %s cabinets both stand on the %s floor and come within %.1f studs of each other (need %d)")
 					:format(track, other, layout.floor or GROUND, gap, FURNITURE_GAP))
-		end
-	end
-end
-
--- ── the mezzanine, on the ground floor's terms ──────────────────────────────
---
--- None of this was checkable until now. FloorService built the deck's belt in
--- code, so the belt-path assertions never saw it; its teleport pads were never
--- in miscList, so nothing cross-checked them against the plot furniture; and
--- the roof already shrinks itself when the floor is on, which is the kind of
--- arrangement that breaks quietly when either side moves.
-
-for _, floor in ipairs(Config.Floors) do
-	local where = "Floors." .. floor.id
-	local deck, deckAt = floor.deckSize, floor.deckAt
-	local deckHalfX, deckHalfZ = deck.X / 2, deck.Z / 2
-
-	local path = Config.floorBeltPath(floor)
-	local legs = legBoxes(path)
-	local reach = L.MachineOffset + L.MachineFootprint / 2 + floor.rail.thickness
-
-	-- ── HOW LONG THE STOREY TAKES TO ARRIVE ──────────────────────────────────
-	--
-	-- NEW. TODO.md item 1: "we need it to happen slower". The build was one
-	-- frame, so a purchase you spend two thirds of the build saving for produced
-	-- a building that was simply already there.
-	--
-	-- The verifier cannot watch an animation. What it can check is that the
-	-- table describes a coherent one — stages in order with no gap, a stated
-	-- total that matches what the stages actually take, and a lift far enough
-	-- that a piece has somewhere to fall from.
-	local raise = floor.raise
-	check(raise ~= nil, ("%s has no `raise` block; the storey would arrive in one frame"):format(where))
-	if raise then
-		local finish = 0
-		local previous = nil
-		local count = 0
-		for index, stage in ipairs(raise.stages) do
-			local stageWhere = ("%s raise stage %d (%s)"):format(where, index, tostring(stage.id))
-			check(type(stage.id) == "string" and stage.id ~= "",
-				stageWhere .. " has no id; FloorService dispatches on it by name")
-			check(stage.time > 0, ("%s takes %s seconds"):format(stageWhere, tostring(stage.time)))
-			check(stage.at >= 0, ("%s starts at %s"):format(stageWhere, tostring(stage.at)))
-			if previous then
-				check(stage.at >= previous.at,
-					("%s starts at %.1fs, before the stage above it at %.1fs — the stages are the order the building goes up")
-						:format(stageWhere, stage.at, previous.at))
-				-- NO DEAD AIR. A gap between one stage finishing and the next
-				-- starting is the storey pausing halfway up, which reads as a
-				-- hitch rather than as construction.
-				check(stage.at <= previous.at + previous.time,
-					("%s starts at %.1fs but the stage before it finishes at %.1fs — %.1fs of nothing happening reads as a hitch, not as building")
-						:format(stageWhere, stage.at, previous.at + previous.time,
-							stage.at - (previous.at + previous.time)))
-			end
-			finish = math.max(finish, stage.at + stage.time)
-			previous = stage
-			count += 1
-		end
-		check(count >= 1, ("%s has no raise stages"):format(where))
-		-- THE LADDER IS LAST, and nothing but the order guards it: the climb must
-		-- not open until there is a floor at the top of it.
-		check(previous == nil or previous.id == "ladder",
-			("%s's last raise stage is %q; the ladder has to be last, or the climb opens onto a storey that has not landed")
-				:format(where, previous and tostring(previous.id) or "none"))
-		check(math.abs(raise.total - finish) < 1e-9,
-			("%s claims a raise of %.2fs but its stages finish at %.2fs — a stated total that is not what it takes is a number nobody can trust")
-				:format(where, raise.total, finish))
-		-- Long enough to read as construction, short enough not to be a loading
-		-- screen you paid for.
-		check(raise.total >= 3 and raise.total <= 10,
-			("%s takes %.1fs to arrive (want 3-10) — under three it is still a pop, and over ten it is a wait for something already bought")
-				:format(where, raise.total))
-		-- A piece that starts inside its own resting position has nowhere to
-		-- descend from, and descending is what stops a slab sweeping through a
-		-- player standing under it.
-		check(raise.lift > floor.deckSize.Y,
-			("%s lifts a piece %.1f studs to descend from, and the slab is %.1f thick — it would start inside where it lands")
-				:format(where, raise.lift, floor.deckSize.Y))
-		check(raise.fade > 0 and raise.fade < 1,
-			("%s descends at transparency %.2f; at 0 the piece is solid on the way down and at 1 it is invisible until it lands")
-				:format(where, raise.fade))
-	end
-
-	-- ── THE ZONES ────────────────────────────────────────────────────────────
-	--
-	-- NEW, and the reason the rest of this block could be written at all. A deck
-	-- rectangle plus four belt margins could not say that the back of the storey
-	-- is a production line and the front is a landing — you had to read
-	-- FloorService and Layout.Tracks and hold both in your head. Now that the
-	-- floor says it, the zones are what the belt and the cabinets are measured
-	-- against instead of the deck, and that is not a stylistic preference:
-	--
-	--   the deck is 116 x 136 and the line zone is 112 x 60, so `side = 10` — the
-	--   exact defect the belt-margin check exists for, a machine strip hanging a
-	--   stud and a half over the railing — fits inside the WIDENED deck with half
-	--   a stud to spare. The check that caught it stopped being able to catch it
-	--   the moment the deck grew. Against the line zone it fails again.
-	local line = floor.zones and floor.zones.line
-	local landingZone = floor.zones and floor.zones.landing
-	check(line ~= nil and landingZone ~= nil,
-		("%s does not name both a `line` zone and a `landing` zone; the belt is derived from the first and the stairwell arrives in the second, so a floor without both cannot say where anything on it belongs")
-			:format(where))
-
-	if line and landingZone then
-		local zoneNames = {}
-		for name in pairs(floor.zones) do
-			table.insert(zoneNames, name)
-		end
-		table.sort(zoneNames)
-
-		local zoneArea = 0
-		for _, name in ipairs(zoneNames) do
-			local zone = floor.zones[name]
-			check(zone.size.X > 0 and zone.size.Z > 0,
-				("%s zone %q has no extent (%.1f x %.1f); an empty zone silently contains nothing")
-					:format(where, name, zone.size.X, zone.size.Z))
-			local inset = boxInsetBy(deckAt, deck, zone.at, zone.size)
-			check(inset >= 0,
-				("%s zone %q spans x %.1f..%.1f z %.1f..%.1f and hangs %.1f studs off the deck — a zone names part of a floor, not the air beside it")
-					:format(where, name,
-						zone.at.X - zone.size.X / 2, zone.at.X + zone.size.X / 2,
-						zone.at.Z - zone.size.Z / 2, zone.at.Z + zone.size.Z / 2, -inset))
-			zoneArea += zone.size.X * zone.size.Z
-		end
-
-		for i = 1, #zoneNames do
-			for j = i + 1, #zoneNames do
-				local a, b = floor.zones[zoneNames[i]], floor.zones[zoneNames[j]]
-				local into = boxBoxOverlap(a.at, a.size, b.at, b.size)
-				check(into == 0,
-					("%s zones %q and %q interpenetrate by %.1f studs; one square of floor cannot belong to two zones, or neither of them bounds anything")
-						:format(where, zoneNames[i], zoneNames[j], into))
-			end
-		end
-
-		-- WHAT THE ZONES DO NOT ACCOUNT FOR, asserted rather than left to be
-		-- noticed. They deliberately do not tile the deck: Config's claim is that
-		-- `line` IS the old deck rectangle to the stud, which leaves it narrower
-		-- than the widened deck, while `landing` takes the full width. So the
-		-- leftover is exactly two strips down the sides of the line zone, and
-		-- these five checks say so — the four edges that must coincide, and then
-		-- the area that must be left over given they do. A third zone, or either
-		-- of these sliding off an edge, stops matching and has to state its own
-		-- leftover.
-		local sideStrip = (deck.X - line.size.X) / 2
-		local expected = 2 * sideStrip * line.size.Z
-		local leftover = deck.X * deck.Z - zoneArea
-		check(math.abs((line.at.Z - line.size.Z / 2) - (deckAt.Z - deckHalfZ)) < 1e-9,
-			("%s's line zone starts at z=%.1f and the deck's back edge is z=%.1f; the production line is the back of the storey")
-				:format(where, line.at.Z - line.size.Z / 2, deckAt.Z - deckHalfZ))
-		check(math.abs((line.at.Z + line.size.Z / 2) - (landingZone.at.Z - landingZone.size.Z / 2)) < 1e-9,
-			("%s's line zone ends at z=%.1f and its landing starts at z=%.1f; the gap between them is floor that belongs to neither")
-				:format(where, line.at.Z + line.size.Z / 2, landingZone.at.Z - landingZone.size.Z / 2))
-		check(math.abs((landingZone.at.Z + landingZone.size.Z / 2) - (deckAt.Z + deckHalfZ)) < 1e-9,
-			("%s's landing ends at z=%.1f and the deck's front edge is z=%.1f")
-				:format(where, landingZone.at.Z + landingZone.size.Z / 2, deckAt.Z + deckHalfZ))
-		check(math.abs(landingZone.size.X - deck.X) < 1e-9 and landingZone.at.X == deckAt.X,
-			("%s's landing is %.1f wide on a %.1f-wide deck; it is meant to be the full width of the storey")
-				:format(where, landingZone.size.X, deck.X))
-		check(math.abs(leftover - expected) < 1e-9,
-			("%s's zones leave %.0f square studs of deck unaccounted for; the only floor no zone is meant to name is the two %.1f-stud strips down the sides of the line zone, which is %.0f. Say what the rest is for")
-				:format(where, leftover, sideStrip, expected))
-
-		-- THE BELT IS DERIVED FROM `line`, NOT FROM THE DECK — the claim that let
-		-- the deck grow to span the plot without moving a machine. Recomputed here
-		-- from the zone and its margins: if Config.floorBeltPath is ever re-pointed
-		-- at deckSize, all four corners move outward, the belt spreads across the
-		-- whole storey, and the drop budget, the trigger dwell and the mezzanine
-		-- dropper's position go with it. Every one of these numbers is the number
-		-- it was when the deck WAS this rectangle, or this fires.
-		local b = floor.belt
-		local zoneCorners = {
-			Vector3.new(line.at.X + line.size.X / 2 - b.side, 0, line.at.Z - line.size.Z / 2 + b.back),
-			Vector3.new(line.at.X - line.size.X / 2 + b.side, 0, line.at.Z - line.size.Z / 2 + b.back),
-			Vector3.new(line.at.X - line.size.X / 2 + b.side, 0, line.at.Z + line.size.Z / 2 - b.front),
-			Vector3.new(b.collectorX - b.collectorRun, 0, line.at.Z + line.size.Z / 2 - b.front),
-		}
-		check(#path.points == #zoneCorners,
-			("%s's belt has %d corners; the line zone plus its four margins describes %d")
-				:format(where, #path.points, #zoneCorners))
-		for index, want in ipairs(zoneCorners) do
-			local got = path.points[index]
-			if got then
-				check(math.abs(got.X - want.X) < 1e-9 and math.abs(got.Z - want.Z) < 1e-9,
-					("%s belt corner %d is at (%.1f, %.1f) but the line zone plus its margins puts it at (%.1f, %.1f) — the belt has to be derived from the zone, or a deck that grows drags every machine on the storey with it")
-						:format(where, index, got.X, got.Z, want.X, want.Z))
-			end
-		end
-
-		-- ...and each margin has to clear the machine row it holds. This is the
-		-- scalar form of the check `side = 10` failed, stated against the number
-		-- the row actually reaches rather than against whatever rectangle happens
-		-- to be around it.
-		for _, margin in ipairs({ { "back", b.back }, { "side", b.side }, { "front", b.front } }) do
-			check(margin[2] >= reach,
-				("%s's %s belt margin is %.1f studs in from the line zone, against a machine row that reaches %.1f — a machine on that leg hangs over the railing")
-					:format(where, margin[1], margin[2], reach))
-		end
-
-		-- ...and every strip of every leg — the slab, the machine row and the button
-		-- row — is inside the zone that is supposed to hold them.
-		for _, leg in ipairs(legs) do
-			for _, strip in ipairs({
-				{ "belt base", leg.belt },
-				{ "machine row", leg.machines },
-				{ "buy-button row", leg.buttons },
-			}) do
-				local inset = boxInsetBy(line.at, line.size, strip[2].centre, strip[2].size)
-				check(inset >= 0,
-					("%s: the %s of belt leg %d hangs %.1f studs outside the line zone that holds %s")
-						:format(where, strip[1], leg.index, -inset, tostring(line.holds)))
-			end
-		end
-	end
-
-	-- ── THE STAIRWELL ────────────────────────────────────────────────────────
-	--
-	-- RE-AUTHORED, PREMISE OVERTURNED (see HANDOFF_v6 §3 for the convention).
-	--
-	-- This was `ladder.at.Z > deckAt.Z + deckHalfZ` — "the ladder stands in FRONT
-	-- of the deck's front edge, not under it", with a companion saying it stood
-	-- within stepping distance of that edge. Both were right for the design they
-	-- were written against: the deck covered the back 60 studs of the plot, its
-	-- front edge at z = -8 had open air in front of it, and a truss anywhere
-	-- behind that edge would have climbed into the underside of a slab. Coming up
-	-- THROUGH the deck needed a hatch in the slab and a hole in the guard, and
-	-- neither existed.
-	--
-	-- The deck spans the plot now. There is no air in front of it to stand in, so
-	-- the premise inverts: the truss must be INSIDE the footprint, in the void
-	-- Floors.hatch cuts out of it, and what used to be the defect is the
-	-- requirement. The rule is not relaxed by the change, it is bounded harder —
-	-- "in front of a 136-stud deck" was one inequality; "inside a hatch that is
-	-- itself clear of the belt, the cabinets, the hopper and the ground floor under
-	-- it" is a family.
-	--
-	-- `Floors.ladder.at` is gone with it. It said z = -6.6 while the builder had
-	-- started deriving the truss from the hatch at z = -8, so every clearance
-	-- check below was measuring a box nothing builds — the sixth thing this round
-	-- that read as checked and was not. Both sides read Config.floorLadderAt now.
-	local ladder = floor.ladder
-	local hatch = floor.hatch
-	local ladderBox = Vector3.new(ladder.width, 1, ladder.width)
-	check(hatch ~= nil,
-		("%s has no hatch; a deck that spans the plot has no front edge to stand a ladder in front of, so without one there is no way up to it")
-			:format(where))
-	check(ladder.at == nil,
-		("%s.ladder still carries `at`; the truss's position is derived from the hatch by Config.floorLadderAt and a second copy of it is the disagreement that made every clearance check below measure a box nothing built")
-			:format(where))
-
-	if hatch then
-		local truss = Config.floorLadderAt(floor)
-		local landing = Config.floorLandingAt(floor)
-
-		-- WHICH LIP YOU ARRIVE OVER has to be one of the four. floorLadderAt and
-		-- floorLandingAt both fall through to "+Z" for anything else, so a typo
-		-- here is a truss silently against the wrong side of the hole.
-		local ARRIVALS = { ["+Z"] = true, ["-Z"] = true, ["+X"] = true, ["-X"] = true }
-		check(ARRIVALS[hatch.arrival] == true,
-			("%s's hatch arrives over %q, which is not one of +Z/-Z/+X/-X; both position helpers fall through to \"+Z\" and the guard would be cut on a different lip from the one the truss stands against")
-				:format(where, tostring(hatch.arrival)))
-
-		-- INSIDE THE VOID. Flush against the arrival lip is correct and expected —
-		-- that is what floorLadderAt is for — so this is containment with no
-		-- margin, and it is the hatch's SIZE that has to hold the truss and the
-		-- guard that runs round the other three sides of it.
-		local trussInset = boxInsetBy(hatch.at, hatch.size, truss, ladderBox)
-		check(trussInset >= 0,
-			("%s's truss spans x %.1f..%.1f z %.1f..%.1f and hangs %.1f studs outside a hatch of %.1f x %.1f — it would climb into the underside of the deck")
-				:format(where, truss.X - ladder.width / 2, truss.X + ladder.width / 2,
-					truss.Z - ladder.width / 2, truss.Z + ladder.width / 2,
-					-trussInset, hatch.size.X, hatch.size.Z))
-		local guarded = ladder.width + 2 * floor.rail.thickness
-		check(math.min(hatch.size.X, hatch.size.Z) >= guarded,
-			("%s's hatch is %.1f x %.1f for a %.1f-stud truss inside a %.1f-stud guard, which needs %.1f")
-				:format(where, hatch.size.X, hatch.size.Z, ladder.width,
-					floor.rail.thickness, guarded))
-
-		-- THE GUARD HAS TO BE OPEN WHERE YOU ARRIVE, and the gap and the truss have
-		-- to be on the same lip: the guard closes three sides and `ladder.gate` is
-		-- the opening cut in the fourth, centred on the hatch. If the truss were
-		-- not inside that opening you would climb twenty-two studs into an
-		-- invisible wall, which is the worst kind of geometry bug because there is
-		-- nothing to see.
-		--
-		-- RE-AUTHORED: this used to bound the gap against the DECK's front run
-		-- (`|ladder.at.X - deckAt.X| + gate/2 <= deckHalfX`), because that is the
-		-- run it was cut in. The run it is cut in is the hatch guard now, so the
-		-- bound is the hatch's own lip.
-		local acrossLip = (hatch.arrival == "+X" or hatch.arrival == "-X")
-			and hatch.size.Z or hatch.size.X
-		local trussAcross = (hatch.arrival == "+X" or hatch.arrival == "-X")
-			and math.abs(truss.Z - hatch.at.Z) or math.abs(truss.X - hatch.at.X)
-		check(ladder.gate <= acrossLip,
-			("%s's guard gap is %.1f studs cut in a %.1f-stud lip; it would run past the corner of the hatch and open the sides the guard is there to close")
-				:format(where, ladder.gate, acrossLip))
-		check(ladder.gate >= ladder.width + 2,
-			("%s's guard gap is %.1f studs for a %.1f-stud truss; you would arrive against the jamb")
-				:format(where, ladder.gate, ladder.width))
-		check(trussAcross + ladder.width / 2 <= ladder.gate / 2,
-			("%s's truss stands %.1f studs off the centre of a %.1f-stud gap; the gap is cut on the hatch's centre line, so the climb would end at the guard beside it")
-				:format(where, trussAcross, ladder.gate))
-		check(ladder.rise > 0,
-			("%s's truss stops level with the deck; it has to overshoot to step off")
-				:format(where))
-
-		-- WHERE YOU STAND WHEN YOU STEP OFF has to be slab, not more hole.
-		check(boxPointGap(hatch.at, hatch.size, landing) > 0,
-			("%s's landing is at (%.1f, %.1f), inside its own hatch; you would step off the truss into the hole you climbed through")
-				:format(where, landing.X, landing.Z))
-		check(boxPointGap(deckAt, deck, landing) == 0,
-			("%s's landing is at (%.1f, %.1f), off the deck entirely"):format(where, landing.X, landing.Z))
-
-		-- THE HATCH INSIDE THE DECK, by the margin Config states. A hole in a slab
-		-- needs slab round it, and the margin is what that slab is for: FloorService
-		-- builds the deck in PIECES around this rectangle, the deck's perimeter
-		-- guard stands on the outer edge and the hatch's guard on the inner one, and
-		-- between the two there has to be a piece worth building and somewhere to
-		-- stand on it. Six studs, which is the number the hatch's own comment gives
-		-- and which is also what the perimeter guard would stand on if the deck ever
-		-- pulled back from a wall.
-		local HATCH_EDGE = 6
-		local hatchInset = boxInsetBy(deckAt, deck, hatch.at, hatch.size)
-		check(hatchInset >= HATCH_EDGE,
-			("%s's hatch comes within %.1f studs of the edge of its own deck (need %d) — the slab is built in pieces around it, and a piece thinner than that is a strip you can see and cannot stand on")
-				:format(where, hatchInset, HATCH_EDGE))
-
-		-- CLEAR OF THE PRODUCTION LINE. The hatch is a hole in the floor the belt
-		-- stands on: a leg over it is a conveyor over a void, and a machine or a
-		-- buy button in it is one you cannot reach or cannot buy.
-		--
-		-- Two things this measures that the obvious version does not. The obstacle
-		-- is the hatch PLUS ITS GUARD, which stands on the lip and so reaches half
-		-- a rail thickness further out on every side — measuring the bare rectangle
-		-- against the belt's running surface is what put the guard 0.1 studs inside
-		-- the belt base while appearing to clear it by a stud. And each leg's
-		-- machine row is placed on the side its `outboard` sign NAMES, not on a
-		-- symmetric reach: the mezzanine's return leg carries its row on the armoury
-		-- side, which is the side the stairwell is on, and a symmetric test would
-		-- have reserved the empty side of it too.
-		local guardSize = Vector3.new(hatch.size.X + floor.rail.thickness, 1,
-			hatch.size.Z + floor.rail.thickness)
-		for _, leg in ipairs(legs) do
-			for _, strip in ipairs({
-				{ "belt base", leg.belt },
-				{ "machine row", leg.machines },
-				{ "buy-button row", leg.buttons },
-			}) do
-				local box = strip[2]
-				local into = boxBoxOverlap(hatch.at, guardSize, box.centre, box.size)
-				check(into == 0,
-					("%s's hatch and guard cut %.1f studs into the %s of belt leg %d (that row runs x %.1f..%.1f z %.1f..%.1f) — the hole in the slab is where the %s goes, and a row that is empty today is where the next machine bought on that leg lands")
-						:format(where, into, strip[1], leg.index,
-							box.centre.X - box.size.X / 2, box.centre.X + box.size.X / 2,
-							box.centre.Z - box.size.Z / 2, box.centre.Z + box.size.Z / 2,
-							strip[1]))
-			end
-		end
-
-		-- ...AND OF THE HOPPER, by the number that names it. Measured from the
-		-- LANDING — where the climb puts you down — which is what
-		-- belt.ladderClearance has always been about.
-		--
-		-- RE-AUTHORED: the landing used to be `(ladder.at.X, deckAt.Z + deckHalfZ)`,
-		-- the point on the deck's front edge, which was where you arrived while the
-		-- deck stopped at z = -8. After the deck grew, that expression returns
-		-- (14, 68): 34 studs from where the truss actually stands and 91 from the
-		-- hopper. The check passed by construction rather than by measurement, which is
-		-- the same failure as the `deckAt.Z + halfZ + 2 > deckAt.Z + halfZ` one this
-		-- block already carried a note about — it just took a plausible number with it.
-		-- Config.floorLandingAt is the derivation both sides read.
-		local hopperGap = len(sub(path.collectorAt, landing))
-		check(hopperGap >= floor.belt.ladderClearance,
-			("%s's collector is %.1f studs from the landing at (%.1f, %.1f), where the truss puts you down (need %d)")
-				:format(where, hopperGap, landing.X, landing.Z, floor.belt.ladderClearance))
-
-		-- THE TRUSS IS THE ONE THING ON THIS PLOT THAT STANDS ON TWO STOREYS. It
-		-- runs from the plot floor up through the void to `rise` above the deck, so
-		-- it is the single exception to the same-floor rule the furniture block
-		-- applies: it is checked against EVERY floor's furniture, not against one.
-		-- Its predecessor was the one piece of floor furniture nothing checked at
-		-- all — the ground teleport pad at (40, -14) interpenetrated the armour
-		-- cabinet's slot-2 pedestal by 3x1 studs, latent only because the floor was
-		-- behind a flag.
-		--
-		-- Note what is NOT asserted here, so nobody adds it later as a bound the
-		-- geometry cannot satisfy: the HATCH is not required to clear the ground
-		-- floor's misc-button spine, and the aisle position that was tried twice
-		-- overlapped it by a stud and a half. A hole in a ceiling twenty-two studs
-		-- above a pedestal collides with nothing. What occupies both storeys is the
-		-- TRUSS inside the void, and the truss is what these loops measure — against
-		-- the ground floor's pedestals, pads and vault, and against the deck's own
-		-- cabinets, in one pass. Where it stands now it clears the vault shell by 18
-		-- studs, the claim pad by 22 and the weapons cabinet by 33, which is what
-		-- moving the stairwell off the aisle bought.
-		inPlot(where .. "'s truss", truss, ladder.width / 2)
-		for _, entry in ipairs(miscList) do
-			furniturePairs += 1
-			local gap = boxBoxGap(truss, ladderBox, entry.spot, PEDESTAL)
-			check(gap >= FURNITURE_GAP,
-				("%s's truss comes within %.1f studs of %s on the %s floor (need %d) — it passes through every storey")
-					:format(where, gap, entry.id, entry.floor, FURNITURE_GAP))
-		end
-		for _, pad in ipairs(pads) do
-			furniturePairs += 1
-			local gap = boxBoxGap(truss, ladderBox, pad.spot, pad.size)
-			check(gap >= FURNITURE_GAP,
-				("%s's truss comes within %.1f studs of %s (need %d)")
-					:format(where, gap, pad.id, FURNITURE_GAP))
-			-- ...and neither does the hole it climbs through: you would drop out of
-			-- the ceiling onto the pad you claim the plot on.
-			furniturePairs += 1
-			local hatchGap = boxBoxGap(hatch.at, hatch.size, pad.spot, pad.size)
-			check(hatchGap >= FURNITURE_GAP,
-				("%s's hatch is %.1f studs from %s directly below it (need %d)")
-					:format(where, hatchGap, pad.id, FURNITURE_GAP))
-		end
-		for _, solid in ipairs(groundSolids) do
-			furniturePairs += 2
-			local trussGap = boxBoxGap(truss, ladderBox, solid.at, solid.size)
-			check(trussGap >= FURNITURE_GAP,
-				("%s's truss comes within %.1f studs of %s on the plot floor (need %d)")
-					:format(where, trussGap, solid.id, FURNITURE_GAP))
-			local hatchGap = boxBoxGap(hatch.at, hatch.size, solid.at, solid.size)
-			check(hatchGap >= FURNITURE_GAP,
-				("%s's hatch is %.1f studs from %s directly below it (need %d) — you would drop out of the ceiling onto it")
-					:format(where, hatchGap, solid.id, FURNITURE_GAP))
-		end
-		for _, track in ipairs(Config.TrackOrder) do
-			if L.Tracks[track] and placedTracks[track] then
-				local cabinetAt, cabinetSize = Config.trackCabinet(track)
-				furniturePairs += 1
-				local gap = boxBoxGap(truss, ladderBox, cabinetAt, cabinetSize)
-				check(gap >= FURNITURE_GAP,
-					("%s's truss comes within %.1f studs of the %s cabinet (need %d)")
-						:format(where, gap, track, FURNITURE_GAP))
-			end
-		end
-	end
-
-	-- THE DECK'S BELT STAYS ON THE DECK — legs, the machine row outboard of
-	-- each leg, and the buy-button row inboard of it. Kept, and now the LOOSER of
-	-- the two: the line-zone version above is the one that still catches
-	-- `side = 10`. This one is what says the zone the belt lives in is on the slab
-	-- rather than beside it.
-	for index, point in ipairs(path.points) do
-		check(math.abs(point.X - deckAt.X) + reach <= deckHalfX,
-			("%s belt corner %d is at x=%.1f; its machine row reaches %.1f studs past the deck rail")
-				:format(where, index, point.X,
-					math.abs(point.X - deckAt.X) + reach - deckHalfX))
-		check(math.abs(point.Z - deckAt.Z) + reach <= deckHalfZ,
-			("%s belt corner %d is at z=%.1f; its machine row reaches %.1f studs past the deck rail")
-				:format(where, index, point.Z,
-					math.abs(point.Z - deckAt.Z) + reach - deckHalfZ))
-	end
-
-	-- THE DECK AGAINST THE PLOT IT SITS IN. Its back edge is flush to the wall
-	-- and it clears the roof columns by less than a stud; both sides are now
-	-- named numbers, so moving either one is a build failure rather than a
-	-- thing somebody notices in Studio.
-	local wallInner = halfZ - 1
-	check(deckAt.Z - deckHalfZ >= -wallInner,
-		("%s's back edge is at z=%.1f and the wall's inner face is at z=%.1f — the deck would grow through the wall")
-			:format(where, deckAt.Z - deckHalfZ, -wallInner))
-	-- RE-AUTHORED, PREMISE OVERTURNED (see HANDOFF_v6 §3 for the convention).
-	--
-	-- This was `deckUnderside >= L.RoofY`: "the deck must stay clear of the
-	-- roof". That was the right check for the design it was written against —
-	-- the roof was a separate slab at its own literal height (20) with a shrink
-	-- rule to dodge the deck (20.4), two pieces of geometry each derived on its
-	-- own and each having to be kept out of the other's way, and 0.4 studs was
-	-- all that separated them.
-	--
-	-- There is one structural line now. The deck's underside IS the ground
-	-- storey's ceiling: Structure.Storeys[1].clear is derived from
-	-- `height - deckSize.Y`, the walls stop there, and the roof sits on that same
-	-- line until the deck takes it over. So the relationship to guard is no
-	-- longer clearance, it is EQUALITY — the day someone types a literal into
-	-- either side of it, the ground floor gets its band of daylight back.
-	local deckUnderside = floor.height - deck.Y
-	local groundStorey = Config.storey("ground") or Config.Structure.Storeys[1]
-	check(math.abs(deckUnderside - (groundStorey.floorY + groundStorey.clear)) < 1e-9,
-		("%s's underside is at y=%.2f but the ground storey's walls top out at y=%.2f — the deck IS that ceiling now, so anything but equality is either a gap above the wall or a wall built into the floor above it")
-			:format(where, deckUnderside, groundStorey.floorY + groundStorey.clear))
-	-- ...and the shortened roof it used to dodge is gone with it: with the deck
-	-- up the roof is a full storey higher, over the upper walls, rather than a
-	-- slab stopping two studs short of the deck's front edge. The old check here
-	-- (`deckAt.Z + deckHalfZ + 2 > deckAt.Z + deckHalfZ`) was one of the ones
-	-- that COULD NOT FAIL — x + 2 > x for every x.
-	local upperStorey = Config.storey("upper") or Config.Structure.Storeys[2]
-	local DECK_HEADROOM = 8   -- a humanoid is 5 studs and the deck carries a rail
-	check(Config.roofUnderside(true) >= floor.height + DECK_HEADROOM,
-		("%s: with the deck up the roof's underside is at y=%.1f, only %.1f studs over a deck at y=%.1f — the roof is a whole storey above the deck now, not a slab stopping two studs short of its front edge")
-			:format(where, Config.roofUnderside(true), Config.roofUnderside(true) - floor.height, floor.height))
-	check(math.abs(upperStorey.floorY - floor.height) < 1e-9,
-		("%s: the deck's top is y=%.1f but the upper storey stands at y=%.1f — the storey above has to stand ON the deck")
-			:format(where, floor.height, upperStorey.floorY))
-
-	-- THE DECK'S PILLARS STAND ON THE GROUND FLOOR, among the machines. They
-	-- miss the upgrader row today only because no UpgraderDist slot happens to
-	-- land at z = -16, which is not a reason, it is a coincidence.
-	local pillarX = deckHalfX - floor.pillar.insetSide
-	local pillarZ = {
-		deckAt.Z - deckHalfZ + floor.pillar.insetBack,
-		deckAt.Z + deckHalfZ - floor.pillar.insetFront,
-	}
-	local pillarSize = Vector3.new(floor.pillar.size, 1, floor.pillar.size)
-	for _, sx in ipairs({ -1, 1 }) do
-		for _, pz in ipairs(pillarZ) do
-			local at = Vector3.new(deckAt.X + sx * pillarX, 0, pz)
-
-			-- leg 2 runs BeltCorner -> BeltEnd, i.e. along +Z from z = BeltCorner.Z,
-			-- with the machines outboard at -X
-			for slot, distance in ipairs(L.UpgraderDist) do
-				local machine = Vector3.new(L.BeltCorner.X - L.MachineOffset, 0, L.BeltCorner.Z + distance)
-				local gap = boxBoxGap(at, pillarSize, machine,
-					Vector3.new(L.MachineFootprint, 1, L.MachineFootprint))
-				check(gap >= 2,
-					("%s's pillar at (%.0f, %.0f) is %.1f studs from upgrader slot %d's machine (need 2)")
-						:format(where, at.X, at.Z, gap, slot))
-			end
-
-			for slot, distance in ipairs(L.DropperDist) do
-				local machine = Vector3.new(L.BeltStart.X - distance, 0, L.BeltStart.Z - L.MachineOffset)
-				local gap = boxBoxGap(at, pillarSize, machine,
-					Vector3.new(L.MachineFootprint, 1, L.MachineFootprint))
-				check(gap >= 2,
-					("%s's pillar at (%.0f, %.0f) is %.1f studs from dropper slot %d's machine (need 2)")
-						:format(where, at.X, at.Z, gap, slot))
-			end
 		end
 	end
 end
@@ -3087,7 +2400,7 @@ check(Y.DoorFrom >= farthestDropper + 2,
 -- SPAN-not-a-point property is kept there, read off the `yardDoor` opening; what
 -- stays here is the tie between the two, which is what the re-derivation was
 -- silently standing in for.
-local backOpenings = Config.openingsIn("back", "ground")
+local backOpenings = Config.openingsIn("back")
 check(#backOpenings == 1,
 	("the back wall's ground storey has %d openings; the yard door is the only thing that may be cut into it — the rest of that wall IS the dropper row")
 		:format(#backOpenings))
@@ -3119,7 +2432,12 @@ check(#L.UpgraderDist >= 1 and #L.DropperDist >= 1, "need at least one dropper a
 -- Plots must not overlap at ANY supported player count, since the layout is
 -- derived from the place's MaxPlayers at runtime. Checked pairwise rather
 -- than by formula, so a change to the packing logic can't slip through.
-local MAX_WALK = 420   -- studs from the arena rim to the furthest plot edge
+-- design:D-04 — 420 while the ring was packed to the centre pad's width. The
+-- pitch reserves the MAXED footprint now (#88), so the ring grew and the walk
+-- grew with it; 800 is what the grown ring measures plus margin, it is a real
+-- cost, and #89 (the open world's own layout) and #101 (movement) own the
+-- real answer. This ceiling exists so the world cannot quietly grow AGAIN.
+local MAX_WALK = 880   -- studs from the arena rim to the furthest yard edge
 for count = Config.World.MinPlots, Config.World.MaxPlots do
 	local placements = Config.plotPlacements(count)
 	check(#placements == count, ("plotPlacements(%d) returned %d entries"):format(count, #placements))
@@ -3130,12 +2448,14 @@ for count = Config.World.MinPlots, Config.World.MaxPlots do
 		for j = i + 1, #placements do
 			local b = placements[j]
 			if a.ring == b.ring then
-				-- chord between two plot centres on the same ring
+				-- chord between two plot centres on the same ring. Against
+				-- the MAXED width: land is acquired rather than reserved, so
+				-- two fully-grown neighbours are the case the ring must hold.
 				local d = math.sqrt(a.radius ^ 2 + b.radius ^ 2
 					- 2 * a.radius * b.radius * math.cos(a.angle - b.angle))
-				check(d >= Config.World.PlotSize.X,
-					("%d plots: ring %d plots %d and %d are only %.0f studs apart (need %d)")
-						:format(count, a.ring, i, j, d, Config.World.PlotSize.X))
+				check(d >= Config.World.PlotMaxWidth,
+					("%d plots: ring %d plots %d and %d are only %.0f studs apart (need %d for two maxed plots)")
+						:format(count, a.ring, i, j, d, Config.World.PlotMaxWidth))
 			else
 				check(math.abs(a.radius - b.radius) >= Config.World.PlotSize.Z,
 					("%d plots: rings %d and %d are only %.0f studs apart radially (need %d)")
@@ -3190,6 +2510,153 @@ for count = Config.World.MinPlots, Config.World.MaxPlots do
 	check(farthest - Config.World.ArenaRadius <= MAX_WALK,
 		("%d plots put the furthest plot %.0f studs from the arena rim (limit %d)")
 			:format(count, farthest - Config.World.ArenaRadius, MAX_WALK))
+end
+
+-- ── land (#88) ──────────────────────────────────────────────────────────────
+--
+-- Ten expansions, five a side, priced to alternate. The geometry is derived
+-- (landSteps is a running sum, so strips tile by construction); what wants
+-- asserting is the SHAPE the design states — narrower outward, mirror pairs,
+-- a maxed plot 3-4x the centre — and the pricing that makes lopsided
+-- expensive without forbidding it.
+
+do
+	local centreWidth = Config.World.PlotSize.X
+	local sides = { left = Config.LandLButtons, right = Config.LandRButtons }
+	local expansionWidth = 0
+
+	for side, rows in pairs(sides) do
+		check(#rows == 5,
+			("the %s land track has %d rows; the design is five expansions a side"):format(side, #rows))
+		local previousWidth = math.huge
+		for index, def in ipairs(rows) do
+			local where = ("land row %s"):format(tostring(def.id))
+			check(def.kind == "Land", where .. " is not kind Land")
+			check(def.side == side,
+				("%s sits in the %s table but claims side %q"):format(where, side, tostring(def.side)))
+			-- The id is the save key; a rename silently un-buys the land every
+			-- existing player owns (DataService prunes unknown ids).
+			local expected = (side == "left" and "landL" or "landR") .. index
+			check(def.id == expected,
+				("%s should be %q — the id is the save key and position %d of the %s chain"):format(where, expected, index, side))
+			check(type(def.width) == "number" and def.width > 0,
+				where .. " has no width; the strip would be a line")
+			check(def.width < previousWidth,
+				("%s is %d wide against %d inside it; expansions get SMALLER outward — the centre stays the largest piece")
+					:format(where, def.width, previousWidth))
+			previousWidth = def.width
+			expansionWidth += def.width
+		end
+	end
+
+	-- Mirror pairs: the base stays symmetric when bought alternating.
+	for index = 1, 5 do
+		check(Config.LandLButtons[index].width == Config.LandRButtons[index].width,
+			("landL%d is %d wide and landR%d is %d — the pairs mirror, or alternating purchases build a lopsided base")
+				:format(index, Config.LandLButtons[index].width, index, Config.LandRButtons[index].width))
+	end
+
+	-- The maxed footprint: 3-4x the centre (issue #88's stated band), with the
+	-- expansions summing to roughly 2.5x the centre's width.
+	local ratio = Config.World.PlotMaxWidth / centreWidth
+	check(ratio >= 3 and ratio <= 4,
+		("a maxed plot is %.2fx the centre's width; #88 says three to four"):format(ratio))
+	check(expansionWidth / centreWidth >= 2.2 and expansionWidth / centreWidth <= 2.8,
+		("the ten expansions sum to %.2fx the centre width; the target is 2.5x"):format(expansionWidth / centreWidth))
+
+	-- THE ALTERNATION IS PRICING. Within a pair the right lot costs a little
+	-- more than the left; between pairs the step is large. That is the whole
+	-- mechanism that keeps a greedy buyer symmetric, so both margins are
+	-- asserted here and the simulation's buy order is asserted below.
+	for index = 1, 5 do
+		local l, r = Config.LandLButtons[index].price, Config.LandRButtons[index].price
+		check(r > l and r <= l * 1.25,
+			("landR%d at %d against landL%d at %d — a pair interleaves within 25%%, so the sides alternate")
+				:format(index, r, index, l))
+		if index < 5 then
+			local nextL = Config.LandLButtons[index + 1].price
+			check(nextL >= r * 3,
+				("landL%d at %d is under 3x landR%d at %d — without the pair step, skipping a side is cheap and the base goes lopsided for free")
+					:format(index + 1, nextL, index, r))
+		end
+	end
+
+	-- The pedestals stand on the CENTRE pad — the one piece of ground every
+	-- save owns — clear of its edges.
+	for _, track in ipairs({ "landL", "landR" }) do
+		local spot = Config.landButtonPosition(track)
+		check(math.abs(spot.X) <= centreWidth / 2 - 4 and math.abs(spot.Z) <= Config.World.PlotSize.Z / 2 - 4,
+			("the %s pedestal at (%.0f, %.0f) is off the centre pad; land pedestals stand on always-owned ground")
+				:format(track, spot.X, spot.Z))
+	end
+end
+
+-- THE SHELL AT EVERY LAND STATE. The walls, the part budget, the ceiling grid
+-- and the gate leaves are all functions of how much ground is standing, so
+-- each is checked at the eleven states the alternating ladder walks through,
+-- plus one lopsided pair — legal, expensive, and exactly the state a derived
+-- geometry bug would pick to hide in.
+do
+	local states = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 2, 1 }, { 2, 2 }, { 3, 2 },
+		{ 3, 3 }, { 4, 3 }, { 4, 4 }, { 5, 4 }, { 5, 5 }, { 3, 1 } }
+	for _, state in ipairs(states) do
+		local left, right = state[1], state[2]
+		local label = ("land (%d,%d)"):format(left, right)
+
+		-- Every wall still tiles its (grown) extent, and every opening still
+		-- sits on the CENTRE span — the property that keeps "gates and
+		-- windows are never rebuilt" true whatever the plot buys.
+		for _, side in ipairs(Config.Structure.Sides) do
+			local segments, extent = Config.wallSegments(side, left, right)
+			local cursor, covered = extent.from, 0
+			for index, segment in ipairs(segments) do
+				check(math.abs(segment.from - cursor) < 0.001,
+					("%s: the %s wall's segment %d starts at %.2f but the span before ended at %.2f — the grown wall has a gap")
+						:format(label, side, index, segment.from, cursor))
+				covered += segment.to - segment.from
+				cursor = segment.to
+				if segment.kind == "opening" then
+					local halfCentre = Config.World.PlotSize.X / 2
+					check(segment.from >= -halfCentre and segment.to <= halfCentre,
+						("%s: opening %s spans %.1f..%.1f, off the centre pad — an opening on an expansion span is an opening a land purchase would rebuild")
+							:format(label, tostring(segment.opening.id), segment.from, segment.to))
+				end
+			end
+			check(math.abs(cursor - extent.to) < 0.001 and math.abs(covered - (extent.to - extent.from)) < 0.001,
+				("%s: the %s wall's segments do not tile its extent"):format(label, side))
+		end
+
+		-- The budget holds fully grown — land is exactly when it binds.
+		local parts = Config.shellPartCount(left, right)
+		check(parts <= Config.Structure.PartBudget,
+			("%s: the shell is %d parts against a PartBudget of %d — the budget has to hold at the plot's biggest, times %d plots")
+				:format(label, parts, Config.Structure.PartBudget, Config.World.MaxPlots))
+
+		-- The room stays lit to its corners: the sampled coverage that chose
+		-- the 3x4 grid, re-run over the grown floor.
+		local LIGHT = Config.Structure.Lights
+		local spots = Config.storeyLightPositions(left, right)
+		local extents = Config.landExtents(left, right)
+		local halfZ = Config.World.PlotSize.Z / 2 - 1
+		local worst = 0
+		local x = extents.minX + 1
+		while x <= extents.maxX - 1 do
+			local z = -halfZ
+			while z <= halfZ do
+				local nearest = math.huge
+				for _, spot in ipairs(spots) do
+					local dx, dz = spot.X - x, spot.Z - z
+					nearest = math.min(nearest, math.sqrt(dx * dx + dz * dz + spot.Y * spot.Y))
+				end
+				worst = math.max(worst, nearest)
+				z += 8
+			end
+			x += 8
+		end
+		check(worst <= LIGHT.range * 0.8,
+			("%s: the darkest floor sample is %.1f studs from a fixture against a range of %d — the grown wings go dark")
+				:format(label, worst, LIGHT.range))
+	end
 end
 
 -- ── the building shell ──────────────────────────────────────────────────────
@@ -3257,14 +2724,14 @@ do
 		"Structure.Lights.brightness is 0 — the fixtures would be built, counted against the part budget, and light nothing")
 
 	local fixtureCount = 0
-	for _, storey in ipairs(SH.Storeys) do
-		local spots = Config.storeyLightPositions(storey.id)
+	do
+		local spots = Config.storeyLightPositions()
 		check(#spots == LIGHT.columns * LIGHT.rows,
-			("%s hangs %d fixtures for a %dx%d grid"):format(storey.id, #spots, LIGHT.columns, LIGHT.rows))
+			("the ceiling hangs %d fixtures for a %dx%d grid"):format(#spots, LIGHT.columns, LIGHT.rows))
 
 		for index, spot in ipairs(spots) do
 			fixtureCount += 1
-			local where = ("the %s storey's fixture %d at (%.0f, %.0f)"):format(storey.id, index, spot.X, spot.Z)
+			local where = ("fixture %d at (%.0f, %.0f)"):format(index, spot.X, spot.Z)
 
 			-- INSIDE THE ROOM. A fixture in a wall is a fixture inside solid
 			-- geometry, lighting the outside of the building.
@@ -3277,7 +2744,7 @@ do
 
 			-- ABOVE EVERYTHING THAT STANDS UNDER IT. The tightest pair on the
 			-- plot is a cabinet's sign, which reaches 17.5 above its own floor.
-			local clear = spot.Y - LIGHT.batten.thickness / 2 - storey.floorY
+			local clear = spot.Y - LIGHT.batten.thickness / 2
 			check(clear > L.MachineTopY,
 				("%s hangs %.1f above its own floor; a dropper's arm reaches %.1f")
 					:format(where, clear, L.MachineTopY))
@@ -3290,7 +2757,7 @@ do
 			local batten = Vector3.new(LIGHT.batten.width, 1, LIGHT.batten.length)
 			for _, track in ipairs(Config.TrackOrder) do
 				local layout = L.Tracks[track]
-				if layout and (layout.floor or GROUND) == (storey.id == "ground" and GROUND or layout.floor) then
+				if layout then
 					local centre, size = Config.trackCabinet(track)
 					local gap = boxBoxGap(spot, batten, centre, size)
 					check(gap >= 2,
@@ -3306,8 +2773,7 @@ do
 	-- about the room being lit — drop `rows` to 2 and the back of the plot goes
 	-- dark with every check above still passing.
 	local worst, worstAt = 0, nil
-	local ground = Config.storey("ground")
-	local spots = Config.storeyLightPositions("ground")
+	local spots = Config.storeyLightPositions()
 	local x = -halfX
 	while x <= halfX do
 		local z = -halfZ
@@ -3315,7 +2781,7 @@ do
 			local nearest = math.huge
 			for _, spot in ipairs(spots) do
 				local dx, dz = spot.X - x, spot.Z - z
-				local dy = spot.Y - ground.floorY
+				local dy = spot.Y
 				local d = math.sqrt(dx * dx + dz * dz + dy * dy)
 				nearest = math.min(nearest, d)
 			end
@@ -3330,8 +2796,8 @@ do
 		("the darkest spot on the ground storey is (%.0f, %.0f), %.1f studs from its nearest fixture, against a range of %.0f — a light's falloff is not a cliff, so 80%% of range is where a corner stops reading as lit")
 			:format(worstAt and worstAt.X or 0, worstAt and worstAt.Z or 0, worst, LIGHT.range))
 
-	lightReport = ("lighting:          %d fixtures over %d storeys, darkest floor sample %.0f studs from one (range %d)")
-		:format(fixtureCount, #SH.Storeys, worst, LIGHT.range)
+	lightReport = ("lighting:          %d fixtures, darkest floor sample %.0f studs from one (range %d)")
+		:format(fixtureCount, worst, LIGHT.range)
 end
 
 -- ── the shell is FOUR purchases, in one order ───────────────────────────────
@@ -3449,9 +2915,9 @@ for _, side in ipairs(sides) do
 		("the %s wall's outward is %s; it must be 1 or -1 or that side of the ring faces inward")
 			:format(side.id, tostring(extent.outward)))
 
-	for _, storey in ipairs(SH.Storeys) do
-		local segments = Config.wallSegments(side.id, storey.id)
-		local where = ("the %s wall's %s storey"):format(side.id, storey.id)
+	do
+		local segments = Config.wallSegments(side.id)
+		local where = ("the %s wall"):format(side.id)
 		check(#segments > 0, ("%s has no segments at all — that wall would not be built"):format(where))
 
 		local cursor, covered = extent.from, 0
@@ -3473,37 +2939,16 @@ for _, side in ipairs(sides) do
 	end
 end
 
--- 2. THE WALL MEETS THE FLOOR ABOVE IT.
+-- 2. THE ONE STRUCTURAL LINE HOLDS EVERYTHING AT CEILING HEIGHT.
 --
--- One structural line: a storey's ceiling is the floor above it. The ground
--- storey's `clear` is derived from the mezzanine deck's UNDERSIDE — a full deck
--- thickness below its top, not half of one — and getting that wrong by 0.8
--- studs is a wall built into the floor above it, which is the same class of
--- defect as the band and just as invisible.
-check(Config.storey("ground") ~= nil and Config.storey("upper") ~= nil,
-	"Config.storey cannot find `ground` and `upper` — those two ids are how every consumer of the shell asks for a storey, so a renamed one is a storey nothing can look up")
-local groundStorey = Config.storey("ground") or SH.Storeys[1]
-local upperStorey = Config.storey("upper") or SH.Storeys[2]
-local groundClear = groundStorey.clear
-local mezz = Config.Floors[1]
-
-check(math.abs(groundClear - (mezz.height - mezz.deckSize.Y)) < EPS,
-	("the ground storey's clear height is %.2f but the mezzanine deck's underside is at %.2f (top %.1f less a %.1f-stud slab) — the wall has to stop exactly there: short of it is open band, past it is a wall inside the floor above")
-		:format(groundClear, mezz.height - mezz.deckSize.Y, mezz.height, mezz.deckSize.Y))
-
-for index, storey in ipairs(SH.Storeys) do
-	local above = SH.Storeys[index + 1]
-	local top = storey.floorY + storey.clear
-	check(storey.clear > 0, ("Storeys[%d] (%s) has no clear height"):format(index, tostring(storey.id)))
-	if above then
-		-- Floors[index] is the deck that IS the floor of Storeys[index + 1].
-		local deck = Config.Floors[index]
-		local thickness = deck and deck.deckSize.Y or 0
-		check(math.abs(top - (above.floorY - thickness)) < EPS,
-			("the %s storey's wall tops out at y=%.2f but the %s storey's floor starts at y=%.2f (its slab spans %.2f..%.2f) — the wall must meet the underside of the deck above it, to the stud")
-				:format(storey.id, top, above.id, above.floorY - thickness, above.floorY - thickness, above.floorY))
-	end
-end
+-- WallHeight is the wall's top, the roof's underside and the plane the light
+-- battens hang from. It has to clear the tallest thing that stands under it —
+-- the cabinet checks above measure the furniture; this is the floor of the
+-- relationship.
+check(SH.WallHeight > 0, "Structure.WallHeight is not positive — the shell has no height at all")
+check(SH.WallHeight > L.MachineTopY + 2,
+	("Structure.WallHeight is %.1f against a dropper arm at %.1f — the machines poke through the roof")
+		:format(SH.WallHeight, L.MachineTopY))
 
 -- 3. AN OPENING IS A DOORWAY, NOT A HOLE IN THE SIDE OF THE BUILDING.
 --
@@ -3515,9 +2960,7 @@ local MIN_OPENING = 8
 for _, opening in ipairs(SH.Openings) do
 	local where = ("the %s opening"):format(tostring(opening.id))
 	local extent = Config.wallExtent(opening.side)
-	local storey = Config.storey(opening.storey)
 	check(extent ~= nil, ("%s is in wall %q, which is not one of the four"):format(where, tostring(opening.side)))
-	check(storey ~= nil, ("%s is on storey %q, which does not exist"):format(where, tostring(opening.storey)))
 
 	check(opening.width >= MIN_OPENING,
 		("%s is %.1f studs of clear width; a humanoid plus its hitbox needs %d and anything less is a doorway you get stuck in")
@@ -3529,11 +2972,9 @@ for _, opening in ipairs(SH.Openings) do
 			("%s spans %.1f..%.1f but the %s wall runs %.1f..%.1f — an opening outside its own wall is a hole in nothing")
 				:format(where, from, to, opening.side, extent.from, extent.to))
 	end
-	if storey then
-		check(opening.height < storey.clear,
-			("%s is %.1f studs tall in a storey with %.2f of clear height — an opening as tall as its storey leaves no lintel course above it")
-				:format(where, opening.height, storey.clear))
-	end
+	check(opening.height < SH.WallHeight,
+		("%s is %.1f studs tall in a wall %.2f high — an opening as tall as its wall leaves no lintel course above it")
+			:format(where, opening.height, SH.WallHeight))
 end
 
 -- 4. THE GATEWAY STILL CLEARS THE BELT.
@@ -3583,24 +3024,17 @@ check(WIN.transparency >= 0.25,
 check(WIN.pane > 0 and WIN.pier > 0,
 	"Window.pane and Window.pier both have to be positive; a zero pier is a run of glass with nothing holding it up")
 
-for _, courseId in ipairs({ "ground", "upper" }) do
-	local course = WIN[courseId]
-	local storey = Config.storey(courseId)
-	check(course ~= nil and storey ~= nil, ("Window has no bay course for the %s storey"):format(courseId))
-	if course and storey then
-		check(course.sill > 0 and course.height > 0,
-			("the %s bay course has sill %.1f and height %.1f; both have to be positive"):format(courseId, course.sill, course.height))
-		check(course.sill + course.height + 2 <= storey.clear,
-			("the %s storey's bay course runs y %.1f..%.1f inside %.2f studs of clear height — a head course needs at least 2 studs above the glass, or the window IS the top of the wall")
-				:format(courseId, course.sill, course.sill + course.height, storey.clear))
-	end
-end
+check(WIN.sill > 0 and WIN.height > 0,
+	("the bay course has sill %.1f and height %.1f; both have to be positive"):format(WIN.sill, WIN.height))
+check(WIN.sill + WIN.height + 2 <= SH.WallHeight,
+	("the bay course runs y %.1f..%.1f inside a %.2f-high wall — a head course needs at least 2 studs above the glass, or the window IS the top of the wall")
+		:format(WIN.sill, WIN.sill + WIN.height, SH.WallHeight))
 
 for _, side in ipairs(sides) do
-	for _, storey in ipairs(SH.Storeys) do
-		for _, segment in ipairs(Config.wallSegments(side.id, storey.id)) do
+	do
+		for _, segment in ipairs(Config.wallSegments(side.id)) do
 			if segment.kind == "solid" then
-				local where = ("the %s wall's %s storey, run %.1f..%.1f"):format(side.id, storey.id, segment.from, segment.to)
+				local where = ("the %s wall, run %.1f..%.1f"):format(side.id, segment.from, segment.to)
 				local bays = Config.wallBays(segment.from, segment.to)
 				check(#bays > 0, ("%s has no bays; the run would be built as nothing"):format(where))
 
@@ -3678,8 +3112,8 @@ end
 
 for _, side in ipairs(sides) do
 	local extent = side.extent
-	local openings = Config.openingsIn(side.id, "ground")
-	for _, segment in ipairs(Config.wallSegments(side.id, "ground")) do
+	local openings = Config.openingsIn(side.id)
+	for _, segment in ipairs(Config.wallSegments(side.id)) do
 		if segment.kind == "solid" then
 			for _, bay in ipairs(Config.wallBays(segment.from, segment.to)) do
 				if bay.kind == "pane" then
@@ -3725,7 +3159,7 @@ for _, opening in ipairs(SH.Openings) do
 	-- guarded: an opening naming a wall that does not exist is reported by the
 	-- inventory checks above, and wallSegments has nothing to return for it
 	for _, segment in ipairs(Config.wallExtent(opening.side)
-			and Config.wallSegments(opening.side, opening.storey) or {}) do
+			and Config.wallSegments(opening.side) or {}) do
 		if segment.kind == "solid" then
 			if segment.to <= opening.centre then
 				before = math.max(before, segment.to - segment.from)
@@ -3800,29 +3234,20 @@ end
 -- shellPartCount walks Structure.Sides itself and cannot count a side that names
 -- no wall. The Sides checks at the top of this block are what report that.
 local ringResolved = #sides == 4 and #SH.Sides == 4
-local shellParts = ringResolved and Config.shellPartCount(true) or 0
-local shellPartsGround = ringResolved and Config.shellPartCount(false) or 0
+local shellParts = ringResolved and Config.shellPartCount() or 0
 if ringResolved then
 	check(shellParts <= SH.PartBudget,
 		("one plot's shell is %d parts against a PartBudget of %d — at %d plots that is %d parts of building before a single machine is bought")
 			:format(shellParts, SH.PartBudget, Config.World.MaxPlots, shellParts * Config.World.MaxPlots))
-	check(shellPartsGround < shellParts,
-		("the shell costs %d parts with the mezzanine storey and %d without; the upper storey has to cost something or shellPartCount is not modelling it")
-			:format(shellParts, shellPartsGround))
 end
 
--- 10. THE ROOF, WHICH IS NOW A CONSEQUENCE RATHER THAN A NUMBER.
+-- 10. THE ROOF, WHICH IS A CONSEQUENCE RATHER THAN A NUMBER.
 --
--- It sits on the top storey that exists — the ground storey's line before the
--- mezzanine is bought, the upper storey's after — so there is no half-roof state
--- and no shrink rule. The old arrangement was a literal 20 next to a deck
--- underside of 20.4, which is how the band got in.
-check(math.abs(Config.roofUnderside(false) - (groundStorey.floorY + groundStorey.clear)) < EPS,
-	("roofUnderside(false) is %.2f but the ground storey tops out at %.2f — with no mezzanine the roof IS that ceiling")
-		:format(Config.roofUnderside(false), groundStorey.floorY + groundStorey.clear))
-check(math.abs(Config.roofUnderside(true) - (upperStorey.floorY + upperStorey.clear)) < EPS,
-	("roofUnderside(true) is %.2f but the upper storey tops out at %.2f — with the mezzanine up the roof sits on the upper walls")
-		:format(Config.roofUnderside(true), upperStorey.floorY + upperStorey.clear))
+-- It sits on the wall's top. The old arrangement was a literal 20 next to a
+-- ceiling at 20.4, which is how the band got in.
+check(math.abs(Config.roofUnderside() - Config.Structure.WallHeight) < EPS,
+	("roofUnderside() is %.2f against WallHeight %.2f — the roof sits on the wall's top, one line, both readers")
+		:format(Config.roofUnderside(), Config.Structure.WallHeight))
 
 -- THE COMPANY SIGN, above the roof's top face by Roof.signLift. The billboard is
 -- 12 studs tall and centred on its anchor, so a lift under half of that puts its
@@ -3831,12 +3256,12 @@ check(math.abs(Config.roofUnderside(true) - (upperStorey.floorY + upperStorey.cl
 -- Installers.lua's `Style.billboard{ height = 12 }`, which is the one number in
 -- this family that is not in Config; see the report.
 local ROOF_SIGN_HEIGHT = 12
-for _, hasFloor in ipairs({ false, true }) do
-	local roofTop = Config.roofUnderside(hasFloor) + ROOF.thickness
+do
+	local roofTop = Config.roofUnderside() + ROOF.thickness
 	local signY = roofTop + ROOF.signLift
 	check(signY - ROOF_SIGN_HEIGHT / 2 >= roofTop,
-		("the company sign hangs at y=%.1f over a roof whose top face is y=%.1f (%s the mezzanine); a %d-stud billboard centred there has its lower %.1f studs inside the slab, and a billboard that is not AlwaysOnTop is occluded by the part in front of it")
-			:format(signY, roofTop, hasFloor and "with" or "without", ROOF_SIGN_HEIGHT,
+		("the company sign hangs at y=%.1f over a roof whose top face is y=%.1f; a %d-stud billboard centred there has its lower %.1f studs inside the slab, and a billboard that is not AlwaysOnTop is occluded by the part in front of it")
+			:format(signY, roofTop, ROOF_SIGN_HEIGHT,
 				roofTop - (signY - ROOF_SIGN_HEIGHT / 2)))
 end
 
@@ -3970,9 +3395,9 @@ check(BTN.lift - (BTN.height * LOCKED.scale) / 2 >= L.MachineTopY + 0.5,
 -- even when it did, because the ground floor's ceiling was the deck's underside
 -- at 20.4 and the roof was a separate slab. It reads the ground storey's clear
 -- height now, so the label follows the ceiling it has to stay under.
-check(BTN.lift + BTN.height / 2 <= groundClear,
-	("the buy-button label's top edge is at y=%.1f, through the ground storey's ceiling at y=%.2f")
-		:format(BTN.lift + BTN.height / 2, groundClear))
+check(BTN.lift + BTN.height / 2 <= Config.Structure.WallHeight,
+	("the buy-button label's top edge is at y=%.1f, through the ceiling at y=%.2f")
+		:format(BTN.lift + BTN.height / 2, Config.Structure.WallHeight))
 
 -- THE TWO SIGNS OVER THE ARENA STATUE. The raid line takes the head height and
 -- the game's own name sits above it; the failure this guards is the two of them
@@ -4626,6 +4051,36 @@ check(elapsed / 60 >= MIN_TOTAL_MINUTES,
 check(elapsed / 60 <= MAX_TOTAL_MINUTES,
 	("full build takes %.0f min (want <= %d) — too grindy"):format(elapsed / 60, MAX_TOTAL_MINUTES))
 
+-- ── the land alternates, demonstrably ───────────────────────────────────────
+--
+-- The pricing family asserts the margins that make alternation the cheapest
+-- route; this asserts the OUTCOME: the greedy simulation's land purchases,
+-- in order, are L1 R1 L2 R2 ... — the base grows symmetric for a player who
+-- simply buys the cheapest thing. Flatten a pair step and this is the check
+-- that names it.
+do
+	local expected = {}
+	for index = 1, #Config.LandLButtons do
+		table.insert(expected, Config.LandLButtons[index].id)
+		table.insert(expected, Config.LandRButtons[index].id)
+	end
+	local seen = {}
+	for _, row in ipairs(curve) do
+		local def = Config.ButtonById[row.id]
+		if def and def.kind == "Land" then
+			table.insert(seen, row.id)
+		end
+	end
+	check(#seen == #expected,
+		("the simulation bought %d land rungs of %d — a land price above the last income rung is land the greedy build never reaches")
+			:format(#seen, #expected))
+	for index, id in ipairs(seen) do
+		check(id == expected[index],
+			("land purchase %d in the simulated build is %s, want %s — the buy order stopped alternating, so a player following prices builds lopsided")
+				:format(index, id, tostring(expected[index])))
+	end
+end
+
 -- ── how long the number is allowed to stand still ───────────────────────────
 --
 -- Some purchases change no number at all: the enclosure does not drop, refine
@@ -4794,196 +4249,6 @@ for index, row in ipairs(curve) do
 	end
 end
 
--- ── where the second floor lands ────────────────────────────────────────────
---
--- This replaces `unlock.trackOrder >= #Config.Tracks.factory - 1`, which said
--- "at the end" in the only vocabulary it had: an index. Halfway is not a
--- position in a list, it is a fraction of the minutes the list takes, so the
--- check has to live down here where the curve exists.
-local function curveRow(id: string)
-	for _, row in ipairs(curve) do
-		if row.id == id then
-			return row
-		end
-	end
-	return nil
-end
-
--- buildMinutes is declared with the credit-cap check above, where it is first
--- needed; the floor's own checks read the same one.
--- EVERY BUTTON GATE IS REACHED IN PRICE ORDER, not merely reachable.
---
--- The closure check near the top of this file proves a gate cannot deadlock.
--- This is the pacing half of the same question: the simulation buys the
--- cheapest available rung, so a gate priced ABOVE the thing it gates turns into
--- a wall — the player arrives at floor2 with the money for it and is told to go
--- and buy a roof that costs more. Nothing about that is a deadlock and nothing
--- above would catch it.
---
--- This is also what took over from the bespoke "the deck is bought after the
--- roof" assertion that used to live in the floor loop below, and it is stated
--- generically on purpose: that one named two buttons and had to be rewritten
--- every time either of them moved.
-for id, gate in pairs(Config.ButtonUnlock) do
-	local gatedRow, gateRow = curveRow(id), curveRow(gate)
-	if gatedRow and gateRow then
-		check(gateRow.at < gatedRow.at,
-			("%s waits on %s, but the spine simulation banks %s at minute %.1f and %s only at minute %.1f — the gate costs more than the thing it gates, so it is a wall rather than an order")
-				:format(id, gate, id, gatedRow.at / 60, gate, gateRow.at / 60))
-	end
-end
-
-local floorReport = nil
-for _, floor in ipairs(Config.Floors) do
-	local row = curveRow(floor.button)
-	if row then
-		local at = row.at / 60
-		local fraction = at / buildMinutes
-		-- WHERE THE FLOOR LANDS, now that it is a storey and not a gate.
-		--
-		-- PREMISE OVERTURNED, TWICE, AND THE SECOND TIME BY THE FIRST. The band
-		-- before this one was `0.06 <= fraction <= 0.20` with a hard `at <= 10`,
-		-- and every word of its argument rested on one fact: Config.TrackUnlock
-		-- gated BOTH side-track cabinets on this button, so parking the floor
-		-- parked the weapons and armour ladders behind it. Round 8 moved that
-		-- gate to `dropper3` (TODO.md item 2, the cabinets are downstairs now).
-		-- The floor gates nothing. Every reason it had to be early went with the
-		-- cabinets, and TODO.md item 3 asks for it late — after the shell and
-		-- after a run of conveyor upgrades.
-		--
-		-- `at <= 10` is DELETED rather than retuned. Its stated reason — "it
-		-- gates both cabinets, so past ~10 the side tracks have no session left
-		-- to be climbed in" — is now false, and a check whose argument is false
-		-- is worse than no check: the next person reads the message, believes
-		-- it, and reasons from it. What it was really protecting is protected
-		-- below, against the thing that is actually on a deadline.
-		--
-		-- THE SKY-HOLE CHECK THAT STOOD HERE IS GONE, AND ITS JOB IS DONE
-		-- BETTER ELSEWHERE. It asserted `row.at > curveRow("roof").at` and said
-		-- that a deck bought first "leaves the upper walls open to the sky for
-		-- the N minutes in between". That sentence was true while the only
-		-- thing standing between the two was their order in one table.
-		--
-		-- It is FALSE now. Config.ButtonUnlock.floor2 = "roof" makes the
-		-- purchase impossible rather than merely late, so the state the message
-		-- describes cannot be reached at any pricing and the minutes it offers
-		-- to count do not exist. Keeping it would leave a check that still
-		-- fires for a reason that has stopped being the reason — the exact
-		-- fault that got `at <= 10` deleted six paragraphs above this one, and
-		-- the fault this file keeps rediscovering.
-		--
-		-- Two checks replace it, neither of them special-cased to the floor:
-		-- the gate is asserted against the structural fact that motivates it,
-		-- and every ButtonUnlock edge is asserted to be reachable in price
-		-- order. Both live with the other gate checks. What is left in this
-		-- loop is the pacing band, which is the only thing it was ever the
-		-- right place for.
-		-- THE BAND. Late, because the storey is the building growing rather than
-		-- the enclosure it grew inside; not last, because it arrives BARREN
-		-- (TODO.md item 4) and a room you never fill is a room you paid for.
-		check(fraction >= 0.50,
-			("Floors.%s opens at %.0f%% of the build (want 50-80%%) — the ground floor is not finished yet, and a second storey offered while the first one still has empty slots is a room you buy instead of the line you were building")
-				:format(floor.id, fraction * 100))
-		check(fraction <= 0.80,
-			("Floors.%s opens at %.0f%% of the build (want 50-80%%) — the storey arrives barren and its conveyor is a further purchase, so past four fifths there is no session left to put anything in it")
-				:format(floor.id, fraction * 100))
-
-		-- ── the deck, and the line on it, are two purchases ──────────────────
-		--
-		-- TODO.md item 4: the storey arrives BARREN. `floor.button` buys the
-		-- deck, its guards, the wall ring and the ladder; `floor.lineButton`
-		-- buys the conveyor and the hopper. Neither of the next two can be got
-		-- wrong by a player — the loader derives the chain from table order — but
-		-- both can be got wrong by moving a row, which is the whole of
-		-- INVARIANTS.md's `[nothing]` entry about table order.
-		local lineDef = floor.lineButton and Config.ButtonById[floor.lineButton]
-		local lineRow = floor.lineButton and curveRow(floor.lineButton)
-		if floor.lineButton then
-			check(lineDef ~= nil,
-				("Floors.%s names %q as its lineButton and no such button exists; the storey would never get a conveyor")
-					:format(floor.id, tostring(floor.lineButton)))
-			check(lineRow ~= nil,
-				("Floors.%s's line is built by %q, which the spine never buys")
-					:format(floor.id, tostring(floor.lineButton)))
-			if lineRow then
-				check(lineRow.at > row.at,
-					("Floors.%s's deck is bought at minute %.1f and its conveyor at %.1f — a belt is built on a storey, so buying the line first is a conveyor in mid-air")
-						:format(floor.id, at, lineRow.at / 60))
-			end
-			-- ...AND NOTHING RIDES A BELT THAT IS NOT THERE. A machine pinned to
-			-- this path used to be gated on the deck, because the deck came with
-			-- the belt; it is gated on the line now, and a row moved above it
-			-- would put a dropper on a slab with no conveyor under it, dropping
-			-- its output through the floor.
-			for _, def in ipairs(Config.Tracks.factory) do
-				if def.path == floor.id then
-					local machineRow = curveRow(def.id)
-					check(machineRow ~= nil and lineRow ~= nil and machineRow.at > lineRow.at,
-						("%s is pinned to %s's belt but is bought at minute %.1f, before the line that carries it at %.1f — its drops would fall through a deck with no conveyor on it")
-							:format(def.id, floor.id,
-								machineRow and machineRow.at / 60 or -1,
-								lineRow and lineRow.at / 60 or -1))
-				end
-			end
-		end
-
-		-- HOW MUCH THE LINE IS WORTH THE MINUTE YOU BUY IT. The upstairs
-		-- machines are refined by the plot's upgrade stack (see
-		-- Tycoon:refineryMultiplierFor), so this share is a constant for the
-		-- rest of the build rather than something that decays — which is the
-		-- entire reason for that decision, and the reason to keep measuring it.
-		--
-		-- MEASURED AT THE LINE, NOT AT THE DECK, and that is not a refinement.
-		-- It used to read `defRow.at <= row.at`, where `row` is the DECK's
-		-- purchase — so it counted the upstairs dropper's output as arriving the
-		-- minute you bought a storey that does not have it yet. That was
-		-- harmless while the two were one purchase and is a straight lie now: a
-		-- barren deck's own machines are 0% of plot income by construction, so
-		-- the lower bound would fail on a correct build and the upper bound
-		-- could never fail on any build at all.
-		local shareAt = lineRow or row
-		local floorDps, groundDps = 0, 0
-		for _, def in ipairs(Config.Tracks.factory) do
-			if def.kind == "Dropper" then
-				local defRow = curveRow(def.id)
-				if defRow and defRow.at <= shareAt.at + 1e-9 then
-					if def.path == floor.id then
-						floorDps += def.dropValue / def.dropRate
-					else
-						groundDps += def.dropValue / def.dropRate
-					end
-				end
-			end
-		end
-		-- The first machine on the line is bought AFTER the line itself, so at
-		-- the moment of purchase the numerator is zero by construction. What the
-		-- band is about is what the line is worth once it is running, so the
-		-- machines that arrive on it are counted against the ground floor as it
-		-- stands when the line opens.
-		for _, def in ipairs(Config.Tracks.factory) do
-			if def.kind == "Dropper" and def.path == floor.id then
-				local defRow = curveRow(def.id)
-				if defRow and defRow.at > shareAt.at then
-					floorDps += def.dropValue / def.dropRate
-				end
-			end
-		end
-		local share = floorDps / (groundDps + floorDps)
-		floorReport = ("floor %s:        deck at %.0f min (%.0f%% of build), line at %.0f min, worth %.0f%% of income")
-			:format(floor.id, at, fraction * 100, shareAt.at / 60, share * 100)
-		-- A third is the shape being asserted: the first upstairs machine is a
-		-- PEER of the ground floor's newest dropper, not a replacement for the
-		-- ground floor and not a decoration on top of it. Split into two checks
-		-- so each failure names the defect it is about.
-		check(share >= 0.25,
-			("Floors.%s's own machines are %.0f%% of plot income when its line opens (want 25-45%%) — below that the deck is a viewing platform and its dropper is a decoration")
-				:format(floor.id, share * 100))
-		check(share <= 0.45,
-			("Floors.%s's own machines are %.0f%% of plot income when its line opens (want 25-45%%) — above that the ground slots you have not filled yet stop being what you are playing for")
-				:format(floor.id, share * 100))
-	end
-end
-
 -- ── side-track pacing ───────────────────────────────────────────────────────
 -- A side track has no requirement into the factory, so PRICE is the only thing
 -- pacing it. That means "is this affordable" cannot be asked in the abstract —
@@ -5020,6 +4285,16 @@ end
 --- same number. With the cabinets behind a forty-minute button they are not,
 --- and the old form is false by construction rather than by any fault of the
 --- prices.
+--- The curve row a spine button landed on, or nil for one the sim never buys.
+local function curveRow(id: string)
+	for _, row in ipairs(curve) do
+		if row.id == id then
+			return row
+		end
+	end
+	return nil
+end
+
 local function trackOpensAt(track: string): number
 	local gate = Config.TrackUnlock[track]
 	if not gate then
@@ -5296,18 +4571,17 @@ print(("solo clear:        %.0fs with %s, %.0fs with %s (deadline %ds)")
 -- The shell's part cost at full scale, printed because HANDOFF_v5 §4 has listed
 -- "part budget at full scale is still untested" for three rounds and the number
 -- wants reading every time the window spec moves, not just when it fails.
-print(("shell parts:       %d of a %d budget (%d before the mezzanine storey), %d across %d plots")
-	:format(shellParts, Config.Structure.PartBudget, shellPartsGround,
+print(("shell parts:       %d of a %d budget, %d across %d plots")
+	:format(shellParts, Config.Structure.PartBudget,
 		shellParts * Config.World.MaxPlots, Config.World.MaxPlots))
 print(("belt:              %.0f studs, %.1fs transit, %.0f drops in flight at peak (%.0f%% full)")
 	:format(beltLength, transit, inFlight, inFlight * DROP_LENGTH / beltLength * 100))
 -- Printed because partitioning the furniture by floor removes comparisons by
 -- construction, and a number nobody looks at is how that becomes a quiet loss of
 -- coverage. It was 204 on a one-floor plot.
-print(("furniture:         %d pieces on %d floors, %d plan pairs compared")
-	:format(#floorSpots, 1 + #Config.Floors, furniturePairs))
+print(("furniture:         %d pieces, %d plan pairs compared")
+	:format(#floorSpots, furniturePairs))
 if lightReport then print(lightReport) end
-if floorReport then print(floorReport) end
 print(("vault timers:      %dh free, then %s")
 	:format(Config.Offline.CapHours, table.concat(vaultReport, ", ")))
 print(("trigger dwell:     %.0f ms at %.0f studs/s (30 Hz step is %.0f ms)")

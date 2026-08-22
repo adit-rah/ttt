@@ -21,7 +21,7 @@ graph TB
     ECON["<b>ECONOMY</b><br/>the one place cash is made or spent"]
     PREST["<b>PRESTIGE</b><br/>rebirth: what resets, what compounds"]
     COMBAT["<b>COMBAT</b><br/>raids, bosses, bats, PvP zoning"]
-    PLOT["<b>THE PLOT</b><br/>the slab, the shell, the storey, the yard"]
+    PLOT["<b>THE PLOT</b><br/>the slab, the shell, the land, the yard"]
     RET["<b>RETENTION</b><br/>offline, streaks, playtime, friends"]
     READ["<b>LEGIBILITY</b><br/>what the player is told, and where"]
 
@@ -178,8 +178,8 @@ place in the game where two players' outcomes are coupled.
 
 ## 6. The plot — the building
 
-**Owns:** the ground, the shell, the second storey, the yard, and where anything
-is allowed to stand.
+**Owns:** the ground, the shell, the land it grows into, the yard, and where
+anything is allowed to stand.
 
 This system is mostly geometry, and its design content is about **what a plot
 looks like before you have bought much of it.** Three decisions in a row came
@@ -192,9 +192,10 @@ Walls arrive solid and closed so that "Plot Walls" actually keeps a raider out;
 windows are a material change to parts that already exist; the roof is last
 because it derives its columns from the walls.
 
-**The storey is an event, not a transaction** — it arrives over 5.2 seconds of
-staged construction, and it arrives *barren*, with one pad on it. A second room
-you climb into once and never return to is worse than no second room.
+**Growth is outward now** (#88): land is bought in alternating strips, the
+walls and roof follow it, and the centre pad stays the anchor. What stands on
+new ground is #109's decision; the second storey this replaced is in the
+handoff chain.
 
 **Assumes of production:** the belt's shape. Assumes of progression: that a
 building rung is declinable, which is new and is why the roof had to become a

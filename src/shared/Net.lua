@@ -56,7 +56,6 @@ Net.NAMES = {
 	"SessionState",   -- S->C  { daily, playtime, boost, offline }
 	"RequestClaim",   -- C->S  { kind = "daily" | "playtime" | "offline", index }
 	"RequestBoost",   -- C->S
-	"FloorState",     -- S->C  { unlocked = boolean }
 
 	-- Roblox exposes no server-side device API, so the ONE thing the client has
 	-- to tell us about itself is which kind of machine it is. Declared here
