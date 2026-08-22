@@ -932,6 +932,30 @@ check(Config.Sound.PoolSize * soundCount <= 200,
 	("the sound pools would allocate %d instances; ~400 live Sounds is where A/V desync starts")
 		:format(Config.Sound.PoolSize * soundCount))
 
+-- ── movement (#101) ────────────────────────────────────────────────────────
+--
+-- Sprint and dash are baseline capabilities, and their numbers sit inside
+-- bounds other systems already stand on: the wall-clip line, the raider's
+-- speed disadvantage, and the siren's walking-speed guarantee (which sprint
+-- only ever strengthens).
+do
+	local M = Config.Movement
+	check(M.SprintSpeed > Config.Combat.WalkSpeed,
+		("SprintSpeed %.0f is no faster than walking %.0f — a sprint that does nothing is a button that lies")
+			:format(M.SprintSpeed, Config.Combat.WalkSpeed))
+	check(M.SprintSpeed <= 32,
+		("SprintSpeed is %.0f; above ~32 a humanoid clips through 2-stud walls, the same line the PlayerUpgrades ladder is held to")
+			:format(M.SprintSpeed))
+	check(Config.Waves.WalkSpeed + 4 < M.SprintSpeed,
+		"a sprinting player cannot outrun a raider — the leash arithmetic assumes the defender can disengage")
+	check(M.DashCooldown > M.DashSeconds,
+		("DashCooldown %.1f must outlast the dash itself (%.2fs) or the burst is continuous flight")
+			:format(M.DashCooldown, M.DashSeconds))
+	check(M.DashSpeed * M.DashSeconds <= Config.World.PlotSize.Z / 2,
+		("one dash covers %.0f studs — more than half a plot's depth teleports a raider through the defence")
+			:format(M.DashSpeed * M.DashSeconds))
+end
+
 -- ── swing timing ────────────────────────────────────────────────────────────
 -- Damage lands on the strike frame rather than on the click, so these numbers
 -- are now gameplay, not decoration: get them wrong and the bat either hits

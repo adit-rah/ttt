@@ -47,6 +47,12 @@ Net.NAMES = {
 	"SocialState",   -- S->C  { friends, cap, bonus, multiplier, names }
 	"RequestInvite", -- C->S  (no payload; it exists for the server-side cooldown)
 
+	-- Movement (#101). Sprint is server-written WalkSpeed so it replicates;
+	-- the dash is client physics, and the remote is the server-side cooldown
+	-- ledger that keeps its cadence honest.
+	"SetSprint",     -- C->S  boolean
+	"RequestDash",   -- C->S  (no payload) -> server fires back approval
+
 	-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 	-- demand so a client that connects with a flag off still resolves them and
 	-- never sits in WaitForChild for 30 seconds.
