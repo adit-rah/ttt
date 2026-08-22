@@ -996,6 +996,35 @@ do
 			:format(R.CampingWindowSeconds, cycle))
 end
 
+-- ── helping (#123) ─────────────────────────────────────────────────────────
+--
+-- The reward is deliberately small — a boost that mattered would make
+-- kindness-farming the meta and demand the abuse system the issue refuses to
+-- build. These bounds are that promise.
+do
+	local H = Config.Help
+	check(H.BoostMultiplier > 1,
+		("Help.BoostMultiplier is %.2f; at 1 the boost is a notification about nothing"):format(H.BoostMultiplier))
+	check(H.BoostMultiplier <= 1.25,
+		("Help.BoostMultiplier is %.2f; above ~1.25 kindness-farming outearns playing, and the no-abuse-system bet is off")
+			:format(H.BoostMultiplier))
+	check(H.BoostMinutes > 0 and H.BoostMinutes <= H.MaxBoostMinutes,
+		("Help.BoostMinutes %.0f must fit inside MaxBoostMinutes %.0f"):format(H.BoostMinutes, H.MaxBoostMinutes))
+	check(H.MaxBoostMinutes <= 15,
+		("Help.MaxBoostMinutes is %.0f; a boost you can bank half an hour of stops being a nudge"):format(H.MaxBoostMinutes))
+	check(H.PairCooldownSeconds > H.BoostMinutes * 60,
+		("PairCooldownSeconds %d must outlast the %.0f-minute boost one credit grants, or one tame pair holds it forever")
+			:format(H.PairCooldownSeconds, H.BoostMinutes))
+	check(H.GapWeightPerRebirth > 0,
+		"GapWeightPerRebirth must be positive — helping down the ladder paying MORE is the issue's whole ask")
+	check(H.MaxWeight >= 1 + H.GapWeightPerRebirth,
+		("MaxWeight %.1f caps below one rebirth of lead (%.1f) — the weighting could never engage")
+			:format(H.MaxWeight, 1 + H.GapWeightPerRebirth))
+	check(H.MaxWeight <= 4,
+		("MaxWeight is %.1f; reputation and boost minutes both scale by it, and past ~4 an alt farm beats honest play")
+			:format(H.MaxWeight))
+end
+
 -- ── swing timing ────────────────────────────────────────────────────────────
 -- Damage lands on the strike frame rather than on the click, so these numbers
 -- are now gameplay, not decoration: get them wrong and the bat either hits

@@ -1,7 +1,7 @@
-# HANDOFF v17 — movement, and the raid loot loop
+# HANDOFF v17 — movement, the raid loot loop, and helping
 
-The round shipped #101 (sprint and dash) and the core of #94 (raiding). Wave 3
-of the build order; #123 (helping pays) stacks on this.
+The round shipped #101 (sprint and dash), the core of #94 (raiding), and #123
+(helping pays). Wave 3 of the build order, complete.
 
 ## 1. What moved
 
@@ -27,6 +27,12 @@ of the build order; #123 (helping pays) stacks on this.
   `RaidService.onStorageBroken` in `Main.server`).
 - Kill credit rides the `creator` tag CombatService already plants; a death
   with no tag (fall, reset) still drops the carry.
+- `HelpService` (#123): `credit(helper, helped, kind, now)` is the one door
+  kindness comes through — raid defence and visitor repair land there today.
+  Reputation persists (`profile.reputation`, `Rep` leaderstat), both sides get
+  minutes of the `"help"` income multiplier, the helper's scaled by the
+  rebirth-gap weight. Repair opened past the owner; the breaker is the one
+  exclusion (`lastBreaker`/`storageBreaker`), so break-and-repair cannot farm.
 
 ## 2. Decisions the round recorded
 
@@ -64,3 +70,10 @@ of the build order; #123 (helping pays) stacks on this.
    marked — filed as a sub-issue of #94.
 7. Sprint across the grown ring (~750 radius): at 32 studs/s the walk between
    plots is still long. #89 owns the real answer.
+8. **The repair prompt in a stranger's hands.** Prompts now trigger for
+   anyone; on a live server, does a passer-by understand that holding a
+   stranger's stump is a good deed that pays? The notification says so after
+   the fact; nothing invites it before.
+9. **The boost's legibility.** `Rep` is a leaderstat and the boost arrives as
+   a notification plus a bigger multiplier in the Stats payload; whether the
+   HUD needs a visible boost timer is a Studio read.

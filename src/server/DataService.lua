@@ -100,6 +100,9 @@ local function defaultProfile()
 		-- from profile.rebirths on every read, so it could only ever go stale;
 		-- it is gone, and a save that still carries one is simply ignored.
 		lastSeen = 0,
+		-- #123: the reputation stat — a weighted count of acts of help. A
+		-- number rather than an int: gap weighting accrues halves.
+		reputation = 0,
 		-- #124: damaged defences, as { [siegeKey] = fraction of full health },
 		-- only keys below full. Fractions rather than hit points, so the same
 		-- dent survives the max moving when the plot buys land.
@@ -228,6 +231,7 @@ local function payloadOf(profile)
 		kills = profile.kills,
 		playtime = profile.playtime,
 		lastSeen = profile.lastSeen,
+		reputation = profile.reputation,
 		structure = profile.structure,
 		sessions = profile.sessions,
 		upgrades = profile.upgrades,

@@ -1,6 +1,6 @@
 --[[
-	tycoon/Siege.lua — the walls and the gate can be broken, and the owner
-	repairs them.
+	tycoon/Siege.lua — the walls and the gate can be broken, and anyone
+	present can stand them back up.
 
 	design:D-02, via #124. The wall is the boundary the open world will press
 	against: mobs will wear it down when #89 lets them reach it, a raiding
@@ -28,8 +28,10 @@
 	same door when #89 wires them.
 
 	NO REMOTE, the CollectOffline argument: a repair intent has no payload, so
-	the ProximityPrompt on the stump is the whole interface and the handler
-	re-checks the owner.
+	the ProximityPrompt on the stump is the whole interface. Since #123 the
+	repair is open to anyone — it only ever helps the plot — and a stranger's
+	repair earns a kindness credit through Tycoon.repairObserver, with the
+	breaker themselves the one exclusion.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
@@ -233,6 +235,10 @@ function Tycoon:damageStructure(key: string, amount: number, _attacker: Player?)
 	if amount <= 0 or self:structureBroken(key) then
 		return 0
 	end
+	if _attacker then
+		self.lastBreaker = self.lastBreaker or {}
+		self.lastBreaker[key] = _attacker
+	end
 	self.structureHealth[key] = math.max(0, self.structureHealth[key] - amount)
 	if self.structureHealth[key] <= 0 then
 		self:withWallRing(function(ring)
@@ -243,13 +249,29 @@ function Tycoon:damageStructure(key: string, amount: number, _attacker: Player?)
 	return amount
 end
 
---- The owner, present, holding the prompt: the whole repair. The rebuild path
---- is the ring's own idempotent builders — rebuildWallRing re-emits the
---- courses and hangGateLeaves the leaves, and applySiegeState (now healthy)
---- leaves them standing.
+-- Fired when someone repairs a plot that is not theirs (#123). Main.server
+-- points it at HelpService.credit; the arrow stays one-way, the observer
+-- shape everything else here uses.
+Tycoon.repairObserver = nil :: ((any, Player) -> ())?
+
+--- Anyone present, holding the prompt: the whole repair (#123 opened it past
+--- the owner — a repair only ever helps the plot). A helper earns credit
+--- through the observer; the one refusal is the breaker themselves, so
+--- break-and-repair cannot farm kindness. The rebuild path is the ring's own
+--- idempotent builders — rebuildWallRing re-emits the courses and
+--- hangGateLeaves the leaves, and applySiegeState (now healthy) leaves them
+--- standing.
 function Tycoon:repairStructure(key: string, player: Player): boolean
-	if player ~= self.owner or not self:structureBroken(key) then
+	if not self:structureBroken(key) then
 		return false
+	end
+	local breaker = self.lastBreaker and self.lastBreaker[key]
+	if self.lastBreaker then
+		self.lastBreaker[key] = nil
+	end
+	if player ~= self.owner and self.owner and player ~= breaker
+			and Tycoon.repairObserver then
+		Tycoon.repairObserver(self, player)
 	end
 	self.structureHealth[key] = self:siegeMaxHealth(key)
 	self:syncSiege()

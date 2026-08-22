@@ -174,6 +174,7 @@ third value neither round had guessed.
 | add a persisted field | **both** `defaultProfile()` and the explicit `save()` payload in `DataService` | nothing — this is in the `[nothing]` backlog. With only the first it works all session and is gone at next login |
 | add a wave behaviour | `Config.Waves` | wave part budget, clear time, aggro/leash relationships |
 | retune the raid economics | `Config.Raid` | the raid family: the recovery promise, the empty-unit bounty floor, kill under spill, camping decay — plus `raid_spec`'s ledger arithmetic |
+| add a kindness trigger, or retune its reward | a call into `HelpService.credit`; `Config.Help` | the help family: the boost stays a nudge, the pair cooldown outlasts the boost, the gap weight caps — plus `help_spec` |
 | add a new kind of buyable | a case in `src/server/tycoon/Installers.lua`, **and** the `kind` list in `tycoon/Tycoon.lua`'s header | `KNOWN_KINDS` in `verify_config.lua`. The header list is checked by nobody — it is the copy to do by hand |
 | reorder the factory ladder | move the ROW in `Config.FactoryButtons`; never add a `requires` | the chain-equals-table-order assertion, plus the economy simulation. The 60-minute credit cap binds before `MAX_TOTAL_MINUTES` does |
 | reorder the plot shell | move the ROW in `Config.StructureButtons` — a PARALLEL track gated on `dropper1`, not part of the factory chain | the same chain assertion, plus `roof` needs `walls` and `gates`/`windows` need `walls` |

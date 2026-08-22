@@ -62,22 +62,42 @@ T.spec("an unknown key absorbs nothing", function(t)
 		"a key nothing tracks took damage — a typo would silently discard hits")
 end)
 
-T.spec("repair needs the owner; anyone else is refused", function(t)
+T.spec("anyone repairs a broken thing; only a helper earns the credit", function(t)
+	-- #123 opened repair past the owner — a repair only ever helps the plot —
+	-- and made a stranger's repair a kindness credit through the observer.
+	-- The breaker themselves is the one exclusion, so break-and-repair
+	-- cannot farm reputation.
 	local w = T.world()
+	local Tycoon = w.req("Tycoon")
 	local owner = w.join("mason")
-	local visitor = w.join("vandal")
+	local visitor = w.join("goodneighbour")
+	local raider = w.join("vandal")
 	local plot = fakePlot(w, owner)
 
-	plot:damageStructure("gate_gateway", 1e9)
-	t:isTrue(plot:structureBroken("gate_gateway"), "the fixture never broke")
-	t:isFalse(plot:repairStructure("gate_gateway", visitor), "a visitor repaired someone else's gate")
-	t:isTrue(plot:structureBroken("gate_gateway"), "the refused repair still fixed it")
+	local credited = {}
+	Tycoon.repairObserver = function(_, player)
+		table.insert(credited, player)
+	end
 
-	t:isTrue(plot:repairStructure("gate_gateway", owner), "the owner's repair was refused")
+	plot:damageStructure("gate_gateway", 1e9, raider)
+	t:isTrue(plot:structureBroken("gate_gateway"), "the fixture never broke")
+	t:isTrue(plot:repairStructure("gate_gateway", visitor),
+		"a visitor's repair was refused — helping repair is #123's second trigger")
 	t:isFalse(plot:structureBroken("gate_gateway"), "the repair did not restore the gate")
+	t:eq(credited[1], visitor, "the helper's repair earned no credit")
+
+	plot:damageStructure("gate_gateway", 1e9, raider)
+	t:isTrue(plot:repairStructure("gate_gateway", raider),
+		"the breaker's repair was refused — the repair itself is always welcome")
+	t:eq(#credited, 1, "the breaker farmed a kindness credit out of their own vandalism")
+
+	plot:damageStructure("gate_gateway", 1e9, raider)
+	t:isTrue(plot:repairStructure("gate_gateway", owner), "the owner's repair was refused")
+	t:eq(#credited, 1, "the owner earned credit for their own plot")
 	t:eq(plot.structureHealth.gate_gateway, plot:siegeMaxHealth("gate_gateway"),
 		"the repair did not restore full health")
 	t:isFalse(plot:repairStructure("gate_gateway", owner), "an intact gate accepted a repair")
+	Tycoon.repairObserver = nil
 end)
 
 T.spec("part names resolve to stable keys, and only siege parts resolve", function(t)

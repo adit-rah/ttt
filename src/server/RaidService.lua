@@ -31,6 +31,7 @@ local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShare
 local Config = Req("Config")
 local Util = Req("Util")
 local Economy = Req("Economy")
+local HelpService = Req("HelpService")
 
 local Players = game:GetService("Players")
 
@@ -179,6 +180,12 @@ function RaidService.onPlayerDied(victim: Player, killer: Player?, now: number)
 					Economy.notify(source, { kind = "claim", title = "Recovered",
 						body = ("%s went down — %s of your Tung came home.")
 							:format(victim.Name, Util.abbreviate(returned)) })
+				end
+				-- downing a thief is a kindness to everyone they robbed;
+				-- getting your OWN money back is self-interest, and credit()
+				-- refuses self-help anyway
+				if killer and killer ~= source then
+					HelpService.credit(killer, source, "raid defence", now)
 				end
 			end
 		end
