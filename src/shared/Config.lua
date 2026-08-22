@@ -1834,6 +1834,28 @@ function Config.powerFactor(owns: (string) -> boolean): number
 	return factor
 end
 
+--- design:D-02 — THE income model, in the one file all three readers reach.
+--- Tung/sec for a factory owning `has(id)`: dropper value over rate, summed,
+--- times every owned upgrader, times the generator. Per-player terms (rebirth,
+--- session multipliers) belong to the callers — Tycoon:incomePerSecond adds
+--- the live multiplier stack, SessionService.incomePerSecondFor adds the
+--- rebirth term from a saved profile, and the verifier's progression
+--- simulation uses this number raw. Pure arithmetic, like Config.powerFactor,
+--- so the verifier can execute it.
+function Config.incomeRate(has: (string) -> boolean): number
+	local total, upgradeMult = 0, 1
+	for id, def in pairs(Config.ButtonById) do
+		if has(id) then
+			if def.kind == "Dropper" then
+				total += def.dropValue / def.dropRate
+			elseif def.kind == "Upgrader" then
+				upgradeMult *= def.multiplier
+			end
+		end
+	end
+	return total * upgradeMult * Config.powerFactor(has)
+end
+
 Config.Combat = {
 	ComboWindow = 1.6,          -- seconds to chain a swing
 	-- One more swing animation than there are combo stacks, because stack 0 is

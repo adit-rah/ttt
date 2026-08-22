@@ -4502,8 +4502,18 @@ for _, track in ipairs(Config.TrackOrder) do
 end
 
 local cash = Config.Economy.StartingCash
-local elapsed, rawDps, upgradeMult = 0, 0, 1
+local elapsed, upgradeMult = 0, 1
 local curve = {}
+
+-- The income at every step is Config.incomeRate over what the sim has bought
+-- so far — the same function the two runtime readers wrap, so the sim cannot
+-- drift from the game. `upgradeMult` and `power` survive as bookkeeping: the
+-- report prints the stack, and the payback check below needs each power
+-- purchase's before/after factor.
+local ownedSoFar = {}
+local function ownsSoFar(id: string): boolean
+	return ownedSoFar[id] == true
+end
 
 -- THE SPINE, which is N interleaved ladders.
 --
@@ -4566,7 +4576,7 @@ while true do
 	if pick == nil then break end
 	local def = pick.def
 
-	local income = rawDps * upgradeMult * power
+	local income = Config.incomeRate(ownsSoFar)
 	local shortfall = math.max(0, def.price - cash)
 	local wait = 0
 	if shortfall > 0 then
@@ -4583,33 +4593,31 @@ while true do
 
 	cash = math.max(cash, def.price) - def.price
 	local previousPower = power
-	-- DISPATCHED ON KIND, NOT ON WHICH LANE IT CAME FROM. The two-index form
-	-- asked `takePower` and only consulted dropValue/multiplier on the other
-	-- branch, so a Dropper row on the power track would have been bought, paid
-	-- for and silently produced nothing. With three lanes the "which lane" and
-	-- "what does it do" questions are no longer the same question, and only one
-	-- of them was ever the one being asked.
+	-- Income itself comes from Config.incomeRate; this dispatch is the
+	-- bookkeeping the report and the payback check still need. Dispatched on
+	-- KIND, not on which lane it came from — the "which lane" and "what does
+	-- it do" questions are different questions, and only one of them is being
+	-- asked here.
 	if def.kind == "Power" then
 		power = def.factor
-	elseif def.kind == "Dropper" then
-		rawDps += def.dropValue / def.dropRate
 	elseif def.kind == "Upgrader" then
 		upgradeMult *= def.multiplier
 	end
+	ownedSoFar[def.id] = true
 	pick.lane.index += 1
 
 	-- `earned` is everything the plot has produced by this point, ignoring what
 	-- was spent. It is the budget a side-track purchase competes for.
 	table.insert(curve, {
 		id = def.id, wait = wait, at = elapsed,
-		income = rawDps * upgradeMult * power,
+		income = Config.incomeRate(ownsSoFar),
 		earned = (curve[#curve] and curve[#curve].earned or 0) + (wait ~= math.huge and wait or 0) * income,
 		isPower = def.kind == "Power", price = def.price,
 		previousPower = previousPower, power = power,
 	})
 end
 
-local endgameIncome = rawDps * upgradeMult * power
+local endgameIncome = Config.incomeRate(ownsSoFar)
 check(elapsed / 60 >= MIN_TOTAL_MINUTES,
 	("full build takes only %.0f min (want >= %d) — the game is over too fast"):format(elapsed / 60, MIN_TOTAL_MINUTES))
 check(elapsed / 60 <= MAX_TOTAL_MINUTES,

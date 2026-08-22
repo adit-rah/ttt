@@ -2,12 +2,12 @@
 	tycoon/Income.lua — what a plot is worth per second, and the signs that quote
 	it.
 
-	incomePerSecond IS THE MODEL: sum the droppers, multiply by the upgraders, by
-	Config.powerFactor and by the rebirth multiplier. It exists twice on purpose
-	— SessionService.incomePerSecondFor mirrors it from a SAVED profile, because
-	an offline player has no plot to ask — and the verifier's economy simulation
-	is a third reader of the same rule. Change the shape here and both of those
-	are part of the change.
+	THE MODEL LIVES IN Config.incomeRate, and this file is one of its three
+	readers. incomePerSecond wraps it with the live multiplier stack;
+	SessionService.incomePerSecondFor wraps it with the rebirth term from a
+	SAVED profile, because an offline player has no plot to ask; the verifier's
+	progression simulation reads it raw. Change the shape in Config and the
+	wrappers stay one line each.
 
 	refineryMultiplierFor is the REALITY the model has to keep agreeing with. A
 	path with no upgraders of its own is refined by the plot's at the vault,
@@ -41,24 +41,10 @@ function Tycoon:incomePerSecond(extraId: string?): number
 		return self.owned[id] == true or id == extraId
 	end
 
-	local upgradeMult = 1
-	local total = 0
-	for id, def in pairs(Config.ButtonById) do
-		if has(id) then
-			if def.kind == "Upgrader" then
-				upgradeMult *= def.multiplier
-			elseif def.kind == "Dropper" then
-				total += (def.dropValue / def.dropRate)
-			end
-		end
-	end
+	-- Economy.multiplier carries rebirth and every session hook; the factory
+	-- itself is Config.incomeRate, the one copy of the arithmetic.
 	local rebirthMult = self.owner and Economy.multiplier(self.owner) or 1
-	-- The generator multiplies production, so it multiplies income. Through
-	-- Config.powerFactor rather than a loop of its own, because the offline
-	-- mirror in SessionService and the verifier's economy sim both need the
-	-- same answer and three hand-maintained copies of an arithmetic rule is
-	-- exactly the bug this round has already fixed once.
-	return total * upgradeMult * Config.powerFactor(has) * rebirthMult
+	return Config.incomeRate(has) * rebirthMult
 end
 
 --- What a drop arriving from `pathId` is multiplied by at the vault.

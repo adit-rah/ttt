@@ -166,26 +166,17 @@ function SessionService.incomePerSecondFor(profile): number
 	if type(profile) ~= "table" then
 		return 0
 	end
-	local upgradeMult, total = 1, 0
-	for id, owned in pairs(profile.owned or {}) do
-		local def = owned and Config.ButtonById[id]
-		if def then
-			if def.kind == "Upgrader" then
-				upgradeMult *= def.multiplier
-			elseif def.kind == "Dropper" then
-				total += def.dropValue / def.dropRate
-			end
-		end
-	end
+	local owned = profile.owned or {}
 	local rebirths = math.max(0, math.floor(tonumber(profile.rebirths) or 0))
-	-- The generator IS included, for the same reason the rebirth multiplier is
-	-- and the boost is not: it is a property of the factory, bought once and
-	-- standing there whether or not anyone is logged in. Excluding it would pay
-	-- an offline player as though their yard were empty.
-	local power = Config.powerFactor(function(id)
-		return (profile.owned or {})[id] == true
-	end)
-	return total * upgradeMult * power * (Config.Rebirth.MultiplierPerRebirth ^ rebirths)
+	-- Config.incomeRate includes the generator, for the same reason the
+	-- rebirth multiplier is included and the boost is not: it is a property of
+	-- the factory, bought once and standing there whether or not anyone is
+	-- logged in. Session hooks are excluded by construction — the rate is the
+	-- factory's, and the only per-player term an absent player keeps is the
+	-- rebirth multiplier added here.
+	return Config.incomeRate(function(id)
+		return owned[id] == true
+	end) * (Config.Rebirth.MultiplierPerRebirth ^ rebirths)
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
