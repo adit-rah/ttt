@@ -889,6 +889,20 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   order, and run out — a player past every milestone is not nagged. `[spec]` + `[assert]`
   on the stat names.
 
+### The guide (#100)
+
+- **The guide is purely informational, and its mouth is a hook.** `Tycoon.guideSpeaker`
+  is wired in Main.server to the hint machinery (`ObjectiveService.hintFor`), so the
+  mixin never learns what an objective is and the guide says more over time for free —
+  the hint ladder runs out, the fallback line stays. `[nothing]` beyond the wiring shape;
+  the hint selection itself is `[spec]`'d in objective_spec.
+- **It answers ANY player**, visitor included — a visitor hears the guide's flavour with
+  their own hint, which is a kindness surface. `[nothing]`
+- **`Layout.GuideAt` is checked furniture**: inside the plot, clear of the buy-button
+  rows and the belt, like every other placed thing. `[assert]`, falsified off-plot.
+- Props-parented and idempotent by name on the refreshButtons beat, so it leaves with
+  the tenancy and survives every rebuild. `[nothing]`
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch

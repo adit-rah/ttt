@@ -2304,6 +2304,8 @@ local pads = {
 	{ id = "ClaimPadAt", spot = L.ClaimPadAt, margin = 17, size = Vector3.new(14, 1, 14), floor = GROUND },
 	-- not a pad: the volume a body occupies where the owner is put down
 	{ id = "OwnerSpawnAt", spot = L.OwnerSpawnAt, margin = 3, size = Vector3.new(6, 1, 6), floor = GROUND },
+	-- the guide (#100): a small body plus its prompt's reach
+	{ id = "GuideAt", spot = L.GuideAt, margin = 3, size = Vector3.new(4, 1, 4), floor = GROUND },
 }
 
 -- THE SOLID THINGS ON THE PLOT FLOOR THAT ARE NOT PEDESTALS. Just the vault

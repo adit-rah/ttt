@@ -25,6 +25,7 @@
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
 local Style = Req("Style")
+local TungModels = Req("TungModels")
 local Fx = Req("Fx")
 local Economy = Req("Economy")
 local Tycoon = Req("Class")
@@ -197,6 +198,56 @@ function Tycoon:refreshGenerator()
 	return model
 end
 
+
+-- The guide's mouth (#100): Main.server points this at the hint machinery,
+-- so the mixin never learns what an objective is. (tycoon, player) -> ().
+Tycoon.guideSpeaker = nil :: ((any, Player) -> ())?
+
+--- The guide (#100): a small Tung beside the spawn aisle that speaks the
+--- current hint. Idempotent by name, on the refreshButtons beat like the
+--- yard; props-parented, so it leaves with the tenancy. Purely informational
+--- — its whole mechanical surface is one prompt.
+function Tycoon:ensureGuide()
+	-- fixture plots in the harness carry no props folder; the guide is parts
+	if not self.props then
+		return
+	end
+	local existing = self.props:FindFirstChild("Guide")
+	if not self.owner then
+		if existing then
+			existing:Destroy()
+		end
+		return
+	end
+	if existing then
+		return
+	end
+	local model = Instance.new("Model")
+	model.Name = "Guide"
+	model.Parent = self.props
+
+	local spot = Config.Layout.GuideAt
+	local guide = TungModels.buildStatue("classic", 0.9)
+	guide:PivotTo(self:at(spot.X, 2.6, spot.Z) * CFrame.Angles(0, math.pi, 0))
+	guide.Parent = model
+
+	local anchor = guide.PrimaryPart or guide:FindFirstChildWhichIsA("BasePart")
+	if anchor then
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "TalkToGuide"
+		prompt.ActionText = "Talk"
+		prompt.ObjectText = "Your Tung"
+		prompt.HoldDuration = 0
+		prompt.MaxActivationDistance = 10
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = anchor
+		prompt.Triggered:Connect(function(player)
+			if Tycoon.guideSpeaker then
+				Tycoon.guideSpeaker(self, player)
+			end
+		end)
+	end
+end
 
 function Tycoon:buildRebirthPad()
 	local folder = Instance.new("Folder")

@@ -366,6 +366,9 @@ __MODULES["Config"] = function()
 		-- Where the owner lands on claim and on every respawn: just inside the
 		-- gateway, on the aisle, looking down plot-local -Z at the machines.
 		OwnerSpawnAt = Vector3.new(14, 5, 44),
+		-- The guide (#100): a small Tung standing beside the owner's spawn aisle,
+		-- inside the gateway, where every session walks past it.
+		GuideAt = Vector3.new(24, 0, 40),
 
 		-- The front wall's gateway. It sits over the open aisle on the right, NOT
 		-- at x = 0: the belt and the vault occupy the left half of the plot, and a
@@ -15743,6 +15746,7 @@ __MODULES["Buttons"] = function()
 		-- of them have to survive all four. The cabinets used to hang here too;
 		-- they left with #108.
 		self:ensureYard()
+		self:ensureGuide()
 		self:refreshGenerator()
 	end
 
@@ -17579,6 +17583,7 @@ __MODULES["Props"] = function()
 	local Req = __Req
 	local Config = Req("Config")
 	local Style = Req("Style")
+	local TungModels = Req("TungModels")
 	local Fx = Req("Fx")
 	local Economy = Req("Economy")
 	local Tycoon = Req("Class")
@@ -17751,6 +17756,56 @@ __MODULES["Props"] = function()
 		return model
 	end
 
+
+	-- The guide's mouth (#100): Main.server points this at the hint machinery,
+	-- so the mixin never learns what an objective is. (tycoon, player) -> ().
+	Tycoon.guideSpeaker = nil :: ((any, Player) -> ())?
+
+	--- The guide (#100): a small Tung beside the spawn aisle that speaks the
+	--- current hint. Idempotent by name, on the refreshButtons beat like the
+	--- yard; props-parented, so it leaves with the tenancy. Purely informational
+	--- — its whole mechanical surface is one prompt.
+	function Tycoon:ensureGuide()
+		-- fixture plots in the harness carry no props folder; the guide is parts
+		if not self.props then
+			return
+		end
+		local existing = self.props:FindFirstChild("Guide")
+		if not self.owner then
+			if existing then
+				existing:Destroy()
+			end
+			return
+		end
+		if existing then
+			return
+		end
+		local model = Instance.new("Model")
+		model.Name = "Guide"
+		model.Parent = self.props
+
+		local spot = Config.Layout.GuideAt
+		local guide = TungModels.buildStatue("classic", 0.9)
+		guide:PivotTo(self:at(spot.X, 2.6, spot.Z) * CFrame.Angles(0, math.pi, 0))
+		guide.Parent = model
+
+		local anchor = guide.PrimaryPart or guide:FindFirstChildWhichIsA("BasePart")
+		if anchor then
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.Name = "TalkToGuide"
+			prompt.ActionText = "Talk"
+			prompt.ObjectText = "Your Tung"
+			prompt.HoldDuration = 0
+			prompt.MaxActivationDistance = 10
+			prompt.RequiresLineOfSight = false
+			prompt.Parent = anchor
+			prompt.Triggered:Connect(function(player)
+				if Tycoon.guideSpeaker then
+					Tycoon.guideSpeaker(self, player)
+				end
+			end)
+		end
+	end
 
 	function Tycoon:buildRebirthPad()
 		local folder = Instance.new("Folder")
@@ -18912,6 +18967,15 @@ DisclosureService.start()
 ShopService.start()
 -- Objectives (#97): reads persisted stats on a beat; no ordering needs.
 ObjectiveService.start()
+-- The guide (#100): its mouth is the hint machinery, one arrow, one line.
+-- It answers ANY player who talks to it — a visitor gets the owner's guide's
+-- flavour, which is a kindness surface, not a leak.
+Tycoon.guideSpeaker = function(tycoon, player)
+	local profile = DataService.get(player)
+	local hint = profile and ObjectiveService.hintFor(profile)
+	Economy.notify(player, { kind = "info", title = "Your Tung says",
+		body = hint or "Tung tung. The middle pays best. Come back when something new unlocks." })
+end
 SocialService.start()
 
 -- 6. players

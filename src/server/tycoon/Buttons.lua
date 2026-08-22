@@ -459,6 +459,7 @@ function Tycoon:refreshButtons()
 	-- of them have to survive all four. The cabinets used to hang here too;
 	-- they left with #108.
 	self:ensureYard()
+	self:ensureGuide()
 	self:refreshGenerator()
 end
 
