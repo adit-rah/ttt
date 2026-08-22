@@ -36,8 +36,11 @@ function Tycoon:landState()
 	return Config.landCounts(self.owned)
 end
 
---- One expansion's ground: the slab, and neon strips along its front, back
---- and (for the outermost owned strip) outer edge.
+--- One expansion's ground: the slab, neon strips along its front, back and
+--- (for the outermost owned strip) outer edge — and the sub-belt it arrives
+--- with (#109): the strip's own path gets its surfaces, corner sensors and a
+--- plain collector, all parented into this model so tearing the strip down
+--- takes its conveyor with it.
 local function buildSlab(self, folder, def, outermost)
 	local rect = Config.landRect(def.id)
 	local model = Instance.new("Model")
@@ -48,6 +51,12 @@ local function buildSlab(self, folder, def, outermost)
 	local centreX = (rect.fromX + rect.toX) / 2
 	newPart(model, "Slab", Vector3.new(width, W.PlotSize.Y, W.PlotSize.Z),
 		self:at(centreX, -W.PlotSize.Y / 2, 0), SLAB_COLOR, Enum.Material.Concrete)
+
+	local pathIndex = self:pathIndexOf({ id = def.id, path = def.id })
+	if pathIndex and self.paths[pathIndex] then
+		self:buildBelt(pathIndex, model)
+		self:buildCollector(pathIndex, model, false)
+	end
 
 	local halfZ = W.PlotSize.Z / 2
 	local edges = {

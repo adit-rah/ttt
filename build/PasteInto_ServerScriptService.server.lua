@@ -1186,8 +1186,10 @@ __MODULES["Config"] = function()
 		DropLifetime = 45,          -- seconds before an orphaned drop despawns
 		-- The VISUAL budget: drops are cosmetic, so past this cap a drop simply
 		-- is not drawn and nothing is lost. Still a hard cap — a mega-tycoon's
-		-- parts in flight is a server cost whatever the drops are worth.
-		MaxDropsPerPlot = 70,
+		-- parts in flight is a server cost whatever the drops are worth. 80
+		-- since #109: eleven belts share it, and the strips' slow spawners put
+		-- the modelled peak at 75.
+		MaxDropsPerPlot = 80,
 		OfflineGraceSeconds = 180,  -- keep a plot reserved this long after a disconnect
 	}
 
@@ -1246,9 +1248,9 @@ __MODULES["Config"] = function()
 		--
 		-- THE RANK IS THE THING TO PRESERVE, not the number. If the spine grows or
 		-- shrinks, check that rank 6 still names a rung near the top of the build —
-		-- it is currently `dropper9` at 115000000, which rounds to a BaseCost of
-		-- 120000000, and the five rungs above it are power4, landL5, landR5,
-		-- upgrader6 and dropper10.
+		-- it is currently `landL5_u1` at 9.05e9, rounding to a BaseCost of 9.1e9,
+		-- and the five rungs above it are the frontier lots' machines and
+		-- dropper10.
 		PriceRung = 6,
 		CostGrowth = 3.4,            -- cost multiplier per rebirth
 		MultiplierPerRebirth = 2.25, -- payout multiplier is this ^ rebirths
@@ -1539,49 +1541,49 @@ __MODULES["Config"] = function()
 			blurb = "Sharks approve. x2.1",
 		},
 		{
-			id = "dropper6", name = "Neon Tung", price = 152000,
+			id = "dropper6", name = "Neon Tung", price = 172000,
 			kind = "Dropper", slot = 6, variant = "neon",
 			dropValue = 620, dropRate = 1.25,
 			blurb = "3am energy drink sahur.",
 		},
 		{
-			id = "dropper7", name = "Void Tung", price = 800000,
+			id = "dropper7", name = "Void Tung", price = 1490000,
 			kind = "Dropper", slot = 7, variant = "void",
 			dropValue = 2600, dropRate = 1.2,
 			blurb = "tung from beyond.",
 		},
 		{
-			id = "upgrader4", name = "Void Furnace", price = 3900000,
+			id = "upgrader4", name = "Void Furnace", price = 11700000,
 			kind = "Upgrader", slot = 4, variant = "void",
 			multiplier = 2.4,
 			blurb = "Melts them into money. x2.4",
 		},
 		{
-			id = "dropper8", name = "Eclipse Tung", price = 10000000,
+			id = "dropper8", name = "Eclipse Tung", price = 39800000,
 			kind = "Dropper", slot = 8, variant = "eclipse",
 			dropValue = 11000, dropRate = 1.15,
 			blurb = "Sahur at the end of the night.",
 		},
 		{
-			id = "upgrader5", name = "Eclipse Ascension", price = 41000000,
+			id = "upgrader5", name = "Eclipse Ascension", price = 249000000,
 			kind = "Upgrader", slot = 5, variant = "eclipse",
 			multiplier = 2.8,
 			blurb = "Ascends the tung. x2.8",
 		},
 		{
-			id = "dropper9", name = "Galaxy Tung", price = 115000000,
+			id = "dropper9", name = "Galaxy Tung", price = 953000000,
 			kind = "Dropper", slot = 9, variant = "galaxy",
 			dropValue = 48000, dropRate = 1.1,
 			blurb = "tung tung tung across the stars.",
 		},
 		{
-			id = "upgrader6", name = "Tung Singularity", price = 650000000,
+			id = "upgrader6", name = "Tung Singularity", price = 9050000000,
 			kind = "Upgrader", slot = 6, variant = "galaxy",
 			multiplier = 3.4,
 			blurb = "Do not look directly at it. x3.4",
 		},
 		{
-			id = "dropper10", name = "INFINITY TUNG TUNG TUNG SAHUR", price = 2400000000,
+			id = "dropper10", name = "INFINITY TUNG TUNG TUNG SAHUR", price = 49500000000,
 			kind = "Dropper", slot = 10, variant = "infinity",
 			dropValue = 240000, dropRate = 1.0,
 			blurb = "TUNG TUNG TUNG TUNG TUNG TUNG SAHUR",
@@ -1641,65 +1643,219 @@ __MODULES["Config"] = function()
 	--
 	-- `width` on the row rather than in a second geometry table, the same way a
 	-- Dropper row carries dropValue: one row is the whole fact of one expansion.
+	-- design:D-02, via #88 and #109 — a land row is the strip; the dropper and
+	-- upgrader rows after it are what an expansion DELIVERS, in the strict
+	-- order the chain enforces: ground, then its machines, then more ground.
+	-- The upgrader is #93's "one additional upgrade level for every dropper
+	-- the plot already has", made literal: Config.incomeRate multiplies every
+	-- dropper by every owned upgrader, wherever either stands.
 	Config.LandLButtons = {
 		{
-			id = "landL1", name = "West Lot I", price = 85000,
+			id = "landL1", name = "West Lot I", price = 120000,
 			kind = "Land", side = "left", width = 44,
 			blurb = "Ground to grow on.",
 		},
 		{
-			id = "landL2", name = "West Lot II", price = 340000,
+			id = "landL1_d1", name = "West Tung I", price = 168000,
+			kind = "Dropper", variant = "golden",
+			path = "landL1", legIndex = 1, legDistance = 20,
+			dropValue = 1600, dropRate = 2.3,
+			blurb = "tung, further out.",
+		},
+		{
+			id = "landL1_u1", name = "West Refiner I", price = 230000,
+			kind = "Upgrader", variant = "golden",
+			path = "landL1", legIndex = 1, legDistance = 55,
+			multiplier = 1.18,
+			blurb = "Every dropper, a level up. x1.18",
+		},
+		{
+			id = "landL2", name = "West Lot II", price = 1530000,
 			kind = "Land", side = "left", width = 36,
 			blurb = "The factory spreads west.",
 		},
 		{
-			id = "landL3", name = "West Lot III", price = 1350000,
+			id = "landL2_d1", name = "West Tung II", price = 2390000,
+			kind = "Dropper", variant = "crimson",
+			path = "landL2", legIndex = 1, legDistance = 20,
+			dropValue = 5600, dropRate = 2.2,
+			blurb = "tung, further out.",
+		},
+		{
+			id = "landL2_u1", name = "West Refiner II", price = 3680000,
+			kind = "Upgrader", variant = "crimson",
+			path = "landL2", legIndex = 1, legDistance = 55,
+			multiplier = 1.2,
+			blurb = "Every dropper, a level up. x1.2",
+		},
+		{
+			id = "landL3", name = "West Lot III", price = 9050000,
 			kind = "Land", side = "left", width = 28,
 			blurb = "Further west.",
 		},
 		{
-			id = "landL4", name = "West Lot IV", price = 5600000,
+			id = "landL3_d1", name = "West Tung III", price = 14500000,
+			kind = "Dropper", variant = "neon",
+			path = "landL3", legIndex = 1, legDistance = 20,
+			dropValue = 21000, dropRate = 2.1,
+			blurb = "tung, further out.",
+		},
+		{
+			id = "landL3_u1", name = "West Refiner III", price = 22300000,
+			kind = "Upgrader", variant = "neon",
+			path = "landL3", legIndex = 1, legDistance = 55,
+			multiplier = 1.22,
+			blurb = "Every dropper, a level up. x1.22",
+		},
+		{
+			id = "landL4", name = "West Lot IV", price = 61700000,
 			kind = "Land", side = "left", width = 23,
 			blurb = "The neighbours moved out.",
 		},
 		{
-			id = "landL5", name = "West Lot V", price = 480000000,
+			id = "landL4_d1", name = "West Tung IV", price = 98000000,
+			kind = "Dropper", variant = "void",
+			path = "landL4", legIndex = 1, legDistance = 20,
+			dropValue = 80000, dropRate = 2.0,
+			blurb = "tung, further out.",
+		},
+		{
+			id = "landL4_u1", name = "West Refiner IV", price = 152000000,
+			kind = "Upgrader", variant = "void",
+			path = "landL4", legIndex = 1, legDistance = 55,
+			multiplier = 1.24,
+			blurb = "Every dropper, a level up. x1.24",
+		},
+		{
+			id = "landL5", name = "West Lot V", price = 8160000000,
 			kind = "Land", side = "left", width = 19,
 			blurb = "The western frontier.",
+		},
+		{
+			id = "landL5_d1", name = "West Tung V", price = 13800000000,
+			kind = "Dropper", variant = "galaxy",
+			path = "landL5", legIndex = 1, legDistance = 20,
+			dropValue = 230000, dropRate = 1.9,
+			blurb = "tung, further out.",
+		},
+		{
+			id = "landL5_u1", name = "West Refiner V", price = 23400000000,
+			kind = "Upgrader", variant = "galaxy",
+			path = "landL5", legIndex = 1, legDistance = 55,
+			multiplier = 1.26,
+			blurb = "Every dropper, a level up. x1.26",
 		},
 	}
 
 	Config.LandRButtons = {
 		{
-			id = "landR1", name = "East Lot I", price = 93000,
+			id = "landR1", name = "East Lot I", price = 132000,
 			kind = "Land", side = "right", width = 44,
 			blurb = "Ground to grow on.",
 		},
 		{
-			id = "landR2", name = "East Lot II", price = 374000,
+			id = "landR1_d1", name = "East Tung I", price = 185000,
+			kind = "Dropper", variant = "golden",
+			path = "landR1", legIndex = 1, legDistance = 20,
+			dropValue = 1700, dropRate = 2.3,
+			blurb = "tung, further out.",
+		},
+		{
+			id = "landR1_u1", name = "East Refiner I", price = 253000,
+			kind = "Upgrader", variant = "golden",
+			path = "landR1", legIndex = 1, legDistance = 55,
+			multiplier = 1.18,
+			blurb = "Every dropper, a level up. x1.18",
+		},
+		{
+			id = "landR2", name = "East Lot II", price = 1680000,
 			kind = "Land", side = "right", width = 36,
 			blurb = "The factory spreads east.",
 		},
 		{
-			id = "landR3", name = "East Lot III", price = 1480000,
+			id = "landR2_d1", name = "East Tung II", price = 2630000,
+			kind = "Dropper", variant = "crimson",
+			path = "landR2", legIndex = 1, legDistance = 20,
+			dropValue = 6000, dropRate = 2.2,
+			blurb = "tung, further out.",
+		},
+		{
+			id = "landR2_u1", name = "East Refiner II", price = 4050000,
+			kind = "Upgrader", variant = "crimson",
+			path = "landR2", legIndex = 1, legDistance = 55,
+			multiplier = 1.2,
+			blurb = "Every dropper, a level up. x1.2",
+		},
+		{
+			id = "landR3", name = "East Lot III", price = 9960000,
 			kind = "Land", side = "right", width = 28,
 			blurb = "Further east.",
 		},
 		{
-			id = "landR4", name = "East Lot IV", price = 6100000,
+			id = "landR3_d1", name = "East Tung III", price = 16000000,
+			kind = "Dropper", variant = "neon",
+			path = "landR3", legIndex = 1, legDistance = 20,
+			dropValue = 23000, dropRate = 2.1,
+			blurb = "tung, further out.",
+		},
+		{
+			id = "landR3_u1", name = "East Refiner III", price = 24500000,
+			kind = "Upgrader", variant = "neon",
+			path = "landR3", legIndex = 1, legDistance = 55,
+			multiplier = 1.22,
+			blurb = "Every dropper, a level up. x1.22",
+		},
+		{
+			id = "landR4", name = "East Lot IV", price = 67900000,
 			kind = "Land", side = "right", width = 23,
 			blurb = "The neighbours moved out.",
 		},
 		{
-			id = "landR5", name = "East Lot V", price = 528000000,
+			id = "landR4_d1", name = "East Tung IV", price = 108000000,
+			kind = "Dropper", variant = "void",
+			path = "landR4", legIndex = 1, legDistance = 20,
+			dropValue = 88000, dropRate = 2.0,
+			blurb = "tung, further out.",
+		},
+		{
+			id = "landR4_u1", name = "East Refiner IV", price = 167000000,
+			kind = "Upgrader", variant = "void",
+			path = "landR4", legIndex = 1, legDistance = 55,
+			multiplier = 1.24,
+			blurb = "Every dropper, a level up. x1.24",
+		},
+		{
+			id = "landR5", name = "East Lot V", price = 8980000000,
 			kind = "Land", side = "right", width = 19,
 			blurb = "The eastern frontier.",
 		},
+		{
+			id = "landR5_d1", name = "East Tung V", price = 15200000000,
+			kind = "Dropper", variant = "galaxy",
+			path = "landR5", legIndex = 1, legDistance = 20,
+			dropValue = 250000, dropRate = 1.9,
+			blurb = "tung, further out.",
+		},
+		{
+			id = "landR5_u1", name = "East Refiner V", price = 25700000000,
+			kind = "Upgrader", variant = "galaxy",
+			path = "landR5", legIndex = 1, legDistance = 55,
+			multiplier = 1.26,
+			blurb = "Every dropper, a level up. x1.26",
+		},
 	}
 
-	--- The land rows for one side, in purchase order, outward.
+	--- The LAND rows for one side, in purchase order, outward. The tables also
+	--- carry each strip's machine rows (#109), so everything geometric filters to
+	--- kind Land — the strips are the ground, the machines just stand on it.
 	function Config.landRows(side: string)
-		return side == "left" and Config.LandLButtons or Config.LandRButtons
+		local rows = {}
+		for _, def in ipairs(side == "left" and Config.LandLButtons or Config.LandRButtons) do
+			if def.kind == "Land" then
+				table.insert(rows, def)
+			end
+		end
+		return rows
 	end
 
 	--- Cumulative outer |x| after each expansion on one side: one entry per row,
@@ -1767,6 +1923,44 @@ __MODULES["Config"] = function()
 			return Vector3.new(-16, 0, 30)
 		end
 		return Vector3.new(16, 0, 30)
+	end
+
+	-- design:D-02, via #109 — the sub-belt every strip arrives with. One leg,
+	-- running frontward down the strip, inset from the strip's INNER edge so the
+	-- narrowest lots still hold their machines: machines stand outboard (toward
+	-- the plot's outer wall), buy pedestals inboard on the aisle side.
+	Config.Land = {
+		StripBeltInset = 5,    -- belt centre line, in from the strip's inner edge
+		BeltFrom = -50,        -- the leg's start (z), back of the strip
+		BeltTo = 40,           -- the leg's end (z); the collector sits past it
+		CollectorZ = 52,
+		DropperDistance = 20,  -- along the leg, matching the machine rows' pins
+		UpgraderDistance = 55,
+	}
+
+	--- A strip's belt, as a Config.BeltPaths entry. Registered for every strip at
+	--- plot construction — a path is pure maths, and the buy buttons standing on
+	--- an unbought strip need it to exist to know their own place — while the
+	--- strip's PARTS wait for the purchase (ensureLand). Component arithmetic
+	--- only: the verifier's Vector3 has no operators.
+	function Config.landBeltPath(def)
+		local rect = Config.landRect(def.id)
+		local inner = (rect.side == "left") and rect.toX or rect.fromX
+		local outward = (rect.side == "left") and -1 or 1
+		local x = inner + outward * Config.Land.StripBeltInset
+		-- resolvePath's normal for a +z leg is (-1, 0, 0) x sign, so +1 points
+		-- the machines west and -1 east; either way, toward the outer wall.
+		local outboardSign = (rect.side == "left") and 1 or -1
+		return {
+			id = def.id,
+			y = 0,
+			points = {
+				Vector3.new(x, 0, Config.Land.BeltFrom),
+				Vector3.new(x, 0, Config.Land.BeltTo),
+			},
+			outboard = { outboardSign },
+			collectorAt = Vector3.new(x, 0, Config.Land.CollectorZ),
+		}
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -2972,6 +3166,16 @@ __MODULES["Config"] = function()
 		Config.World.PlotMaxWidth = width
 	end
 
+	-- Every strip's sub-belt joins Config.BeltPaths here, after the land tables
+	-- and the path derivation both exist. Registered data, built parts: the belt
+	-- assertions and the drop budget see all eleven paths, and ensureLand builds
+	-- each strip's surfaces only when the strip is standing.
+	for _, side in ipairs({ "left", "right" }) do
+		for _, def in ipairs(Config.landRows(side)) do
+			table.insert(Config.BeltPaths, Config.landBeltPath(def))
+		end
+	end
+
 	Config.World.PlotCount = Config.plotCountFor()
 	Config.World.PlotPlacements = Config.plotPlacements(Config.World.PlotCount)
 	Config.World.PlotRadius = Config.World.PlotPlacements[1].radius   -- inner ring
@@ -3178,6 +3382,23 @@ __MODULES["Config"] = function()
 		return false
 	end
 
+	--- Whether one row survives a rebirth. Per-track via TrackInfo, with one
+	--- carve-out: on a land track the GROUND survives (design:D-03 — rebirth
+	--- raises the ceiling, and the ground is the ceiling) while the machines
+	--- standing on it reset — an upgrader that outlived the wipe would multiply
+	--- the next build from minute zero, which is the generator's argument one
+	--- track over.
+	function Config.keptOnRebirth(def): boolean
+		local info = Config.TrackInfo[def.track]
+		if not info or not info.keepOnRebirth then
+			return false
+		end
+		if info.furniture == "land" then
+			return def.kind == "Land"
+		end
+		return true
+	end
+
 	Config.Buttons = {}
 	Config.ButtonById = {}
 	for _, track in ipairs(Config.TrackOrder) do
@@ -3294,10 +3515,11 @@ __MODULES["Config"] = function()
 		-- Platform limits. Named rather than written as literals in the verifier so
 		-- the failure message can quote the number that was exceeded.
 		MaxFields = 3,
-		-- Raised from 40 when the ten land rows joined the milestone set: the set
-		-- is every button plus "none", and the binding budget is MaxCombinations,
-		-- which is asserted separately.
-		MaxFieldValues = 48,      -- widest single value set we will allow ourselves
+		-- Raised from 40 when the land rows joined the milestone set (48, then 72
+		-- when #109 put each strip's machines on the chain): the set is every
+		-- button plus "none", and the binding budget is MaxCombinations, which is
+		-- asserted separately.
+		MaxFieldValues = 72,      -- widest single value set we will allow ourselves
 		MaxCombinations = 8000,
 		MaxEventNames = 100,
 		MaxEconomySkus = 100,
@@ -14668,8 +14890,11 @@ __MODULES["Land"] = function()
 		return Config.landCounts(self.owned)
 	end
 
-	--- One expansion's ground: the slab, and neon strips along its front, back
-	--- and (for the outermost owned strip) outer edge.
+	--- One expansion's ground: the slab, neon strips along its front, back and
+	--- (for the outermost owned strip) outer edge — and the sub-belt it arrives
+	--- with (#109): the strip's own path gets its surfaces, corner sensors and a
+	--- plain collector, all parented into this model so tearing the strip down
+	--- takes its conveyor with it.
 	local function buildSlab(self, folder, def, outermost)
 		local rect = Config.landRect(def.id)
 		local model = Instance.new("Model")
@@ -14680,6 +14905,12 @@ __MODULES["Land"] = function()
 		local centreX = (rect.fromX + rect.toX) / 2
 		newPart(model, "Slab", Vector3.new(width, W.PlotSize.Y, W.PlotSize.Z),
 			self:at(centreX, -W.PlotSize.Y / 2, 0), SLAB_COLOR, Enum.Material.Concrete)
+
+		local pathIndex = self:pathIndexOf({ id = def.id, path = def.id })
+		if pathIndex and self.paths[pathIndex] then
+			self:buildBelt(pathIndex, model)
+			self:buildCollector(pathIndex, model, false)
+		end
 
 		local halfZ = W.PlotSize.Z / 2
 		local edges = {
@@ -14920,11 +15151,11 @@ __MODULES["Ownership"] = function()
 		local kept = {}
 		for id in pairs(profile.owned) do
 			local def = Config.ButtonById[id]
-			-- One table, not two name tests with opposite polarity. The twin of
-			-- this test is a few lines down, and a fourth track missing from one of
-			-- them fails OPEN: the generator would survive the reset it is supposed
-			-- to be part of.
-			if def and Config.TrackInfo[def.track].keepOnRebirth then
+			-- One derivation, not two name tests with opposite polarity — a track
+			-- missing from one of them fails OPEN and the generator survives the
+			-- reset it is part of. keptOnRebirth also carries #109's carve-out:
+			-- land ground survives, the machines on it reset.
+			if def and Config.keptOnRebirth(def) then
 				kept[id] = true
 			end
 		end
@@ -14938,7 +15169,7 @@ __MODULES["Ownership"] = function()
 			-- Side-track props live in self.props and are not cleared below, so
 			-- their entries must keep their handle or the model outlives its
 			-- reference and can never be cleaned up.
-			if not Config.TrackInfo[entry.def.track].keepOnRebirth then
+			if not Config.keptOnRebirth(entry.def) then
 				entry.machine = nil
 			end
 		end

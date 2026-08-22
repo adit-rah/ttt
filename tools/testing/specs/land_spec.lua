@@ -96,6 +96,34 @@ T.spec("the grown wall gains one span per expansion and nothing else", function(
 	t:eq(solids(5, 5), bare + 10, "ten expansions must add exactly ten spans to the front wall")
 end)
 
+T.spec("rebirth keeps the ground and resets the machines on it", function(t)
+	-- design:D-03 via #88/#109: land survives the reset that raises the
+	-- ceiling; the strip's dropper and refiner are income machinery and go
+	-- the way the generator does. One derivation, Config.keptOnRebirth, read
+	-- by both of rebirth's polarities.
+	local w = T.world()
+	local Config = w.config
+
+	t:isTrue(Config.keptOnRebirth(Config.ButtonById.landL1), "the ground did not survive")
+	t:isFalse(Config.keptOnRebirth(Config.ButtonById.landL1_d1),
+		"a strip's dropper survived the reset — the next build starts pre-multiplied")
+	t:isFalse(Config.keptOnRebirth(Config.ButtonById.landL1_u1),
+		"a strip's refiner survived the reset")
+	t:isTrue(Config.keptOnRebirth(Config.ButtonById.batforge), "a cabinet tier stopped surviving")
+	t:isFalse(Config.keptOnRebirth(Config.ButtonById.dropper1), "a factory rung survived")
+end)
+
+T.spec("landRows filters to the ground; the counts ignore the machines", function(t)
+	local w = T.world()
+	local Config = w.config
+
+	for _, def in ipairs(Config.landRows("left")) do
+		t:eq(def.kind, "Land", def.id .. " is in landRows and is not ground")
+	end
+	local counts = Config.landCounts({ landL1 = true, landL1_d1 = true, landL1_u1 = true })
+	t:eq(counts.left, 1, "a strip's machines counted as more ground")
+end)
+
 T.spec("the side walls move outward and keep the plot's depth", function(t)
 	local w = T.world()
 	local Config = w.config
