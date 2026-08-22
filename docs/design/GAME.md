@@ -33,7 +33,7 @@ at a glance" or "the thumb" is downstream of that one fact.
 
 ```mermaid
 timeline
-    title One session, ~50 minutes
+    title One sitting of a seven-day arc
     section Opening
         min 0  : join, plot auto-assigned : buy dropper1 (50 of your 100 Tung)
         min 0.5 : the raid siren : first Sahur Raid lands at 0:30
@@ -43,21 +43,22 @@ timeline
         min 3+   : the shell, in parallel : walls, gates, windows, roof
         min 20+  : the land : ten expansions, each with its own line
     section Close
-        min 42 : the rebirth pad lights up : eight spine rungs still unbought
-        min 51 : the full factory : if you refuse the rebirth and finish
+        min 30 : the sitting ends : on saving toward a choice, never on being done
 ```
 
-**The target is one satisfying arc in about fifty minutes, ending on a choice
-rather than on being finished.** The measured build is **51 minutes**; the
-rebirth pad becomes affordable at **minute 42**, with **eight** ladder rungs
-still unbought. That gap is deliberate and is guaranteed by construction, not
-by tuning — see §6.
+**The target is a WEEK** (#90): sittings of about thirty minutes, offline
+gaps paying the vault's discounted rate through the storage cap, and two or
+three rebirths on the way to a frontier. The verifier walks the whole arc —
+sitting, gap, sitting — and the measured week lands the frontier on **day 5**
+through **3 rebirths**, the first on **day 3**, with no purchase taking more
+than one sitting of pure saving. One life is 260-odd active minutes at
+rebirth-zero income; the tail is post-rebirth content on purpose.
 
 **Sixty minutes is the real ceiling, not the design's preference.** Roblox
 credits at most 60 minutes per user per experience per day toward its ranking
 signal, so anything past minute 60 of a sitting is work the platform cannot
-see. The build once ran 88 minutes, which made the last third of the ladder
-worth zero to discovery. The current curve leaves 9 minutes of headroom.
+see. The cap binds each DAY'S sitting now — the week models thirty-minute
+sittings and the verifier asserts they fit inside it.
 
 ---
 

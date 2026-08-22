@@ -1225,18 +1225,18 @@ Config.Rebirth = {
 	-- design:D-03 — the pad is priced as a RUNG, not as a number, so that five
 	-- spine rungs are provably still unbought when it lights up.
 	--
-	-- PriceRung = 6 means BaseCost is the 6th most expensive spine price;
+	-- PriceRung = 10 means BaseCost is the 10th most expensive spine price;
 	-- Config.rebirthBaseCost() fills it in once the spine exists, and every
 	-- consumer reads it as a plain number. spinePricesDescending() derives the
 	-- list from `paced`, so re-parenting a track changes what this ranks over.
 	--
-	-- THE RANK IS THE THING TO PRESERVE, not the number. If the spine grows or
-	-- shrinks, check that rank 6 still names a rung near the top of the build —
-	-- it is currently `upgrader6` at 9.05e9, rounding to a BaseCost of 9.1e9,
-	-- and the five rungs above it are the frontier lots' machines and
-	-- dropper10.
-	PriceRung = 6,
-	CostGrowth = 3.4,            -- cost multiplier per rebirth
+	-- THE RANK IS THE THING TO PRESERVE, not the number — and since #90 the
+	-- rank is DEEP on purpose: the pad is a mid-arc move the player takes two
+	-- or three times inside the week, and the week walk's first-rebirth-day
+	-- floor is what keeps it out of the early game. Rank 10 currently prices
+	-- the pad at 1.9e9 against a 1.08e12 dropper10.
+	PriceRung = 10,
+	CostGrowth = 2.8,            -- cost multiplier per rebirth
 	MultiplierPerRebirth = 2.25, -- payout multiplier is this ^ rebirths
 	MaxRebirths = 25,
 	-- BaseCost is assigned below, once Config.Tracks exists. Every consumer
@@ -1496,78 +1496,78 @@ Config.FactoryButtons = {
 	-- now — see the banner there for why the building stopped being a rung on
 	-- the ladder that pays for it.
 	{
-		id = "dropper4", name = "Golden Tung", price = 2600,
+		id = "dropper4", name = "Golden Tung", price = 1990,
 		kind = "Dropper", slot = 4, variant = "golden",
 		dropValue = 40, dropRate = 1.4,
 		blurb = "Sahur, but expensive.",
 	},
 	{
-		id = "upgrader2", name = "Sahur Bat Upgrader", price = 7800,
+		id = "upgrader2", name = "Sahur Bat Upgrader", price = 7420,
 		kind = "Upgrader", slot = 2, variant = "golden",
 		multiplier = 1.85,
 		blurb = "Whacks value into them. x1.85",
 	},
 	{
-		id = "dropper5", name = "Crimson Tung", price = 18000,
+		id = "dropper5", name = "Crimson Tung", price = 20200,
 		kind = "Dropper", slot = 5, variant = "crimson",
 		dropValue = 150, dropRate = 1.3,
 		blurb = "It has seen things.",
 	},
 	{
-		id = "belt1", name = "Belt Overdrive", price = 66000,
+		id = "belt1", name = "Belt Overdrive", price = 96300,
 		kind = "Belt", speedBonus = 9,
 		blurb = "Conveyor goes brrrr.",
 	},
 	{
-		id = "upgrader3", name = "Tralalero Refiner", price = 72000,
+		id = "upgrader3", name = "Tralalero Refiner", price = 107000,
 		kind = "Upgrader", slot = 3, variant = "crimson",
 		multiplier = 2.1,
 		blurb = "Sharks approve. x2.1",
 	},
 	{
-		id = "dropper6", name = "Neon Tung", price = 172000,
+		id = "dropper6", name = "Neon Tung", price = 304000,
 		kind = "Dropper", slot = 6, variant = "neon",
 		dropValue = 620, dropRate = 1.25,
 		blurb = "3am energy drink sahur.",
 	},
 	{
-		id = "dropper7", name = "Void Tung", price = 1490000,
+		id = "dropper7", name = "Void Tung", price = 4170000,
 		kind = "Dropper", slot = 7, variant = "void",
 		dropValue = 2600, dropRate = 1.2,
 		blurb = "tung from beyond.",
 	},
 	{
-		id = "upgrader4", name = "Void Furnace", price = 11700000,
+		id = "upgrader4", name = "Void Furnace", price = 48100000,
 		kind = "Upgrader", slot = 4, variant = "void",
 		multiplier = 2.4,
 		blurb = "Melts them into money. x2.4",
 	},
 	{
-		id = "dropper8", name = "Eclipse Tung", price = 39800000,
+		id = "dropper8", name = "Eclipse Tung", price = 209000000,
 		kind = "Dropper", slot = 8, variant = "eclipse",
 		dropValue = 11000, dropRate = 1.15,
 		blurb = "Sahur at the end of the night.",
 	},
 	{
-		id = "upgrader5", name = "Eclipse Ascension", price = 249000000,
+		id = "upgrader5", name = "Eclipse Ascension", price = 1890000000,
 		kind = "Upgrader", slot = 5, variant = "eclipse",
 		multiplier = 2.8,
 		blurb = "Ascends the tung. x2.8",
 	},
 	{
-		id = "dropper9", name = "Galaxy Tung", price = 953000000,
+		id = "dropper9", name = "Galaxy Tung", price = 9440000000,
 		kind = "Dropper", slot = 9, variant = "galaxy",
 		dropValue = 48000, dropRate = 1.1,
 		blurb = "tung tung tung across the stars.",
 	},
 	{
-		id = "upgrader6", name = "Tung Singularity", price = 9050000000,
+		id = "upgrader6", name = "Tung Singularity", price = 141000000000,
 		kind = "Upgrader", slot = 6, variant = "galaxy",
 		multiplier = 3.4,
 		blurb = "Do not look directly at it. x3.4",
 	},
 	{
-		id = "dropper10", name = "INFINITY TUNG TUNG TUNG SAHUR", price = 49500000000,
+		id = "dropper10", name = "INFINITY TUNG TUNG TUNG SAHUR", price = 1080000000000,
 		kind = "Dropper", slot = 10, variant = "infinity",
 		dropValue = 240000, dropRate = 1.0,
 		blurb = "TUNG TUNG TUNG TUNG TUNG TUNG SAHUR",
@@ -1635,95 +1635,95 @@ Config.StructureButtons = {
 -- dropper by every owned upgrader, wherever either stands.
 Config.LandLButtons = {
 	{
-		id = "landL1", name = "West Lot I", price = 120000,
+		id = "landL1", name = "West Lot I", price = 197000,
 		kind = "Land", side = "left", width = 44,
 		blurb = "Ground to grow on.",
 	},
 	{
-		id = "landL1_d1", name = "West Tung I", price = 168000,
+		id = "landL1_d1", name = "West Tung I", price = 295000,
 		kind = "Dropper", variant = "golden",
 		path = "landL1", legIndex = 1, legDistance = 20,
 		dropValue = 1600, dropRate = 2.3,
 		blurb = "tung, further out.",
 	},
 	{
-		id = "landL1_u1", name = "West Refiner I", price = 230000,
+		id = "landL1_u1", name = "West Refiner I", price = 431000,
 		kind = "Upgrader", variant = "golden",
 		path = "landL1", legIndex = 1, legDistance = 55,
 		multiplier = 1.18,
 		blurb = "Every dropper, a level up. x1.18",
 	},
 	{
-		id = "landL2", name = "West Lot II", price = 1530000,
+		id = "landL2", name = "West Lot II", price = 4180000,
 		kind = "Land", side = "left", width = 36,
 		blurb = "The factory spreads west.",
 	},
 	{
-		id = "landL2_d1", name = "West Tung II", price = 2390000,
+		id = "landL2_d1", name = "West Tung II", price = 7150000,
 		kind = "Dropper", variant = "crimson",
 		path = "landL2", legIndex = 1, legDistance = 20,
 		dropValue = 5600, dropRate = 2.2,
 		blurb = "tung, further out.",
 	},
 	{
-		id = "landL2_u1", name = "West Refiner II", price = 3680000,
+		id = "landL2_u1", name = "West Refiner II", price = 12000000,
 		kind = "Upgrader", variant = "crimson",
 		path = "landL2", legIndex = 1, legDistance = 55,
 		multiplier = 1.2,
 		blurb = "Every dropper, a level up. x1.2",
 	},
 	{
-		id = "landL3", name = "West Lot III", price = 9050000,
+		id = "landL3", name = "West Lot III", price = 35300000,
 		kind = "Land", side = "left", width = 28,
 		blurb = "Further west.",
 	},
 	{
-		id = "landL3_d1", name = "West Tung III", price = 14500000,
+		id = "landL3_d1", name = "West Tung III", price = 62200000,
 		kind = "Dropper", variant = "neon",
 		path = "landL3", legIndex = 1, legDistance = 20,
 		dropValue = 21000, dropRate = 2.1,
 		blurb = "tung, further out.",
 	},
 	{
-		id = "landL3_u1", name = "West Refiner III", price = 22300000,
+		id = "landL3_u1", name = "West Refiner III", price = 104000000,
 		kind = "Upgrader", variant = "neon",
 		path = "landL3", legIndex = 1, legDistance = 55,
 		multiplier = 1.22,
 		blurb = "Every dropper, a level up. x1.22",
 	},
 	{
-		id = "landL4", name = "West Lot IV", price = 61700000,
+		id = "landL4", name = "West Lot IV", price = 353000000,
 		kind = "Land", side = "left", width = 23,
 		blurb = "The neighbours moved out.",
 	},
 	{
-		id = "landL4_d1", name = "West Tung IV", price = 98000000,
+		id = "landL4_d1", name = "West Tung IV", price = 616000000,
 		kind = "Dropper", variant = "void",
 		path = "landL4", legIndex = 1, legDistance = 20,
 		dropValue = 80000, dropRate = 2.0,
 		blurb = "tung, further out.",
 	},
 	{
-		id = "landL4_u1", name = "West Refiner IV", price = 152000000,
+		id = "landL4_u1", name = "West Refiner IV", price = 1040000000,
 		kind = "Upgrader", variant = "void",
 		path = "landL4", legIndex = 1, legDistance = 55,
 		multiplier = 1.24,
 		blurb = "Every dropper, a level up. x1.24",
 	},
 	{
-		id = "landL5", name = "West Lot V", price = 8160000000,
+		id = "landL5", name = "West Lot V", price = 124000000000,
 		kind = "Land", side = "left", width = 19,
 		blurb = "The western frontier.",
 	},
 	{
-		id = "landL5_d1", name = "West Tung V", price = 13800000000,
+		id = "landL5_d1", name = "West Tung V", price = 233000000000,
 		kind = "Dropper", variant = "galaxy",
 		path = "landL5", legIndex = 1, legDistance = 20,
 		dropValue = 230000, dropRate = 1.9,
 		blurb = "tung, further out.",
 	},
 	{
-		id = "landL5_u1", name = "West Refiner V", price = 23400000000,
+		id = "landL5_u1", name = "West Refiner V", price = 440000000000,
 		kind = "Upgrader", variant = "galaxy",
 		path = "landL5", legIndex = 1, legDistance = 55,
 		multiplier = 1.26,
@@ -1733,95 +1733,95 @@ Config.LandLButtons = {
 
 Config.LandRButtons = {
 	{
-		id = "landR1", name = "East Lot I", price = 132000,
+		id = "landR1", name = "East Lot I", price = 217000,
 		kind = "Land", side = "right", width = 44,
 		blurb = "Ground to grow on.",
 	},
 	{
-		id = "landR1_d1", name = "East Tung I", price = 185000,
+		id = "landR1_d1", name = "East Tung I", price = 324000,
 		kind = "Dropper", variant = "golden",
 		path = "landR1", legIndex = 1, legDistance = 20,
 		dropValue = 1700, dropRate = 2.3,
 		blurb = "tung, further out.",
 	},
 	{
-		id = "landR1_u1", name = "East Refiner I", price = 253000,
+		id = "landR1_u1", name = "East Refiner I", price = 474000,
 		kind = "Upgrader", variant = "golden",
 		path = "landR1", legIndex = 1, legDistance = 55,
 		multiplier = 1.18,
 		blurb = "Every dropper, a level up. x1.18",
 	},
 	{
-		id = "landR2", name = "East Lot II", price = 1680000,
+		id = "landR2", name = "East Lot II", price = 4600000,
 		kind = "Land", side = "right", width = 36,
 		blurb = "The factory spreads east.",
 	},
 	{
-		id = "landR2_d1", name = "East Tung II", price = 2630000,
+		id = "landR2_d1", name = "East Tung II", price = 7870000,
 		kind = "Dropper", variant = "crimson",
 		path = "landR2", legIndex = 1, legDistance = 20,
 		dropValue = 6000, dropRate = 2.2,
 		blurb = "tung, further out.",
 	},
 	{
-		id = "landR2_u1", name = "East Refiner II", price = 4050000,
+		id = "landR2_u1", name = "East Refiner II", price = 13200000,
 		kind = "Upgrader", variant = "crimson",
 		path = "landR2", legIndex = 1, legDistance = 55,
 		multiplier = 1.2,
 		blurb = "Every dropper, a level up. x1.2",
 	},
 	{
-		id = "landR3", name = "East Lot III", price = 9960000,
+		id = "landR3", name = "East Lot III", price = 38800000,
 		kind = "Land", side = "right", width = 28,
 		blurb = "Further east.",
 	},
 	{
-		id = "landR3_d1", name = "East Tung III", price = 16000000,
+		id = "landR3_d1", name = "East Tung III", price = 68400000,
 		kind = "Dropper", variant = "neon",
 		path = "landR3", legIndex = 1, legDistance = 20,
 		dropValue = 23000, dropRate = 2.1,
 		blurb = "tung, further out.",
 	},
 	{
-		id = "landR3_u1", name = "East Refiner III", price = 24500000,
+		id = "landR3_u1", name = "East Refiner III", price = 114000000,
 		kind = "Upgrader", variant = "neon",
 		path = "landR3", legIndex = 1, legDistance = 55,
 		multiplier = 1.22,
 		blurb = "Every dropper, a level up. x1.22",
 	},
 	{
-		id = "landR4", name = "East Lot IV", price = 67900000,
+		id = "landR4", name = "East Lot IV", price = 388000000,
 		kind = "Land", side = "right", width = 23,
 		blurb = "The neighbours moved out.",
 	},
 	{
-		id = "landR4_d1", name = "East Tung IV", price = 108000000,
+		id = "landR4_d1", name = "East Tung IV", price = 678000000,
 		kind = "Dropper", variant = "void",
 		path = "landR4", legIndex = 1, legDistance = 20,
 		dropValue = 88000, dropRate = 2.0,
 		blurb = "tung, further out.",
 	},
 	{
-		id = "landR4_u1", name = "East Refiner IV", price = 167000000,
+		id = "landR4_u1", name = "East Refiner IV", price = 1140000000,
 		kind = "Upgrader", variant = "void",
 		path = "landR4", legIndex = 1, legDistance = 55,
 		multiplier = 1.24,
 		blurb = "Every dropper, a level up. x1.24",
 	},
 	{
-		id = "landR5", name = "East Lot V", price = 8980000000,
+		id = "landR5", name = "East Lot V", price = 136000000000,
 		kind = "Land", side = "right", width = 19,
 		blurb = "The eastern frontier.",
 	},
 	{
-		id = "landR5_d1", name = "East Tung V", price = 15200000000,
+		id = "landR5_d1", name = "East Tung V", price = 256000000000,
 		kind = "Dropper", variant = "galaxy",
 		path = "landR5", legIndex = 1, legDistance = 20,
 		dropValue = 250000, dropRate = 1.9,
 		blurb = "tung, further out.",
 	},
 	{
-		id = "landR5_u1", name = "East Refiner V", price = 25700000000,
+		id = "landR5_u1", name = "East Refiner V", price = 484000000000,
 		kind = "Upgrader", variant = "galaxy",
 		path = "landR5", legIndex = 1, legDistance = 55,
 		multiplier = 1.26,
@@ -2002,7 +2002,7 @@ Config.WeaponButtons = {
 		blurb = "Unlocks the Ash Sahur Bat.",
 	},
 	{
-		id = "batforge_crimson", name = "Crimson Bat Forge", price = 520000,
+		id = "batforge_crimson", name = "Crimson Bat Forge", price = 2600000,
 		kind = "Gear", grants = "crimson",
 		blurb = "Unlocks the Crimson Sahur Bat.",
 	},
@@ -2012,7 +2012,7 @@ Config.WeaponButtons = {
 		blurb = "Unlocks the Void Sahur Bat.",
 	},
 	{
-		id = "batforge_eclipse", name = "Eclipse Bat Forge", price = 84000000,
+		id = "batforge_eclipse", name = "Eclipse Bat Forge", price = 2500000000,
 		kind = "Gear", grants = "eclipse",
 		blurb = "Unlocks the Eclipse Sahur Bat.",
 	},
@@ -3052,7 +3052,7 @@ Config.Offline = {
 	-- the verifier checks each tier against the income the factory has at the
 	-- moment it can first bank that many tung.
 	CapUpgradeHours = { 12, 16, 24 },
-	CapUpgradeCost = { 250000, 5000000, 120000000 },
+	CapUpgradeCost = { 250000, 5000000, 5500000000 },
 	MinimumSeconds = 120,    -- below this, don't bother with the panel
 
 	-- THE VAULT GAUGE — offline earnings made VISIBLE ON THE WAY OUT.
