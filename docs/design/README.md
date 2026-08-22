@@ -21,10 +21,10 @@ where a decision is argued and changed.
 
 | | |
 | --- | --- |
-| `D-01` | [The pitch, the player, and why they come back](https://github.com/adit-rah/ttt/issues/76) |
-| `D-02` | [The line](https://github.com/adit-rah/ttt/issues/77) |
-| `D-03` | [The ladder](https://github.com/adit-rah/ttt/issues/78) |
-| `D-04` | [The raid](https://github.com/adit-rah/ttt/issues/79) |
+| `D-01` | [The player](https://github.com/adit-rah/ttt/issues/76) |
+| `D-02` | [The plot](https://github.com/adit-rah/ttt/issues/77) |
+| `D-03` | [Progression](https://github.com/adit-rah/ttt/issues/78) |
+| `D-04` | [The world](https://github.com/adit-rah/ttt/issues/79) |
 | `D-05` | [Reading it](https://github.com/adit-rah/ttt/issues/80) |
 
 There were ten. `DECISIONS.md` records what merged into what, and why.

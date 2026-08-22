@@ -2,21 +2,30 @@
 
 > **Your factory gets raided, and you fight them off with a bat.**
 
+> [!IMPORTANT]
+> **This describes what ships today. It is not the target.**
+>
+> The game is being reshaped around a seven-day arc: a sitting delivers a floor,
+> rebirth works like a Clash of Clans Town Hall, and the world opens up. That
+> direction lives in [#72](https://github.com/adit-rah/ttt/issues/72) and its
+> five pillars. This file catches up as the code does.
+>
+> The largest gaps between the two: the build below is **53 minutes**, floors do
+> not generalize past one, and waves are server-wide.
+
 This is the **as-is** description: what the shipped game does, in the player's
-terms, with the numbers it actually runs on. It is not a wish list and not a
-spec for work — where something is unresolved it says so and points at the
-issue.
+terms, with the numbers it actually runs on. Where something is unresolved it
+says so and points at the issue.
 
 Every number here is read out of `src/shared/Config.lua`, and every pacing
 figure out of the economy simulation in `tools/verify_config.lua` (last
-committed run recorded in `../dev/HANDOFF_v10.md` §2). Where the two disagree
-with older prose elsewhere in the repo, this file is the one that was checked.
+committed run recorded in `../dev/HANDOFF_v10.md` §2).
 
 **Audience:** Roblox, where 80% of sessions are on a phone and 56% of users are
 under 16 (`research/GROWTH.md` §6). Every decision below that mentions "reads
 at a glance" or "the thumb" is downstream of that one fact.
 
-**Not monetized.** That is a decision, not an oversight — see `D-01`.
+**Not monetized.** A deliberate decision, held open for now — see `D-01`.
 
 ---
 

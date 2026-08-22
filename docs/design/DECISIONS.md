@@ -8,10 +8,10 @@ The issue is authoritative. This row is a pointer to it.
 
 | id | pillar | issue | status |
 | --- | --- | --- | --- |
-| `D-01` | The pitch, the player, and why they come back | [#76](https://github.com/adit-rah/ttt/issues/76) | accepted |
-| `D-02` | The line | [#77](https://github.com/adit-rah/ttt/issues/77) | accepted |
-| `D-03` | The ladder | [#78](https://github.com/adit-rah/ttt/issues/78) | accepted |
-| `D-04` | The raid | [#79](https://github.com/adit-rah/ttt/issues/79) | accepted |
+| `D-01` | The player | [#76](https://github.com/adit-rah/ttt/issues/76) | accepted |
+| `D-02` | The plot | [#77](https://github.com/adit-rah/ttt/issues/77) | accepted |
+| `D-03` | Progression | [#78](https://github.com/adit-rah/ttt/issues/78) | accepted |
+| `D-04` | The world | [#79](https://github.com/adit-rah/ttt/issues/79) | accepted |
 | `D-05` | Reading it | [#80](https://github.com/adit-rah/ttt/issues/80) | accepted |
 
 The index issue is [#72](https://github.com/adit-rah/ttt/issues/72).
@@ -29,7 +29,14 @@ and why:
 | Presentation & content | `D-05` | what the player is told and the constraint on how it can be said are the same subject |
 
 Those five issues are closed, with a note on each naming where its content went.
-**No decision was dropped in the merge** — only the filing changed.
+No decision was dropped in the merge.
+
+A second pass widened three of the survivors. "The line" became **the plot**,
+which is the factory including the floors it grows. "The ladder" became
+**progression**, which is the Clash of Clans tier model rather than a list of
+purchases. "The raid" became **the world**, which is everything off the plot and
+now carries an open-world direction. A pillar is a large idea that gets built
+on; anything narrower is a child issue.
 
 ---
 
