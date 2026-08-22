@@ -21,7 +21,7 @@ container:
 | Source root | Roblox location | Rojo folder | Files |
 | --- | --- | --- | --- |
 | `src/shared` | `ReplicatedStorage` | `TungShared` | 10 |
-| `src/server` | `ServerScriptService` | `TungServer` | 15, plus `tycoon/` (12) |
+| `src/server` | `ServerScriptService` | `TungServer` | 15, plus `tycoon/` (13) |
 | `src/client` | `StarterPlayer.StarterPlayerScripts` | `TungClient` | 6 |
 
 `src/server/tycoon/` is the only nested folder, and it is nested because `Req`
@@ -119,7 +119,7 @@ The `UiKit` argument applies to it; nothing depends on it not being moved.
 | `Economy.lua` | The single place cash is created, spent and replicated. Owns `profile.cash` and the `Stats` remote. | `AdminService`, `CombatService`, `NPCService`, `PlotService`, `SessionService`, `SocialService`, `Tycoon`, `UpgradeService`, `Main.server` | require `SocialService`, `SessionService` or `UpgradeService` — they register through `Economy.setMultiplierHook(name, fn)` precisely so this arrow never reverses |
 | `Analytics.lua` | The seven events, one choke point (`Analytics.emit`), schema from `Config.Analytics`. | `SessionService`, `Tycoon`, `Main.server` | live in `src/shared`; log an economy event per collected drop (≈10/sec/player) |
 | `MapBuilder.lua` | The whole world at runtime: arena, plot pads, ring layout, lighting. | `Tycoon`, `Main.server` | — |
-| `tycoon/` | **One plot**, as twelve modules over one class table — see the sub-table below. `Req("Tycoon")` resolves to `tycoon/Tycoon.lua`, the aggregator, and that is the whole public surface. | `FloorService`, `GateService`, `PlotService`, `VaultService` | require `SessionService`, `PlotService` or any service that requires it; grow a hard-coded content case — add a `Config.Buttons` row instead (§4) |
+| `tycoon/` | **One plot**, as thirteen modules over one class table — see the sub-table below. `Req("Tycoon")` resolves to `tycoon/Tycoon.lua`, the aggregator, and that is the whole public surface. | `FloorService`, `GateService`, `PlotService`, `VaultService` | require `SessionService`, `PlotService` or any service that requires it; grow a hard-coded content case — add a `Config.Buttons` row instead (§4) |
 | `PlotService.lua` | Owns the `Tycoon` instances and who stands on what: claim pads, `autoAssign`, release with offline grace, `teleportToPlot`, the `RequestRebirth`/`RequestReset` remotes, and a 3s signage refresh. | `AdminService`, `Main.server` | — |
 | `CombatService.lua` | Bats, swings, damage, knockback, PvP zoning (arena-only), armour. The **only** `TakeDamage` call in the repo. | `NPCService`, `Tycoon`, `UpgradeService`, `Main.server` | learn what a raid is — `NPCService` registers a damage-ledger observer, same shape as the Economy hook |
 | `NPCService.lua` | The Sahur Raid: wave state machine, raider AI, the boss, the `WaveState` remote. One tick loop for all NPCs. | `AdminService`, `Main.server` | spawn a thread per NPC |
@@ -131,7 +131,7 @@ The `UiKit` argument applies to it; nothing depends on it not being moved.
 | `UpgradeService.lua` | **Prototype.** Player upgrade shop + the utility keybind slot. Both flags off ⇒ every entry point returns on line 1. | `Main.server` | make the utility a second `Tool` (only one Tool equips at a time) |
 | `AdminService.lua` | Chat commands (`!give`, `!wave`, `!clear`, `$`) for testing what the verifier cannot see. Authorised per-player: Studio, place owner, or allowlist. | `Main.server` | take a shortcut — `!give` goes through `Tycoon:install`, cash through `Economy`; trust `game.CreatorId` before checking `CreatorType` |
 
-#### `src/server/tycoon/` — one plot, twelve modules, one table
+#### `src/server/tycoon/` — one plot, thirteen modules, one table
 
 It was one 2,552-line file with ten requires. The split is **mechanical**: the
 methods all hang off one shared table through `Tycoon.__index`, so `Class.lua`
@@ -141,18 +141,19 @@ identical either side of the move.
 
 | Path | Owns | Lines | Requires in the folder |
 | --- | --- | --- | --- |
-| `Tycoon.lua` | The aggregator, and the `kind` contract. Requires `Class`, requires every mixin **for its side effect**, re-exports `Tycoon.part`. | 59 | `Class`, `Parts`, all nine mixins |
+| `Tycoon.lua` | The aggregator, and the `kind` contract. Requires `Class`, requires every mixin **for its side effect**, re-exports `Tycoon.part`. | 65 | `Class`, `Parts`, all ten mixins |
 | `Class.lua` | The `Tycoon` table and `__index`, `INSTANCES`/`Tycoon.all()`, the shared `COLORS` / `MISC_SPOTS` / `MIN_PART`, `Tycoon.new`, `at`, `ownerSpawnCFrame`, the `onOwnedChanged` list, `ensureButtons`, `registerFactoryFolder`, `setFactoryVisible`. | 227 | **none** |
 | `Parts.lua` | `newPart` (every Part on a plot) and `MACHINE_MASSES` + `buildMasses` (the one description a ghost and a real machine share). | 116 | `Class` |
 | `Belt.lua` | The conveyor: `resolvePath`, leg maths, running surfaces, corner sensors, flow markers, `refreshBeltSpeed`, `dropInterval`. | 430 | `Class`, `Parts` |
-| `Vault.lua` | The collector, the fill gauge (`setVaultGauge`) and `onCollect` — where a drop becomes money. | 287 | `Class`, `Parts` |
+| `Vault.lua` | The collector, the fill gauge (`setVaultGauge`) and `onCollect` — where a finished drop leaves the belt for the pool. | 275 | `Class`, `Parts` |
 | `Props.lua` | Claim rig, rebirth pad, cabinets and their signs, the yard, `refreshGenerator`. | 346 | `Class`, `Parts` |
 | `Buttons.lua` | Button positions, `buildButtons`, ghosts, the two label voices, `refreshButtons`, `pointAt`. | 517 | `Class`, `Parts` |
 | `Purchase.lua` | `playerFromHit`, `tryPurchase`, `install`. | 119 | `Class` |
 | `Installers.lua` | `Tycoon.INSTALLERS` (all eight kinds), the dropper machine, the drop loop, shelf displays, and **the building shell**: `buildStoreyWalls` (one storey's courses, window bays, trim and interior strip), `gateLeafSpecs` (the leaf geometry `GateService` also reads), `buildRoofModel` / `refreshRoof`. | 629 | `Class`, `Parts` |
-| `Drops.lua` | `spawnDrop`, `clearDrops`, and the per-plot drop budget. | 110 | `Class` |
-| `Income.lua` | `incomePerSecond`, `refineryMultiplierFor`, `effectLine`, `updateSign`. | 162 | `Class` |
-| `Ownership.lua` | `assign`, `release`, `rebirth`. | 194 | `Class` |
+| `Drops.lua` | `spawnDrop`, `recycleDrop`, `clearDrops`, the visual budget and the per-variant pool. | 185 | `Class` |
+| `Income.lua` | `incomePerSecond`, `startIncomeLoop` (the payer), `effectLine`, `updateSign`. | 147 | `Class` |
+| `Storage.lua` | The storage unit's state machine: `damageStorage`, `repairStorage`, `storageIntact`, `storedOverflowFraction` (#98's seam), the repair prompt and the attribute mirror. | 131 | `Class` |
+| `Ownership.lua` | `assign`, `release`, `rebirth`. | 199 | `Class` |
 
 Three rules hold this together, and the first two are not stylistic:
 
@@ -252,13 +253,13 @@ in Studio while passing every pass of `verify.py`.
    projection). Neither may require the other, so a leaf requiring both is the
    shape. `FloorService` is the same pattern one dependency lighter. See
    `VaultService.lua:31-36`.
-3. **The income model exists twice, deliberately.**
-   `Tycoon:incomePerSecond()` (`tycoon/Income.lua:39`) reads a live plot;
-   `SessionService.incomePerSecondFor(profile)` (`SessionService.lua:169`)
-   mirrors it from a saved profile, because an offline player has no `Tycoon` to
-   ask. The mirror deliberately **excludes** the session multipliers and (for
-   free, via the same exclusion) the friend bonus. Change one and check the
-   other.
+3. **The income model is `Config.incomeRate`, and its readers are wrappers.**
+   `Tycoon:incomePerSecond()` (`tycoon/Income.lua`) adds the live multiplier
+   stack; `SessionService.incomePerSecondFor(profile)` adds the saved rebirth
+   term, because an offline player has no `Tycoon` to ask — which is also how
+   the mirror **excludes** the session multipliers and the friend bonus. The
+   verifier's progression simulation calls the model raw. `income_spec.lua`
+   pins both wrappers to it.
 4. **`Config` is required by 37 of 43 modules.** The ones that do not are
    `Util`, `Net`, `Req` and `Main.client`. Treat `Config` as ambient.
 5. **`Economy` requires `DataService` late** (`Economy.lua:13`, after the
