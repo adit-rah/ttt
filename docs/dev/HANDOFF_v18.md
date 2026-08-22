@@ -1,7 +1,7 @@
-# HANDOFF v18 — the open world, and the party
+# HANDOFF v18 — the open world, the party, and the way home
 
 The round shipped #89 (the belt, the bands, PvP everywhere, per-plot sieges
-and the central wave) and #102 (the party). The design is settled in the issue's design-pass comment
+and the central wave), #102 (the party) and #103 (recall). The design is settled in the issue's design-pass comment
 (#89, 2026-08-22); the geometry inverts the old ring's meaning — plots at the
 rim, danger concentrated inward — and every promise the ring made is restated
 in belt form and asserted.
@@ -79,3 +79,9 @@ in belt form and asserted.
 12. **The party card on a phone.** Rows rebuild on every push and a 1s
     distance beat; check the card at MinScale in the column, and that INVITE
     tapping feels sane on touch.
+13. **The recall watch.** The 0.2s server loop cancels on drift past 4 studs
+    or any health drop; stand in a band, take a hit mid-cast, and confirm the
+    cancel notify beats the teleport. The cast has no bar — decide whether
+    the three notifications carry it or it needs one (#96's territory).
+14. **HOME on the touch stack.** The movement dock grew to three buttons;
+    confirm it still clears the thumbstick above the reserve.

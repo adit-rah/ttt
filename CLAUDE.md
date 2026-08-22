@@ -177,6 +177,7 @@ third value neither round had guessed.
 | retune the raid economics | `Config.Raid` | the raid family: the recovery promise, the empty-unit bounty floor, kill under spill, camping decay — plus `raid_spec`'s ledger arithmetic |
 | add a kindness trigger, or retune its reward | a call into `HelpService.credit`; `Config.Help` | the help family: the boost stays a nudge, the pair cooldown outlasts the boost, the gap weight caps — plus `help_spec` |
 | retune the party, or hang something on its trust boundary | `Config.Party`; consume `PartyService.sameParty` via a hook | the party family (size, the ≤2× friends×party×help stack, invite timeout) plus `party_spec` |
+| retune recall | `Config.Recall` | the recall family: the cast eats two swing cycles, drift under `AttackRange`, cooldown over cast — plus `recall_spec`'s carry block |
 | add a new kind of buyable | a case in `src/server/tycoon/Installers.lua`, **and** the `kind` list in `tycoon/Tycoon.lua`'s header | `KNOWN_KINDS` in `verify_config.lua`. The header list is checked by nobody — it is the copy to do by hand |
 | reorder the factory ladder | move the ROW in `Config.FactoryButtons`; never add a `requires` | the chain-equals-table-order assertion, plus the economy simulation. The 60-minute credit cap binds before `MAX_TOTAL_MINUTES` does |
 | reorder the plot shell | move the ROW in `Config.StructureButtons` — a PARALLEL track gated on `dropper1`, not part of the factory chain | the same chain assertion, plus `roof` needs `walls` and `gates`/`windows` need `walls` |

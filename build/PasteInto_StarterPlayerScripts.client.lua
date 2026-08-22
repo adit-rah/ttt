@@ -2366,6 +2366,19 @@ __MODULES["Config"] = function()
 		PairCooldownSeconds = 300,
 	}
 
+	-- design:D-04, via #103 — RECALL. The open world makes the trip home a
+	-- recurring tax; recall pays it with TIME STANDING STILL instead of a walk.
+	-- The stillness is the anti-escape: a caster is a free hit for anything
+	-- already on them, moving or taking damage cancels the cast, and a raider's
+	-- carry blocks it outright — stolen Tung walks home. One direction only:
+	-- coming back. Going out is the walk (#101's sprint; mounts wait for later).
+	Config.Recall = {
+		CastSeconds = 6,
+		CooldownSeconds = 45,
+		-- Drifting further than this from where the cast began cancels it.
+		CancelMoveStuds = 4,
+	}
+
 	-- design:D-04, via #101 — MOVEMENT. Sprint and dash ship now, as BASELINE
 	-- capabilities everyone has: legibility first, and a movement axis nobody can
 	-- buy is a movement axis nobody falls behind on. Mounts and waypoints wait
@@ -4345,6 +4358,10 @@ __MODULES["Net"] = function()
 		-- invite/accept/decline/leave, S->C the whole party state (the SessionState
 		-- arrangement — the server decides everything, the client renders it).
 		"Party",         -- C->S action; S->C { members, invite }
+
+		-- Recall (#103). The intent has no payload; the server owns the cast, the
+		-- cancel rules and the cooldown.
+		"RequestRecall", -- C->S (no payload)
 
 		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 		-- demand so a client that connects with a flag off still resolves them and
@@ -7520,7 +7537,8 @@ __MODULES["MovementClient"] = function()
 	--[[
 		MovementClient.lua — sprint and dash, from the player's side (#101).
 
-		KEYBOARD: hold LeftShift to sprint, Q to dash. TOUCH: two buttons docked
+		KEYBOARD: hold LeftShift to sprint, Q to dash, H to recall (#103). TOUCH:
+		buttons docked
 		above the LEFT thumb reserve — movement lives on the movement thumb, and
 		the bottom-right stack already belongs to the action buttons. 80% of
 		sessions are a phone; the buttons exist for them and never draw on a
@@ -7546,6 +7564,12 @@ __MODULES["MovementClient"] = function()
 	local MovementClient = {}
 
 	local M = Config.Movement
+
+	local function requestRecall()
+		-- the intent has no payload; the server owns the cast, the cancel rules
+		-- and the cooldown, and it answers through the notify stream
+		Net.event("RequestRecall"):FireServer()
+	end
 
 	local function dashImpulse()
 		local player = Players.LocalPlayer
@@ -7593,6 +7617,8 @@ __MODULES["MovementClient"] = function()
 				sprint(true)
 			elseif input.KeyCode == Enum.KeyCode.Q then
 				requestDash:FireServer()
+			elseif input.KeyCode == Enum.KeyCode.H then
+				requestRecall()
 			end
 		end)
 		UserInputService.InputEnded:Connect(function(input)
@@ -7610,7 +7636,7 @@ __MODULES["MovementClient"] = function()
 
 		local stack = UiKit.dock(HUD.root(), {
 			name = "Movement", corner = "bottomLeft",
-			width = 64, height = 136,
+			width = 64, height = 208,
 			insetY = Config.UI.TouchReserve.Bottom,
 			direction = "Vertical",
 		})
@@ -7631,8 +7657,10 @@ __MODULES["MovementClient"] = function()
 			return button
 		end
 
-		local sprintButton = touchButton("Sprint", "RUN", 2)
-		local dashButton = touchButton("Dash", "DASH", 1)
+		local sprintButton = touchButton("Sprint", "RUN", 3)
+		local dashButton = touchButton("Dash", "DASH", 2)
+		local homeButton = touchButton("Recall", "HOME", 1)
+		homeButton.MouseButton1Click:Connect(requestRecall)
 
 		-- hold-to-sprint on touch: down is on, up is off, and the button's colour
 		-- carries the state

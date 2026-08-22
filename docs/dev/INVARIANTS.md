@@ -812,6 +812,17 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **Forming a party is a kindness both ways** through `HelpService.credit`, so #123's gap
   weighting pays the veteran who parties with a new player. `[spec]`
 
+### Recall (#103)
+
+- **Stolen Tung walks home.** A raid carry blocks the cast outright — the chase (#94's
+  anti-grief spine) must never end in a blink. `[spec]`, falsified by dropping the block.
+- **The stillness is the anti-escape**: the cast eats at least two raider swing cycles,
+  drifting past `CancelMoveStuds` (held under `AttackRange`) or losing any health cancels,
+  and the cooldown outlasts the cast. `[assert]`, each falsified; the watch loop itself is a
+  character concern and a Studio item.
+- **One direction.** Recall comes home; going out is the walk. `[nothing]` — the record
+  that the asymmetry is on purpose.
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch

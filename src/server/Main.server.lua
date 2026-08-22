@@ -18,6 +18,7 @@ local MovementService = Req("MovementService")
 local RaidService = Req("RaidService")
 local HelpService = Req("HelpService")
 local PartyService = Req("PartyService")
+local RecallService = Req("RecallService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -105,6 +106,8 @@ HelpService.start()
 CombatService.setAllyCheck(PartyService.sameParty)
 Tycoon.allyCheck = PartyService.sameParty
 PartyService.start()
+-- Recall (#103): after PlotService, whose teleportToPlot is the arrival.
+RecallService.start()
 SocialService.start()
 
 -- 6. players

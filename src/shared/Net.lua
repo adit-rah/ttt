@@ -58,6 +58,10 @@ Net.NAMES = {
 	-- arrangement — the server decides everything, the client renders it).
 	"Party",         -- C->S action; S->C { members, invite }
 
+	-- Recall (#103). The intent has no payload; the server owns the cast, the
+	-- cancel rules and the cooldown.
+	"RequestRecall", -- C->S (no payload)
+
 	-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 	-- demand so a client that connects with a flag off still resolves them and
 	-- never sits in WaitForChild for 30 seconds.

@@ -1095,6 +1095,23 @@ do
 			:format(PT.InviteTimeoutSeconds))
 end
 
+-- ── recall (#103) ──────────────────────────────────────────────────────────
+--
+-- The stillness is the anti-escape: these bounds are what keep "go home" from
+-- becoming "leave any fight free".
+do
+	local RC = Config.Recall
+	local swingCycle = Config.Waves.AttackWindUp + Config.Waves.AttackRecover + Config.Waves.AttackCooldown
+	check(RC.CastSeconds >= 2 * swingCycle,
+		("CastSeconds %.0f is under two raider swing cycles (%.1fs each) — anything already on the caster must land real hits")
+			:format(RC.CastSeconds, swingCycle))
+	check(RC.CooldownSeconds > RC.CastSeconds,
+		("CooldownSeconds %.0f must outlast the cast itself (%.0fs)"):format(RC.CooldownSeconds, RC.CastSeconds))
+	check(RC.CancelMoveStuds > 0 and RC.CancelMoveStuds < Config.Waves.AttackRange,
+		("CancelMoveStuds is %.1f; at or past AttackRange %.0f a caster can shuffle out of melee mid-cast")
+			:format(RC.CancelMoveStuds, Config.Waves.AttackRange))
+end
+
 -- ── raiding (#94) ──────────────────────────────────────────────────────────
 --
 -- The loot numbers are KPIs made config. Every bound here is a promise the
