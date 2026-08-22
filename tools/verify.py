@@ -280,7 +280,7 @@ def check_single_screengui(files):
 # docs/design/. Code that needs to explain why a value is what it is cites the
 # decision and stops:
 #
-#     -- design:D-05 -- the 6th most expensive spine price, rounded to 2 s.f.
+#     -- design:D-03 -- the 6th most expensive spine price, rounded to 2 s.f.
 #     PriceRung = 6,
 #
 # docs/design/DECISIONS.md is the index every id resolves against. A citation

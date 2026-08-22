@@ -155,7 +155,7 @@ end
 --- offline player has no Tycoon instance to ask, which is why this mirrors
 --- `Tycoon:incomePerSecond()` rather than calling it.
 ---
---- DELIBERATELY EXCLUDES THE SESSION MULTIPLIERS — design:D-08. It includes the
+--- DELIBERATELY EXCLUDES THE SESSION MULTIPLIERS — design:D-01. It includes the
 --- rebirth multiplier, because that is a property of the factory rather than of
 --- the session.
 ---
@@ -266,7 +266,7 @@ function SessionService.pendingOffline(player: Player)
 end
 
 --- invariant: WHAT THE VAULT IS WORTH, in one formula with two modes falling
---- out of it. design:D-08 for what the gauge is for.
+--- out of it. design:D-01 for what the gauge is for.
 ---
 --- Capacity is the most this profile can bank in a single absence: its offline
 --- income per second, for as many hours as its Vault Timer allows. That number

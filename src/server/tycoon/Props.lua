@@ -183,7 +183,7 @@ end
 --- NO SIGN, and if one is ever wanted it must NOT go in self.cabinetSigns —
 --- updateCabinetSigns rewrites everything in there with the cabinet format
 --- string, which is how a "POWER YARD" billboard came to read
---- "POWER CABINET - 0/4". design:D-09: the pad twelve studs away already
+--- "POWER CABINET - 0/4". design:D-05: the pad twelve studs away already
 --- carries the track, the tier name, the effect and the price.
 function Tycoon:ensureYard()
 	local Y = L.Yard

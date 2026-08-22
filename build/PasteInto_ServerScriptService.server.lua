@@ -321,7 +321,7 @@ __MODULES["Config"] = function()
 		-- catch what should not be caught: INVARIANTS.md's "nothing collidable may
 		-- sit near the belt except the running surface", the buy-button walk across
 		-- the belt that BeltY = 1.4 exists to allow, and a 0.8-stud slot between the
-		-- rail and the machine row for a raider to wedge into. design:D-07 for what
+		-- rail and the machine row for a raider to wedge into. design:D-03 for what
 		-- the rails are there to do, which is visual.
 		BeltGuard = {
 			thickness = 0.8,   -- across the belt
@@ -382,7 +382,7 @@ __MODULES["Config"] = function()
 		CabinetSlotSpacing = 12,
 
 		-- mechanism: SIDE-TRACK FURNITURE. Each cabinet is a display case standing
-		-- behind a column of its own buy buttons. design:D-07 for why the right half
+		-- behind a column of its own buy buttons. design:D-03 for why the right half
 		-- of the plot is an armoury aisle and the left half a production line.
 		--
 		-- Positions are DERIVED from the anchor, exactly like DropperDist: adding a
@@ -574,7 +574,7 @@ __MODULES["Config"] = function()
 	Config.Layout.Yard = {
 		-- mechanism: A SMALL CHUNK IN THE CORNER, not a second plot. 28 x 28 is
 		-- sized for what actually stands there — one generator and one pad in front
-		-- of it — rather than for four of something. design:D-07 for why it shrank.
+		-- of it — rather than for four of something. design:D-03 for why it shrank.
 		--
 		-- The front face overlaps the pad by a stud so the two slabs interpenetrate
 		-- rather than share a vertical plane, which is the same trick the deck's
@@ -745,7 +745,7 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- invariant: SCREEN UI. design:D-09 for what it is protecting.
+	-- invariant: SCREEN UI. design:D-05 for what it is protecting.
 	--
 	-- Four out of five Roblox sessions are on a phone, and until this table existed
 	-- not one number in this file described the screen. Every panel size, margin
@@ -772,7 +772,7 @@ __MODULES["Config"] = function()
 	-- than MinScale * ReferenceHeight physical pixels gets a canvas shorter than
 	-- the reference, which is exactly the band the shop overlap lived in.
 	-- MaxScale is 1 because nobody asked for a HUD blown up to fill a 4K monitor.
-	-- design:D-09 for what the canvas is protecting, and the open question about
+	-- design:D-05 for what the canvas is protecting, and the open question about
 	-- whether the short-landscape band is supported at all.
 	-- ─────────────────────────────────────────────────────────────────────────────
 
@@ -839,7 +839,7 @@ __MODULES["Config"] = function()
 		ColumnWidth = 280,
 
 		-- mechanism: ONE STATUS CARD — what you have, then what you are saving for.
-		-- design:D-09 for why that is one card rather than two.
+		-- design:D-05 for why that is one card rather than two.
 		--
 		-- THE ROW HEIGHTS ARE THE INPUT AND THE Y OF EACH ROW IS DERIVED from them,
 		-- in the block below, along with the ContentHeight they add up to. Height is
@@ -864,7 +864,7 @@ __MODULES["Config"] = function()
 			-- THE BALANCE GROUP IS THREE LINES: the number, what it multiplies to,
 			-- and the terms that got it there. The coin sits beside the first two.
 			--
-			-- THE CARD CARRIES NO CONTROL. design:D-09. The invite is a rail item
+			-- THE CARD CARRIES NO CONTROL. design:D-05. The invite is a rail item
 			-- (see UI.Rail); the friend bonus appears here only as a term on the
 			-- terms line, which is what it always was arithmetically.
 			IconSize = 48,
@@ -1209,7 +1209,7 @@ __MODULES["Config"] = function()
 	}
 
 	Config.Rebirth = {
-		-- design:D-05 — the pad is priced as a RUNG, not as a number, so that five
+		-- design:D-03 — the pad is priced as a RUNG, not as a number, so that five
 		-- spine rungs are provably still unbought when it lights up.
 		--
 		-- PriceRung = 6 means BaseCost is the 6th most expensive spine price;
@@ -1273,7 +1273,7 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- mechanism: SOCIAL. design:D-08 for what the friend bonus is for and why it
+	-- mechanism: SOCIAL. design:D-01 for what the friend bonus is for and why it
 	-- is small.
 	--
 	-- A friend in your server is +10% income each, capped at three. The cap is
@@ -1530,7 +1530,7 @@ __MODULES["Config"] = function()
 			multiplier = 2.4,
 			blurb = "Melts them into money. x2.4",
 		},
-		-- design:D-07 — where a second storey belongs, why it arrives barren, and
+		-- design:D-03 — where a second storey belongs, why it arrives barren, and
 		-- why its conveyor is sold separately.
 		--
 		-- AFTER THE ROOF, AND THAT IS A GATE RATHER THAN A ROW POSITION.
@@ -1623,7 +1623,7 @@ __MODULES["Config"] = function()
 		},
 	}
 
-	-- design:D-07 — the building is a PARALLEL track gated on `dropper1`, so it is
+	-- design:D-03 — the building is a PARALLEL track gated on `dropper1`, so it is
 	-- something you buy alongside the line rather than instead of it.
 	--
 	-- mechanism: WALLS, THEN GATES, THEN WINDOWS — each is only worth anything
@@ -1732,7 +1732,7 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- design:D-06 — a tier grants MaxHealth and nothing else, and why damage
+	-- design:D-04 — a tier grants MaxHealth and nothing else, and why damage
 	-- reduction was rejected.
 	--
 	-- invariant: ONE MONOTONE STAT KEEPS THE BOSS ASSERTION ONE LINE OF
@@ -1767,7 +1767,7 @@ __MODULES["Config"] = function()
 
 	Config.ArmorButtons = {
 		{
-			-- design:D-04 — a detour rung is priced against WHAT IT DOES, not as a
+			-- design:D-03 — a detour rung is priced against WHAT IT DOES, not as a
 			-- toll on the factory. `batforge` is 2500, so a first vest at a shade
 			-- under twice a first bat is the shape.
 			--
@@ -2062,7 +2062,7 @@ __MODULES["Config"] = function()
 		-- reinforcements rather than as a queue.
 		MaxChasers = 8,
 
-		-- design:D-06 — the boss is the one thing in this game that couples two
+		-- design:D-04 — the boss is the one thing in this game that couples two
 		-- players' outcomes. Everything above this line describes a raid six people
 		-- can play in six separate boxes.
 		--
@@ -2237,7 +2237,7 @@ __MODULES["Config"] = function()
 			-- dwell go on measuring what they measured before.
 			--
 			-- `landing` is the stairwell and the way onto the storey. It keeps the
-			-- full deck width for the tiling rule above. design:D-07 — it is
+			-- full deck width for the tiling rule above. design:D-03 — it is
 			-- deliberately barren, and whether it wants filling is open.
 			zones = {
 				line = {
@@ -2311,7 +2311,7 @@ __MODULES["Config"] = function()
 			-- lives in the `line` zone, which ends at z = -8.
 			lineButtonAt = Vector3.new(0, 0, 20),
 
-			-- design:D-07 — HOW THE STOREY ARRIVES, and why it is staged at all
+			-- design:D-03 — HOW THE STOREY ARRIVES, and why it is staged at all
 			-- rather than appearing in one frame.
 			--
 			-- invariant: THE PIECES DESCEND. A slab rising from y = 0 sweeps through every
@@ -2652,7 +2652,7 @@ __MODULES["Config"] = function()
 		-- invariant: A BUDGET. The shell was ~10 parts; windows and gates take it to ~115,
 		-- times ten plots. Config.shellPartCount() models it from this spec and the
 		-- verifier asserts the result. Whether it holds at full scale in a real
-		-- server is open — design:D-07.
+		-- server is open — design:D-03.
 		-- invariant: LIGHT, BECAUSE A STOREY WITH A CEILING IS INDOORS.
 		-- Lighting.Ambient is (0,0,0) and the mezzanine deck spans wall face to wall
 		-- face, so from the minute the storey lands the ground floor has no sky.
@@ -3174,7 +3174,7 @@ __MODULES["Config"] = function()
 	-- long as ids never change — which is a rule this file already enforces for
 	-- other reasons (see the WeaponButtons banner).
 	--
-	-- design:D-03, design:D-09 — POSITION IN THIS LIST IS THE BEACON.
+	-- design:D-03, design:D-05 — POSITION IN THIS LIST IS THE BEACON.
 	-- Config.TrackRank is the TrackOrder index, and both Tycoon:pointAt and the HUD
 	-- card rank candidates by (rank, price). Nothing in the verifier can catch a
 	-- beacon that points somewhere useless; it is a property of this list and it
@@ -3285,7 +3285,7 @@ __MODULES["Config"] = function()
 	-- nothing else ever roofs, so a mezzanine bought before the roof is a room open
 	-- to the sky. While the shell was welded into the factory chain that was
 	-- guaranteed by ORDERING. A parallel track is declinable, which took the
-	-- guarantee with it. design:D-07.
+	-- guarantee with it. design:D-03.
 	--
 	-- WHY THIS IS NOT A `requires`. The loader derives `requires` from the row
 	-- above and the verifier asserts that the derived chain IS the table order, so
@@ -4860,7 +4860,7 @@ __MODULES["SwingAnim"] = function()
 	--- upper body: pitch +  leans BACK, pitch - leans forward, yaw + turns left.
 	---
 	--- Choreography lives here rather than in Config because these are drawings,
-	--- not balance. The timings that damage depends on ARE in Config. design:D-10.
+	--- not balance. The timings that damage depends on ARE in Config. design:D-05.
 	local function P(arm: Vector3, offArm: Vector3?, torso: Vector3?)
 		return { arm = arm, offArm = offArm or ZERO, torso = torso or ZERO }
 	end
@@ -11006,7 +11006,7 @@ __MODULES["SessionService"] = function()
 	--- offline player has no Tycoon instance to ask, which is why this mirrors
 	--- `Tycoon:incomePerSecond()` rather than calling it.
 	---
-	--- DELIBERATELY EXCLUDES THE SESSION MULTIPLIERS — design:D-08. It includes the
+	--- DELIBERATELY EXCLUDES THE SESSION MULTIPLIERS — design:D-01. It includes the
 	--- rebirth multiplier, because that is a property of the factory rather than of
 	--- the session.
 	---
@@ -11117,7 +11117,7 @@ __MODULES["SessionService"] = function()
 	end
 
 	--- invariant: WHAT THE VAULT IS WORTH, in one formula with two modes falling
-	--- out of it. design:D-08 for what the gauge is for.
+	--- out of it. design:D-01 for what the gauge is for.
 	---
 	--- Capacity is the most this profile can bank in a single absence: its offline
 	--- income per second, for as many hours as its Vault Timer allows. That number
@@ -12087,7 +12087,7 @@ __MODULES["SocialService"] = function()
 	--- it must stay that way. Never a web call, never an iteration over
 	--- Players:GetPlayers(); that is what `count` is maintained for.
 	---
-	--- IT DOES NOT BANK WHILE LOGGED OUT. design:D-08.
+	--- IT DOES NOT BANK WHILE LOGGED OUT. design:D-01.
 	--- `SessionService.incomePerSecondFor` derives offline income from the
 	--- persisted plot and deliberately never calls `Economy.multiplier`, which is
 	--- what excludes the boost and the weekend bonus too. The spec pins it.
@@ -13347,7 +13347,7 @@ __MODULES["Belt"] = function()
 		end
 
 		-- invariant: the guard walls. A run on ONE leg, set back from both of that
-		-- leg's ends by BeltGuard.corner, on both sides. design:D-07.
+		-- leg's ends by BeltGuard.corner, on both sides. design:D-03.
 		--
 		-- The setback is the whole of the fix. The old rails ran each leg's full
 		-- length, and because every leg's surface deliberately overruns its bend by
@@ -14165,7 +14165,7 @@ __MODULES["Buttons"] = function()
 				entry.stroke.Color = COLORS.preview
 				entry.stepLabel.TextColor3 = COLORS.preview
 				entry.titleLabel.TextColor3 = COLORS.preview
-				-- design:D-09 — name the thing you have to buy, not an ordinal. "step N" meant
+				-- design:D-05 — name the thing you have to buy, not an ordinal. "step N" meant
 				-- one thing when there was one chain; with three tracks the global
 				-- order is meaningless on a pedestal and the per-track one is
 				-- ambiguous across cabinets. The requirement is right here, so say
@@ -16169,7 +16169,7 @@ __MODULES["Props"] = function()
 	--- NO SIGN, and if one is ever wanted it must NOT go in self.cabinetSigns —
 	--- updateCabinetSigns rewrites everything in there with the cabinet format
 	--- string, which is how a "POWER YARD" billboard came to read
-	--- "POWER CABINET - 0/4". design:D-09: the pad twelve studs away already
+	--- "POWER CABINET - 0/4". design:D-05: the pad twelve studs away already
 	--- carries the track, the tier name, the effect and the price.
 	function Tycoon:ensureYard()
 		local Y = L.Yard

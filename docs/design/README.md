@@ -15,9 +15,19 @@ decision nobody can review, disagree with, or supersede.
 ## Where a decision lives
 
 **GitHub issues are authoritative.** [#72 — Design
-Monolith](https://github.com/adit-rah/ttt/issues/72) is the index; one sub-issue
-per design area holds the decision, its intent, and its open questions. That is
+Monolith](https://github.com/adit-rah/ttt/issues/72) is the index; **five
+pillars** hold the decisions, their intent, and their open questions. That is
 where a decision is argued and changed.
+
+| | |
+| --- | --- |
+| `D-01` | [The pitch, the player, and why they come back](https://github.com/adit-rah/ttt/issues/76) |
+| `D-02` | [The line](https://github.com/adit-rah/ttt/issues/77) |
+| `D-03` | [The ladder](https://github.com/adit-rah/ttt/issues/78) |
+| `D-04` | [The raid](https://github.com/adit-rah/ttt/issues/79) |
+| `D-05` | [Reading it](https://github.com/adit-rah/ttt/issues/80) |
+
+There were ten. `DECISIONS.md` records what merged into what, and why.
 
 **This directory is derived.** It is a readable snapshot of what has been
 accepted, maintained by hand. If it disagrees with an issue, the issue wins and
@@ -58,7 +68,7 @@ The test is whether the sentence would survive a rewrite. "The pad costs what
 the 6th most expensive spine rung costs" describes the code and stays. "The
 session should end on a choice rather than on being finished" is true of the
 game no matter how it is implemented — that is a design decision, and it lives
-in `D-05`.
+in `D-03`.
 
 ### Citing a decision from code
 
@@ -66,11 +76,11 @@ Where a value is what it is *because of* a design decision, the code says so and
 stops:
 
 ```lua
--- design:D-05 — the 6th most expensive spine price, rounded to 2 s.f.
+-- design:D-03 — the 6th most expensive spine price, rounded to 2 s.f.
 PriceRung = 6,
 ```
 
-`tools/verify.py` fails the build if `D-05` is not a row in `DECISIONS.md`. It
+`tools/verify.py` fails the build if `D-03` is not a row in `DECISIONS.md`. It
 does not check that the citation is apt — nothing can — but a dangling ID is the
 failure mode that actually happens, and that one is caught.
 

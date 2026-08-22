@@ -223,7 +223,7 @@ end
 
 --- mechanism: a person with a plus, drawn out of rounded rectangles — a head, a
 --- domed torso clipped at the container's bottom edge, and a plus in a disc over
---- its shoulder. design:D-10 for why it is drawn rather than uploaded.
+--- its shoulder. design:D-05 for why it is drawn rather than uploaded.
 ---
 --- `ink` is the glyph and `cut` is the colour showing THROUGH the plus — pass
 --- the button's own background for that, and the plus reads as a hole punched in

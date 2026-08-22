@@ -103,7 +103,7 @@ local corner, stroke, panel, text, button =
 
 -- ─────────────────────────────────────────────────────────────────────────────
 
---- design:D-09 — ONE CARD, TWO THINGS TO READ: what you have, and what you are
+--- design:D-05 — ONE CARD, TWO THINGS TO READ: what you have, and what you are
 --- saving for. Why it is one card, why the balance is the largest thing on it,
 --- why the friend bonus is a term rather than a row, and why nothing on it is
 --- pressable.

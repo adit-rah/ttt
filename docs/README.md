@@ -21,8 +21,8 @@ you are holding one and do not know.
 ## `design/` — the product layer
 
 **GitHub issues are authoritative.** [#72 — Design
-Monolith](https://github.com/adit-rah/ttt/issues/72) is the index; ten
-sub-issues hold the decisions. This tree is a maintained snapshot; if it
+Monolith](https://github.com/adit-rah/ttt/issues/72) is the index; five
+pillars hold the decisions. This tree is a maintained snapshot; if it
 disagrees with an issue, the issue wins.
 
 | File | What it is |
