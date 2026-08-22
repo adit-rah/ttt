@@ -115,6 +115,15 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   refuses an owned plot so a second loop cannot start. `[spec]` `income_spec.lua` "release
   kills the loop; rebirth leaves it reading the wiped plot", and the tick spec fires on a
   double payment.
+- **THE STORAGE CAP IS MINUTES, NOT A NUMBER** (#98): the unit holds `CapMinutes` of the
+  plot's own income (rebirth term included), clamped at `Economy.add` — the one door money
+  comes in through, so the tick, the offline grant and every session reward meet the same
+  ceiling and nothing is a second bank. Earnings above it are LOST; the offline grant is
+  deliberately not exempt. A broken unit collapses to `BrokenCapFloor`, which is what gives
+  the repair loop stakes. `[assert]` KPI 1 at every step of the simulated buy order (the
+  cap never blocks the climb), the CapMinutes bind bounds, and the floors; `[spec]` the
+  clamp, the broken collapse, and the grant clip — each falsified. KPI 3 (raid exposure) is
+  #94's, measured against this same number.
 - **`IncomeTickSeconds` sits between Economy's 0.1 s replication drain and 5 s.** Under the
   drain the coalescer batches nothing; past 5 s the counter reads as stuck. `[assert]`
 

@@ -1199,6 +1199,22 @@ __MODULES["Config"] = function()
 	-- will damage it.
 	Config.Storage = {
 		MaxHealth = 100,
+		-- design:D-02, via #98 — THE CAP IS MINUTES, NOT A NUMBER. The unit holds
+		-- CapMinutes of the plot's own income (rebirth term included), so it
+		-- scales with progression by construction and the issue's two live KPIs
+		-- fall out: it cannot be the reason the next rung is unaffordable (every
+		-- single wait is under 15 minutes of income, and the cap holds 30), and
+		-- it always binds on a player who stops spending (idling fills it in
+		-- CapMinutes flat, inside one sitting). The third KPI — raid exposure —
+		-- is #94's, measured against this same number.
+		CapMinutes = 30,
+		-- The floor a fresh plot gets before it earns anything: room for the
+		-- opening purchases, small enough that the cap is real by minute two.
+		CapFloor = 1000,
+		-- A broken unit cannot bank overflow (#93's promise): while broken the
+		-- cap collapses to the floor, and everything above it is lost until the
+		-- owner repairs. The repair loop has stakes now.
+		BrokenCapFloor = 1000,
 		-- Quick and manual: long enough to be an action, short enough to finish
 		-- inside a raid's warning window (asserted against Waves.WarningTime).
 		RepairHoldSeconds = 2,
@@ -2674,6 +2690,19 @@ __MODULES["Config"] = function()
 		-- Reserved for #89's mobs; nothing multiplies by it yet.
 		MobDamageScale = 1,
 	}
+
+	--- design:D-02, via #98 — what the storage unit can hold, in Tung: CapMinutes
+	--- of the plot's income with the rebirth term, floored for a fresh plot, and
+	--- collapsed to the broken floor while the unit is smashed. Pure arithmetic;
+	--- the verifier walks the whole curve against it.
+	function Config.storageCap(has: (string) -> boolean, rebirths: number?, intact: boolean?): number
+		if intact == false then
+			return Config.Storage.BrokenCapFloor
+		end
+		local rate = Config.incomeRate(has)
+			* Config.Rebirth.MultiplierPerRebirth ^ math.max(0, rebirths or 0)
+		return math.max(Config.Storage.CapFloor, rate * Config.Storage.CapMinutes * 60)
+	end
 
 	--- A wall's full health at `level` = expansions owned + 1.
 	function Config.wallMaxHealth(level: number): number
@@ -8177,9 +8206,46 @@ __MODULES["Economy"] = function()
 		if applyMultiplier then
 			final = amount * Economy.multiplier(player)
 		end
+		-- design:D-02, via #98 — THE STORAGE CAP, applied at the one door money
+		-- comes in through. Cash above what the unit holds is LOST, not queued:
+		-- the cap exists to force spending, and a queue would be a second bank
+		-- with no cap on it. The offline grant is deliberately NOT exempt —
+		-- "log in before it overflows" is the return-visit pressure the cap is
+		-- for. Spending and stealing are outflows and stay unclamped.
+		local cap = Economy.storageCapFor(player)
+		local room = cap - profile.cash
+		if room <= 0 then
+			return 0
+		end
+		final = math.min(final, room)
 		profile.cash += final
 		Economy.markDirty(player)
 		return final
+	end
+
+	--- What this player's unit holds right now: the config formula against their
+	--- own save, and their plot's unit if they have one standing. Economy cannot
+	--- require Tycoon (Tycoon requires Economy), so the plot registers its
+	--- broken-state reader here — the setMultiplierHook shape, one field over.
+	local storageIntactFor: ((Player) -> boolean)? = nil
+
+	function Economy.setStorageIntactHook(fn: ((Player) -> boolean)?)
+		storageIntactFor = fn
+	end
+
+	function Economy.storageCapFor(player: Player): number
+		local profile = DataService.get(player)
+		if not profile then
+			return Config.Storage.CapFloor
+		end
+		local owned = profile.owned or {}
+		local intact = true
+		if storageIntactFor then
+			intact = storageIntactFor(player)
+		end
+		return Config.storageCap(function(id)
+			return owned[id] == true
+		end, profile.rebirths, intact)
 	end
 
 	function Economy.spend(player: Player, amount: number): boolean
@@ -16109,6 +16175,7 @@ __MODULES["Storage"] = function()
 
 	local Req = __Req
 	local Config = Req("Config")
+	local Economy = Req("Economy")
 	local Tycoon = Req("Class")
 
 	local COLORS = Tycoon.COLORS
@@ -16136,6 +16203,7 @@ __MODULES["Storage"] = function()
 			base:SetAttribute("StorageHealth", self.storage.health)
 			base:SetAttribute("StorageMaxHealth", S.MaxHealth)
 			base:SetAttribute("StorageBroken", self.storage.broken)
+			base:SetAttribute("StorageFill", self:storedOverflowFraction())
 		end
 		if self.storagePrompt and self.storagePrompt.Parent then
 			self.storagePrompt.Enabled = self.storage.broken
@@ -16164,10 +16232,19 @@ __MODULES["Storage"] = function()
 		self:mirrorStorage()
 	end
 
-	--- 0 until #98 gives the unit a cap. Named here so the damage scaling below
-	--- and #94's loot arithmetic read the same number when it exists.
+	--- How full the unit is: the owner's banked Tung against the cap (#98).
+	--- The damage scaling below and #94's loot arithmetic read the same number,
+	--- which is the whole reason it is one function.
 	function Tycoon:storedOverflowFraction(): number
-		return 0
+		local owner = self.owner
+		if not owner then
+			return 0
+		end
+		local cap = Economy.storageCapFor(owner)
+		if cap <= 0 then
+			return 0
+		end
+		return math.clamp(Economy.get(owner) / cap, 0, 1)
 	end
 
 	--- The predicate #98's overflow banking consults: a broken unit banks nothing.
@@ -16642,6 +16719,12 @@ GateService.start()
 -- requires CombatService and the observer shape exists to keep that arrow
 -- one-way.
 CombatService.setStructureObserver(Tycoon.siegeStrike)
+-- The storage cap's broken-state reader (#98): a smashed unit collapses the
+-- cap to its floor, and Economy cannot require Tycoon to ask.
+Economy.setStorageIntactHook(function(player)
+	local tycoon = PlotService.plotOf(player)
+	return tycoon == nil or tycoon:storageIntact()
+end)
 SocialService.start()
 
 -- 6. players

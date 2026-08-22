@@ -1199,6 +1199,22 @@ __MODULES["Config"] = function()
 	-- will damage it.
 	Config.Storage = {
 		MaxHealth = 100,
+		-- design:D-02, via #98 — THE CAP IS MINUTES, NOT A NUMBER. The unit holds
+		-- CapMinutes of the plot's own income (rebirth term included), so it
+		-- scales with progression by construction and the issue's two live KPIs
+		-- fall out: it cannot be the reason the next rung is unaffordable (every
+		-- single wait is under 15 minutes of income, and the cap holds 30), and
+		-- it always binds on a player who stops spending (idling fills it in
+		-- CapMinutes flat, inside one sitting). The third KPI — raid exposure —
+		-- is #94's, measured against this same number.
+		CapMinutes = 30,
+		-- The floor a fresh plot gets before it earns anything: room for the
+		-- opening purchases, small enough that the cap is real by minute two.
+		CapFloor = 1000,
+		-- A broken unit cannot bank overflow (#93's promise): while broken the
+		-- cap collapses to the floor, and everything above it is lost until the
+		-- owner repairs. The repair loop has stakes now.
+		BrokenCapFloor = 1000,
 		-- Quick and manual: long enough to be an action, short enough to finish
 		-- inside a raid's warning window (asserted against Waves.WarningTime).
 		RepairHoldSeconds = 2,
@@ -2674,6 +2690,19 @@ __MODULES["Config"] = function()
 		-- Reserved for #89's mobs; nothing multiplies by it yet.
 		MobDamageScale = 1,
 	}
+
+	--- design:D-02, via #98 — what the storage unit can hold, in Tung: CapMinutes
+	--- of the plot's income with the rebirth term, floored for a fresh plot, and
+	--- collapsed to the broken floor while the unit is smashed. Pure arithmetic;
+	--- the verifier walks the whole curve against it.
+	function Config.storageCap(has: (string) -> boolean, rebirths: number?, intact: boolean?): number
+		if intact == false then
+			return Config.Storage.BrokenCapFloor
+		end
+		local rate = Config.incomeRate(has)
+			* Config.Rebirth.MultiplierPerRebirth ^ math.max(0, rebirths or 0)
+		return math.max(Config.Storage.CapFloor, rate * Config.Storage.CapMinutes * 60)
+	end
 
 	--- A wall's full health at `level` = expansions owned + 1.
 	function Config.wallMaxHealth(level: number): number

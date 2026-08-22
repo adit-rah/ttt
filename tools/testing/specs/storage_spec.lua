@@ -78,6 +78,52 @@ T.spec("resetStorage is the tenancy boundary", function(t)
 	t:eq(plot.storage.health, S.MaxHealth, "a new tenancy inherited the last one's dents")
 end)
 
+T.spec("the cap clamps at the one door money comes in through", function(t)
+	-- #98: earnings above the cap are LOST, at Economy.add, so the income
+	-- tick, the offline grant and every session reward all meet the same
+	-- ceiling — there is no second bank without a cap on it.
+	local w = T.world()
+	local Config = w.config
+	local Data = w.req("DataService")
+	local Economy = w.req("Economy")
+	local player = w.join("hoarder")
+	local profile = Data.load(player)
+	profile.owned.dropper1 = true
+
+	local cap = Economy.storageCapFor(player)
+	t:eq(cap, Config.storageCap(function(id) return profile.owned[id] == true end, 0, true),
+		"Economy's cap and Config's formula disagree")
+
+	profile.cash = cap - 50
+	t:eq(Economy.add(player, 200, false), 50, "the door paid past the cap")
+	t:eq(Economy.get(player), cap, "the bank went over the unit's capacity")
+	t:eq(Economy.add(player, 200, false), 0, "a full unit accepted more")
+
+	-- spending makes room again: the whole point of the cap
+	t:isTrue(Economy.spend(player, 400), "spending from a full bank failed")
+	t:gt(Economy.add(player, 200, false), 0, "spending did not reopen the door")
+end)
+
+T.spec("a broken unit collapses the cap to its floor", function(t)
+	local w = T.world()
+	local Config = w.config
+	local Data = w.req("DataService")
+	local Economy = w.req("Economy")
+	local player = w.join("besieged")
+	local profile = Data.load(player)
+	profile.owned.dropper5 = true
+
+	local intact = true
+	Economy.setStorageIntactHook(function() return intact end)
+	local whole = Economy.storageCapFor(player)
+	t:gt(whole, Config.Storage.BrokenCapFloor, "the fixture's cap is not above the broken floor")
+
+	intact = false
+	t:eq(Economy.storageCapFor(player), Config.Storage.BrokenCapFloor,
+		"a smashed unit still banks at full capacity — the repair loop has no stakes")
+	Economy.setStorageIntactHook(nil)
+end)
+
 T.spec("damage scales by the overflow fraction", function(t)
 	local w = T.world()
 	local S = w.config.Storage

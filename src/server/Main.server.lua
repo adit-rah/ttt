@@ -76,6 +76,12 @@ GateService.start()
 -- requires CombatService and the observer shape exists to keep that arrow
 -- one-way.
 CombatService.setStructureObserver(Tycoon.siegeStrike)
+-- The storage cap's broken-state reader (#98): a smashed unit collapses the
+-- cap to its floor, and Economy cannot require Tycoon to ask.
+Economy.setStorageIntactHook(function(player)
+	local tycoon = PlotService.plotOf(player)
+	return tycoon == nil or tycoon:storageIntact()
+end)
 SocialService.start()
 
 -- 6. players
