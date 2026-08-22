@@ -15,6 +15,7 @@ local Analytics = Req("Analytics")
 local Economy = Req("Economy")
 local CombatService = Req("CombatService")
 local MovementService = Req("MovementService")
+local RaidService = Req("RaidService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -84,6 +85,13 @@ Economy.setStorageIntactHook(function(player)
 	local tycoon = PlotService.plotOf(player)
 	return tycoon == nil or tycoon:storageIntact()
 end)
+-- The raid loot loop (#94): a break with an attacker spills into their hands,
+-- and RaidService.start hangs the death-drops and banking loops. Same
+-- one-way-arrow argument as the two hooks above.
+Tycoon.storageBreakObserver = function(tycoon, attacker)
+	RaidService.onStorageBroken(tycoon, attacker, os.clock())
+end
+RaidService.start()
 SocialService.start()
 
 -- 6. players

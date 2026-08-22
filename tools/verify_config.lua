@@ -956,6 +956,46 @@ do
 			:format(M.DashSpeed * M.DashSeconds))
 end
 
+-- ── raiding (#94) ──────────────────────────────────────────────────────────
+--
+-- The loot numbers are KPIs made config. Every bound here is a promise the
+-- design makes to a victim or a raider: a raid never costs more than a short
+-- stretch of income, an empty target still pays, camping converges on zero,
+-- and a kill is the smaller vector everywhere combat is legal.
+do
+	local R = Config.Raid
+	check(R.SafeFraction > 0 and R.SafeFraction < 1,
+		("SafeFraction is %.2f; at 0 nothing is safe and at 1 raiding takes nothing — both kill a pillar")
+			:format(R.SafeFraction))
+	check(R.SpillFraction > 0 and R.SpillFraction <= 1,
+		("SpillFraction is %.2f and must be a fraction of overflow"):format(R.SpillFraction))
+	-- the recovery promise: the worst raid loss, in minutes of the victim's
+	-- own income, fits inside one sitting's early stretch
+	local worstMinutes = R.SpillFraction * (1 - R.SafeFraction) * Config.Storage.CapMinutes
+	check(worstMinutes <= R.RecoveryMinutes,
+		("a full-cap raid costs %.1f minutes of income; over %d the victim logs off instead of rebuilding")
+			:format(worstMinutes, R.RecoveryMinutes))
+	-- the raider's floor: an empty unit still pays at least a minute
+	local bountyMinutes = R.EmptyBountyFraction * Config.Storage.CapMinutes
+	check(bountyMinutes >= 1,
+		("breaking an empty unit pays %.1f minutes of the victim's rate; under one, raiding the poor is pure grief")
+			:format(bountyMinutes))
+	check(bountyMinutes < worstMinutes,
+		("the empty bounty (%.1f min) must pay less than a full raid (%.1f min) or full units stop being the target")
+			:format(bountyMinutes, worstMinutes))
+	check(R.KillStealFraction > 0 and R.KillStealFraction < R.SpillFraction,
+		("KillStealFraction %.2f must undercut SpillFraction %.2f — the kill is the smaller vector, available everywhere")
+			:format(R.KillStealFraction, R.SpillFraction))
+	check(R.CampingHalving > 0 and R.CampingHalving < 1,
+		("CampingHalving is %.2f; outside (0,1) repeat raids never decay"):format(R.CampingHalving))
+	-- the window must outlast a repair cycle by enough that break-repair-break
+	-- farming meets the decay instead of a reset counter
+	local cycle = Config.Storage.RepairHoldSeconds + Config.Structure.Health.RepairSeconds
+	check(R.CampingWindowSeconds >= cycle * 60,
+		("CampingWindowSeconds %d is under 60 repair cycles (%.0fs each) — camping resets faster than it decays")
+			:format(R.CampingWindowSeconds, cycle))
+end
+
 -- ── swing timing ────────────────────────────────────────────────────────────
 -- Damage lands on the strike frame rather than on the click, so these numbers
 -- are now gameplay, not decoration: get them wrong and the bat either hits

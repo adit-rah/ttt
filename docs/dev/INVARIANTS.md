@@ -719,6 +719,31 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   bottom-right stack belongs to the action buttons — and are never built without touch.
   `[nothing]` beyond the reserve inset; placement is a Studio item.
 
+### Raiding (#94)
+
+- **The safe amount is unreachable by construction.** `RaidService.overflowOf`
+  subtracts `SafeFraction x cap` before anything is computed, and both takings —
+  the break spill and the kill-steal — are sized from the remainder. No code
+  path reads a victim's cash without the subtraction. `[spec]` `raid_spec.lua`,
+  falsified by deleting the subtraction: five specs fired.
+- **Spoils are CARRIED.** A break pays into the raider's hands; the money enters
+  their bank only through `bankCarry`, which goes through `Economy.add` and is
+  clamped by the raider's own cap. A death drops the carry and each source's
+  share goes home (their cap clamps the return too). `[spec]`
+- **The storage body reaches the swing door through `siegeStrike` alone.**
+  `VaultBase` resolves to the reserved key `"storage"` inside the strike loop;
+  `siegeKeyForPart` never returns it, so the wall machinery — maxes, repair
+  prompts, saved fractions — cannot meet the key. `[spec]` falsified by routing
+  it through `damageStructure`.
+- **The break observer fires on the transition only, with an attacker.** A
+  broken unit absorbs nothing, so a camp-and-rebreak must go through the
+  victim's repair; the camping ledger decays what it pays anyway. `[assert]`
+  the verifier's raid family holds every Config.Raid number to its KPI, each
+  falsified.
+- **Banking is the heartbeat in `start()`** — standing-on-your-own-plot is
+  CFrame arithmetic the harness does not claim. `[nothing]` the rectangle test
+  itself; Studio owns it, HANDOFF_v17 names it.
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch

@@ -2215,6 +2215,35 @@ Config.Combat = {
 	JumpPower = 52,
 }
 
+-- design:D-04, via #94 — RAIDING. A safe amount is untouchable; only the
+-- overflow above it is ever at risk, and every number here is a KPI made
+-- config: a raid never costs more than a few minutes of the victim's income
+-- (recovered inside one sitting), an empty unit still pays the raider
+-- (minted — the defender loses nothing), and camping one target halves its
+-- spoils per repeat until it is worthless. The loot is CARRIED until the
+-- raider reaches their own plot, and killing the carrier returns it.
+Config.Raid = {
+	-- The untouchable fraction of the storage cap. Overflow = cash above it,
+	-- and overflow is the only Tung any raid mechanism can reach.
+	SafeFraction = 0.5,
+	-- What one storage-unit break takes, as a fraction of overflow. With the
+	-- cap at 30 minutes of income, a full-worst-case raid costs
+	-- 0.35 x 0.5 x 30 = 5.25 minutes — asserted under RecoveryMinutes.
+	SpillFraction = 0.35,
+	-- Breaking an EMPTY unit mints this fraction of the victim's cap for the
+	-- raider; the defender loses nothing. Raiding always rewards the raider.
+	EmptyBountyFraction = 0.05,
+	-- A player kill takes this fraction of the victim's overflow, wherever
+	-- combat is legal — the smaller vector, available everywhere.
+	KillStealFraction = 0.1,
+	-- Repeat spoils from the same victim halve per break inside the window.
+	CampingHalving = 0.5,
+	CampingWindowSeconds = 1800,
+	-- The KPI ceiling the spill arithmetic is asserted under: a raid's worst
+	-- case must be re-earnable inside one sitting.
+	RecoveryMinutes = 8,
+}
+
 -- design:D-04, via #101 — MOVEMENT. Sprint and dash ship now, as BASELINE
 -- capabilities everyone has: legibility first, and a movement axis nobody can
 -- buy is a movement axis nobody falls behind on. Mounts and waypoints wait

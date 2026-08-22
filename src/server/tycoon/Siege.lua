@@ -143,6 +143,14 @@ function Tycoon.siegeKeyForPart(part: BasePart): string?
 	return nil
 end
 
+--- The storage unit is a swing target too (#94): its body resolves to the
+--- reserved key "storage", which siegeStrike routes to damageStorage. Kept
+--- out of siegeKeyForPart — the wall/gate machinery (max health, repair
+--- prompts, saved fractions) must never see it.
+local function isStorageBody(part: BasePart): boolean
+	return part.Name == "VaultBase"
+end
+
 --- Make the standing ring agree with the health table: a broken side keeps
 --- its sill course as a charred stump and loses everything above it; a broken
 --- gate loses its leaves. Idempotent, and called at the end of buildWallRing,
@@ -277,6 +285,9 @@ function Tycoon.siegeStrike(parts: { BasePart }, attacker: Player, damage: numbe
 	struck = struck or {}
 	for _, part in ipairs(parts) do
 		local key = Tycoon.siegeKeyForPart(part)
+		if not key and isStorageBody(part) then
+			key = "storage"
+		end
 		if key then
 			for _, tycoon in ipairs(Tycoon.all()) do
 				if tycoon.model and isUnder(part, tycoon.model) then
@@ -285,7 +296,11 @@ function Tycoon.siegeStrike(parts: { BasePart }, attacker: Player, damage: numbe
 					end
 					if struck[tycoon] and not struck[tycoon][key] then
 						struck[tycoon][key] = true
-						tycoon:damageStructure(key, damage * H.PlayerDamageScale, attacker)
+						if key == "storage" then
+							tycoon:damageStorage(damage * H.PlayerDamageScale, attacker)
+						else
+							tycoon:damageStructure(key, damage * H.PlayerDamageScale, attacker)
+						end
 					end
 					break
 				end

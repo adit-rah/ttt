@@ -94,7 +94,8 @@ T.spec("part names resolve to stable keys, and only siege parts resolve", functi
 	t:eq(Tycoon.siegeKeyForPart(named("Gate_gateway_2")), "gate_gateway")
 	t:eq(Tycoon.siegeKeyForPart(named("Gate_yardDoor_1")), "gate_yardDoor")
 	t:isNil(Tycoon.siegeKeyForPart(named("Roof")), "the roof is not a siege target")
-	t:isNil(Tycoon.siegeKeyForPart(named("VaultBase")), "the vault is #94's target, not #124's")
+	t:isNil(Tycoon.siegeKeyForPart(named("VaultBase")),
+		"the storage body must stay outside the wall machinery — its route is siegeStrike's own")
 	t:isNil(Tycoon.siegeKeyForPart(named("Fixture_3")), "a light batten is not a wall")
 end)
 
@@ -152,6 +153,40 @@ T.spec("one swing hits one key once, and never the swinger's own plot", function
 	Tycoon.siegeStrike(parts, owner, 30)
 	t:near(plot.structureHealth.wall_front, max - 30, 1e-9,
 		"the owner damaged their own wall — no accidental self-demolition")
+end)
+
+T.spec("a swing on the storage body routes to damageStorage, once, and never for the owner", function(t)
+	-- #94's entry: VaultBase resolves to the reserved key "storage" inside
+	-- siegeStrike alone, so a bat reaches the unit through the same door and
+	-- the same per-swing dedup as a wall — and the wall machinery (maxes,
+	-- prompts, saved fractions) never learns the key exists.
+	local w = T.world()
+	local Tycoon = w.req("Tycoon")
+	local Config = w.config
+	local owner = w.join("homeowner")
+	local raider = w.join("raider")
+
+	local plot = fakePlot(w, owner)
+	plot:resetStorage()
+	plot.model = Instance.new("Model")
+	table.insert(Tycoon.all(), plot)
+
+	local body = Instance.new("Part")
+	body.Name = "VaultBase"
+	body.Parent = plot.model
+	local parts = { body, body }   -- one swing boxing the body twice
+
+	local max = Config.Storage.MaxHealth
+	local hit = 30 * Config.Structure.Health.PlayerDamageScale
+	Tycoon.siegeStrike(parts, raider, 30)
+	t:near(plot.storage.health, max - hit, 1e-9,
+		"the unit took something other than exactly one scaled hit")
+	t:isNil(plot.structureHealth.storage,
+		"the strike leaked a 'storage' key into the wall table — repair and persistence would both trip on it")
+
+	Tycoon.siegeStrike({ body }, owner, 30)
+	t:near(plot.storage.health, max - hit, 1e-9,
+		"the owner dented their own storage unit")
 end)
 
 end
