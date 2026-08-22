@@ -39,6 +39,7 @@ this tree is wrong.
 | `GAME.md` | the current flow, end to end — what a player does, in what order, with the real numbers |
 | `SYSTEMS.md` | the product architecture — the systems, what each owns, and where they touch |
 | `DECISIONS.md` | the index: `D-NN` → title → issue → status. **Source code cites these IDs.** |
+| `ASSETS.md` | the `D-06` ledger — every generated asset, which bucket it falls in, and what a replacement inherits |
 | `growth/` | acquisition and live-ops — the store page, the update calendar |
 | `research/` | the sourced backlogs the decisions were argued from. Not decisions. |
 
