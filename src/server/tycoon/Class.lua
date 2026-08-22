@@ -86,6 +86,7 @@ function Tycoon.new(index: number, parent: Instance)
 	self.powerFactor = 1
 	self.beltSpeed = L.BeltSpeed
 	self.dropCount = 0
+	self.dropPool = {}   -- retired drop bodies, shelved per variant (Drops.lua)
 
 	-- Folders that come and go with the factory. Registered as they are built
 	-- rather than listed in setFactoryVisible; see registerFactoryFolder.

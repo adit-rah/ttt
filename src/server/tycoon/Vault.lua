@@ -250,9 +250,9 @@ function Tycoon:onCollect(hit: BasePart)
 	end
 	model:SetAttribute("Collected", true)
 
+	-- recycleDrop below returns the budget slot; decrementing here as well
+	-- would count one drop out twice and starve the spawners.
 	local owner = self.owner
-	self.dropCount = math.max(0, self.dropCount - 1)
-
 	if owner and owner.Parent then
 		-- late game the vault eats ~10 drops/sec; throttle the confetti so a
 		-- finished factory doesn't spam hundreds of billboards per minute. The
@@ -265,7 +265,7 @@ function Tycoon:onCollect(hit: BasePart)
 			Fx.tung(hit, 0.9 + math.random() * 0.35, 0.18)
 		end
 	end
-	model:Destroy()
+	self:recycleDrop(model)
 end
 
 return Tycoon

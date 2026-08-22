@@ -14411,6 +14411,7 @@ __MODULES["Class"] = function()
 		self.powerFactor = 1
 		self.beltSpeed = L.BeltSpeed
 		self.dropCount = 0
+		self.dropPool = {}   -- retired drop bodies, shelved per variant (Drops.lua)
 
 		-- Folders that come and go with the factory. Registered as they are built
 		-- rather than listed in setFactoryVisible; see registerFactoryFolder.
@@ -14578,6 +14579,15 @@ __MODULES["Drops"] = function()
 		Every path that removes a drop — collected, expired, cleared — has to
 		decrement the count, or the counter drifts up to the cap and the plot
 		silently stops dropping.
+
+		THE POOL RECYCLES BODIES, per variant. A finished factory retires ~10
+		drops a second, and building a Model with constraints for each one is the
+		server cost the pool removes. recycleDrop is the ONE way off the belt for
+		an intact drop: it wipes the ride's attributes and the flash's tint,
+		unparents, and shelves the body under its variant. clearDrops destroys the
+		pool with the live drops — release hands the plot to a new owner whose
+		factory drops different variants, and a shelved body from the last tenant
+		is a leak wearing the wrong colour.
 	]]
 
 	local Req = __Req
@@ -14600,9 +14610,22 @@ __MODULES["Drops"] = function()
 		end
 		self.dropCount += 1
 
-		local drop = TungModels.buildDrop(def.variant, 0.62)
+		local pool = self.dropPool[def.variant]
+		local drop = pool and table.remove(pool) or nil
+		if drop then
+			-- Wipe the last ride: every upgrader's once-flag and the collector's
+			-- claim, or a recycled drop arrives pre-flashed and pre-collected.
+			for id, buttonDef in pairs(Config.ButtonById) do
+				if buttonDef.kind == "Upgrader" then
+					drop:SetAttribute("up_" .. id, nil)
+				end
+			end
+			drop:SetAttribute("Collected", nil)
+		else
+			drop = TungModels.buildDrop(def.variant, 0.62)
+			drop:SetAttribute("Variant", def.variant)
+		end
 		drop:SetAttribute("PlotIndex", self.index)
-		drop:SetAttribute("Variant", def.variant)
 
 		-- Which belt, and how far along it: the corner sensors and the collector
 		-- all filter on these, so a drop on the mezzanine is invisible to the
@@ -14611,6 +14634,11 @@ __MODULES["Drops"] = function()
 		drop:SetAttribute("Path", pathIndex)
 
 		local body = drop.PrimaryPart :: BasePart
+		-- the upgrader flash tints the body toward its variant; a pooled body
+		-- comes back at the nozzle in its natural coat
+		local variant = Config.Variants[def.variant] or Config.Variants.classic
+		body.Color = variant.wood
+		body.Material = variant.material
 		local direction = self:legDirectionWorld(legIndex, pathIndex)
 		local across = self:legNormalWorld(legIndex, pathIndex)
 		local jitter = (math.random() - 0.5) * (L.BeltWidth * 0.35)
@@ -14622,48 +14650,92 @@ __MODULES["Drops"] = function()
 		local spawnPosition = nozzle.Position + across * jitter - Vector3.new(0, 1.6, 0)
 		drop:PivotTo(CFrame.new(spawnPosition) * upright)
 
-		local attachment = Instance.new("Attachment")
-		attachment.Name = "BeltAttach"
-		attachment.Parent = body
+		-- A pooled body keeps its rig; a fresh one gets it here. The dynamic
+		-- fields — the leg's axes, the plot's speed, the upright pose — are
+		-- written either way, every spawn.
+		local attachment = body:FindFirstChild("BeltAttach")
+		if not attachment then
+			attachment = Instance.new("Attachment")
+			attachment.Name = "BeltAttach"
+			attachment.Parent = body
+		end
 
 		-- conveyor motion, done with a constraint so there is no per-frame script
-		local mover = Instance.new("LinearVelocity")
-		mover.Name = "BeltMover"
-		mover.Attachment0 = attachment
-		mover.RelativeTo = Enum.ActuatorRelativeTo.World
-		mover.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
+		local mover = body:FindFirstChild("BeltMover")
+		if not mover then
+			mover = Instance.new("LinearVelocity")
+			mover.Name = "BeltMover"
+			mover.Attachment0 = attachment
+			mover.RelativeTo = Enum.ActuatorRelativeTo.World
+			mover.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
+			mover.MaxForce = 120000
+			mover.Parent = body
+		end
 		mover.PrimaryTangentAxis = direction
 		mover.SecondaryTangentAxis = across
 		mover.PlaneVelocity = Vector2.new(self.beltSpeed, 0)
-		mover.MaxForce = 120000
-		mover.Parent = body
 
 		-- keep the little guy standing up and facing back down the belt, so you
 		-- see a queue of angry faces instead of a pile of rolling logs
-		local upkeep = Instance.new("AlignOrientation")
-		upkeep.Name = "StayUpright"
-		upkeep.Mode = Enum.OrientationAlignmentMode.OneAttachment
-		upkeep.Attachment0 = attachment
-		upkeep.RigidityEnabled = true
+		local upkeep = body:FindFirstChild("StayUpright")
+		if not upkeep then
+			upkeep = Instance.new("AlignOrientation")
+			upkeep.Name = "StayUpright"
+			upkeep.Mode = Enum.OrientationAlignmentMode.OneAttachment
+			upkeep.Attachment0 = attachment
+			upkeep.RigidityEnabled = true
+			upkeep.Parent = body
+		end
 		upkeep.CFrame = upright
-		upkeep.Parent = body
+
+		-- The ride token. A recycled body still has the LAST ride's reaper
+		-- pending on it, and "is it parented" cannot tell ride 2 from ride 1 —
+		-- so the reaper only takes the ride it was armed for.
+		local ride = (drop:GetAttribute("Ride") or 0) + 1
+		drop:SetAttribute("Ride", ride)
 
 		drop.Parent = self.drops
 
 		Fx.tung(body, 1.6 + math.random() * 0.3, 0.08)
 
 		task.delay(Config.Economy.DropLifetime, function()
-			if drop.Parent then
-				self.dropCount = math.max(0, self.dropCount - 1)
-				drop:Destroy()
+			if drop.Parent and drop:GetAttribute("Ride") == ride then
+				self:recycleDrop(drop)
 			end
 		end)
+	end
+
+	--- The one way off the belt for an intact drop: back to its variant's shelf.
+	--- Decrements the budget, unparents, and leaves the ride's attributes for the
+	--- next spawn to wipe — spawnDrop resets everything it reuses.
+	function Tycoon:recycleDrop(drop: Model)
+		if not drop.Parent then
+			return
+		end
+		self.dropCount = math.max(0, self.dropCount - 1)
+		drop.Parent = nil
+		local variant = drop:GetAttribute("Variant")
+		local pool = self.dropPool[variant]
+		if not pool then
+			pool = {}
+			self.dropPool[variant] = pool
+		end
+		table.insert(pool, drop)
 	end
 
 	function Tycoon:clearDrops()
 		for _, drop in ipairs(self.drops:GetChildren()) do
 			drop:Destroy()
 		end
+		-- The pool goes with the live drops: release hands the plot to an owner
+		-- whose factory drops different variants, and a shelved body that
+		-- survives the handover is a leak wearing the last tenant's colours.
+		for _, pool in pairs(self.dropPool) do
+			for _, drop in ipairs(pool) do
+				drop:Destroy()
+			end
+		end
+		self.dropPool = {}
 		self.dropCount = 0
 	end
 
@@ -16793,9 +16865,9 @@ __MODULES["Vault"] = function()
 		end
 		model:SetAttribute("Collected", true)
 
+		-- recycleDrop below returns the budget slot; decrementing here as well
+		-- would count one drop out twice and starve the spawners.
 		local owner = self.owner
-		self.dropCount = math.max(0, self.dropCount - 1)
-
 		if owner and owner.Parent then
 			-- late game the vault eats ~10 drops/sec; throttle the confetti so a
 			-- finished factory doesn't spam hundreds of billboards per minute. The
@@ -16808,7 +16880,7 @@ __MODULES["Vault"] = function()
 				Fx.tung(hit, 0.9 + math.random() * 0.35, 0.18)
 			end
 		end
-		model:Destroy()
+		self:recycleDrop(model)
 	end
 
 	return Tycoon
