@@ -1568,7 +1568,7 @@ Config.FactoryButtons = {
 -- than sixty new ones; the part count does not move across the first three.
 --
 -- THE ROOF IS ON THIS TRACK AND STILL GATES THE MEZZANINE. It is the one place
--- the shell reaches back into the spine — see Config.ButtonUnlock. Being last
+-- the shell reached back into the spine while the storey lived. Being last
 -- here is load-bearing twice over: buildRoofModel derives its column positions
 -- from Config.wallExtent, so a roof with no wall under it is four columns and a
 -- slab standing in a field.
@@ -3217,13 +3217,24 @@ Config.Tracks = {
 -- `rank` is not here because it is exactly the TrackOrder index; it is derived
 -- below, which deletes both copies rather than adding a third.
 Config.TrackInfo = {
-	factory = { label = "FACTORY", preview = 3, keepOnRebirth = false, paced = "spine", furniture = "misc" },
+	-- design:D-05, via #125 — THE PURCHASE SURFACE IS THREE CATEGORIES:
+	-- conveyor (everything that makes the line earn more), generator, and
+	-- plot (the ground and the shell on it). `category` is the label a pad
+	-- and the HUD card wear; the TRACKS underneath stay chains, because the
+	-- chains carry the orderings geometry forces (no L2 without L1) and the
+	-- categories are what the player is asked to hold. The cabinet tracks
+	-- keep their own labels until #108 moves them off the plot.
+	--
+	-- The conveyor outranks everything by TrackOrder POSITION, which is what
+	-- "the conveyor's label sits highest" already means to the card and the
+	-- beacon: both rank by (TrackRank, price).
+	factory = { label = "CONVEYOR", category = "conveyor", preview = 3, keepOnRebirth = false, paced = "spine", furniture = "misc" },
 	-- invariant: THE SHELL. Three of its five facts are FORCED rather than
 	-- chosen; preview is design:D-03.
 	--
 	-- paced = "spine" because the detour model prices a track against a curve it
 	-- does not change AND assumes you can decline it. The second half stopped
-	-- being true when Config.ButtonUnlock put `roof` between the player and the
+	-- being true when a cross-ladder gate once put `roof` between the player and the
 	-- mezzanine. Measured as a detour the build reads 46 minutes against a
 	-- MIN_TOTAL_MINUTES of 45 — the four purchases did not stop happening, the
 	-- verifier just stopped counting them.
@@ -3242,9 +3253,9 @@ Config.TrackInfo = {
 	-- preview = 2 is the one real choice. At 3 the whole four-rung track is
 	-- visible from the moment you claim, which puts a 690000 price tag on the
 	-- plot at minute three; at 2 the roof stays hidden until `gates` is owned.
-	structure = { label = "STRUCTURE", preview = 2, keepOnRebirth = false, paced = "spine", furniture = "misc" },
-	weapons = { label = "WEAPONS", preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
-	armor   = { label = "ARMORY",  preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
+	structure = { label = "PLOT", category = "plot", preview = 2, keepOnRebirth = false, paced = "spine", furniture = "misc" },
+	weapons = { label = "WEAPONS", category = "weapons", preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
+	armor   = { label = "ARMORY",  category = "armor",  preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "cabinet" },
 	-- The generator multiplies exactly what a rebirth resets. Keeping it would
 	-- stack x2 on top of MultiplierPerRebirth 2.25 for an effective 4.5x first
 	-- prestige, which makes the asserted CostGrowth/MultiplierPerRebirth ratio
@@ -3255,7 +3266,7 @@ Config.TrackInfo = {
 	-- the lit one. At 2 it put three pads in the yard on a plot that had bought
 	-- none of them, which is most of what "the generator is visually intrusive
 	-- on plot creation" was about. The verifier asserts this is 0.
-	power   = { label = "POWER",   preview = 0, keepOnRebirth = false, paced = "spine", furniture = "yard" },
+	power   = { label = "GENERATOR", category = "generator", preview = 0, keepOnRebirth = false, paced = "spine", furniture = "yard" },
 	-- design:D-03 — LAND SURVIVES A REBIRTH (#88, via #78: rebirth raises the
 	-- ceiling on what can exist; the ground is the ceiling). keepOnRebirth
 	-- works here because ensureLand rebuilds the slabs from `owned` on the
@@ -3268,8 +3279,8 @@ Config.TrackInfo = {
 	--
 	-- paced = "spine": land is the plot's own growth and the simulation walks
 	-- it; priced as a detour it would stop counting toward the build.
-	landL   = { label = "WEST LAND", preview = 0, keepOnRebirth = true, paced = "spine", furniture = "land" },
-	landR   = { label = "EAST LAND", preview = 0, keepOnRebirth = true, paced = "spine", furniture = "land" },
+	landL   = { label = "PLOT", category = "plot", preview = 0, keepOnRebirth = true, paced = "spine", furniture = "land" },
+	landR   = { label = "PLOT", category = "plot", preview = 0, keepOnRebirth = true, paced = "spine", furniture = "land" },
 }
 
 Config.TrackLabel = {}
@@ -3302,32 +3313,13 @@ Config.TrackUnlock = {
 	landL = "dropper5", landR = "dropper5",
 }
 
--- invariant: WHAT A SINGLE PURCHASE WAITS ON, WHEN THE THING IT WAITS ON IS
--- NOT ON ITS OWN LADDER. Empty since the mezzanine retired with #88 — its one
--- entry gated `floor2` on `roof`. The MECHANISM stays: the reachability
--- fixpoint in the verifier exists because a gate can strand a chain in a way
--- the naive requirement walk cannot see, and #125 owns deciding whether the
--- table and the fixpoint retire together.
---
--- A row here is a precondition on a purchase, the same kind of thing
--- TrackUnlock is for a whole ladder. It is never a `requires`: the loader
--- derives `requires` from the row above and the verifier asserts the derived
--- chain IS the table order, so a hand-typed cross-track requirement would
--- either be overwritten or silently fork the chain.
-Config.ButtonUnlock = {}
-
---- Whether `id` may be bought on a plot that owns `owned`.
----
---- DELIBERATELY NOT STICKY, which is the one way this differs from
---- Config.trackUnlocked. That function forgives a missing gate because rebirth
---- wipes the factory while keeping the cabinets, so the gate button can be gone
---- while the track it opened is still owned. A gate here binds a single
---- purchase, and the table is empty today; the shape is kept for the next
---- cross-track precondition.
-function Config.buttonUnlocked(id: string, owned): boolean
-	local gate = Config.ButtonUnlock[id]
-	return gate == nil or owned[gate] == true
-end
+-- design:D-03, via #125 — Config.ButtonUnlock and its helper are GONE. The
+-- one entry ever shipped gated the mezzanine on the roof, and the mechanism
+-- retired with the storey system: three categories and per-track chains need
+-- nothing that gates ONE purchase across a ladder, and a mechanism nothing
+-- uses is a mechanism that silently rots. TrackUnlock is the surviving gate
+-- shape — a precondition on a whole ladder — and the reachability fixpoint
+-- still counts it.
 
 --- Whether `track` is open on a plot that owns `owned`.
 ---
@@ -3386,6 +3378,18 @@ for _, track in ipairs(Config.TrackOrder) do
 		def.order = #Config.Buttons
 		Config.ButtonById[def.id] = def
 	end
+end
+
+-- design:D-05, via #125 — the category ordinals the pads and the card count
+-- by. A pad says "PLOT 20/34" rather than naming one of three internal
+-- chains: the categories are what the player is asked to hold, and the
+-- count's width is the category's whole size.
+Config.CategoryCount = {}
+for _, def in ipairs(Config.Buttons) do
+	local info = Config.TrackInfo[def.track]
+	def.category = info and info.category or def.track
+	Config.CategoryCount[def.category] = (Config.CategoryCount[def.category] or 0) + 1
+	def.categoryOrder = Config.CategoryCount[def.category]
 end
 
 --- Every price on the SPINE, highest first.

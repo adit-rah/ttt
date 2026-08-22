@@ -688,13 +688,8 @@ local function cheapestAvailable()
 		-- ranking does: a track that has not opened yet has no cabinet and no
 		-- buttons anywhere on the plot, so naming one of its rungs as your next
 		-- purchase points you at nothing.
-		-- Config.buttonUnlocked is ANDed in for the same reason, one level down.
-		-- Without it this card names `floor2` and starts filling a bar towards
-		-- 9.3M while the beacon out on the plot is glowing on the roof — the
-		-- card would be counting towards a purchase the server will refuse.
 		if not state.owned[def.id]
 			and Config.trackUnlocked(def.track, state.owned)
-			and Config.buttonUnlocked(def.id, state.owned)
 		then
 			local ok = true
 			for _, req in ipairs(Config.requirementsOf(def)) do
@@ -788,8 +783,10 @@ function HUD.applyStats(payload)
 		-- averaged into one meaningless number.
 		local track = Config.Tracks[next_.track]
 		local owned = 0
-		for _, def in ipairs(track) do
-			if state.owned[def.id] then
+		-- Counted by CATEGORY (#125): the card says "PLOT 12 of 34", the
+		-- same width the pad's own step line uses.
+		for _, def in ipairs(Config.Buttons) do
+			if def.category == next_.category and state.owned[def.id] then
 				owned += 1
 			end
 		end
@@ -798,7 +795,7 @@ function HUD.applyStats(payload)
 			price = next_.price,
 			label = Config.TrackLabel[next_.track] or "STEP",
 			step = owned + 1,
-			of = #track,
+			of = Config.CategoryCount[next_.category] or #track,
 		}
 	else
 		nextUp = nil

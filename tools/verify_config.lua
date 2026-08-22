@@ -183,30 +183,14 @@ end
 -- ...AND REACHABLE ONCE THE GATES ARE COUNTED TOO, which is a strictly harder
 -- question than the walk above answers.
 --
--- That walk follows `requires` and nothing else. It was SAFE rather than
--- correct: `requires` never crosses a track, and the only other precondition in
--- the game was Config.TrackUnlock, which is asserted to name a button on a
--- track that is itself ungated — so the gate was always satisfiable and
--- following the chains alone could not miss anything.
---
--- Config.ButtonUnlock removes that guarantee, because now a track can be gated
--- on a button that is itself waiting on the gated track. Nothing in the two
--- structural checks further down refuses this pair:
---
---     TrackUnlock.structure = "dropper8"   -- a plausible-looking retune
---     ButtonUnlock.floor2   = "roof"       -- shipped
---
--- floor2 waits on roof, roof is on the structure track, the structure track
--- waits on dropper8, and dropper8 is behind floor2 in the factory chain. Every
--- id exists, every track differs, every gate points at a spine track, and the
--- plot deadlocks four rungs from the end with no message.
---
--- So this is a FIXPOINT rather than a walk: start owning nothing, repeatedly
--- buy anything whose requirements, track gate and button gate are all already
--- owned, and stop when a pass buys nothing. Whatever is left cannot be reached
--- from an empty save by any route, which is the actual property. It is stated
--- as a closure and not as a cycle search because unreachable-and-acyclic fails
--- the same way for the player and deserves the same message.
+-- That walk follows `requires` and nothing else, and the fixpoint below is
+-- the harder guarantee: start owning nothing, repeatedly buy anything whose
+-- requirements and track gate are already owned, and stop when a pass buys
+-- nothing. Whatever is left cannot be reached from an empty save by any
+-- route. The per-purchase gate table this was built against retired with the
+-- storey system (#125 took the empty table with it); the fixpoint stays
+-- because it is the only check that would notice the NEXT gate mechanism
+-- closing a loop, whatever shape it arrives in.
 do
 	local owned, buyable = {}, 0
 	repeat
@@ -219,8 +203,6 @@ do
 				end
 				local trackGate = Config.TrackUnlock[def.track]
 				if trackGate and not owned[trackGate] then ok = false end
-				local buttonGate = Config.ButtonUnlock[def.id]
-				if buttonGate and not owned[buttonGate] then ok = false end
 				if ok then
 					owned[def.id] = true
 					bought += 1
@@ -232,15 +214,14 @@ do
 
 	for _, def in ipairs(Config.Buttons) do
 		local trackGate = Config.TrackUnlock[def.track]
-		local buttonGate = Config.ButtonUnlock[def.id]
 		check(owned[def.id],
-			("%s can never be bought from a fresh save: it requires %s, its %s track waits on %s and the button itself waits on %s. Some loop among those is closed — a gate is waiting on something behind the gate")
+			("%s can never be bought from a fresh save: it requires %s and its %s track waits on %s. Some loop among those is closed — a gate is waiting on something behind the gate")
 				:format(def.id,
 					#Config.requirementsOf(def) > 0 and table.concat(Config.requirementsOf(def), "+") or "nothing",
-					def.track, tostring(trackGate), tostring(buttonGate)))
+					def.track, tostring(trackGate)))
 	end
 	check(buyable == #Config.Buttons,
-		("only %d of %d buttons are reachable once track gates and button gates are counted"):format(buyable, #Config.Buttons))
+		("only %d of %d buttons are reachable once track gates are counted"):format(buyable, #Config.Buttons))
 end
 
 -- ── tracks ──────────────────────────────────────────────────────────────────
@@ -505,7 +486,7 @@ end
 -- that only got three of its four rows, and every one of those tables fails
 -- differently and none of them fail loudly — the rebirth one fails OPEN. So the
 -- facts live in one table and this asserts it is complete.
-local TRACK_FIELDS = { "label", "preview", "keepOnRebirth", "paced", "furniture" }
+local TRACK_FIELDS = { "label", "preview", "keepOnRebirth", "paced", "furniture", "category" }
 for _, track in ipairs(Config.TrackOrder) do
 	local info = Config.TrackInfo[track]
 	check(info ~= nil,
@@ -556,6 +537,32 @@ for _, track in ipairs(Config.TrackOrder) do
 				:format(track, tostring(info.keepOnRebirth), tostring(info.furniture)))
 	end
 end
+-- design:D-05, via #125 — THE PURCHASE SURFACE IS THREE CATEGORIES (plus the
+-- cabinets, which #108 moves off the plot). The tracks stay chains; the
+-- category is the label the player is asked to hold, so every track names
+-- one, the plot's own purchases resolve to exactly the three, and the
+-- conveyor sits at rank 1 — which is what "the conveyor's label sits
+-- highest" means to the card and the beacon, since both rank by
+-- (TrackRank, price).
+do
+	local PLOT_CATEGORIES = { conveyor = true, generator = true, plot = true }
+	local LEAVING_WITH_108 = { weapons = true, armor = true }
+	local seenCategories = {}
+	for _, track in ipairs(Config.TrackOrder) do
+		local category = Config.TrackInfo[track].category
+		check(PLOT_CATEGORIES[category] or LEAVING_WITH_108[category],
+			("track %q carries category %q — the plot sells three kinds of thing, and the cabinets leave with #108")
+				:format(track, tostring(category)))
+		seenCategories[category] = true
+	end
+	for category in pairs(PLOT_CATEGORIES) do
+		check(seenCategories[category],
+			("no track carries category %q — a category with nothing in it is a label on an empty shelf"):format(category))
+	end
+	check(Config.TrackInfo[Config.TrackOrder[1]].category == "conveyor",
+		"the conveyor is not rank 1 — the card and the beacon rank by TrackRank, so the category the player measures themselves by has to outrank the rest")
+end
+
 for rank, track in ipairs(Config.TrackOrder) do
 	check(Config.TrackRank[track] == rank,
 		("TrackRank disagrees with TrackOrder for %q; the beacon on the plot and the panel in the HUD would name different purchases")
@@ -591,26 +598,6 @@ end
 check(Config.TrackUnlock.factory == nil,
 	"the factory track cannot be gated — it is the thing that pays for everything else")
 
--- SINGLE-BUTTON GATES, the same shape one level down. Config.ButtonUnlock says
--- a purchase waits on something that is not upstream of it in its own chain,
--- which the loader structurally cannot express and the `requires` checks
--- structurally must refuse.
-for id, gate in pairs(Config.ButtonUnlock) do
-	local def = Config.ButtonById[id]
-	local gateDef = Config.ButtonById[gate]
-	check(def ~= nil,
-		("ButtonUnlock names %q, which is not a button"):format(tostring(id)))
-	check(gateDef ~= nil,
-		("ButtonUnlock.%s waits on %q, which is not a button"):format(tostring(id), tostring(gate)))
-	if def and gateDef then
-		check(def.track ~= gateDef.track,
-			("ButtonUnlock.%s waits on %s and both are on the %s track — within a track the loader derives the chain from table order, so this is a link pretending to be a gate. Move the row instead")
-				:format(id, gate, def.track))
-		check(Config.TrackInfo[gateDef.track].paced == "spine",
-			("ButtonUnlock.%s waits on %s, which is on the %s track — that track is paced as a detour, so this puts an optional purchase between the player and a spine rung")
-				:format(id, gate, gateDef.track))
-	end
-end
 
 -- ── analytics ───────────────────────────────────────────────────────────────
 --
@@ -4004,8 +3991,7 @@ end
 -- against a curve it does not change — true of a bat, false of anything that
 -- multiplies production. A power rung bought at minute 12 moves every row after
 -- it. The shell belongs in here for the OTHER half of that model's premise: a
--- detour is something you can decline, and Config.ButtonUnlock puts `roof`
--- between the player and the mezzanine.
+-- detour is something you can decline, and the plot's own growth is not.
 --
 -- READS `paced` RATHER THAN NAMING THE TRACKS. This was two hand-written
 -- indices over two named tables, so adding a third spine track meant editing a

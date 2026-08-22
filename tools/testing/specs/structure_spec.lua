@@ -766,6 +766,34 @@ T.spec("the ceiling battens exist only once the plot owns a roof", function(t)
 		"the roof is on and the room below it reads as uncovered")
 end)
 
+-- ── the purchase surface is three categories ────────────────────────────────
+
+T.spec("every button carries a category ordinal the width of its category", function(t)
+	-- #125: a pad says "PLOT 20/34", counting across the three plot chains.
+	-- The ordinals must tile each category — a gap or a duplicate is a pad
+	-- lying about how much game is left.
+	local w = T.world()
+	local Config = w.config
+
+	local seen = {}
+	for _, def in ipairs(Config.Buttons) do
+		t:notNil(def.category, def.id .. " has no category")
+		t:notNil(def.categoryOrder, def.id .. " has no category ordinal")
+		seen[def.category] = seen[def.category] or {}
+		t:isNil(seen[def.category][def.categoryOrder],
+			("%s repeats ordinal %d in %s"):format(def.id, def.categoryOrder, def.category))
+		seen[def.category][def.categoryOrder] = true
+	end
+	for category, count in pairs(Config.CategoryCount) do
+		for ordinal = 1, count do
+			t:notNil(seen[category] and seen[category][ordinal],
+				("%s is missing ordinal %d of %d"):format(category, ordinal, count))
+		end
+	end
+	t:eq(Config.CategoryCount.plot, 34, "the plot category is structure's 4 plus thirty land rows")
+	t:eq(Config.CategoryCount.conveyor, 17, "the conveyor category is the factory chain")
+end)
+
 -- ── the shell does not survive a rebirth, and must not ──────────────────────
 
 T.spec("a rebirth takes the whole shell down and every rung of it is buyable again", function(t)
