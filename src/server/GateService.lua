@@ -35,7 +35,7 @@
 	along the wall, away from the opening centre" is two answers the day either
 	wall moves.
 
-	THE GATE ANSWERS TO ITS OWNER, nobody else. Since #89 hostile things do
+	THE GATE ANSWERS TO ITS OWNER AND THEIR PARTY, nobody else. Since #89 hostile things do
 	reach gates — a plot wave stands at yours, and PvP raiders walk up to
 	anyone's — so a door that opened for any nearby humanoid would hand both
 	of them a free entrance and gut #124's break-in verb. Opening on the
@@ -47,6 +47,7 @@
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
 local Tycoon = Req("Tycoon")
+local PartyService = Req("PartyService")
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -169,7 +170,8 @@ end
 
 local function ownerNear(roots, owner: Player, centre: Vector3): boolean
 	for _, entry in ipairs(roots) do
-		if entry.player == owner and (entry.position - centre).Magnitude <= GATE.triggerRadius then
+		if (entry.player == owner or PartyService.sameParty(entry.player, owner))
+				and (entry.position - centre).Magnitude <= GATE.triggerRadius then
 			return true
 		end
 	end

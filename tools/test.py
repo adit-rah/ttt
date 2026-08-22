@@ -50,7 +50,7 @@ TESTING = ROOT / "tools" / "testing"
 # Tycoon, MapBuilder and CombatService ARE in it. The comment here used to say
 # the opposite, two lines above the list that contradicted it.
 SERVER_MODULES = ["DataService", "Analytics", "Economy", "SessionService", "SocialService", "MovementService",
-                  "HelpService", "RaidService", "CombatService", "MapBuilder", "Tycoon"]
+                  "HelpService", "PartyService", "RaidService", "CombatService", "MapBuilder", "Tycoon"]
 
 # ALL OF src/client, WHICH HAD NEVER EXECUTED ANYWHERE BUT ROBLOX.
 #
@@ -87,7 +87,7 @@ SERVER_MODULES = ["DataService", "Analytics", "Economy", "SessionService", "Soci
 # bundle can hand it a Req like any other module -- and requiring it is what makes
 # the client's BOOT ORDER covered rather than transcribed into a spec that would
 # not notice a reordering.
-CLIENT_MODULES = ["UiKit", "HUD", "CombatClient", "MovementClient", "UpgradeUI", "SessionUI", "Main.client"]
+CLIENT_MODULES = ["UiKit", "HUD", "CombatClient", "MovementClient", "PartyUI", "UpgradeUI", "SessionUI", "Main.client"]
 CLIENT_ENTRY = "Main.client"
 
 # Mocks load in dependency order: the clock underpins everything, and the

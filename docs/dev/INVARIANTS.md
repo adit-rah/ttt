@@ -797,6 +797,21 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   protection, and they are asserted in the #94 family. `[nothing]` — this entry is the
   record that the deletion was on purpose.
 
+### The party (#102)
+
+- **`sameParty` is the one predicate, and it is an identity check** — every member maps to
+  the same shared table. Combat (`setAllyCheck`), the plot's structures (`Tycoon.allyCheck`),
+  the raid ledger and the gates all consult it; none holds a copy. `[spec]` `party_spec.lua`.
+- **The boundary is total**: partymates cannot damage each other, cannot raid each other's
+  plots (break OR kill-steal), and open each other's gates. `[spec]` the raid half, falsified
+  by dropping the guard; the combat and gate halves are hook wirings on the Studio list.
+- **A party of one is nobody's party.** Leave dissolves below two, or the last member keeps
+  the bonus and the boundary forever. `[spec]`, falsified.
+- **The bonus composes and the STACK is bounded**: friends × party × help ≤ 2×, asserted —
+  each factor looks harmless alone. `[assert]`, falsified at 2.96×.
+- **Forming a party is a kindness both ways** through `HelpService.credit`, so #123's gap
+  weighting pays the veteran who parties with a new player. `[spec]`
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch

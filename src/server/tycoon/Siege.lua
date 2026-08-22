@@ -296,12 +296,21 @@ local function isUnder(part: Instance, root: Instance): boolean
 	return false
 end
 
+-- Whether two players are allies (#102). Main.server points this at the
+-- party predicate; a mixin cannot require a service.
+Tycoon.allyCheck = nil :: ((Player, Player) -> boolean)?
+
+local function isAlly(owner: Player?, attacker: Player): boolean
+	return owner ~= nil and Tycoon.allyCheck ~= nil and Tycoon.allyCheck(owner, attacker)
+end
+
 --- The one door swing damage comes through. `parts` is everything one swing
 --- boxed; each siege key it touched takes ONE hit — `struck` is the dedup
 --- and the CALLER owns it, because a swing strikes twice (CombatService
 --- samples the arc a frame apart) and the second sample must not land a
 --- second hit. The plot's own owner is refused — no accidental
---- self-demolition — and the arena's PvP rule is deliberately not consulted:
+--- self-demolition — and so is the owner's party (#102): a partymate's plot
+--- is your plot's trust boundary. No PvP-zone rule exists to consult (#89):
 --- a raider breaks a gate wherever the gate is.
 function Tycoon.siegeStrike(parts: { BasePart }, attacker: Player, damage: number, struck: { [any]: any }?)
 	struck = struck or {}
@@ -313,7 +322,8 @@ function Tycoon.siegeStrike(parts: { BasePart }, attacker: Player, damage: numbe
 		if key then
 			for _, tycoon in ipairs(Tycoon.all()) do
 				if tycoon.model and isUnder(part, tycoon.model) then
-					if tycoon.owner ~= attacker and not struck[tycoon] then
+					if tycoon.owner ~= attacker and not isAlly(tycoon.owner, attacker)
+							and not struck[tycoon] then
 						struck[tycoon] = {}
 					end
 					if struck[tycoon] and not struck[tycoon][key] then

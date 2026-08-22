@@ -66,6 +66,14 @@ end
 -- zones
 -- ─────────────────────────────────────────────────────────────────────────────
 
+-- Whether two players are allies (#102's party). Registered from Main.server
+-- — the observer shape, so this module never learns what a party is.
+local allyCheck: ((Player, Player) -> boolean)? = nil
+
+function CombatService.setAllyCheck(fn: ((Player, Player) -> boolean)?)
+	allyCheck = fn
+end
+
 --- Can `attacker` (a Player) hurt `victimModel`?
 ---
 --- design:D-04, via #89 — PvP is legal EVERYWHERE, plots included. A raider
@@ -74,6 +82,8 @@ end
 --- The guards against grief are economic and already asserted: dying costs
 --- no cash, the kill-steal is a bounded fraction of overflow, and the safe
 --- half of the cap is unreachable. The arena gate this replaces lived here.
+--- The one refusal beyond yourself is your own party (#102) — a party with
+--- friendly fire is a party nobody forms.
 function CombatService.canDamage(attacker: Player, victimModel: Model): boolean
 	if victimModel:GetAttribute("IsSahurNPC") then
 		return true
@@ -82,7 +92,10 @@ function CombatService.canDamage(attacker: Player, victimModel: Model): boolean
 	if not victimPlayer then
 		return false
 	end
-	return victimPlayer ~= attacker
+	if victimPlayer == attacker then
+		return false
+	end
+	return not (allyCheck and allyCheck(attacker, victimPlayer))
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────

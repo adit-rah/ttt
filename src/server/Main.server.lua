@@ -17,6 +17,7 @@ local CombatService = Req("CombatService")
 local MovementService = Req("MovementService")
 local RaidService = Req("RaidService")
 local HelpService = Req("HelpService")
+local PartyService = Req("PartyService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -99,6 +100,11 @@ Tycoon.repairObserver = function(tycoon, player)
 	HelpService.credit(player, tycoon.owner, "repairs", os.clock())
 end
 HelpService.start()
+-- The party (#102): the trust boundary reaches combat and the plot through
+-- the same observer shape as everything above.
+CombatService.setAllyCheck(PartyService.sameParty)
+Tycoon.allyCheck = PartyService.sameParty
+PartyService.start()
 SocialService.start()
 
 -- 6. players
