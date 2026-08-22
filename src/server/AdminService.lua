@@ -236,6 +236,16 @@ function AdminService.handle(player: Player, message: string): boolean
 		return true
 	end
 
+	-- Your own plot's siege, now (#89). The plot-wave schedule runs on rests
+	-- of minutes; this collapses yours so the gate press, the stream-in and
+	-- the siren can be exercised without waiting one out.
+	if verb == "raidme" then
+		local ok = NPCService.forcePlotWave(PlotService.plotOf(player))
+		say(player, "Admin", ok and "Your plot's raid is coming." or "One is already running, or you have no plot.",
+			ok and "wave" or "warn")
+		return true
+	end
+
 	if verb == "clear" then
 		local ok = NPCService.forceClear()
 		say(player, "Admin", ok and "Wave cleared." or "No raid to clear.",

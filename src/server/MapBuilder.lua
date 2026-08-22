@@ -1,8 +1,10 @@
 --[[
 	MapBuilder.lua — generates the whole world at runtime.
 
-	Layout: a central open-air arena (PvP + raid target) ringed by
-	Config.World.PlotCount tycoon plots, each rotated to face inward.
+	Layout: the plot belt at Config.beltRadius() with every plot rotated to
+	face inward, three mob bands between the belt and the middle, and the old
+	arena stage at the centre — the dais, the statue and the central wave live
+	there, in the strongest band. Danger is walked toward (#89).
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
@@ -149,7 +151,7 @@ local function buildArena(parent: Instance)
 	Style.text(billboard, {
 		name = "Subtitle", weight = "body",
 		size = UDim2.fromScale(1, 0.34), position = UDim2.fromScale(0, 0.62),
-		text = "pvp enabled inside the ring", color = Color3.fromRGB(255, 255, 255),
+		text = "the middle pays best. pvp everywhere.", color = Color3.fromRGB(255, 255, 255),
 	})
 
 	return arena
@@ -159,9 +161,14 @@ local function buildSpawn(parent: Instance)
 	local spawnPad = Instance.new("SpawnLocation")
 	spawnPad.Name = "TungSpawn"
 	spawnPad.Size = Vector3.new(36, 1.5, 24)
-	-- in FRONT of the dais, not on top of it: spawning at the origin puts
-	-- players inside the statue's legs
-	spawnPad.CFrame = CFrame.new(0, W.ArenaFloorTopY + 0.75, 52)
+	-- Out by the plot belt, between plot 1 and plot 2, in the quiet strip the
+	-- verifier keeps clear of the outermost band's reach. It used to sit in
+	-- front of the dais — which is now the strongest mobs' home patch, and a
+	-- fresh player spawning into a level-15 pack is a fresh player gone.
+	local bearing = math.pi / math.max(Config.plotCountFor(), 1)
+	spawnPad.CFrame = CFrame.new(
+		math.sin(bearing) * W.SpawnRadius, W.GroundTopY + 0.75, math.cos(bearing) * W.SpawnRadius)
+		* CFrame.Angles(0, bearing + math.pi, 0)
 	spawnPad.Anchored = true
 	spawnPad.CanCollide = true
 	spawnPad.Color = Color3.fromRGB(150, 103, 60)

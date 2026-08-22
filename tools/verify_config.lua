@@ -956,6 +956,122 @@ do
 			:format(M.DashSpeed * M.DashSeconds))
 end
 
+-- ── the open world (#89) ───────────────────────────────────────────────────
+--
+-- The bands, the spawn, the plot wave and the part ceiling. Every promise the
+-- old ring made is restated here in belt form, and the two that matter most
+-- are geometric: no roamer can reach a plot, and the siren plus the gate's
+-- breach floor covers the run home from anywhere.
+do
+	local MOB = Config.Mobs
+	local PW = Config.PlotWave
+	local SHH = Config.Structure.Health
+
+	-- the belt is fixed: every placement sits at beltRadius, whatever the count
+	local belt = Config.beltRadius()
+	local beltEdge = belt - Config.World.PlotSize.Z / 2
+	for count = Config.World.MinPlots, Config.World.MaxPlots do
+		for _, placement in ipairs(Config.plotPlacements(count)) do
+			check(placement.radius == belt,
+				("%d plots: a placement sits at %.0f, off the fixed belt at %.0f — the band geometry assumes one belt")
+					:format(count, placement.radius, belt))
+		end
+	end
+
+	-- bands: contiguous annuli from the centre, strongest inward
+	local previous = nil
+	for i, band in ipairs(MOB.Bands) do
+		check(band.outer > band.inner + MOB.HomeMargin * 2,
+			("band %q is %.0f studs wide; under twice HomeMargin its homes have nowhere to live")
+				:format(band.name, band.outer - band.inner))
+		check(band.count >= 1, ("band %q keeps no population"):format(band.name))
+		if previous then
+			check(band.inner == previous.outer,
+				("band %q starts at %.0f but %q ends at %.0f — a gap or an overlap is ground with two difficulties")
+					:format(band.name, band.inner, previous.name, previous.outer))
+			check(band.level < previous.level,
+				("band %q (level %d) is not weaker than %q (level %d) — danger must fall walking OUTWARD")
+					:format(band.name, band.level, previous.name, previous.level))
+		else
+			check(band.inner == 0, "the first band must start at the centre")
+			check(Config.Waves.HomeSpread + Config.Waves.WanderRadius < band.outer,
+				"the central wave's milling ground must sit inside the innermost band")
+		end
+		previous = band
+	end
+
+	-- THE geometric one, in its new form: the outermost band's furthest home
+	-- plus the leash plus a bat's reach stays clear of the nearest plot edge.
+	local outermost = MOB.Bands[#MOB.Bands]
+	local roamerReach = outermost.outer + Config.Waves.LeashRadius + Config.Waves.AttackRange
+	check(roamerReach < beltEdge,
+		("a leashed roamer can swing %.0f studs out but the nearest plot edge is at %.0f — roamers could be dragged onto someone's factory")
+			:format(roamerReach, beltEdge))
+
+	-- the spawn pad: outside every band's notice, inside the belt
+	local spawn = Config.World.SpawnRadius
+	check(spawn > outermost.outer + Config.Waves.AggroRadius + Config.Waves.WanderRadius,
+		("the spawn at %.0f is inside the outermost band's notice (%.0f) — fresh players would spawn aggroed")
+			:format(spawn, outermost.outer + Config.Waves.AggroRadius + Config.Waves.WanderRadius))
+	check(spawn + 20 < beltEdge,
+		("the spawn at %.0f sits on the plot belt (edge %.0f)"):format(spawn, beltEdge))
+
+	-- the world part ceiling: the central wave's worst case, every band and
+	-- every concurrent siege, all standing at once
+	local worstBodies = (Config.Waves.MaxCount + 1) + PW.MaxConcurrent * PW.MaxCount
+	for _, band in ipairs(MOB.Bands) do
+		worstBodies += band.count
+	end
+	check(worstBodies * Config.Waves.PartsPerRaider <= MOB.MaxWorldNPCParts,
+		("the world's worst case is %d bodies = %d parts, over the %d ceiling")
+			:format(worstBodies, worstBodies * Config.Waves.PartsPerRaider, MOB.MaxWorldNPCParts))
+
+	-- plot-wave arithmetic
+	check(PW.MaxCount <= Config.Waves.MaxChasers,
+		("a plot wave of %d exceeds MaxChasers %d — a plot siege is pressure, never the wall the central wave is")
+			:format(PW.MaxCount, Config.Waves.MaxChasers))
+	check(PW.GateSlots <= PW.BaseCount,
+		("GateSlots %d exceeds the smallest wave %d — the breach floor below would overstate the pressure")
+			:format(PW.GateSlots, PW.BaseCount))
+	check(PW.MaxSiegeSeconds < PW.RestSeconds,
+		("a siege may run %ds against a rest of %ds — two sieges of one plot could overlap")
+			:format(PW.MaxSiegeSeconds, PW.RestSeconds))
+
+	-- THE SIREN'S NEW PROMISE. Warning plus the gate's minimum time-to-breach
+	-- covers the run home from the world's centre at a sprint, for every
+	-- reachable pairing of expansions and rebirths. The attack cycle is
+	-- wind-up + recover + cooldown; GateSlots raiders press at once.
+	local cycle = Config.Waves.AttackWindUp + Config.Waves.AttackRecover + Config.Waves.AttackCooldown
+	local runHome = belt / Config.Movement.SprintSpeed
+	for expansions = 0, 10 do
+		for rebirths = 0, 3 do
+			local level = Config.plotWaveLevel(expansions, rebirths)
+			local hit = math.min(Config.Waves.BaseDamage * (Config.Waves.DamageGrowth ^ (level - 1)),
+				Config.Waves.MaxDamage) * SHH.MobDamageScale
+			local dps = hit / cycle * PW.GateSlots
+			local breach = Config.gateMaxHealth(expansions + 1) / dps
+			check(Config.Waves.WarningTime + breach >= runHome,
+				("at %d expansions / %d rebirths the gate falls in %.0fs; warning %ds + breach covers %.0fs but the run home from the centre is %.0fs")
+					:format(expansions, rebirths, breach, Config.Waves.WarningTime,
+						Config.Waves.WarningTime + breach, runHome))
+		end
+	end
+
+	-- a gateless day-one plot: the storage is the first thing standing, and
+	-- the siren still has to beat the run home from the mid band, where a
+	-- day-one player plausibly farms
+	local level1hit = Config.Waves.BaseDamage * SHH.MobDamageScale
+	-- worst case: a full unit doubles the damage through the overflow scaling
+	local storageBreach = Config.Storage.MaxHealth
+		/ (level1hit * (1 + Config.Storage.DamagePerOverflowFraction) / cycle * PW.GateSlots)
+	local midBand = MOB.Bands[math.max(#MOB.Bands - 1, 1)]
+	local runFromMid = (belt - midBand.inner) / Config.Movement.SprintSpeed
+	check(Config.Waves.WarningTime + storageBreach >= runFromMid,
+		("a bare plot's storage falls in %.0fs; warning %ds + breach covers %.0fs but the run home from the mid band is %.0fs")
+			:format(storageBreach, Config.Waves.WarningTime,
+				Config.Waves.WarningTime + storageBreach, runFromMid))
+end
+
 -- ── raiding (#94) ──────────────────────────────────────────────────────────
 --
 -- The loot numbers are KPIs made config. Every bound here is a promise the
@@ -1060,14 +1176,15 @@ end
 -- by shortening the wrong number.
 local WV = Config.Waves
 
--- WarningTime is not decoration: it is how long you have to get home. A player
--- on the inner plot ring is MinPlotRadius studs from the arena and moves at
--- Combat.WalkSpeed, so the warning has to cover that walk or the raid starts
--- without whoever it is aimed at.
-check(WV.WarningTime * Config.Combat.WalkSpeed >= Config.World.MinPlotRadius,
-	("Waves.WarningTime is %ds: a player on the inner plot ring is %d studs out and walks %d studs/s, so they cover only %.0f studs before the raiders land")
-		:format(WV.WarningTime, Config.World.MinPlotRadius, Config.Combat.WalkSpeed,
-			WV.WarningTime * Config.Combat.WalkSpeed))
+-- WarningTime is not decoration: it is how long you have to get home. #89
+-- moved the raid to YOUR plot, so the promise inverts — the siren no longer
+-- covers a walk to the fight; it covers the run back FROM one. The full
+-- statement (warning + the gate's breach floor covers the run home from the
+-- world's centre, at a sprint) lives with the plot-wave family below; what is
+-- pinned here is that the siren itself stays a real warning.
+check(WV.WarningTime >= 10,
+	("Waves.WarningTime is %ds; under ~10 a siren is a jump scare, and every breach-floor promise below leans on it")
+		:format(WV.WarningTime))
 
 check(WV.ClearBannerTime < WV.RestTime,
 	("ClearBannerTime %ds is not shorter than RestTime %ds — the CLEARED banner would still be up when the next warning replaced it")
@@ -1121,7 +1238,7 @@ check(WV.DeAggroRadius >= WV.AggroRadius * 1.4,
 		:format(WV.DeAggroRadius / WV.AggroRadius * 100))
 
 check(WV.HomeSpread + WV.WanderRadius < Config.World.ArenaRadius,
-	("idle raiders wander out to %.0f studs but the arena wall is at %d — they would mill into it")
+	("idle central-wave raiders wander out to %.0f studs but the centre stage ends at %d — the shared fight should stay on it")
 		:format(WV.HomeSpread + WV.WanderRadius, Config.World.ArenaRadius))
 
 -- THE geometric one, and the reason the leash is measured from a home patch

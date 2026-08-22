@@ -173,6 +173,7 @@ third value neither round had guessed.
 | put anything near a screen edge | a `UiKit.dock` corner; `Config.UI.TouchReserve` if it is near the bottom | the reserve assertions — both bottom corners are the engine's thumbstick and jump button |
 | add a persisted field | **both** `defaultProfile()` and the explicit `save()` payload in `DataService` | nothing — this is in the `[nothing]` backlog. With only the first it works all session and is gone at next login |
 | add a wave behaviour | `Config.Waves` | wave part budget, clear time, aggro/leash relationships |
+| retune the mob bands or the plot raids | `Config.Mobs.Bands`, `Config.PlotWave`, `plotWaveLevel` | the open-world family: bands contiguous and weaker outward, roamer reach short of the belt, the spawn outside every band's notice, the world part ceiling, and the siren + breach-floor promise |
 | retune the raid economics | `Config.Raid` | the raid family: the recovery promise, the empty-unit bounty floor, kill under spill, camping decay — plus `raid_spec`'s ledger arithmetic |
 | add a kindness trigger, or retune its reward | a call into `HelpService.credit`; `Config.Help` | the help family: the boost stays a nudge, the pair cooldown outlasts the boost, the gap weight caps — plus `help_spec` |
 | add a new kind of buyable | a case in `src/server/tycoon/Installers.lua`, **and** the `kind` list in `tycoon/Tycoon.lua`'s header | `KNOWN_KINDS` in `verify_config.lua`. The header list is checked by nobody — it is the copy to do by hand |

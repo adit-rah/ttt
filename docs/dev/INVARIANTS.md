@@ -215,11 +215,12 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   y=%s — coplanar faces will z-fight".
 - **Plot-local `y = 0` is the top of the pad, not the ground**, and the pad must sit above
   the ground plane. `[assert]` "plot pads must sit above the ground plane".
-- **Plot spacing on a ring is a chord, not an arc:** `2r·sin(π/n)`, not `2πr/n`. Checked
-  pairwise at every supported player count rather than by formula, plus the inner ring
-  against the arena and a 420-stud walk limit, because the ring is clamped to
-  `MinPlotRadius` at low counts and the tightest case is not this server's. `[assert]`
-  "%d plots: ring %d plots %d and %d are only %.0f studs apart".
+- **The plot belt sits at ONE fixed radius — `Config.beltRadius()` — for every player
+  count** (#89): the full server's chord (`2r·sin(π/MaxPlots)`, not the arc) fits the maxed
+  footprint plus the gap, and a smaller server spreads on the same circle instead of
+  contracting inward — the mob bands, the spawn and every plot-safety line are static
+  distances that a shrinking belt would walk homes into. `[assert]` every placement equals
+  the belt, plus the pairwise spacing at every supported count.
 - **`Players.MaxPlayers` is not scriptable.** The plot count follows it and nothing in code
   can set it — it is a Studio setting and it is on you. `[assert]` covers the derivation
   (`plotCountFor` clamps to `MinPlots`/`MaxPlots` and tracks `MaxPlayers` in range), not the
@@ -374,7 +375,7 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   structure observer from `Main.server` — registering inside CombatService would put a
   require of `Tycoon` into a module `Tycoon` requires. One hit per key per swing, with the
   dedup table owned by the CALLER because a swing strikes twice; the plot's own owner is
-  refused; the arena's PvP rule is deliberately not consulted; the player-protection
+  refused; no PvP-zone rule exists to consult since #89; the player-protection
   damage caps do not apply to structures. `[spec]` the dedup and the immunity.
 - **Dents persist as FRACTIONS of full health,** in `profile.structure`, both
   `defaultProfile()` and the save payload — so the same dent survives the max moving when
@@ -382,9 +383,10 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **The health numbers are held to their states**: monotone in level, the wall out-lasting
   its own gate, no bat one-shotting a level-1 gate, every bat breaking a maxed gate inside
   90 seconds, the repair hold inside `Waves.WarningTime`. `[assert]`, each falsified.
-- **Mob siege is dark until #89.** The leash cannot reach a wall, so the only caller today
-  is the player observer and `!siege`. Wiring NPCService in without moving the leash would
-  be code nothing can execute. `[nothing]` — this entry is the reminder.
+- **Mob siege is live** (#89): a plot wave's slotted raiders press the gate through
+  `damageStructure` and the storage through `damageStorage`, at `MobDamageScale` (half a
+  player's weight — the breach floors are asserted against it). The old entry here said
+  this path was dark; the reminder did its job.
 
 ### The building shell
 
@@ -423,9 +425,11 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   roof's sign anchor, and so asserted the budget 13% under the truth — 59 against 68 actually
   built. Trim is a Config key for that reason rather than derived in the builder. `[assert]`
   against `Structure.PartBudget`, printed in the report; `[spec]` against an independent model.
-- **A closed gate cannot trap a raid.** A leashed raider reaches 124 studs from the arena
-  centre; the nearest plot's front wall is 140 out. `[assert]`, deliberately separate from the
-  leash block's plot-edge check because this one reads `WallThickness`.
+- **A gate answers to its OWNER's proximity, nobody else's** (#89). Any-humanoid triggering
+  would hand a PvP raider a free entrance (gutting #124's break-in verb) and open your
+  door for the plot wave standing at it; NPCs never open anything — `GateService` sweeps
+  `Players` only. A plot-wave raider shut inside is not trapped wrongly: it was let in or
+  it broke in, and its leash is sized to the plot. `[nothing]` beyond the sweep's shape.
 
 ### The yard
 
@@ -624,20 +628,23 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   scales along, and effective HP under both stats is `health / (1 - dr)` — two variables
   multiplying into the one assertion that guarantees a boss cannot burst you down. One
   monotone stat keeps that assertion one line of arithmetic. `[nothing]`
-- **`WarningTime` is load-bearing and is not a pacing dial.** It is how long you have to get
-  home: `WarningTime × Combat.WalkSpeed >= World.MinPlotRadius`. Shortening it is the obvious
-  way to close the gap between waves and it is the wrong one — shorten `RestTime`. `[assert]`,
-  and the failure message says so.
+- **`WarningTime` is load-bearing and is not a pacing dial.** Since #89 the raid comes to
+  YOUR plot, so the promise inverts: `WarningTime` plus the gate's minimum time-to-breach
+  covers the run home from the world's centre at a sprint, across every reachable pairing
+  of expansions and rebirths — and a bare plot's storage holds long enough to sprint back
+  from the mid band. Shortening the warning, cheapening the gate or raising
+  `MobDamageScale` all land on the same assertions. `[assert]`, each falsified.
 - **Dead air is 20–45 s measured from your clear, and `Waves.Interval` is gone.** Waves are
   paced by `RestTime` from the previous clear, not by a wall clock — the old fixed timer let
   two or three waves legally coexist and announced one wave's leftovers as the next. The
   CLEARED banner must not still be up when the next warning replaces it. `[assert]`
 - **`MaxWaveTime` is a deadlock breaker and must not be able to fire during the spawn drip it
   backstops.** `StragglerGrace` must be positive for the same reason. `[assert]`
-- **The leash is measured from the raider's HOME PATCH, and the number it has to clear is the
-  plot EDGE**, which is `MinPlotRadius − PlotSize.Z/2`, not the radius the centre suggests.
-  Checked across the supported player range because the ring clamps at low counts. `[assert]`
-  "raiders could be dragged onto someone's factory".
+- **The leash is measured from the NPC's HOME PATCH, and the number it has to clear is the
+  plot EDGE** — `beltRadius() − PlotSize.Z/2`. Two populations answer to it: central-wave
+  raiders (home spread + leash + reach) and band roamers (outermost band edge + leash +
+  reach). Plot-wave raiders are the deliberate exception; their promise is the breach
+  floor. `[assert]` "raiders could be dragged onto someone's factory", both forms.
 - **Raiders must be slower than a player, and the de-aggro band wide enough to survive
   strafing.** With no speed gap you can never break contact and the de-aggro rule is
   decoration; a narrow band yo-yos on the leash line. `[assert]`
@@ -766,6 +773,29 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   payload,** with a round-trip spec. `[spec]`
 - The boost is the named Economy multiplier hook `"help"` — an O(1) expiry
   read, the SessionService shape. `[spec]` through `Economy.multiplier`.
+
+### The open world (#89)
+
+- **Three populations, one AI, one damage curve.** Band roamers, the central wave and plot
+  sieges all go through `mintNPC` — one stat arithmetic (`BaseHealth × HealthGrowth^(level−1)`,
+  damage capped absolute), one tick loop, one leash/aggro machine. A new population is a new
+  minting site, never a new AI. `[nothing]` structural; the numbers are asserted per family.
+- **Danger falls walking OUTWARD.** Bands are contiguous annuli from the centre; each is
+  asserted weaker than the one inside it, and the central wave's milling ground sits inside
+  the innermost. `[assert]`, falsified.
+- **The spawn is outside every band's notice** — further out than the outermost band plus
+  aggro plus wander — and short of the belt. A fresh player cannot spawn aggroed. `[assert]`
+- **The world's NPC part ceiling sums the real worst case**: the central wave's cap, every
+  band's population and `MaxConcurrent` sieges, all alive at once, against
+  `Mobs.MaxWorldNPCParts`. A plot-wave count or band population is exactly the number
+  someone raises without pricing it. `[assert]`, falsified through `MaxConcurrent`.
+- **A plot wave is scaled by the PLOT, never the server**: `Config.plotWaveLevel(expansions,
+  rebirths)`. The server-lifetime climb survives only in the central wave, which is opt-in
+  by geography. `[assert]` the level cap keeps every plot raider under the damage ceilings.
+- **PvP is legal everywhere, and there is no zone code to re-grow.** The economic guards
+  (death costs nothing, kill-steal bounded, safe cap fraction, camping decay) are the
+  protection, and they are asserted in the #94 family. `[nothing]` — this entry is the
+  record that the deletion was on purpose.
 
 ## 6. Procedural animation
 

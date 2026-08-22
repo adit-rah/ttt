@@ -1,9 +1,18 @@
 --[[
-	NPCService.lua — the Sahur Raid.
+	NPCService.lua — every Sahur in the world.
 
-	Every few minutes a wave of Tung Tung Tung Sahur raiders spawns at the
-	arena rim and goes looking for players. They hit hard, they nibble your
-	bank, and they pay out well when you knock them down.
+	design:D-04, via #89. Three populations share one AI, one tick loop and
+	one stat curve, differing only in where they live and what minted them:
+
+	  * BAND ROAMERS — the open world's standing danger. Three annuli between
+	    the plot belt and the centre, strongest in the middle, each kept at
+	    its population by a slow census. Kill one, it pays its level.
+	  * THE CENTRAL WAVE — the one shared event: the old wave machine, at the
+	    dais, boss and pot included. Its number may climb with the server's
+	    lifetime because nobody stands in the core by accident.
+	  * PLOT SIEGES — each plot's own small raid, at the plot's OWN level,
+	    spawned at its gate. They press the structures (#124's mobs, finally
+	    arrived) and stream in when the gate breaks.
 
 	All NPCs are ticked from one loop rather than a thread each.
 ]]
@@ -17,6 +26,9 @@ local TungModels = Req("TungModels")
 local Economy = Req("Economy")
 local DataService = Req("DataService")
 local CombatService = Req("CombatService")
+-- The GateService arrangement: walk Tycoon.all() on a beat. Tycoon does not
+-- require NPCService, so the arrow is one-way.
+local Tycoon = Req("Tycoon")
 
 local Players = game:GetService("Players")
 local Debris = game:GetService("Debris")
@@ -27,6 +39,9 @@ local waveRemote = Net.event("WaveState")
 local notifyRemote = Net.event("Notify")
 
 local WV = Config.Waves
+local MB = Config.Mobs
+local PW = Config.PlotWave
+local SH = Config.Structure.Health
 
 -- Raider swing poses, in body space: arm overhead, then swung through to just
 -- past the target. See SwingAnim for why these are expressed this way.
@@ -389,51 +404,46 @@ local function onRaiderDied(npc: Model, entry)
 	end
 end
 
-local function spawnRaider(record, index: number, count: number, boss: boolean, groupAngle: number?)
-	local wave = record.number
-	local variantName = variantForWave(wave, boss)
-	local health = WV.BaseHealth * (WV.HealthGrowth ^ (wave - 1)) * (boss and WV.BossHealthMultiplier or 1)
+--- Everything below the stat arithmetic, shared by all three populations.
+--- `opts`:
+---   level      — feeds the growth curves; the central wave passes its number
+---   boss       — central wave only
+---   position   — where the body lands
+---   home       — the patch it returns to; the leash measures from here
+---   leash      — chase tether
+---   record     — the schedule record whose alive/spawned it moves (optional;
+---                roamers have none, and onRaiderDied already guards for it)
+---   siege      — { tycoon = ... } for a plot raider; its objective is
+---                re-derived live as things break
+---   band       — band index, for the roamer census
+---   despawnAt  — absolute; roamers pass math.huge
+---   index/count — approach-ring slot spread (defaults spread randomly)
+local function mintNPC(opts)
+	local level = opts.level
+	local boss = opts.boss == true
+	local variantName = variantForWave(level, boss)
+	local health = WV.BaseHealth * (WV.HealthGrowth ^ (level - 1)) * (boss and WV.BossHealthMultiplier or 1)
 	if boss then
 		-- Scaled to the headcount the wave was MINTED with, never to the live
-		-- one. See beginWave: re-reading it here would move a bar twelve people
-		-- are watching every time somebody logged off.
-		health *= (record.healthFactor or 1)
+		-- one. See beginWave: re-reading it here would move a bar twelve
+		-- people are watching every time somebody logged off.
+		health *= (opts.record and opts.record.healthFactor or 1)
 	end
 	-- The cap is absolute. It used to be scaled by the boss multiplier along
 	-- with the damage, which meant the ceiling written to stop a raider two-
 	-- shotting a 100 HP player let a late boss hit for 61.
 	local damage = math.min(
-		WV.BaseDamage * (WV.DamageGrowth ^ (wave - 1)) * (boss and WV.BossDamageMultiplier or 1),
+		WV.BaseDamage * (WV.DamageGrowth ^ (level - 1)) * (boss and WV.BossDamageMultiplier or 1),
 		boss and WV.MaxBossDamage or WV.MaxDamage)
 
 	local npc = TungModels.buildNPC(variantName, {
 		scale = boss and WV.BossBodyScale or (0.9 + math.random() * 0.35),
 		health = health,
 		walkSpeed = WV.WalkSpeed + (boss and -2 or math.random() * 4),
-		displayName = boss and ("SAHUR BOSS  •  wave " .. wave) or "Tung Tung Tung Sahur",
+		displayName = boss and ("SAHUR BOSS  •  wave " .. level) or "Tung Tung Tung Sahur",
 		boss = boss,
 	})
-
-	-- Land in CLUSTERS, not on one evenly-divided ring. A ring of 26 arrives as
-	-- a wall closing from every direction at once; six clusters of four arrive
-	-- as a raid. `groupAngle` is chosen per group by the caller and jittered
-	-- per member here.
-	--
-	-- THE BOSS DOES NOT GET A BEARING AT ALL. It lands on a fixed spot just off
-	-- the dais, every time. A rim bearing at ArenaRadius - 18 = 52 was the right
-	-- answer while the boss was a bigger raider; a shared objective that appears
-	-- somewhere different every wave is one twelve people spend the first thirty
-	-- seconds looking for. BossSpawnRadius clears the 26-diameter dais and the
-	-- statue standing on it, which the verifier asserts.
-	local position
-	if boss then
-		position = Vector3.new(0, 12, WV.BossSpawnRadius)
-	else
-		local angle = (groupAngle or 0) + (math.random() - 0.5) * 2 * WV.GroupArc
-		local radius = Config.World.ArenaRadius - 18
-		position = Vector3.new(math.sin(angle) * radius, 8, math.cos(angle) * radius)
-	end
-	npc:PivotTo(CFrame.new(position) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
+	npc:PivotTo(CFrame.new(opts.position) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
 	npc.Parent = folder
 
 	local humanoid = npc:FindFirstChildOfClass("Humanoid") :: Humanoid
@@ -444,35 +454,27 @@ local function spawnRaider(record, index: number, count: number, boss: boolean, 
 	local visual = npc:FindFirstChild("Visual")
 	local core = visual and visual.PrimaryPart
 	local arm = core and core:FindFirstChild("TungArm")
+	local record = opts.record
+	local count = opts.count or 8
 	local entry = {
-		wave = wave,
+		wave = level,
 		waveRecord = record,
-		-- Strictly later than the wave's own deadline, so the wave-level
-		-- timeout always fires first and this only ever catches a raider whose
-		-- record was somehow lost. It used to be a hardcoded 420, which was
-		-- longer than the whole wave interval and is why waves overlapped.
-		despawnAt = os.clock() + WV.MaxWaveTime + WV.StragglerGrace,
+		despawnAt = opts.despawnAt,
 		boss = boss,
 		damage = damage,
+		siege = opts.siege,
+		band = opts.band,
 		-- AI state. NOT `entry.phase` — that name is already the waddle's sine
 		-- phase a few lines down, and reusing it would desync the walk cycle
 		-- every time the raider changed its mind.
 		ai = "wander",
-		-- The patch this raider calls home. Scattered around the ARENA CENTRE
-		-- rather than sitting at the spawn point: raiders land on the rim and
-		-- then walk inward to mill about, which is what makes them read as
-		-- gathering in the middle rather than as a ring closing in.
-		--
-		-- The boss keeps to the dais it lands on, and is leashed tighter than a
-		-- raider (BossLeashRadius), so the fight everyone is walking towards
-		-- stays where they last saw it.
-		home = pointInDisc(Vector3.zero, boss and WV.BossSpawnRadius or WV.HomeSpread),
-		leash = boss and WV.BossLeashRadius or WV.LeashRadius,
+		home = opts.home,
+		leash = opts.leash,
 		wanderUntil = 0,
 		nextAggroCheck = 0,
 		-- Where on the approach ring this raider stands. Fixed per raider so a
 		-- pack spreads deterministically instead of jostling for the same spot.
-		slotAngle = (index / math.max(count, 1)) * math.pi * 2 + math.random() * 0.5,
+		slotAngle = ((opts.index or math.random(count)) / math.max(count, 1)) * math.pi * 2 + math.random() * 0.5,
 		-- How long it must hold you inside AggroRadius before committing.
 		-- Random per raider, so a pack that all crosses the threshold on one
 		-- tick still commits raggedly over ~2 seconds.
@@ -501,8 +503,10 @@ local function spawnRaider(record, index: number, count: number, boss: boolean, 
 	end
 
 	active[npc] = entry
-	record.alive += 1
-	record.spawned += 1
+	if record then
+		record.alive += 1
+		record.spawned += 1
+	end
 
 	humanoid.Died:Connect(function()
 		onRaiderDied(npc, entry)
@@ -521,11 +525,10 @@ local function spawnRaider(record, index: number, count: number, boss: boolean, 
 		entry.maxHealth = health
 		entry.paid = false
 		entry.humanoid = humanoid
-		record.bossEntry = entry
-	end
+		if record then
+			record.bossEntry = entry
+		end
 
-	-- boss aura
-	if boss then
 		local _, root = Util.getRig(npc)
 		if root then
 			local light = Instance.new("PointLight")
@@ -533,6 +536,226 @@ local function spawnRaider(record, index: number, count: number, boss: boolean, 
 			light.Range = 40
 			light.Brightness = 3
 			light.Parent = root
+		end
+	end
+	return entry
+end
+
+--- One central-wave raider. Land in CLUSTERS, not on one evenly-divided ring:
+--- a ring of 26 arrives as a wall closing from every direction at once; six
+--- clusters of four arrive as a raid. `groupAngle` is chosen per group by the
+--- caller and jittered per member here.
+---
+--- THE BOSS DOES NOT GET A BEARING AT ALL. It lands on a fixed spot just off
+--- the dais, every time. A shared objective that appears somewhere different
+--- every wave is one twelve people spend the first thirty seconds looking
+--- for. BossSpawnRadius clears the 26-diameter dais and the statue standing
+--- on it, which the verifier asserts.
+local function spawnRaider(record, index: number, count: number, boss: boolean, groupAngle: number?)
+	local position
+	if boss then
+		position = Vector3.new(0, 12, WV.BossSpawnRadius)
+	else
+		local angle = (groupAngle or 0) + (math.random() - 0.5) * 2 * WV.GroupArc
+		local radius = Config.World.ArenaRadius - 18
+		position = Vector3.new(math.sin(angle) * radius, 8, math.cos(angle) * radius)
+	end
+	mintNPC({
+		level = record.number,
+		boss = boss,
+		position = position,
+		-- The patch this raider calls home. Scattered around the CENTRE rather
+		-- than sitting at the spawn point: raiders land on the rim and then
+		-- walk inward to mill about, which is what makes them read as
+		-- gathering in the middle rather than as a ring closing in. The boss
+		-- keeps to the dais it lands on, and is leashed tighter than a raider
+		-- (BossLeashRadius), so the fight everyone is walking towards stays
+		-- where they last saw it.
+		home = pointInDisc(Vector3.zero, boss and WV.BossSpawnRadius or WV.HomeSpread),
+		leash = boss and WV.BossLeashRadius or WV.LeashRadius,
+		record = record,
+		index = index,
+		count = count,
+		-- Strictly later than the wave's own deadline, so the wave-level
+		-- timeout always fires first and this only ever catches a raider whose
+		-- record was somehow lost.
+		despawnAt = os.clock() + WV.MaxWaveTime + WV.StragglerGrace,
+	})
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- band roamers (#89): the world's standing danger, kept at population by a
+-- slow census. No records, no schedule — a roamer lives until killed and its
+-- band refills one body at a time.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+local nextRoamerSpawn: { [number]: number } = {}
+
+--- An area-uniform point in the band's annulus, clear of the edges by
+--- HomeMargin so a roamer's wander never straddles a boundary. The spawn
+--- pad needs no rejection sampling: it sits OUTSIDE every band, and the
+--- verifier holds the clearance.
+local function bandHome(band): Vector3
+	local angle = math.random() * math.pi * 2
+	local inner = band.inner + MB.HomeMargin
+	local outer = math.max(band.outer - MB.HomeMargin, inner + 1)
+	local r = math.sqrt(inner * inner + math.random() * (outer * outer - inner * inner))
+	return Vector3.new(math.sin(angle) * r, 0, math.cos(angle) * r)
+end
+
+local function maintainRoamers(now: number)
+	if not MB.Enabled or #Players:GetPlayers() == 0 then
+		return
+	end
+	local alive = {}
+	for _, entry in pairs(active) do
+		if entry.band and not entry.dead then
+			alive[entry.band] = (alive[entry.band] or 0) + 1
+		end
+	end
+	for index, band in ipairs(MB.Bands) do
+		if (alive[index] or 0) < band.count and now >= (nextRoamerSpawn[index] or 0) then
+			nextRoamerSpawn[index] = now + MB.RespawnSeconds
+			local home = bandHome(band)
+			mintNPC({
+				level = band.level,
+				position = home + Vector3.new(0, 8, 0),
+				home = home,
+				leash = WV.LeashRadius,
+				band = index,
+				despawnAt = math.huge,
+			})
+		end
+	end
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- plot sieges (#89): each plot's own raid, at the plot's own level. The
+-- schedule is per-plot state on this table; the raiders are ordinary entries
+-- with `siege = { tycoon }`, and the tick presses whatever objective
+-- siegeObjective currently answers with.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+local plotSieges: { [any]: any } = {}
+
+--- What a plot raider is here to break, right now: the gate while one is
+--- owned and standing, the storage unit after (or instead, on a plot that
+--- never bought gates), nil when everything is down — then they just mill
+--- and menace. Position second, so a caller can ask "anything left?" cheaply.
+local function siegeObjective(tycoon): (string?, Vector3?)
+	if tycoon.owned and tycoon.owned.gates and not tycoon:structureBroken("gate_gateway") then
+		return "gate", tycoon.cf:PointToWorldSpace(
+			Vector3.new(Config.Layout.GateCentre, 0, Config.World.PlotSize.Z / 2))
+	end
+	local base = tycoon.storageBase
+	if base and base.Parent and tycoon:storageIntact() then
+		return "storage", base.Position
+	end
+	return nil, nil
+end
+
+local function endSiege(tycoon, state)
+	for npc, entry in pairs(active) do
+		if entry.siege and entry.siege.tycoon == tycoon and not entry.dead then
+			local humanoid = npc:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				humanoid.Health = 0
+			end
+		end
+	end
+	state.record = nil
+end
+
+local function stepPlotSieges(now: number)
+	if not PW.Enabled then
+		return
+	end
+	local concurrent = 0
+	for _, state in pairs(plotSieges) do
+		if state.phase == "warning" or state.phase == "active" then
+			concurrent += 1
+		end
+	end
+	-- drop state for plots whose tenancy ended, and kill their raiders with it
+	for tycoon, state in pairs(plotSieges) do
+		if not tycoon.owner then
+			endSiege(tycoon, state)
+			plotSieges[tycoon] = nil
+		end
+	end
+	for _, tycoon in ipairs(Tycoon.all()) do
+		local owner = tycoon.owner
+		if owner then
+			local state = plotSieges[tycoon]
+			if not state then
+				-- a fresh tenancy gets half a rest before its first raid, so
+				-- claiming a plot is never answered with an instant siege
+				state = { phase = "resting",
+					phaseUntil = now + PW.RestSeconds / 2 + math.random() * PW.RestJitter }
+				plotSieges[tycoon] = state
+			end
+
+			if state.phase == "resting" then
+				if now >= state.phaseUntil and concurrent < PW.MaxConcurrent then
+					concurrent += 1
+					local counts = tycoon:landState()
+					local profile = DataService.get(owner)
+					state.level = Config.plotWaveLevel(counts.left + counts.right,
+						profile and profile.rebirths or 0)
+					state.count = math.min(PW.BaseCount + math.floor(state.level / 3), PW.MaxCount)
+					state.phase = "warning"
+					state.phaseUntil = now + WV.WarningTime
+					-- The siren. WarningTime plus the gate's asserted breach
+					-- floor is the run-home promise — see the verifier.
+					Economy.notify(owner, { kind = "wave", title = "RAID ON YOUR PLOT",
+						body = ("%d Sahur at your gate in %d seconds."):format(state.count, WV.WarningTime) })
+				end
+			elseif state.phase == "warning" then
+				if now >= state.phaseUntil then
+					state.phase = "active"
+					state.phaseUntil = now + PW.MaxSiegeSeconds
+					state.record = { number = state.level, alive = 0, spawned = 0 }
+					local halfZ = Config.World.PlotSize.Z / 2
+					for i = 1, state.count do
+						local outside = tycoon.cf:PointToWorldSpace(Vector3.new(
+							Config.Layout.GateCentre + (math.random() - 0.5) * 24, 0, halfZ + 24 + math.random() * 10))
+						mintNPC({
+							level = state.level,
+							position = outside + Vector3.new(0, 6, 0),
+							home = outside,
+							-- generous: the objective walks inward as things
+							-- break, and the leash must not strand them at
+							-- the gate they broke
+							leash = Config.World.PlotSize.Z + 60,
+							record = state.record,
+							siege = { tycoon = tycoon },
+							index = i,
+							count = state.count,
+							despawnAt = now + PW.MaxSiegeSeconds + WV.StragglerGrace,
+						})
+					end
+				end
+			elseif state.phase == "active" then
+				-- GateSlots raiders press the structure; the rest mill and
+				-- menace. Reassigned every step so a dead slot frees itself.
+				local slots = 0
+				for _, entry in pairs(active) do
+					if entry.siege and entry.siege.tycoon == tycoon and not entry.dead then
+						slots += 1
+						entry.siegeSlot = slots <= PW.GateSlots
+					end
+				end
+				if not state.record or state.record.alive <= 0 then
+					state.phase = "resting"
+					state.phaseUntil = now + PW.RestSeconds + math.random() * PW.RestJitter
+					Economy.notify(owner, { kind = "wave", title = "RAID CLEARED",
+						body = "Your plot held. tung tung." })
+				elseif now >= state.phaseUntil then
+					endSiege(tycoon, state)
+					state.phase = "resting"
+					state.phaseUntil = now + PW.RestSeconds + math.random() * PW.RestJitter
+				end
+			end
 		end
 	end
 end
@@ -599,6 +822,14 @@ local function tick(dt: number)
 		-- freeze a raider mid-swing with its bat overhead the instant it
 		-- de-aggroed.
 		if now >= entry.rootedUntil and not entry.swingAt then
+			-- a plot raider's home rides its objective: the gate until it
+			-- breaks, the storage after it, the plot's heart when everything
+			-- is down — which is what makes a broken gate an OPEN gate
+			if entry.siege then
+				local _, objectivePosition = siegeObjective(entry.siege.tycoon)
+				entry.home = objectivePosition
+					or entry.siege.tycoon.cf:PointToWorldSpace(Vector3.zero)
+			end
 			local homeDistance = flatDistance(root.Position, entry.home)
 
 			if entry.ai == "chase" then
@@ -728,11 +959,38 @@ local function tick(dt: number)
 		local inRange = targetRoot
 			and (targetRoot.Position - root.Position).Magnitude <= WV.AttackRange
 
+		-- A SLOTTED plot raider with no player in reach presses the structure
+		-- instead (#89/#124). Players always outrank masonry: a defender who
+		-- steps into range pulls the next swing onto themselves.
+		local objectivePosition
+		if entry.siege and entry.siegeSlot and not inRange then
+			local _, position = siegeObjective(entry.siege.tycoon)
+			if position and flatDistance(position, root.Position) <= WV.AttackRange + 6 then
+				objectivePosition = position
+			end
+		end
+
 		if entry.swingAt and now >= entry.swingAt then
 			entry.swingAt = nil
-			-- The hit only lands if the target is STILL in range: walking out of
-			-- a telegraphed swing has to actually work or the telegraph is a lie.
-			if inRange then
+			if entry.swingStructure then
+				entry.swingStructure = nil
+				-- resolved FRESH: the gate this swing wound up on may have
+				-- broken under a packmate's bat mid-telegraph, and the hit
+				-- has to land on whatever actually still stands
+				local kind, position = siegeObjective(entry.siege.tycoon)
+				if position and flatDistance(position, root.Position) <= WV.AttackRange + 6 then
+					local tycoon = entry.siege.tycoon
+					if kind == "gate" then
+						tycoon:damageStructure("gate_gateway", entry.damage * SH.MobDamageScale)
+					else
+						tycoon:damageStorage(entry.damage * SH.MobDamageScale, nil)
+					end
+					Fx.impact(root, 0.85)
+				end
+			elseif inRange then
+				-- The hit only lands if the target is STILL in range: walking
+				-- out of a telegraphed swing has to actually work or the
+				-- telegraph is a lie.
 				CombatService.npcAttack(npc, target, entry.damage)
 				Fx.impact(root, 0.85)
 
@@ -745,14 +1003,16 @@ local function tick(dt: number)
 					end
 				end
 			end
-		elseif not entry.swingAt and inRange and now >= entry.nextAttack then
+		elseif not entry.swingAt and now >= entry.nextAttack and (inRange or objectivePosition) then
 			entry.swingAt = now + entry.windUp
 			entry.rootedUntil = entry.swingAt + WV.AttackRecover
 			entry.nextAttack = entry.rootedUntil + WV.AttackCooldown
-			if targetRoot then
-				-- face the target so the wind-up reads as aimed at you
+			entry.swingStructure = (not inRange) and objectivePosition ~= nil
+			local face = (targetRoot and targetRoot.Position) or objectivePosition
+			if face then
+				-- face the target so the wind-up reads as aimed at it
 				root.CFrame = CFrame.lookAt(root.Position,
-					Vector3.new(targetRoot.Position.X, root.Position.Y, targetRoot.Position.Z))
+					Vector3.new(face.X, root.Position.Y, face.Z))
 			end
 			Fx.impact(root, 1.5)
 		end
@@ -1014,6 +1274,23 @@ function NPCService.start()
 		task.defer(NPCService.pushTo, player)
 	end)
 
+	-- The world loop: the roamer census and the plot-siege schedules. Gated
+	-- on its own flags rather than on WV.Enabled — turning the central wave
+	-- off must not empty the bands.
+	task.spawn(function()
+		while true do
+			local ok, err = pcall(function()
+				local now = os.clock()
+				maintainRoamers(now)
+				stepPlotSieges(now)
+			end)
+			if not ok then
+				warn("[Tung] world step error: " .. tostring(err))
+			end
+			task.wait(MB.MaintainInterval)
+		end
+	end)
+
 	if not WV.Enabled then
 		return
 	end
@@ -1064,6 +1341,21 @@ function NPCService.forceWave(): boolean
 		return false
 	end
 	phaseUntil = 0
+	return true
+end
+
+--- Collapse this plot's rest timer so its next step begins the siege the
+--- ordinary way — the forceWave arrangement, one plot down. False while one
+--- is already warning or active, or before the plot has a schedule.
+function NPCService.forcePlotWave(tycoon): boolean
+	if not PW.Enabled or not tycoon then
+		return false
+	end
+	local state = plotSieges[tycoon]
+	if not state or state.phase ~= "resting" then
+		return false
+	end
+	state.phaseUntil = 0
 	return true
 end
 
