@@ -3934,9 +3934,15 @@ check(Config.World.PlotSurfaceY > Config.World.GroundTopY,
 -- design:D-03 — these four bands are product decisions that happen to be
 -- enforceable. The reason each is the number it is lives in that issue; what
 -- lives here is the check.
-local MIN_TOTAL_MINUTES = 45
-local MAX_TOTAL_MINUTES = 150
-local MAX_SINGLE_WAIT_MINUTES = 15
+-- design:D-03, via #90 — the one-life walk at rebirth-zero income keeps a
+-- FLOOR (a game finished in under an hour of active play has no week in it)
+-- and feeds the structural checks: the flat-run guard, the detours, the
+-- power return. Its old ceilings are gone on purpose: the ladder's tail is
+-- POST-REBIRTH content now, sized for multiplied income, so "too grindy at
+-- rebirth zero" is the design working — the week walk below owns walls and
+-- pacing, with the multiplier the player actually has when they meet each
+-- rung.
+local MIN_TOTAL_MINUTES = 60
 
 -- The FACTORY opener has to be affordable on day one, otherwise a fresh player
 -- has zero income and zero way to get any.
@@ -4044,12 +4050,9 @@ while true do
 	local def = pick.def
 
 	local income = Config.incomeRate(ownsSoFar)
-	-- design:D-02, via #98 — KPI 1: the cap must never be the reason the next
-	-- rung is unaffordable. Checked at every step of the real buy order, at
-	-- the owned set the player has when they start saving for it.
-	check(Config.storageCap(ownsSoFar) >= def.price * 1.05,
-		("the storage cap is %.3g when the build reaches %s at %.3g — a player following the ladder is blocked by their own bank")
-			:format(Config.storageCap(ownsSoFar), def.id, def.price))
+	-- #98's KPI 1 — the cap never blocks the climb — moved into the week walk
+	-- below, because a tail rung is met with a REBIRTHED bank and this walk
+	-- runs at rebirth zero. The week's check carries the real multiplier.
 	local shortfall = math.max(0, def.price - cash)
 	local wait = 0
 	if shortfall > 0 then
@@ -4058,9 +4061,6 @@ while true do
 	check(wait ~= math.huge,
 		("%s costs %d but income is 0 at that point — progression deadlocks here"):format(def.id, def.price))
 	if wait ~= math.huge then
-		check(wait / 60 <= MAX_SINGLE_WAIT_MINUTES,
-			("%s is a %.0f minute wall (limit %d) — lower its price or raise the dropper before it")
-				:format(def.id, wait / 60, MAX_SINGLE_WAIT_MINUTES))
 		elapsed += wait
 	end
 
@@ -4092,9 +4092,7 @@ end
 
 local endgameIncome = Config.incomeRate(ownsSoFar)
 check(elapsed / 60 >= MIN_TOTAL_MINUTES,
-	("full build takes only %.0f min (want >= %d) — the game is over too fast"):format(elapsed / 60, MIN_TOTAL_MINUTES))
-check(elapsed / 60 <= MAX_TOTAL_MINUTES,
-	("full build takes %.0f min (want <= %d) — too grindy"):format(elapsed / 60, MAX_TOTAL_MINUTES))
+	("full build takes only %.0f min of rebirth-zero grind (want >= %d) — there is no week in this ladder"):format(elapsed / 60, MIN_TOTAL_MINUTES))
 
 -- ── the walls can be broken, at a pace worth playing (#124) ─────────────────
 --
@@ -4262,26 +4260,15 @@ check(Config.Storage.CapFloor >= Config.Economy.StartingCash + Config.Tracks.fac
 check(Config.Storage.BrokenCapFloor <= Config.Storage.CapFloor,
 	"a BROKEN unit holds more than a fresh one — smashing your own vault would raise your cap")
 
--- ── the sixty-minute credit cap ─────────────────────────────────────────────
+-- ── the sixty-minute credit cap, per DAY now ────────────────────────────────
 --
--- Roblox's `7 Day Playtime Per User` signal counts "a maximum of 60 minutes per
--- user, per experience, per day". Everything past minute sixty of one sitting
--- is work the ranking system cannot see. When this file was written the build
--- was 88 minutes, which meant the last three purchases — a third of the ladder
--- — were worth exactly zero to discovery.
---
--- TWO CHECKS, NOT ONE, and deliberately so. MAX_BUILD_MINUTES is an opinion
--- someone may legitimately want to widen; CREDIT_CAP_MINUTES is a platform fact
--- that has to keep refusing when they do.
--- design:D-01 — a platform fact, not a preference, which is why it is a
--- separate check from MAX_TOTAL_MINUTES rather than the same one retuned.
+-- Roblox's `7 Day Playtime Per User` signal counts "a maximum of 60 minutes
+-- per user, per experience, per day". The old check held the WHOLE BUILD
+-- under sixty minutes, because the whole build was one sitting; the arc is a
+-- week now (#90), so the platform fact binds each day's sitting instead, and
+-- the week walk below models sittings at SITTING_MINUTES.
+-- design:D-01 — a platform fact, not a preference.
 local CREDIT_CAP_MINUTES = 60
-local buildMinutes = elapsed / 60
-
-check(buildMinutes <= CREDIT_CAP_MINUTES,
-	("the full build takes %.0f min, but Roblox credits a maximum of %d minutes per user " ..
-		"per experience per day — the last %.0f minutes of the ladder are work the ranking " ..
-		"signal cannot see"):format(buildMinutes, CREDIT_CAP_MINUTES, buildMinutes - CREDIT_CAP_MINUTES))
 
 -- ── when the rebirth pad actually lights up ─────────────────────────────────
 --
@@ -4295,10 +4282,10 @@ check(buildMinutes <= CREDIT_CAP_MINUTES,
 -- buying and start saving, and takes the earliest wall-clock minute the pad
 -- could be pressed. Cash is ~0 after each purchase, so the money for the pad
 -- has to be earned from that point at that point's income.
--- design:D-03 — the window the first rebirth has to land in, and the rungs that
--- have to be left over when it does.
-local MIN_FIRST_REBIRTH_MINUTES = 25
-local MAX_FIRST_REBIRTH_MINUTES = 50
+-- design:D-03, via #90 — WHEN the first rebirth lands is a question about
+-- DAYS now, answered by the week walk below. What this one-life walk still
+-- owns is the leftover: at the moment the pad is first affordable, enough
+-- rungs must remain unbought that the session ends on a choice.
 local MIN_REBIRTH_LEFTOVER = 2
 
 local rebirthAt, rebirthStop, rebirthStopIndex = math.huge, nil, 0
@@ -4310,15 +4297,6 @@ for index, row in ipairs(curve) do
 		end
 	end
 end
-
-check(rebirthAt <= MAX_FIRST_REBIRTH_MINUTES,
-	("the first rebirth is not affordable until minute %.0f (want <= %d) — rebirth is what " ..
-		"makes this game repeatable, and past the credit cap almost nobody will ever see one")
-		:format(rebirthAt, MAX_FIRST_REBIRTH_MINUTES))
-check(rebirthAt >= MIN_FIRST_REBIRTH_MINUTES,
-	("the first rebirth is affordable at minute %.0f (want >= %d) — there is no factory to " ..
-		"have prestiged out of yet, so the multiplier is paying for nothing")
-		:format(rebirthAt, MIN_FIRST_REBIRTH_MINUTES))
 
 -- SOMETHING OBVIOUSLY WAITING. The brief asks for "one satisfying run that
 -- finishes in about 50 minutes, and then something obviously waiting that they
@@ -4333,13 +4311,169 @@ check(rebirthLeftover >= MIN_REBIRTH_LEFTOVER,
 		"(want >= %d) — the session ends on being finished rather than on a choice")
 		:format(rebirthAt, rebirthLeftover, MIN_REBIRTH_LEFTOVER))
 
--- The pad must not be a mid-game button. If it costs less than the eighth most
--- expensive thing on the spine it stops being a fork and becomes a rung.
-local spinePrices = Config.spinePricesDescending()
-check(Config.Rebirth.BaseCost >= (spinePrices[8] or 0),
-	("the rebirth pad costs %.3g, less than the eighth-most-expensive spine rung (%.3g) — " ..
-		"at that price it is a purchase on the ladder rather than the choice that ends the run")
-		:format(Config.Rebirth.BaseCost, spinePrices[8] or 0))
+-- ── THE WEEK (#90) ──────────────────────────────────────────────────────────
+--
+-- The arc: a sitting of plot content a day, an offline gap between, two or
+-- three rebirths, a frontier inside the week. This walk models exactly that —
+-- sitting, gap, sitting — with the same primitives the game uses:
+-- Config.incomeRate with the rebirth term, Config.storageCap clamping every
+-- arrival (the gap's grant hits the same door Economy.add is), the offline
+-- mirror's Rate and free CapHours, and Config.keptOnRebirth deciding what a
+-- reset spares. Policy, stated so the numbers mean something: play
+-- SITTING_MINUTES a day; buy the cheapest reachable thing; take the rebirth
+-- pad when it is the cheapest thing and enough remains for the reset to be a
+-- promotion; stop at the frontier — everything owned at once.
+--
+-- design:D-01 and D-03 — the bands are the product decision; the walk is just
+-- arithmetic.
+do
+	local SITTING_MINUTES = 30
+	local GAP_HOURS = 18
+	local MIN_FRONTIER_DAY, MAX_FRONTIER_DAY = 5, 9
+	local MIN_REBIRTHS, MAX_REBIRTHS = 2, 3
+	local MIN_FIRST_REBIRTH_DAY, MAX_FIRST_REBIRTH_DAY = 2, 3
+	local MAX_SAVING_SITTINGS = 2   -- a rung nobody reaches inside two sittings of pure saving is a wall
+
+	check(SITTING_MINUTES <= CREDIT_CAP_MINUTES,
+		("a %d-minute sitting is past the %d minutes Roblox credits per day"):format(SITTING_MINUTES, CREDIT_CAP_MINUTES))
+
+	local owned = {}
+	local rebirths = 0
+	local cash = Config.Economy.StartingCash
+	local day = 1
+	local sittingSeconds = 0
+	local firstRebirthDay = nil
+	local worstSave, worstSaveId = 0, nil
+	local weekLog = {}
+
+	local function rate()
+		return Config.incomeRate(function(id) return owned[id] == true end)
+			* Config.Rebirth.MultiplierPerRebirth ^ rebirths
+	end
+	local function cap()
+		return Config.storageCap(function(id) return owned[id] == true end, rebirths, true)
+	end
+	local function unownedCount()
+		local count = 0
+		for _, def in ipairs(Config.Buttons) do
+			if not owned[def.id] then count += 1 end
+		end
+		return count
+	end
+	local function cheapestReachable()
+		local best
+		for _, def in ipairs(Config.Buttons) do
+			if not owned[def.id] and Config.trackUnlocked(def.track, owned) then
+				local ok = true
+				for _, req in ipairs(Config.requirementsOf(def)) do
+					if not owned[req] then ok = false end
+				end
+				if ok and (best == nil or def.price < best.price) then
+					best = def
+				end
+			end
+		end
+		return best
+	end
+
+	local function sleepGap()
+		-- close out the rest of the sitting earning, then the gap pays the
+		-- offline mirror's discounted rate for its free banked hours — and
+		-- the arrival meets the storage cap like every other arrival
+		cash = math.min(cash + (SITTING_MINUTES * 60 - sittingSeconds) * rate(), cap())
+		local grantSeconds = math.min(GAP_HOURS, Config.Offline.CapHours) * 3600
+		cash = math.min(cash + grantSeconds * rate() * Config.Offline.Rate, cap())
+		day += 1
+		sittingSeconds = 0
+	end
+
+	local guard = 0
+	while day <= MAX_FRONTIER_DAY + 3 do
+		guard += 1
+		if guard > 5000 then break end
+
+		local target = cheapestReachable()
+		if target == nil then
+			break   -- the frontier: everything owned at once
+		end
+
+		-- the rebirth pad competes as a purchase, and is taken exactly when
+		-- it is the cheaper move and the reset still leaves a climb
+		local padCost = Config.Rebirth.BaseCost * Config.Rebirth.CostGrowth ^ rebirths
+		local takePad = padCost < target.price and unownedCount() > MIN_REBIRTH_LEFTOVER
+			and rebirths < MAX_REBIRTHS
+
+		local price = takePad and padCost or target.price
+		local shortfall = math.max(0, price - cash)
+		local income = rate()
+		check(income > 0 or shortfall == 0,
+			("day %d: %s costs %.3g with zero income — the week deadlocks"):format(day, takePad and "the pad" or target.id, price))
+
+		local wait = income > 0 and shortfall / income or 0
+		-- the cap bounds what one stretch of saving can ever bank, so a rung
+		-- past the cap is unreachable however long the wait — KPI 1 covers
+		-- the spine; this covers the pad
+		check(price <= cap() * 1.02,
+			("day %d: %s costs %.3g against a storage cap of %.3g — saving cannot reach it")
+				:format(day, takePad and "the rebirth pad" or target.id, price, cap()))
+
+		local sittingsSpent = 0
+		while sittingSeconds + wait > SITTING_MINUTES * 60 do
+			local earnedNow = (SITTING_MINUTES * 60 - sittingSeconds) * income
+			cash = math.min(cash + earnedNow, cap())
+			shortfall = math.max(0, price - cash)
+			sleepGap()
+			sittingsSpent += 1
+			if sittingsSpent > MAX_SAVING_SITTINGS + 1 then break end
+			shortfall = math.max(0, price - cash)
+			wait = income > 0 and shortfall / income or 0
+		end
+		if sittingsSpent > worstSave then
+			worstSave, worstSaveId = sittingsSpent, takePad and "the rebirth pad" or target.id
+		end
+		check(sittingsSpent <= MAX_SAVING_SITTINGS,
+			("day %d: %s takes more than %d sittings of pure saving — a wall inside the week")
+				:format(day, takePad and "the rebirth pad" or target.id, MAX_SAVING_SITTINGS))
+
+		sittingSeconds += math.max(0, (price - cash) / math.max(income, 1e-9))
+		cash = math.max(cash, price) - price
+
+		if takePad then
+			rebirths += 1
+			firstRebirthDay = firstRebirthDay or day
+			cash = Config.Economy.StartingCash
+			local kept = {}
+			for id in pairs(owned) do
+				local def = Config.ButtonById[id]
+				if def and Config.keptOnRebirth(def) then
+					kept[id] = true
+				end
+			end
+			owned = kept
+			table.insert(weekLog, ("day %d: rebirth %d"):format(day, rebirths))
+		else
+			owned[target.id] = true
+		end
+	end
+
+	local frontierDay = day
+	check(frontierDay >= MIN_FRONTIER_DAY,
+		("the frontier lands on day %d (want >= %d) — the week is over too fast"):format(frontierDay, MIN_FRONTIER_DAY))
+	check(frontierDay <= MAX_FRONTIER_DAY,
+		("the frontier lands on day %d (want <= %d) — the week does not end"):format(frontierDay, MAX_FRONTIER_DAY))
+	check(rebirths >= MIN_REBIRTHS and rebirths <= MAX_REBIRTHS,
+		("the week passes through %d rebirths (want %d..%d)"):format(rebirths, MIN_REBIRTHS, MAX_REBIRTHS))
+	check(firstRebirthDay ~= nil and firstRebirthDay >= MIN_FIRST_REBIRTH_DAY and firstRebirthDay <= MAX_FIRST_REBIRTH_DAY,
+		("the first rebirth lands on day %s (want %d..%d)"):format(tostring(firstRebirthDay), MIN_FIRST_REBIRTH_DAY, MAX_FIRST_REBIRTH_DAY))
+
+	weekReport = ("the week:          frontier day %d, %d rebirths (first day %s), worst save %d sitting(s) for %s")
+		:format(frontierDay, rebirths, tostring(firstRebirthDay), worstSave, tostring(worstSaveId))
+end
+
+-- "The pad must not be a mid-game button" is a WEEK property now (#90): the
+-- pad sits deep in the spine on purpose — rebirth is a mid-arc move the
+-- player takes two or three times — and what stops it being an early-game
+-- rung is the week walk's first-rebirth-day floor below.
 
 -- WHAT EACH GENERATOR RUNG ACTUALLY EARNS YOU BEFORE THE BUILD ENDS.
 --
@@ -4601,8 +4735,6 @@ end
 check(sideTotal <= elapsed / 60 * SIDE_BUDGET_FRACTION,
 	("the side tracks add %.0f min to a %.0f min factory build (%.0f%%, budget %.0f%%)")
 		:format(sideTotal, elapsed / 60, sideTotal / (elapsed / 60) * 100, SIDE_BUDGET_FRACTION * 100))
-check(elapsed / 60 + sideTotal <= MAX_TOTAL_MINUTES,
-	("everything on the plot takes %.0f min (limit %d)"):format(elapsed / 60 + sideTotal, MAX_TOTAL_MINUTES))
 
 -- rebirth must stay worth doing: payouts compound, so income has to grow at
 -- least as fast as the cost of the next rebirth or the loop dead-ends
@@ -4695,6 +4827,7 @@ print(("belt:              %.0f studs, %.1fs transit, %.0f drops in flight at pe
 print(("furniture:         %d pieces, %d plan pairs compared")
 	:format(#floorSpots, furniturePairs))
 if lightReport then print(lightReport) end
+if weekReport then print(weekReport) end
 print(("vault timers:      %dh free, then %s")
 	:format(Config.Offline.CapHours, table.concat(vaultReport, ", ")))
 print(("trigger dwell:     %.0f ms at %.0f studs/s (30 Hz step is %.0f ms)")
@@ -4704,8 +4837,8 @@ print(("plot drop budget:  %.0f in flight across %d belts, cap %d (%.0f%%)")
 		totalInFlight / Config.Economy.MaxDropsPerPlot * 100))
 print(("first rebirth:     %.3g at minute %.0f (save from %s), %d spine rung(s) still unbought")
 	:format(Config.Rebirth.BaseCost, rebirthAt, tostring(rebirthStop), rebirthLeftover))
-print(("credit cap:        build ends at %.0f min, %.0f min of the %d-minute daily window unused")
-	:format(buildMinutes, CREDIT_CAP_MINUTES - buildMinutes, CREDIT_CAP_MINUTES))
+print(("credit cap:        one life is %.0f active min; sittings of 30 fit the %d-minute daily window")
+	:format(elapsed / 60, CREDIT_CAP_MINUTES))
 print(("rebirth pacing:    each one takes %.2fx as long as the last"):format(costRatio))
 print("\nprogression curve (minutes of grind per purchase):")
 for _, row in ipairs(curve) do

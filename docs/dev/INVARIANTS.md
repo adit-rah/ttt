@@ -133,17 +133,21 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **...and no side track's first rung may be affordable at spawn**, or a new player buys a
   bat instead of a dropper and strands themselves. `[assert]` "a new player could buy it
   instead of their first dropper and strand themselves".
-- **The full build stays inside 45–150 minutes and no single purchase costs more than 15
-  minutes of grind at the income you have when you reach it.** `[assert]` "full build takes
-  %.0f min", "%s costs %.1f min of grind".
-- **The 60-minute credit cap is its own check, separate from the build-length band.** One is
-  an opinion someone may widen; the other is a platform fact — Roblox's playtime signal
-  counts at most 60 minutes per user per day — that has to keep refusing when they do.
-  `[assert]`
-- **The first rebirth lands between minute 25 and 50, measured from when the pad first
-  becomes affordable mid-build**, with at least two spine rungs still unbought so the
-  session ends on a choice rather than on being finished. This replaced
-  `BaseCost / endgameIncome`, which measured the price and called it pacing. `[assert]`
+- **THE ARC IS A WEEK, AND THE WEEK IS WALKED** (#90): sittings of 30 minutes, offline
+  gaps paying the mirror's discounted rate through the storage cap's door, the rebirth pad
+  taken when it is the cheapest move that still leaves a climb. The bands: frontier on day
+  5–9, two or three rebirths, the first on day 2–3, and no purchase taking more than two
+  sittings of pure saving — the "never a wall inside a sitting" rule with the multiplier
+  the player actually has. `[assert]`, each falsified.
+- **One life still has a FLOOR**: at least 60 minutes of rebirth-zero grind, or there is no
+  week in the ladder. Its old ceilings are gone on purpose — the tail is post-rebirth
+  content, sized for multiplied income, and "too grindy at rebirth zero" is the design
+  working. `[assert]`
+- **The 60-minute credit cap binds each day's sitting**, a platform fact (Roblox credits at
+  most 60 minutes per user per day); the week models 30-minute sittings and asserts they
+  fit. `[assert]`
+- **At the moment the pad is first affordable, at least two rungs remain unbought** so the
+  session ends on a choice rather than on being finished. `[assert]`
 - **`Config.Rebirth.BaseCost` is DERIVED and must not be hand-set again.** `Config` assigns
   it from `Config.rebirthBaseCost()` once the spine exists (`PriceRung` = the 4th most
   expensive spine price), which is what guarantees rungs above it are still unbought when
