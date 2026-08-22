@@ -100,6 +100,10 @@ local function defaultProfile()
 		-- from profile.rebirths on every read, so it could only ever go stale;
 		-- it is gone, and a save that still carries one is simply ignored.
 		lastSeen = 0,
+		-- #105: when this player first ran out of game — 0 until it happens.
+		-- The stamp IS the telemetry: the players worth talking to are the
+		-- ones this is non-zero for.
+		frontier = 0,
 		-- #97: the day's objectives — { day, baseline = { kills, buys,
 		-- reputation }, done = { [id] = true } }. The baseline is the day's
 		-- first sight of each stat; progress is live stat minus baseline, and
@@ -244,6 +248,7 @@ local function payloadOf(profile)
 		kills = profile.kills,
 		playtime = profile.playtime,
 		lastSeen = profile.lastSeen,
+		frontier = profile.frontier,
 		objectives = profile.objectives,
 		disclosed = profile.disclosed,
 		tower = profile.tower,
