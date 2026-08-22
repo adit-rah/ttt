@@ -1,7 +1,8 @@
-# HANDOFF v18 — the open world, the party, and the way home
+# HANDOFF v18 — the open world, the party, the way home, and the tower
 
 The round shipped #89 (the belt, the bands, PvP everywhere, per-plot sieges
-and the central wave), #102 (the party) and #103 (recall). The design is settled in the issue's design-pass comment
+and the central wave), #102 (the party), #103 (recall) and #95 (the daily
+tower's core loop). The design is settled in the issue's design-pass comment
 (#89, 2026-08-22); the geometry inverts the old ring's meaning — plots at the
 rim, danger concentrated inward — and every promise the ring made is restated
 in belt form and asserted.
@@ -85,3 +86,12 @@ in belt form and asserted.
     the three notifications carry it or it needs one (#96's territory).
 14. **HOME on the touch stack.** The movement dock grew to three buttons;
     confirm it still clears the thumbstick above the reserve.
+15. **The tower run, end to end.** Enter solo and as a party of two: the
+    platform teleport, floor banners via the notify stream, the timed floor's
+    deadline, the survival floor's leftovers dying before the next deal, the
+    wipe path (fall off the deck), and cleared-floors-stay-paid. All of it is
+    the run driver, none of it runs headless.
+16. **The spire's neighbourhood.** The entrance stands at the core's edge, in
+    the mid band's traffic; check a level-8 roamer does not camp the door.
+17. **Boss floors and the party.** A tower boss carries the ordinary boss
+    ledger; confirm the pot splits sanely for a party of four on floor 8.

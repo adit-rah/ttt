@@ -1095,6 +1095,59 @@ do
 			:format(PT.InviteTimeoutSeconds))
 end
 
+-- ── the tower (#95) ────────────────────────────────────────────────────────
+--
+-- Fighting must beat waiting, a run must fit in a sitting's remainder, and
+-- the platforms' bodies must fit under the world ceiling with everything
+-- else standing. The deck itself is walked here for shape.
+do
+	local TW = Config.Tower
+	check(TW.Floors >= #Config.TowerArchetypes,
+		("Tower.Floors is %d, under the %d archetypes — the coverage deal cannot fit")
+			:format(TW.Floors, #Config.TowerArchetypes))
+	-- fits in a sitting's remainder
+	local runMinutes = TW.Floors * TW.FloorNominalSeconds / 60
+	check(runMinutes <= 20,
+		("a nominal run is %.0f minutes; past 20 it cannot fit in what a sitting has left")
+			:format(runMinutes))
+	-- fighting beats waiting, by construction: a floor pays more minutes of
+	-- income than it takes to clear
+	check(TW.FloorRewardMinutes * 60 > TW.FloorNominalSeconds,
+		("a floor pays %.0fs of income and takes ~%.0fs — the tower must outpay the plot tick, that is its whole comparator")
+			:format(TW.FloorRewardMinutes * 60, TW.FloorNominalSeconds))
+	-- the deck: deterministic, right height, boss on top, everything dealt
+	for seed = 1, 20 do
+		local deck = Config.towerFloors(seed)
+		check(#deck == TW.Floors, ("seed %d dealt %d floors"):format(seed, #deck))
+		check(deck[#deck] == "boss", ("seed %d does not end on the boss"):format(seed))
+		local seen = {}
+		for _, archetype in ipairs(deck) do
+			seen[archetype] = true
+		end
+		for _, archetype in ipairs(Config.TowerArchetypes) do
+			check(seen[archetype] == true,
+				("seed %d never deals %q — a day without one archetype is a memorised day")
+					:format(seed, archetype))
+		end
+	end
+	-- the world ceiling, with the tower's worst case standing too
+	local towerBodies = TW.MaxConcurrentRuns * (TW.WaveCount + Config.Party.MaxSize - 1)
+	local worst = (Config.Waves.MaxCount + 1) + Config.PlotWave.MaxConcurrent * Config.PlotWave.MaxCount + towerBodies
+	for _, band in ipairs(Config.Mobs.Bands) do
+		worst += band.count
+	end
+	check(worst * Config.Waves.PartsPerRaider <= Config.Mobs.MaxWorldNPCParts,
+		("with the tower climbing, the worst case is %d bodies = %d parts, over the %d ceiling")
+			:format(worst, worst * Config.Waves.PartsPerRaider, Config.Mobs.MaxWorldNPCParts))
+	-- the top tower level stays on the curves' sane stretch
+	check(Config.towerLevel(TW.Floors) <= 20,
+		("the top floor is level %d; past 20 the health curve outruns any party the cap allows")
+			:format(Config.towerLevel(TW.Floors)))
+	-- the entrance stands in the world, short of the belt
+	check(TW.EntranceRadius < Config.beltRadius() - Config.World.PlotSize.Z / 2,
+		"the tower entrance stands on the plot belt")
+end
+
 -- ── recall (#103) ──────────────────────────────────────────────────────────
 --
 -- The stillness is the anti-escape: these bounds are what keep "go home" from

@@ -2334,7 +2334,9 @@ __MODULES["Config"] = function()
 	-- The whole world's NPC ceiling: the central wave's worst case, every band's
 	-- standing population and every concurrent plot siege, all alive at once.
 	-- The verifier sums the real worst case against this.
-	Config.Mobs.MaxWorldNPCParts = 2800
+	-- Raised for the tower (#95): its platforms fight far above the world but
+	-- their bodies still count. Central wave + bands + sieges + concurrent runs.
+	Config.Mobs.MaxWorldNPCParts = 3600
 
 	--- The plot wave's level: the plot's own progression, never the server's
 	--- lifetime. Expansions are the plot's size and rebirths its age; the cap
@@ -2365,6 +2367,76 @@ __MODULES["Config"] = function()
 		-- the boost it grants, so one tame pair cannot hold a boost forever.
 		PairCooldownSeconds = 300,
 	}
+
+	-- design:D-04, via #95 — THE TOWER. Combat with a shape: floors of waves,
+	-- bosses, timed kills and survival, composed fresh each UTC day from the day
+	-- seed so a run cannot be memorised, climbed by a party (#102) or alone.
+	-- Rewards are paid PER FLOOR, on the spot, in MINUTES OF YOUR OWN INCOME —
+	-- which makes "fighting beats waiting" a line of arithmetic the verifier
+	-- holds at every progression stage, and makes a wipe keep what it cleared.
+	Config.Tower = {
+		Floors = 8,
+		-- Enemy level by floor: BaseLevel + LevelPerFloor x floor, on the same
+		-- growth curves every other Sahur uses.
+		BaseLevel = 2,
+		LevelPerFloor = 1.5,
+		-- What one floor pays each member: minutes of their OWN income rate.
+		FloorRewardMinutes = 2,
+		-- The pacing estimate a floor is tuned around; the run-length and the
+		-- fighting-beats-waiting assertions both read it.
+		FloorNominalSeconds = 90,
+		-- Archetype knobs.
+		WaveCount = 6,          -- bodies in a wave floor, plus one per partymate
+		TimedSeconds = 45,      -- kill the pack before this runs out
+		SurvivalSeconds = 30,   -- stay alive this long
+		-- Concurrency and the platform in the sky the floors fight on.
+		MaxConcurrentRuns = 2,
+		PlatformY = 500,
+		PlatformSize = 90,
+		-- Where the entrance spire stands: on the core's edge, opposite the
+		-- spawn, in plain sight of anyone walking inward.
+		EntranceRadius = 150,
+	}
+
+	-- The archetype deck. towerFloors deals it by day seed.
+	Config.TowerArchetypes = { "wave", "timed", "survival", "boss" }
+
+	--- The day's tower: a deterministic composition of Floors archetypes from
+	--- the UTC day number, the same for every server and every party that day.
+	--- Every archetype appears; a boss holds the top floor; the shuffle is a
+	--- seeded LCG so the verifier can walk any seed it likes.
+	function Config.towerFloors(daySeed: number): { string }
+		local deck = {}
+		local state = daySeed * 747796405 + 2891336453
+		local function nextRandom(n: number): number
+			state = (state * 1103515245 + 12345) % 2147483648
+			return (state % n) + 1
+		end
+		for f = 1, Config.Tower.Floors - 1 do
+			-- guarantee coverage: the first pass deals each archetype once, the
+			-- rest draw freely
+			local archetypes = Config.TowerArchetypes
+			if f <= #archetypes then
+				deck[f] = archetypes[f]
+			else
+				deck[f] = archetypes[nextRandom(#archetypes)]
+			end
+		end
+		-- seeded shuffle of everything below the top
+		for f = #deck, 2, -1 do
+			local swap = nextRandom(f)
+			deck[f], deck[swap] = deck[swap], deck[f]
+		end
+		-- the top floor is always the boss: a run ends on a fight worth talking
+		-- about, whatever the deal dealt
+		deck[Config.Tower.Floors] = "boss"
+		return deck
+	end
+
+	--- Enemy level on one floor.
+	function Config.towerLevel(floor: number): number
+		return math.floor(Config.Tower.BaseLevel + Config.Tower.LevelPerFloor * floor)
+	end
 
 	-- design:D-04, via #103 — RECALL. The open world makes the trip home a
 	-- recurring tax; recall pays it with TIME STANDING STILL instead of a walk.
@@ -7792,6 +7864,10 @@ __MODULES["DataService"] = function()
 			-- from profile.rebirths on every read, so it could only ever go stale;
 			-- it is gone, and a save that still carries one is simply ignored.
 			lastSeen = 0,
+			-- #95: the tower — the UTC day last climbed and the best floor
+			-- reached that day. Compared against today's day number on read, so
+			-- yesterday's best resets by arithmetic instead of by a job.
+			tower = { day = 0, best = 0 },
 			-- #123: the reputation stat — a weighted count of acts of help. A
 			-- number rather than an int: gap weighting accrues halves.
 			reputation = 0,
@@ -7923,6 +7999,7 @@ __MODULES["DataService"] = function()
 			kills = profile.kills,
 			playtime = profile.playtime,
 			lastSeen = profile.lastSeen,
+			tower = profile.tower,
 			reputation = profile.reputation,
 			structure = profile.structure,
 			sessions = profile.sessions,
@@ -10557,6 +10634,18 @@ __MODULES["NPCService"] = function()
 		end
 	end
 
+	--- The tower's door into the one minting site (#95): a public wrapper so
+	--- TowerService never grows its own AI. opts is mintNPC's contract.
+	function NPCService.spawn(opts)
+		return mintNPC(opts)
+	end
+
+	--- Read-only walk of every live entry — TowerService sweeps its own floor's
+	--- bodies on a run ending. Nothing outside this file may write through it.
+	function NPCService.activeEntries()
+		return active
+	end
+
 	--- Hands a joining client the packet everyone else last saw, so a mid-wave
 	--- joiner does not stare at a blank banner until the next death.
 	function NPCService.pushTo(player: Player)
@@ -12879,6 +12968,356 @@ __MODULES["SocialService"] = function()
 	end
 
 	return SocialService
+end
+
+
+__MODULES["TowerService"] = function()
+	--[[
+		TowerService.lua — the daily tower (#95).
+
+		design:D-04. Combat with a shape: Config.towerFloors deals the day's
+		composition from the UTC day number, a party (#102) or a lone player
+		climbs it, each floor pays every member minutes of their OWN income on
+		the spot, and a wipe keeps what it cleared. The top floor is always the
+		boss.
+
+		THE LEDGER AND THE RUN ARE SPLIT, the RecallService arrangement. today(),
+		bestFloor and recordClear are arithmetic over clocks and profiles and run
+		headless; the run driver — the platform in the sky, the spawns through
+		NPCService.spawn, the timers, the wipe detection — needs characters and a
+		workspace and lives below start(). The handoff owns proving it in Studio.
+
+		FLOORS FIGHT ON A PLATFORM AT PlatformY, one platform per concurrent run,
+		spaced along X. Enemies are ordinary Sahur through the one minting site,
+		leashed to the platform; falling off the edge is the survival floor's
+		failure mode and the platform is sized so that is a choice.
+
+		ENTRY IS A PROMPT ON THE SPIRE at the core's edge. The prompt brings the
+		presser's whole party; solo is a party of one. No remote: the intent has
+		no payload, the CollectOffline argument.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Util = Req("Util")
+	local Economy = Req("Economy")
+	local DataService = Req("DataService")
+	local SessionService = Req("SessionService")
+	local PartyService = Req("PartyService")
+
+	-- Resolved in start(): the run driver's dependency, and the spec bundle
+	-- carries neither NPCService nor the workspace the driver needs.
+	local NPCService = nil
+
+	local TowerService = {}
+
+	local T = Config.Tower
+
+	--- The UTC day number — the weekend bonus's clock, so the tower and the
+	--- weekend agree on when a day turns.
+	function TowerService.today(now: number): number
+		return math.floor(now / 86400)
+	end
+
+	--- The best floor this player has reached TODAY; yesterday's number reads as
+	--- zero by arithmetic.
+	function TowerService.bestFloor(player: Player, now: number): number
+		local profile = DataService.get(player)
+		if not profile or not profile.tower then
+			return 0
+		end
+		return profile.tower.day == TowerService.today(now) and profile.tower.best or 0
+	end
+
+	--- One member's pay for one cleared floor: minutes of their OWN income rate,
+	--- through the capped door like every other inflow. Progress persists as
+	--- today's best.
+	function TowerService.recordClear(player: Player, floor: number, now: number): number
+		local profile = DataService.get(player)
+		if not profile then
+			return 0
+		end
+		local reward = math.floor(T.FloorRewardMinutes * 60 * SessionService.incomePerSecondFor(profile))
+		local gained = Economy.add(player, reward, false)
+		profile.tower = {
+			day = TowerService.today(now),
+			best = math.max(TowerService.bestFloor(player, now), floor),
+		}
+		Economy.push(player)
+		return gained
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- the run driver: everything below needs a workspace
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	local runs: { any } = {}   -- slot index -> run or nil
+
+	local function platformOrigin(slot: number): Vector3
+		return Vector3.new((slot - 1) * T.PlatformSize * 3, T.PlatformY, 0)
+	end
+
+	local function membersOf(player: Player): { Player }
+		local party = PartyService.partyOf(player)
+		if party then
+			return table.clone(party)
+		end
+		return { player }
+	end
+
+	local function notifyRun(run, payload)
+		for _, member in ipairs(run.members) do
+			if member.Parent then
+				Economy.notify(member, payload)
+			end
+		end
+	end
+
+	--- A member is still climbing while alive and on the platform's level.
+	local function livingMembers(run): number
+		local count = 0
+		for _, member in ipairs(run.members) do
+			local character = member.Parent and member.Character
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if humanoid and root and humanoid.Health > 0
+					and math.abs(root.Position.Y - T.PlatformY) < 80 then
+				count += 1
+			end
+		end
+		return count
+	end
+
+	local function teleportRun(run)
+		for index, member in ipairs(run.members) do
+			local character = member.Parent and member.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if root then
+				root.CFrame = CFrame.new(run.origin + Vector3.new(index * 4 - 8, 4, T.PlatformSize / 3))
+			end
+		end
+	end
+
+	local function endRun(run, cleared: boolean)
+		runs[run.slot] = nil
+		for npc, entry in pairs(NPCService.activeEntries()) do
+			if entry.tower == run then
+				local humanoid = npc:FindFirstChildOfClass("Humanoid")
+				if humanoid then
+					humanoid.Health = 0
+				end
+			end
+		end
+		if run.platform then
+			run.platform:Destroy()
+		end
+		notifyRun(run, { kind = cleared and "boss" or "wave",
+			title = cleared and "TOWER CLEARED" or "THE TOWER HOLDS",
+			body = cleared and "Every floor, down. Come back tomorrow."
+				or ("You fell on floor %d. Cleared floors stay paid."):format(run.floor) })
+		-- home, the placement everything uses
+		local PlotService = Req("PlotService")
+		for _, member in ipairs(run.members) do
+			if member.Parent then
+				PlotService.teleportToPlot(member)
+			end
+		end
+	end
+
+	local function spawnFloor(run)
+		local archetype = run.deck[run.floor]
+		local level = Config.towerLevel(run.floor)
+		local record = { number = level, alive = 0, spawned = 0 }
+		run.record = record
+		run.floorDeadline = archetype == "timed" and (os.clock() + T.TimedSeconds) or math.huge
+		run.surviveUntil = archetype == "survival" and (os.clock() + T.SurvivalSeconds) or nil
+
+		local count = archetype == "boss" and 1 or (T.WaveCount + #run.members - 1)
+		if archetype == "survival" then
+			count = math.max(2, math.floor(count / 2))
+		end
+		for i = 1, count do
+			local angle = (i / count) * math.pi * 2
+			local radius = T.PlatformSize / 2 - 8
+			local position = run.origin + Vector3.new(math.sin(angle) * radius, 6, math.cos(angle) * radius)
+			local entry = NPCService.spawn({
+				level = level,
+				boss = archetype == "boss",
+				position = position,
+				home = run.origin + Vector3.new(0, 2, 0),
+				leash = T.PlatformSize,
+				record = record,
+				index = i,
+				count = count,
+				despawnAt = os.clock() + 600,
+			})
+			entry.tower = run
+		end
+
+		local what = ({
+			wave = ("floor %d — clear the pack"):format(run.floor),
+			boss = ("floor %d — the boss"):format(run.floor),
+			timed = ("floor %d — %d kills in %ds"):format(run.floor, count, T.TimedSeconds),
+			survival = ("floor %d — survive %ds"):format(run.floor, T.SurvivalSeconds),
+		})[archetype]
+		notifyRun(run, { kind = "wave", title = "THE TOWER", body = what })
+	end
+
+	local function stepRun(run)
+		local now = os.clock()
+		if livingMembers(run) == 0 then
+			endRun(run, false)
+			return
+		end
+		local archetype = run.deck[run.floor]
+		local clearedFloor = false
+		if archetype == "survival" then
+			clearedFloor = now >= run.surviveUntil
+		else
+			clearedFloor = run.record.alive <= 0
+			if archetype == "timed" and now >= run.floorDeadline and not clearedFloor then
+				endRun(run, false)
+				return
+			end
+		end
+		if clearedFloor then
+			-- a survival floor is cleared by the CLOCK, so its pack can outlive
+			-- it; the leftovers die before the next floor deals its own
+			for npc, entry in pairs(NPCService.activeEntries()) do
+				if entry.waveRecord == run.record and not entry.dead then
+					local humanoid = npc:FindFirstChildOfClass("Humanoid")
+					if humanoid then
+						humanoid.Health = 0
+					end
+				end
+			end
+			for _, member in ipairs(run.members) do
+				if member.Parent then
+					local gained = TowerService.recordClear(member, run.floor, os.time())
+					Economy.notify(member, { kind = "claim", title = "Floor cleared",
+						body = ("+%s — your %d minutes of income."):format(Util.abbreviate(gained), T.FloorRewardMinutes) })
+				end
+			end
+			if run.floor >= T.Floors then
+				endRun(run, true)
+				return
+			end
+			run.floor += 1
+			spawnFloor(run)
+		end
+	end
+
+	local function buildPlatform(origin: Vector3): Model
+		local model = Instance.new("Model")
+		model.Name = "TowerFloor"
+		local floor = Instance.new("Part")
+		floor.Name = "Deck"
+		floor.Size = Vector3.new(T.PlatformSize, 2, T.PlatformSize)
+		floor.CFrame = CFrame.new(origin)
+		floor.Anchored = true
+		floor.Color = Color3.fromRGB(58, 52, 74)
+		floor.Material = Enum.Material.Slate
+		floor.Parent = model
+		model.Parent = workspace
+		return model
+	end
+
+	local function beginRun(presser: Player)
+		local slot
+		for index = 1, T.MaxConcurrentRuns do
+			if not runs[index] then
+				slot = index
+				break
+			end
+		end
+		if not slot then
+			Economy.notify(presser, { kind = "warn", title = "THE TOWER",
+				body = "Every climb is taken — try again in a minute." })
+			return
+		end
+		local members = membersOf(presser)
+		for _, member in ipairs(members) do
+			for _, run in pairs(runs) do
+				for _, climber in ipairs(run.members) do
+					if climber == member then
+						Economy.notify(presser, { kind = "warn", title = "THE TOWER",
+							body = "Someone in your party is already climbing." })
+						return
+					end
+				end
+			end
+		end
+
+		local run = {
+			slot = slot,
+			members = members,
+			deck = Config.towerFloors(TowerService.today(os.time())),
+			floor = 1,
+			origin = platformOrigin(slot),
+		}
+		runs[slot] = run
+		run.platform = buildPlatform(run.origin)
+		teleportRun(run)
+		spawnFloor(run)
+	end
+
+	--- The spire at the core's edge, and the prompt that starts a climb.
+	local function buildEntrance()
+		local model = Instance.new("Model")
+		model.Name = "Tower"
+		local bearing = math.pi   -- opposite the spawn pad
+		local base = Vector3.new(math.sin(bearing) * T.EntranceRadius, 0, math.cos(bearing) * T.EntranceRadius)
+		for storey = 1, 6 do
+			local part = Instance.new("Part")
+			part.Name = "Spire" .. storey
+			local width = 26 - storey * 3
+			part.Size = Vector3.new(width, 14, width)
+			part.CFrame = CFrame.new(base + Vector3.new(0, storey * 14 - 7, 0))
+				* CFrame.Angles(0, storey * 0.2, 0)
+			part.Anchored = true
+			part.Color = Color3.fromRGB(44, 38, 58)
+			part.Material = Enum.Material.Slate
+			part.Parent = model
+		end
+		local door = Instance.new("Part")
+		door.Name = "Door"
+		door.Size = Vector3.new(8, 10, 2)
+		door.CFrame = CFrame.new(base + Vector3.new(0, 5, 14))
+		door.Anchored = true
+		door.Color = Color3.fromRGB(255, 205, 90)
+		door.Material = Enum.Material.Neon
+		door.Parent = model
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "EnterTower"
+		prompt.ActionText = "Climb"
+		prompt.ObjectText = "The Tower"
+		prompt.HoldDuration = 1
+		prompt.MaxActivationDistance = 14
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = door
+		prompt.Triggered:Connect(beginRun)
+
+		model.Parent = workspace
+	end
+
+	function TowerService.start()
+		NPCService = Req("NPCService")
+		buildEntrance()
+		task.spawn(function()
+			while true do
+				task.wait(1)
+				for _, run in pairs(runs) do
+					local ok, err = pcall(stepRun, run)
+					if not ok then
+						warn("[Tung] tower step error: " .. tostring(err))
+					end
+				end
+			end
+		end)
+	end
+
+	return TowerService
 end
 
 
@@ -18105,6 +18544,7 @@ local RaidService = Req("RaidService")
 local HelpService = Req("HelpService")
 local PartyService = Req("PartyService")
 local RecallService = Req("RecallService")
+local TowerService = Req("TowerService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -18194,6 +18634,9 @@ Tycoon.allyCheck = PartyService.sameParty
 PartyService.start()
 -- Recall (#103): after PlotService, whose teleportToPlot is the arrival.
 RecallService.start()
+-- The tower (#95): after NPCService (it spawns through the minting site) and
+-- PartyService (a climb brings the presser's whole party).
+TowerService.start()
 SocialService.start()
 
 -- 6. players

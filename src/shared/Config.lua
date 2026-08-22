@@ -2302,7 +2302,9 @@ Config.PlotWave = {
 -- The whole world's NPC ceiling: the central wave's worst case, every band's
 -- standing population and every concurrent plot siege, all alive at once.
 -- The verifier sums the real worst case against this.
-Config.Mobs.MaxWorldNPCParts = 2800
+-- Raised for the tower (#95): its platforms fight far above the world but
+-- their bodies still count. Central wave + bands + sieges + concurrent runs.
+Config.Mobs.MaxWorldNPCParts = 3600
 
 --- The plot wave's level: the plot's own progression, never the server's
 --- lifetime. Expansions are the plot's size and rebirths its age; the cap
@@ -2333,6 +2335,76 @@ Config.Help = {
 	-- the boost it grants, so one tame pair cannot hold a boost forever.
 	PairCooldownSeconds = 300,
 }
+
+-- design:D-04, via #95 — THE TOWER. Combat with a shape: floors of waves,
+-- bosses, timed kills and survival, composed fresh each UTC day from the day
+-- seed so a run cannot be memorised, climbed by a party (#102) or alone.
+-- Rewards are paid PER FLOOR, on the spot, in MINUTES OF YOUR OWN INCOME —
+-- which makes "fighting beats waiting" a line of arithmetic the verifier
+-- holds at every progression stage, and makes a wipe keep what it cleared.
+Config.Tower = {
+	Floors = 8,
+	-- Enemy level by floor: BaseLevel + LevelPerFloor x floor, on the same
+	-- growth curves every other Sahur uses.
+	BaseLevel = 2,
+	LevelPerFloor = 1.5,
+	-- What one floor pays each member: minutes of their OWN income rate.
+	FloorRewardMinutes = 2,
+	-- The pacing estimate a floor is tuned around; the run-length and the
+	-- fighting-beats-waiting assertions both read it.
+	FloorNominalSeconds = 90,
+	-- Archetype knobs.
+	WaveCount = 6,          -- bodies in a wave floor, plus one per partymate
+	TimedSeconds = 45,      -- kill the pack before this runs out
+	SurvivalSeconds = 30,   -- stay alive this long
+	-- Concurrency and the platform in the sky the floors fight on.
+	MaxConcurrentRuns = 2,
+	PlatformY = 500,
+	PlatformSize = 90,
+	-- Where the entrance spire stands: on the core's edge, opposite the
+	-- spawn, in plain sight of anyone walking inward.
+	EntranceRadius = 150,
+}
+
+-- The archetype deck. towerFloors deals it by day seed.
+Config.TowerArchetypes = { "wave", "timed", "survival", "boss" }
+
+--- The day's tower: a deterministic composition of Floors archetypes from
+--- the UTC day number, the same for every server and every party that day.
+--- Every archetype appears; a boss holds the top floor; the shuffle is a
+--- seeded LCG so the verifier can walk any seed it likes.
+function Config.towerFloors(daySeed: number): { string }
+	local deck = {}
+	local state = daySeed * 747796405 + 2891336453
+	local function nextRandom(n: number): number
+		state = (state * 1103515245 + 12345) % 2147483648
+		return (state % n) + 1
+	end
+	for f = 1, Config.Tower.Floors - 1 do
+		-- guarantee coverage: the first pass deals each archetype once, the
+		-- rest draw freely
+		local archetypes = Config.TowerArchetypes
+		if f <= #archetypes then
+			deck[f] = archetypes[f]
+		else
+			deck[f] = archetypes[nextRandom(#archetypes)]
+		end
+	end
+	-- seeded shuffle of everything below the top
+	for f = #deck, 2, -1 do
+		local swap = nextRandom(f)
+		deck[f], deck[swap] = deck[swap], deck[f]
+	end
+	-- the top floor is always the boss: a run ends on a fight worth talking
+	-- about, whatever the deal dealt
+	deck[Config.Tower.Floors] = "boss"
+	return deck
+end
+
+--- Enemy level on one floor.
+function Config.towerLevel(floor: number): number
+	return math.floor(Config.Tower.BaseLevel + Config.Tower.LevelPerFloor * floor)
+end
 
 -- design:D-04, via #103 — RECALL. The open world makes the trip home a
 -- recurring tax; recall pays it with TIME STANDING STILL instead of a walk.

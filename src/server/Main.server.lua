@@ -19,6 +19,7 @@ local RaidService = Req("RaidService")
 local HelpService = Req("HelpService")
 local PartyService = Req("PartyService")
 local RecallService = Req("RecallService")
+local TowerService = Req("TowerService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -108,6 +109,9 @@ Tycoon.allyCheck = PartyService.sameParty
 PartyService.start()
 -- Recall (#103): after PlotService, whose teleportToPlot is the arrival.
 RecallService.start()
+-- The tower (#95): after NPCService (it spawns through the minting site) and
+-- PartyService (a climb brings the presser's whole party).
+TowerService.start()
 SocialService.start()
 
 -- 6. players
