@@ -1406,7 +1406,7 @@ Config.Variants = {
 --  name      shown on the button billboard
 --  price     cost in Tung
 --  kind      "Dropper" | "Upgrader" | "Belt" | "Power" | "Structure"
---            | "Gear" | "Armor" | "Floor" | "Line"
+--            | "Gear" | "Armor" | "Floor" | "Line" | "Land"
 --            Tycoon.INSTALLERS is the list; KNOWN_KINDS in verify_config.lua
 --            is checked against it. This line is checked by nobody.
 --  requires  id (or list of ids) that must be owned first.
@@ -1424,6 +1424,7 @@ Config.Variants = {
 --  Armor:     grants (a Config.Armor.Tiers id)
 --  Floor:     floor (a Config.Floors id)
 --  Line:      the matching Config.Floors[].lineButton
+--  Land:      side ("left" | "right"), width (studs of X; depth is the plot's)
 --
 -- The tables are merged into a single Config.Buttons at the bottom of this
 -- file, in track order, so every consumer still iterates one array.
@@ -1649,6 +1650,150 @@ Config.StructureButtons = {
 		blurb = "Now it's a real business.",
 	},
 }
+
+-- design:D-02, via #88 — LAND, bought outward from the centre. Five expansions
+-- a side, each narrower than the one before, so the centre pad stays the
+-- largest piece and a maxed plot is 3-4x the starting footprint. Depth never
+-- changes: a strip is `width` studs of X and the full PlotSize.Z of Z.
+--
+-- TWO TRACKS, ONE PER SIDE. Geometry forces the order within a side (L2 has
+-- no meaning without L1), so each side is an ordinary chain with one
+-- requirement-free root and every track assertion applies unchanged.
+-- Alternation is PRICING: each pair interleaves (Ln just under Rn) with a
+-- large step between pairs, so the cheapest available land purchase always
+-- swings sides. A player determined to go lopsided pays the pair step for it;
+-- nothing forbids it. The simulation demonstrates the alternation and the
+-- verifier asserts it.
+--
+-- `width` on the row rather than in a second geometry table, the same way a
+-- Dropper row carries dropValue: one row is the whole fact of one expansion.
+Config.LandLButtons = {
+	{
+		id = "landL1", name = "West Lot I", price = 120000,
+		kind = "Land", side = "left", width = 44,
+		blurb = "Ground to grow on.",
+	},
+	{
+		id = "landL2", name = "West Lot II", price = 520000,
+		kind = "Land", side = "left", width = 36,
+		blurb = "The factory spreads west.",
+	},
+	{
+		id = "landL3", name = "West Lot III", price = 2240000,
+		kind = "Land", side = "left", width = 28,
+		blurb = "Further west.",
+	},
+	{
+		id = "landL4", name = "West Lot IV", price = 9600000,
+		kind = "Land", side = "left", width = 23,
+		blurb = "The neighbours moved out.",
+	},
+	{
+		id = "landL5", name = "West Lot V", price = 300000000,
+		kind = "Land", side = "left", width = 19,
+		blurb = "The western frontier.",
+	},
+}
+
+Config.LandRButtons = {
+	{
+		id = "landR1", name = "East Lot I", price = 132000,
+		kind = "Land", side = "right", width = 44,
+		blurb = "Ground to grow on.",
+	},
+	{
+		id = "landR2", name = "East Lot II", price = 572000,
+		kind = "Land", side = "right", width = 36,
+		blurb = "The factory spreads east.",
+	},
+	{
+		id = "landR3", name = "East Lot III", price = 2460000,
+		kind = "Land", side = "right", width = 28,
+		blurb = "Further east.",
+	},
+	{
+		id = "landR4", name = "East Lot IV", price = 10600000,
+		kind = "Land", side = "right", width = 23,
+		blurb = "The neighbours moved out.",
+	},
+	{
+		id = "landR5", name = "East Lot V", price = 330000000,
+		kind = "Land", side = "right", width = 19,
+		blurb = "The eastern frontier.",
+	},
+}
+
+--- The land rows for one side, in purchase order, outward.
+function Config.landRows(side: string)
+	return side == "left" and Config.LandLButtons or Config.LandRButtons
+end
+
+--- Cumulative outer |x| after each expansion on one side: one entry per row,
+--- starting from the centre pad's half-width. Component arithmetic only — the
+--- verifier's Vector3 is a bare table with no operators.
+function Config.landSteps(side: string): { number }
+	local steps = {}
+	local x = Config.World.PlotSize.X / 2
+	for _, def in ipairs(Config.landRows(side)) do
+		x += def.width
+		table.insert(steps, x)
+	end
+	return steps
+end
+
+--- The plot's ground extents when it owns `left`/`right` expansions per side:
+--- signed plot-local x, min and max.
+function Config.landExtents(left: number, right: number)
+	local halfX = Config.World.PlotSize.X / 2
+	local leftSteps, rightSteps = Config.landSteps("left"), Config.landSteps("right")
+	local minX = (left > 0) and -leftSteps[math.min(left, #leftSteps)] or -halfX
+	local maxX = (right > 0) and rightSteps[math.min(right, #rightSteps)] or halfX
+	return { minX = minX, maxX = maxX }
+end
+
+--- One expansion's ground slab, as signed plot-local x bounds. The strip runs
+--- the plot's full depth; only x varies.
+function Config.landRect(id: string)
+	for _, side in ipairs({ "left", "right" }) do
+		local steps = Config.landSteps(side)
+		for index, def in ipairs(Config.landRows(side)) do
+			if def.id == id then
+				local inner = (index == 1) and Config.World.PlotSize.X / 2 or steps[index - 1]
+				local outer = steps[index]
+				if side == "left" then
+					return { fromX = -outer, toX = -inner, side = side, index = index }
+				end
+				return { fromX = inner, toX = outer, side = side, index = index }
+			end
+		end
+	end
+	return nil
+end
+
+--- How many expansions each side of a plot owns. The chains make ownership a
+--- prefix, so a count is the whole state.
+function Config.landCounts(owned): { left: number, right: number }
+	local counts = { left = 0, right = 0 }
+	for _, side in ipairs({ "left", "right" }) do
+		for _, def in ipairs(Config.landRows(side)) do
+			if owned[def.id] == true then
+				counts[side] += 1
+			end
+		end
+	end
+	return counts
+end
+
+--- Where a side's land pedestal stands, on the centre pad — always-owned
+--- ground, whatever else is bought. One pedestal per side: every rung of a
+--- side resolves here, which is why the land tracks preview 0 rungs (the
+--- power-track precedent — a previewed pad would be built inside the lit one).
+function Config.landButtonPosition(track: string): Vector3
+	if track == "landL" then
+		return Vector3.new(-16, 0, 30)
+	end
+	return Vector3.new(16, 0, 30)
+end
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- COMBAT
@@ -3153,6 +3298,19 @@ Config.Sound = {
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- Resolved once, at require time, so every module sees the same numbers.
+-- The widest a plot can get: the centre plus every expansion on both sides.
+-- Derived here, after the land tables exist. Ring packing reserves this — a
+-- plot can max out, so the world has to hold the maxed chord.
+do
+	local width = Config.World.PlotSize.X
+	for _, side in ipairs({ "left", "right" }) do
+		for _, def in ipairs(Config.landRows(side)) do
+			width += def.width
+		end
+	end
+	Config.World.PlotMaxWidth = width
+end
+
 Config.World.PlotCount = Config.plotCountFor()
 Config.World.PlotPlacements = Config.plotPlacements(Config.World.PlotCount)
 Config.World.PlotRadius = Config.World.PlotPlacements[1].radius   -- inner ring

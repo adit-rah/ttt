@@ -41,7 +41,7 @@ local function check(condition, message)
 end
 
 -- installers that Tycoon.lua actually implements
-local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Floor = true, Line = true, Power = true }
+local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Floor = true, Line = true, Power = true, Land = true }
 local KNOWN_STRUCTURES = { walls = true, gates = true, windows = true, roof = true }
 
 local seenIds, dropperSlots, upgraderSlots = {}, {}, {}
@@ -3190,6 +3190,85 @@ for count = Config.World.MinPlots, Config.World.MaxPlots do
 	check(farthest - Config.World.ArenaRadius <= MAX_WALK,
 		("%d plots put the furthest plot %.0f studs from the arena rim (limit %d)")
 			:format(count, farthest - Config.World.ArenaRadius, MAX_WALK))
+end
+
+-- ── land (#88) ──────────────────────────────────────────────────────────────
+--
+-- Ten expansions, five a side, priced to alternate. The geometry is derived
+-- (landSteps is a running sum, so strips tile by construction); what wants
+-- asserting is the SHAPE the design states — narrower outward, mirror pairs,
+-- a maxed plot 3-4x the centre — and the pricing that makes lopsided
+-- expensive without forbidding it.
+
+do
+	local centreWidth = Config.World.PlotSize.X
+	local sides = { left = Config.LandLButtons, right = Config.LandRButtons }
+	local expansionWidth = 0
+
+	for side, rows in pairs(sides) do
+		check(#rows == 5,
+			("the %s land track has %d rows; the design is five expansions a side"):format(side, #rows))
+		local previousWidth = math.huge
+		for index, def in ipairs(rows) do
+			local where = ("land row %s"):format(tostring(def.id))
+			check(def.kind == "Land", where .. " is not kind Land")
+			check(def.side == side,
+				("%s sits in the %s table but claims side %q"):format(where, side, tostring(def.side)))
+			-- The id is the save key; a rename silently un-buys the land every
+			-- existing player owns (DataService prunes unknown ids).
+			local expected = (side == "left" and "landL" or "landR") .. index
+			check(def.id == expected,
+				("%s should be %q — the id is the save key and position %d of the %s chain"):format(where, expected, index, side))
+			check(type(def.width) == "number" and def.width > 0,
+				where .. " has no width; the strip would be a line")
+			check(def.width < previousWidth,
+				("%s is %d wide against %d inside it; expansions get SMALLER outward — the centre stays the largest piece")
+					:format(where, def.width, previousWidth))
+			previousWidth = def.width
+			expansionWidth += def.width
+		end
+	end
+
+	-- Mirror pairs: the base stays symmetric when bought alternating.
+	for index = 1, 5 do
+		check(Config.LandLButtons[index].width == Config.LandRButtons[index].width,
+			("landL%d is %d wide and landR%d is %d — the pairs mirror, or alternating purchases build a lopsided base")
+				:format(index, Config.LandLButtons[index].width, index, Config.LandRButtons[index].width))
+	end
+
+	-- The maxed footprint: 3-4x the centre (issue #88's stated band), with the
+	-- expansions summing to roughly 2.5x the centre's width.
+	local ratio = Config.World.PlotMaxWidth / centreWidth
+	check(ratio >= 3 and ratio <= 4,
+		("a maxed plot is %.2fx the centre's width; #88 says three to four"):format(ratio))
+	check(expansionWidth / centreWidth >= 2.2 and expansionWidth / centreWidth <= 2.8,
+		("the ten expansions sum to %.2fx the centre width; the target is 2.5x"):format(expansionWidth / centreWidth))
+
+	-- THE ALTERNATION IS PRICING. Within a pair the right lot costs a little
+	-- more than the left; between pairs the step is large. That is the whole
+	-- mechanism that keeps a greedy buyer symmetric, so both margins are
+	-- asserted here and the simulation's buy order is asserted below.
+	for index = 1, 5 do
+		local l, r = Config.LandLButtons[index].price, Config.LandRButtons[index].price
+		check(r > l and r <= l * 1.25,
+			("landR%d at %d against landL%d at %d — a pair interleaves within 25%%, so the sides alternate")
+				:format(index, r, index, l))
+		if index < 5 then
+			local nextL = Config.LandLButtons[index + 1].price
+			check(nextL >= r * 3,
+				("landL%d at %d is under 3x landR%d at %d — without the pair step, skipping a side is cheap and the base goes lopsided for free")
+					:format(index + 1, nextL, index, r))
+		end
+	end
+
+	-- The pedestals stand on the CENTRE pad — the one piece of ground every
+	-- save owns — clear of its edges.
+	for _, track in ipairs({ "landL", "landR" }) do
+		local spot = Config.landButtonPosition(track)
+		check(math.abs(spot.X) <= centreWidth / 2 - 4 and math.abs(spot.Z) <= Config.World.PlotSize.Z / 2 - 4,
+			("the %s pedestal at (%.0f, %.0f) is off the centre pad; land pedestals stand on always-owned ground")
+				:format(track, spot.X, spot.Z))
+	end
 end
 
 -- ── the building shell ──────────────────────────────────────────────────────

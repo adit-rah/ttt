@@ -398,6 +398,14 @@ end
 Tycoon.INSTALLERS.Line = function(self, def, silent)
 end
 
+--- Land (#88). A DOCUMENTED NO-OP for the FloorService reason: the ground
+--- outlives the purchase — release, rebirth and re-claim all have to rebuild
+--- or drop it and none of them go through install(). ensureLand reconciles
+--- the slabs to `owned` on the refreshButtons beat, which install() reaches
+--- on its next line anyway.
+Tycoon.INSTALLERS.Land = function(self, def, silent)
+end
+
 --- Every gate leaf one storey's openings carry: what to build, where it hangs
 --- closed, and where it slides to.
 ---
