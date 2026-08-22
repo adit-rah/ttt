@@ -2215,6 +2215,25 @@ Config.Combat = {
 	JumpPower = 52,
 }
 
+-- design:D-04, via #101 — MOVEMENT. Sprint and dash ship now, as BASELINE
+-- capabilities everyone has: legibility first, and a movement axis nobody can
+-- buy is a movement axis nobody falls behind on. Mounts and waypoints wait
+-- for #89 — there is no world to cross yet.
+Config.Movement = {
+	-- 32 is the wall-clip bound: above it a humanoid starts passing through
+	-- 2-stud walls, and the PlayerUpgrades check has always held that line.
+	-- Sprinting RAISES the defender's run home, so the siren guarantee
+	-- (WarningTime x Combat.WalkSpeed >= MinPlotRadius) keeps its
+	-- conservative walking form and sprint is pure margin.
+	SprintSpeed = 32,
+	-- The dash: a short burst that is also a dodge. Client-applied — the
+	-- client owns its character's physics — with the cooldown enforced
+	-- server-side so combat systems can trust the cadence.
+	DashSpeed = 70,
+	DashSeconds = 0.25,
+	DashCooldown = 4,
+}
+
 Config.Waves = {
 	Enabled = true,
 

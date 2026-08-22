@@ -7,6 +7,7 @@ local Util = Req("Util")
 
 local HUD = Req("HUD")
 local CombatClient = Req("CombatClient")
+local MovementClient = Req("MovementClient")
 local UpgradeUI = Req("UpgradeUI")
 local SessionUI = Req("SessionUI")
 
@@ -14,6 +15,7 @@ local SessionUI = Req("SessionUI")
 -- Roblox's own hotbar and inventory handle equipping it.
 HUD.start()
 CombatClient.start()
+MovementClient.start()
 
 -- Prototype panels. Both return immediately unless their Config.Prototypes
 -- flag is on.

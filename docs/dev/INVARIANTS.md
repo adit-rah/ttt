@@ -700,6 +700,25 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   full server inside `MaxWaveTime`. That last check is what actually binds
   `BossMaxHealthFactor`. `[assert]`
 
+### Movement (#101)
+
+- **Sprint is one bit up a remote, and the server writes the speed.** A client's own
+  `WalkSpeed` write does not replicate, and the remote payload is coerced to a boolean so
+  nothing a client sends can pick a number. Two states only: `Combat.WalkSpeed` and
+  `Movement.SprintSpeed`. `[spec]` `movement_spec.lua`, falsified on a truthy payload.
+- **The dash is client physics, server cadence.** The impulse fires on the approval echo —
+  the client owns its assembly — and `MovementService.tryDash`/`dashReady` are the ledger
+  any combat system reads when it must trust dash timing (#94's escape arithmetic).
+  `[spec]` the cooldown, exact at the boundary.
+- **The numbers sit inside lines other systems stand on**: SprintSpeed over walking and at
+  most 32 (the wall-clip line the PlayerUpgrades ladder is held to), raiders slower than a
+  sprinting defender, one dash under half a plot's depth, cooldown over duration. The siren
+  guarantee keeps its conservative WALKING form — sprint only strengthens the defender's
+  run home. `[assert]`, each falsified.
+- **Touch controls sit above the LEFT reserve** — movement on the movement thumb; the
+  bottom-right stack belongs to the action buttons — and are never built without touch.
+  `[nothing]` beyond the reserve inset; placement is a Studio item.
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch
