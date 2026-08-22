@@ -41,23 +41,23 @@ timeline
     section Build
         min 3-40 : the factory ladder : droppers, upgraders, the belt, the generator
         min 3+   : the shell, in parallel : walls, gates, windows, roof
-        min 20+  : the land : ten expansions, west and east alternating
+        min 20+  : the land : ten expansions, each with its own line
     section Close
-        min 50 : the rebirth pad lights up : six spine rungs still unbought
-        min 59 : the full factory : if you refuse the rebirth and finish
+        min 42 : the rebirth pad lights up : eight spine rungs still unbought
+        min 51 : the full factory : if you refuse the rebirth and finish
 ```
 
 **The target is one satisfying arc in about fifty minutes, ending on a choice
-rather than on being finished.** The measured build is **59 minutes**; the
-rebirth pad becomes affordable at **minute 50**, with **six** ladder rungs still
-unbought. That gap is deliberate and is guaranteed by construction, not by
-tuning — see §6.
+rather than on being finished.** The measured build is **51 minutes**; the
+rebirth pad becomes affordable at **minute 42**, with **eight** ladder rungs
+still unbought. That gap is deliberate and is guaranteed by construction, not
+by tuning — see §6.
 
 **Sixty minutes is the real ceiling, not the design's preference.** Roblox
 credits at most 60 minutes per user per experience per day toward its ranking
 signal, so anything past minute 60 of a sitting is work the platform cannot
 see. The build once ran 88 minutes, which made the last third of the ladder
-worth zero to discovery. The current curve leaves 1 minute of headroom.
+worth zero to discovery. The current curve leaves 9 minutes of headroom.
 
 ---
 
@@ -157,8 +157,8 @@ graph TD
         F["<b>FACTORY</b> — 17 rungs<br/>droppers, upgraders, the belt"]
         S["<b>STRUCTURE</b> — 4 rungs<br/>walls → gates → windows → roof"]
         P["<b>POWER</b> — 4 rungs<br/>one generator, upgraded in place"]
-        LL["<b>WEST LAND</b> — 5 strips"]
-        LR2["<b>EAST LAND</b> — 5 strips"]
+        LL["<b>WEST LAND</b> — 5 strips ×3 rungs"]
+        LR2["<b>EAST LAND</b> — 5 strips ×3 rungs"]
     end
     subgraph side["DETOURS — priced against the spine"]
         W["<b>WEAPONS</b> — 5 rungs<br/>Sahur Bat → Eclipse"]
@@ -216,20 +216,21 @@ shell is a shell anybody buys is still an open question — see `D-03`.
 | 7 | `dropper5` | Crimson Tung | 18,000 | 150 / 1.3s |
 | 8 | `belt1` | Belt Overdrive | 66,000 | belt +9 studs/sec — **no income change** |
 | 9 | `upgrader3` | Tralalero Refiner | 72,000 | ×2.1 |
-| 10 | `dropper6` | Neon Tung | 152,000 | 620 / 1.25s |
-| 11 | `dropper7` | Void Tung | 800,000 | 2,600 / 1.2s |
-| 12 | `upgrader4` | Void Furnace | 3,900,000 | ×2.4 |
-| 13 | `dropper8` | Eclipse Tung | 10,000,000 | 11,000 / 1.15s |
-| 14 | `upgrader5` | Eclipse Ascension | 41,000,000 | ×2.8 |
-| 15 | `dropper9` | Galaxy Tung | 115,000,000 | 48,000 / 1.1s |
-| 16 | `upgrader6` | Tung Singularity | 650,000,000 | ×3.4 |
-| 17 | `dropper10` | INFINITY TUNG TUNG TUNG SAHUR | 2,400,000,000 | 240,000 / 1.0s |
+| 10 | `dropper6` | Neon Tung | 172,000 | 620 / 1.25s |
+| 11 | `dropper7` | Void Tung | 1,490,000 | 2,600 / 1.2s |
+| 12 | `upgrader4` | Void Furnace | 11,700,000 | ×2.4 |
+| 13 | `dropper8` | Eclipse Tung | 39,800,000 | 11,000 / 1.15s |
+| 14 | `upgrader5` | Eclipse Ascension | 249,000,000 | ×2.8 |
+| 15 | `dropper9` | Galaxy Tung | 953,000,000 | 48,000 / 1.1s |
+| 16 | `upgrader6` | Tung Singularity | 9,050,000,000 | ×3.4 |
+| 17 | `dropper10` | INFINITY TUNG TUNG TUNG SAHUR | 49,500,000,000 | 240,000 / 1.0s |
 
-**Land** interleaves with the top half of that ladder, west then east:
-120,000 / 132,000, then 340,000 / 374,000, 1,350,000 / 1,480,000,
-5,600,000 / 6,100,000, and 480,000,000 / 528,000,000 for the frontier lots.
-The simulated build buys them strictly alternating, which the verifier
-asserts.
+**Land** interleaves with the top half of that ladder, west then east — lots
+at 120,000 / 132,000 up to 8,160,000,000 / 8,980,000,000 for the frontier —
+and each lot delivers a sub-belt with its own Tung dropper and a refiner that
+levels every dropper on the plot (#109): ground, then its machines, then more
+ground, in one strict order per side. The simulated build buys the lots
+strictly alternating, which the verifier asserts.
 
 The other four: **structure** `walls` 1,500 → `gates` 1,600 → `windows` 1,900 →
 `roof` 690,000. **Weapons** `batforge` 2,500 → Ash 45,000 → Crimson 520,000 →

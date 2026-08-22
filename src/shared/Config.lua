@@ -1216,7 +1216,7 @@ Config.Rebirth = {
 	--
 	-- THE RANK IS THE THING TO PRESERVE, not the number. If the spine grows or
 	-- shrinks, check that rank 6 still names a rung near the top of the build —
-	-- it is currently `landL5_u1` at 9.05e9, rounding to a BaseCost of 9.1e9,
+	-- it is currently `upgrader6` at 9.05e9, rounding to a BaseCost of 9.1e9,
 	-- and the five rungs above it are the frontier lots' machines and
 	-- dropper10.
 	PriceRung = 6,

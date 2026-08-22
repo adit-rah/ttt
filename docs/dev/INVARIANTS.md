@@ -331,10 +331,17 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   so two fully-grown neighbours are the case the world must hold; the pairwise chord check
   needs `PlotMaxWidth`, the walk limit is 880 with #89/#101 named as the owners of the
   real answer, and the plot/world sign distances follow the packing. `[assert]`
-- **Land survives rebirth** (design:D-03 — rebirth raises the ceiling; the ground is the
-  ceiling). `keepOnRebirth` is true for both land tracks, and the cabinet-only equivalence
-  is restated to admit them: a kept land id is a kept model because ensureLand rebuilds
-  from `owned`. `[assert]`
+- **Land survives rebirth; the machines standing on it reset** (design:D-03 — rebirth
+  raises the ceiling and the ground is the ceiling; a surviving refiner would multiply the
+  next build from minute zero, the generator's argument one track over).
+  `Config.keptOnRebirth` is the ONE derivation both of rebirth's polarities read, carrying
+  the land carve-out by kind. `[assert]` the track flag; `[spec]` `land_spec.lua` the
+  carve-out, falsified by removing it.
+- **A strip's sub-belt is registered at construction and BUILT with the strip** (#109). The
+  path is data in `Config.BeltPaths` so the occupancy, dwell and budget checks see all
+  eleven; the surfaces and plain collector live in the strip's own model so teardown takes
+  the conveyor with it. Machine rows pin to the strip whose land row precedes them on the
+  chain — `[assert]`, falsified by mis-pinning one to the neighbouring strip.
 
 ### Siege (#124)
 
