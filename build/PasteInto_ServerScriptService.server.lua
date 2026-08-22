@@ -1186,6 +1186,21 @@ __MODULES["Config"] = function()
 		OfflineGraceSeconds = 180,  -- keep a plot reserved this long after a disconnect
 	}
 
+	-- design:D-02, via #93 — the vault body is the storage unit: health, a repair
+	-- that needs the owner present, and (with #98) the plot's overflow cap.
+	-- tycoon/Storage.lua is the state machine; #94 and #124 are the callers that
+	-- will damage it.
+	Config.Storage = {
+		MaxHealth = 100,
+		-- Quick and manual: long enough to be an action, short enough to finish
+		-- inside a raid's warning window (asserted against Waves.WarningTime).
+		RepairHoldSeconds = 2,
+		-- Damage multiplier at full overflow: a stuffed unit takes double, an
+		-- empty one takes base. Reads storedOverflowFraction, which is 0 until
+		-- #98 gives the unit a cap.
+		DamagePerOverflowFraction = 1,
+	}
+
 	-- mechanism: ADMIN CHAT COMMANDS. See src/server/AdminService.lua.
 	--
 	-- DELIBERATELY NOT IN Config.Prototypes. That table is for unfinished features
@@ -14412,6 +14427,9 @@ __MODULES["Class"] = function()
 		self.beltSpeed = L.BeltSpeed
 		self.dropCount = 0
 		self.dropPool = {}   -- retired drop bodies, shelved per variant (Drops.lua)
+		-- The storage unit's state (Storage.lua). A plain table here rather than
+		-- resetStorage(), because Class must not call methods the mixins attach.
+		self.storage = { health = Config.Storage.MaxHealth, broken = false }
 
 		-- Folders that come and go with the factory. Registered as they are built
 		-- rather than listed in setFactoryVisible; see registerFactoryFolder.
@@ -15815,6 +15833,7 @@ __MODULES["Ownership"] = function()
 		self:updateSign()
 		self:fireOwnedChanged()
 		self:startIncomeLoop(player)
+		self:resetStorage()
 		return true
 	end
 
@@ -15851,6 +15870,9 @@ __MODULES["Ownership"] = function()
 		-- owner, and the last owner's "leaving now banks 2.4M" would be sitting on
 		-- a free plot's sign while the claim beacon lit up next to it.
 		self:setVaultGauge(0, nil, nil, false)
+		-- Storage state is tenancy-scoped: the next claimant starts with an
+		-- intact unit, whatever the last one let happen to it.
+		self:resetStorage()
 
 		self:refreshButtons()
 		self:updateSign()
@@ -16544,6 +16566,141 @@ __MODULES["Purchase"] = function()
 end
 
 
+__MODULES["Storage"] = function()
+	--[[
+		tycoon/Storage.lua — the storage unit's health, and the repair that needs
+		the owner standing at it.
+
+		design:D-02, via #93 — the vault body is the storage unit: it has health, a
+		raider hits it with a bat, and while it is broken the plot cannot bank
+		overflow. Where it stands and what it looks like are #88 and #126; what a
+		raid takes from it is #94; the cap it holds is #98. This file is the state
+		machine those tickets call into.
+
+		AUTHORITY IS THE TABLE, THE ATTRIBUTES ARE A MIRROR. self.storage holds
+		health and brokenness; StorageHealth/StorageMaxHealth/StorageBroken on the
+		vault base replicate so a client bar can draw with no remote, and nothing
+		server-side may read them back.
+
+		damageStorage IS THE SEAM. Raids (#94), mobs and bosses (#124) all land
+		here, and damage already scales by storedOverflowFraction — which returns 0
+		until #98 gives the unit a cap, so the raid arithmetic arrives in one place
+		later with no caller changing.
+
+		NO REMOTE, same argument as CollectOffline: the repair intent has no
+		payload, so there is no number for a client to send and none for the server
+		to disbelieve. The ProximityPrompt is only enabled while broken, and the
+		handler re-checks the owner anyway.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Tycoon = Req("Class")
+
+	local COLORS = Tycoon.COLORS
+	local S = Config.Storage
+
+	-- The charred coat a broken unit wears. A constant here rather than a lerp of
+	-- the live colour, so repair can restore COLORS.vault exactly.
+	local BROKEN_COLOR = Color3.fromRGB(38, 30, 34)
+
+	--- Fresh tenancy, full unit. assign() and release() both call this; a rebirth
+	--- keeps the owner and deliberately keeps the unit's dents with them.
+	function Tycoon:resetStorage()
+		self.storage = { health = S.MaxHealth, broken = false }
+		local base = self.storageBase
+		if base and base.Parent then
+			base.Color = COLORS.vault
+		end
+		self:mirrorStorage()
+	end
+
+	--- Writes the replication mirror. One writer: every state change ends here.
+	function Tycoon:mirrorStorage()
+		local base = self.storageBase
+		if base and base.Parent then
+			base:SetAttribute("StorageHealth", self.storage.health)
+			base:SetAttribute("StorageMaxHealth", S.MaxHealth)
+			base:SetAttribute("StorageBroken", self.storage.broken)
+		end
+		if self.storagePrompt and self.storagePrompt.Parent then
+			self.storagePrompt.Enabled = self.storage.broken
+		end
+	end
+
+	--- Hangs the repair prompt on the vault base. Called by buildCollector on the
+	--- headline vault only — the plot has one storage unit, whatever it grows.
+	function Tycoon:buildStorageUnit(base: BasePart)
+		self.storageBase = base
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "RepairStorage"
+		prompt.ActionText = "Repair"
+		prompt.ObjectText = "Storage Unit"
+		prompt.HoldDuration = S.RepairHoldSeconds
+		prompt.MaxActivationDistance = Config.Offline.Vault.PromptDistance
+		prompt.RequiresLineOfSight = false
+		prompt.Enabled = false          -- nothing to repair until something breaks
+		prompt.Parent = base
+		prompt.Triggered:Connect(function(player)
+			self:repairStorage(player)
+		end)
+		self.storagePrompt = prompt
+
+		self:mirrorStorage()
+	end
+
+	--- 0 until #98 gives the unit a cap. Named here so the damage scaling below
+	--- and #94's loot arithmetic read the same number when it exists.
+	function Tycoon:storedOverflowFraction(): number
+		return 0
+	end
+
+	--- The predicate #98's overflow banking consults: a broken unit banks nothing.
+	function Tycoon:storageIntact(): boolean
+		return self.storage.broken ~= true
+	end
+
+	--- One hit on the unit. Returns the damage actually dealt — a broken unit
+	--- absorbs nothing more, so hitting it again is wasted swings, and the return
+	--- value is how #94 will know the difference.
+	function Tycoon:damageStorage(amount: number, _attacker: Player?): number
+		if amount <= 0 or self.storage.broken then
+			return 0
+		end
+		local scaled = amount * (1 + S.DamagePerOverflowFraction * self:storedOverflowFraction())
+		self.storage.health = math.max(0, self.storage.health - scaled)
+		if self.storage.health <= 0 then
+			self.storage.broken = true
+			local base = self.storageBase
+			if base and base.Parent then
+				base.Color = BROKEN_COLOR
+			end
+		end
+		self:mirrorStorage()
+		return scaled
+	end
+
+	--- The owner, present, pressing the thing: the whole repair. Anyone else, or
+	--- an intact unit, is refused.
+	function Tycoon:repairStorage(player: Player): boolean
+		if player ~= self.owner or not self.storage.broken then
+			return false
+		end
+		self.storage.health = S.MaxHealth
+		self.storage.broken = false
+		local base = self.storageBase
+		if base and base.Parent then
+			base.Color = COLORS.vault
+		end
+		self:mirrorStorage()
+		return true
+	end
+
+	return Tycoon
+end
+
+
 __MODULES["Tycoon"] = function()
 	--[[
 		Tycoon.lua — the standardized tycoon.
@@ -16601,6 +16758,7 @@ __MODULES["Tycoon"] = function()
 	Req("Ownership")
 	Req("Props")
 	Req("Purchase")
+	Req("Storage")
 	Req("Vault")
 
 	--- The plot's own part constructor, exposed so FloorService builds its deck out
@@ -16803,6 +16961,10 @@ __MODULES["Vault"] = function()
 		prompt.Enabled = false          -- nothing banked until something is
 		prompt.Parent = base
 		self.vaultPrompt = prompt
+
+		-- The body doubles as the storage unit (#93): health, brokenness and the
+		-- repair prompt all hang on this same base. Storage.lua owns that state.
+		self:buildStorageUnit(base)
 
 		local statue = TungModels.buildStatue("classic", V.statueScale)
 		statue:PivotTo(alongExit(runOff, V.statueY, 0) * CFrame.Angles(0, math.pi, 0))

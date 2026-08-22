@@ -1186,6 +1186,21 @@ __MODULES["Config"] = function()
 		OfflineGraceSeconds = 180,  -- keep a plot reserved this long after a disconnect
 	}
 
+	-- design:D-02, via #93 — the vault body is the storage unit: health, a repair
+	-- that needs the owner present, and (with #98) the plot's overflow cap.
+	-- tycoon/Storage.lua is the state machine; #94 and #124 are the callers that
+	-- will damage it.
+	Config.Storage = {
+		MaxHealth = 100,
+		-- Quick and manual: long enough to be an action, short enough to finish
+		-- inside a raid's warning window (asserted against Waves.WarningTime).
+		RepairHoldSeconds = 2,
+		-- Damage multiplier at full overflow: a stuffed unit takes double, an
+		-- empty one takes base. Reads storedOverflowFraction, which is 0 until
+		-- #98 gives the unit a cap.
+		DamagePerOverflowFraction = 1,
+	}
+
 	-- mechanism: ADMIN CHAT COMMANDS. See src/server/AdminService.lua.
 	--
 	-- DELIBERATELY NOT IN Config.Prototypes. That table is for unfinished features

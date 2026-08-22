@@ -189,6 +189,10 @@ function Tycoon:buildCollector(pathIndex: number?, parent: Instance?, headline: 
 	prompt.Parent = base
 	self.vaultPrompt = prompt
 
+	-- The body doubles as the storage unit (#93): health, brokenness and the
+	-- repair prompt all hang on this same base. Storage.lua owns that state.
+	self:buildStorageUnit(base)
+
 	local statue = TungModels.buildStatue("classic", V.statueScale)
 	statue:PivotTo(alongExit(runOff, V.statueY, 0) * CFrame.Angles(0, math.pi, 0))
 	statue.Parent = folder

@@ -1600,6 +1600,21 @@ check(Config.Economy.IncomeTickSeconds <= 5,
 	("IncomeTickSeconds is %.2f — past 5s the cash counter reads as stuck rather than earning")
 		:format(Config.Economy.IncomeTickSeconds))
 
+-- THE STORAGE UNIT (#93). The numbers are a state machine's, so the checks
+-- are about the states being reachable: a unit that cannot break, a repair
+-- that cannot finish before the raid lands, and a damage scale that heals are
+-- each one sign error away.
+check(Config.Storage.MaxHealth > 0,
+	("Storage.MaxHealth is %s — a unit with no health is born broken"):format(tostring(Config.Storage.MaxHealth)))
+check(Config.Storage.RepairHoldSeconds > 0,
+	"Storage.RepairHoldSeconds is not positive — a zero-hold prompt fires on a glance, and repair is meant to be an action")
+check(Config.Storage.RepairHoldSeconds < Config.Waves.WarningTime,
+	("Storage.RepairHoldSeconds (%.1f) must finish inside Waves.WarningTime (%.1f) — a repair you cannot complete before the raid lands is a repair loop that does not exist")
+		:format(Config.Storage.RepairHoldSeconds, Config.Waves.WarningTime))
+check(Config.Storage.DamagePerOverflowFraction >= 0,
+	("Storage.DamagePerOverflowFraction is %s — negative, a full unit takes LESS damage and hoarding becomes armour")
+		:format(tostring(Config.Storage.DamagePerOverflowFraction)))
+
 -- everything the belt places has to stay inside the plot
 local halfX, halfZ = Config.World.PlotSize.X / 2, Config.World.PlotSize.Z / 2
 local function inPlot(label, point, margin)
