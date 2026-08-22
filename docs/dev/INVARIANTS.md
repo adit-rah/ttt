@@ -926,6 +926,21 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **Dismissible AND self-dismissing** (14s): never a hard modal. `[nothing]`; the feel is
   a Studio item.
 
+### Wayfinding (#104)
+
+- **The compass costs ZERO remotes.** Every target position is client-readable — the
+  plot from the PlotAssigned index through `Config.plotPlacements`, the tower and the
+  core from Config, partymates from replication. A server push here would be a copy of
+  something the client already holds. `[nothing]` — the record that the absence is the
+  design.
+- **A strip, never a map, for now.** The map is the largest surface this game could put
+  on a phone and waits for its own ticket; the strip re-anchors to the top-centre, which
+  no other dock claims. `[nothing]`; the one-ScreenGui pass covers the layer.
+- **The buy-pad beacon stays separate** — plot-local wayfinding answering one question.
+  The issue's open closes as "stays". `[nothing]`
+- Behind-you markers pin to the edges and DIM rather than vanish — a marker that
+  disappears reads as a target that despawned. `[nothing]`; Studio owns the feel.
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch
