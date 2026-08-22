@@ -2334,6 +2334,19 @@ Config.Help = {
 	PairCooldownSeconds = 300,
 }
 
+-- design:D-04, via #103 — RECALL. The open world makes the trip home a
+-- recurring tax; recall pays it with TIME STANDING STILL instead of a walk.
+-- The stillness is the anti-escape: a caster is a free hit for anything
+-- already on them, moving or taking damage cancels the cast, and a raider's
+-- carry blocks it outright — stolen Tung walks home. One direction only:
+-- coming back. Going out is the walk (#101's sprint; mounts wait for later).
+Config.Recall = {
+	CastSeconds = 6,
+	CooldownSeconds = 45,
+	-- Drifting further than this from where the cast began cancels it.
+	CancelMoveStuds = 4,
+}
+
 -- design:D-04, via #101 — MOVEMENT. Sprint and dash ship now, as BASELINE
 -- capabilities everyone has: legibility first, and a movement axis nobody can
 -- buy is a movement axis nobody falls behind on. Mounts and waypoints wait

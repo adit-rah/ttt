@@ -1,7 +1,8 @@
 --[[
 	MovementClient.lua — sprint and dash, from the player's side (#101).
 
-	KEYBOARD: hold LeftShift to sprint, Q to dash. TOUCH: two buttons docked
+	KEYBOARD: hold LeftShift to sprint, Q to dash, H to recall (#103). TOUCH:
+	buttons docked
 	above the LEFT thumb reserve — movement lives on the movement thumb, and
 	the bottom-right stack already belongs to the action buttons. 80% of
 	sessions are a phone; the buttons exist for them and never draw on a
@@ -27,6 +28,12 @@ local UserInputService = game:GetService("UserInputService")
 local MovementClient = {}
 
 local M = Config.Movement
+
+local function requestRecall()
+	-- the intent has no payload; the server owns the cast, the cancel rules
+	-- and the cooldown, and it answers through the notify stream
+	Net.event("RequestRecall"):FireServer()
+end
 
 local function dashImpulse()
 	local player = Players.LocalPlayer
@@ -74,6 +81,8 @@ function MovementClient.start()
 			sprint(true)
 		elseif input.KeyCode == Enum.KeyCode.Q then
 			requestDash:FireServer()
+		elseif input.KeyCode == Enum.KeyCode.H then
+			requestRecall()
 		end
 	end)
 	UserInputService.InputEnded:Connect(function(input)
@@ -91,7 +100,7 @@ function MovementClient.start()
 
 	local stack = UiKit.dock(HUD.root(), {
 		name = "Movement", corner = "bottomLeft",
-		width = 64, height = 136,
+		width = 64, height = 208,
 		insetY = Config.UI.TouchReserve.Bottom,
 		direction = "Vertical",
 	})
@@ -112,8 +121,10 @@ function MovementClient.start()
 		return button
 	end
 
-	local sprintButton = touchButton("Sprint", "RUN", 2)
-	local dashButton = touchButton("Dash", "DASH", 1)
+	local sprintButton = touchButton("Sprint", "RUN", 3)
+	local dashButton = touchButton("Dash", "DASH", 2)
+	local homeButton = touchButton("Recall", "HOME", 1)
+	homeButton.MouseButton1Click:Connect(requestRecall)
 
 	-- hold-to-sprint on touch: down is on, up is off, and the button's colour
 	-- carries the state
