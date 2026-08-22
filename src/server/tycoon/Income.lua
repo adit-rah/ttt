@@ -2,18 +2,18 @@
 	tycoon/Income.lua — what a plot is worth per second, and the signs that quote
 	it.
 
-	incomePerSecond IS THE MODEL: sum the droppers, multiply by the upgraders, by
-	Config.powerFactor and by the rebirth multiplier. It exists twice on purpose
-	— SessionService.incomePerSecondFor mirrors it from a SAVED profile, because
-	an offline player has no plot to ask — and the verifier's economy simulation
-	is a third reader of the same rule. Change the shape here and both of those
-	are part of the change.
+	THE MODEL LIVES IN Config.incomeRate, and this file is one of its three
+	readers. incomePerSecond wraps it with the live multiplier stack;
+	SessionService.incomePerSecondFor wraps it with the rebirth term from a
+	SAVED profile, because an offline player has no plot to ask; the verifier's
+	progression simulation reads it raw. Change the shape in Config and the
+	wrappers stay one line each.
 
-	refineryMultiplierFor is the REALITY the model has to keep agreeing with. A
-	path with no upgraders of its own is refined by the plot's at the vault,
-	which is what stops an upper floor being an additive term against a curve
-	that multiplies: unrefined, the mezzanine's dropper is 17% of plot income the
-	minute you buy it and 0.02% by the end of the build.
+	startIncomeLoop is the PAYER. design:D-02 — no part carries value; the loop
+	adds rate x tick through Economy.add every IncomeTickSeconds while its
+	owner keeps the plot. The loop tests self.owner each cycle, so release
+	kills it, a rebirth leaves it running against the freshly wiped `owned`,
+	and assign's owner guard means a plot can never carry two loops.
 
 	updateSign has a ONE-WRITER RULE. PlotService repaints every sign on a
 	3-second beat and VaultService recomputes the gauge on its own schedule, so
@@ -41,55 +41,40 @@ function Tycoon:incomePerSecond(extraId: string?): number
 		return self.owned[id] == true or id == extraId
 	end
 
-	local upgradeMult = 1
-	local total = 0
-	for id, def in pairs(Config.ButtonById) do
-		if has(id) then
-			if def.kind == "Upgrader" then
-				upgradeMult *= def.multiplier
-			elseif def.kind == "Dropper" then
-				total += (def.dropValue / def.dropRate)
-			end
-		end
-	end
+	-- Economy.multiplier carries rebirth and every session hook; the factory
+	-- itself is Config.incomeRate, the one copy of the arithmetic.
 	local rebirthMult = self.owner and Economy.multiplier(self.owner) or 1
-	-- The generator multiplies production, so it multiplies income. Through
-	-- Config.powerFactor rather than a loop of its own, because the offline
-	-- mirror in SessionService and the verifier's economy sim both need the
-	-- same answer and three hand-maintained copies of an arithmetic rule is
-	-- exactly the bug this round has already fixed once.
-	return total * upgradeMult * Config.powerFactor(has) * rebirthMult
+	return Config.incomeRate(has) * rebirthMult
 end
 
---- What a drop arriving from `pathId` is multiplied by at the vault.
+--- Pays the owner what the factory makes, on a fixed cadence.
 ---
---- Lives next to incomePerSecond deliberately: the pair of them are the model
---- and the reality of the same number, and the whole reason the mezzanine is
---- refined at all is so those two can keep agreeing. A path that carries its
---- own upgraders would return 1 here and be multiplied on the belt like the
---- ground floor is; today only the ground floor has any, so every other path
---- borrows the stack.
-function Tycoon:refineryMultiplierFor(pathIndex: number?): number
-	-- a drop carries its path as the runtime INDEX (see spawnDrop); path 1 is
-	-- always the ground floor, and it crossed the scanners on the way down
-	if (pathIndex or 1) == 1 then
-		return 1
-	end
-	local path = self.paths[pathIndex]
-	local pathId = path and path.id
-	local ground = Config.BeltPaths[1].id
-
-	local mult = 1
-	for id, def in pairs(Config.ButtonById) do
-		if def.kind == "Upgrader" and self.owned[id] then
-			if (def.path or ground) == pathId then
-				-- this path has its own; it has already been refined
-				return 1
+--- The loop's liveness test is `self.owner == owner` and nothing else:
+--- release nils the owner and the loop dies with it; rebirth keeps the owner,
+--- so the loop survives and next tick reads the wiped `owned` fresh — no
+--- restart and nothing accumulated. assign refuses an owned plot, so a second
+--- loop cannot start while this one lives.
+---
+--- The rate is re-derived from `owned` every cycle for the same reason
+--- self.powerFactor is assigned and never accumulated: a cached rate is a
+--- second copy of the model, and second copies drift (#35).
+function Tycoon:startIncomeLoop(owner: Player)
+	task.spawn(function()
+		while self.owner == owner do
+			task.wait(Config.Economy.IncomeTickSeconds)
+			if self.owner ~= owner then
+				return
 			end
-			mult *= def.multiplier
+			local rate = Config.incomeRate(function(id)
+				return self.owned[id] == true
+			end)
+			if rate > 0 then
+				-- `true` applies Economy.multiplier — rebirth and the session
+				-- hooks — exactly as the vault's per-drop payout did.
+				Economy.add(owner, rate * Config.Economy.IncomeTickSeconds, true)
+			end
 		end
-	end
-	return mult
+	end)
 end
 
 --- One line of plain English for what a button actually does for you. Income

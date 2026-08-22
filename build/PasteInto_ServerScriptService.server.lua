@@ -1174,9 +1174,31 @@ __MODULES["Config"] = function()
 		-- MUST be >= the cheapest button with no requirements, or a fresh player
 		-- has no income and no way to ever buy their first dropper.
 		StartingCash = 100,
+		-- design:D-02 — income is Config.incomeRate added on this cadence, by
+		-- Tycoon:startIncomeLoop. Longer than Economy's 0.1s replication
+		-- coalescer, short enough that the counter visibly moves.
+		IncomeTickSeconds = 1,
 		DropLifetime = 45,          -- seconds before an orphaned drop despawns
-		MaxDropsPerPlot = 70,       -- hard cap so a mega-tycoon can't melt the server
+		-- The VISUAL budget: drops are cosmetic, so past this cap a drop simply
+		-- is not drawn and nothing is lost. Still a hard cap — a mega-tycoon's
+		-- parts in flight is a server cost whatever the drops are worth.
+		MaxDropsPerPlot = 70,
 		OfflineGraceSeconds = 180,  -- keep a plot reserved this long after a disconnect
+	}
+
+	-- design:D-02, via #93 — the vault body is the storage unit: health, a repair
+	-- that needs the owner present, and (with #98) the plot's overflow cap.
+	-- tycoon/Storage.lua is the state machine; #94 and #124 are the callers that
+	-- will damage it.
+	Config.Storage = {
+		MaxHealth = 100,
+		-- Quick and manual: long enough to be an action, short enough to finish
+		-- inside a raid's warning window (asserted against Waves.WarningTime).
+		RepairHoldSeconds = 2,
+		-- Damage multiplier at full overflow: a stuffed unit takes double, an
+		-- empty one takes base. Reads storedOverflowFraction, which is 0 until
+		-- #98 gives the unit a cap.
+		DamagePerOverflowFraction = 1,
 	}
 
 	-- mechanism: ADMIN CHAT COMMANDS. See src/server/AdminService.lua.
@@ -1864,6 +1886,28 @@ __MODULES["Config"] = function()
 			end
 		end
 		return factor
+	end
+
+	--- design:D-02 — THE income model, in the one file all three readers reach.
+	--- Tung/sec for a factory owning `has(id)`: dropper value over rate, summed,
+	--- times every owned upgrader, times the generator. Per-player terms (rebirth,
+	--- session multipliers) belong to the callers — Tycoon:incomePerSecond adds
+	--- the live multiplier stack, SessionService.incomePerSecondFor adds the
+	--- rebirth term from a saved profile, and the verifier's progression
+	--- simulation uses this number raw. Pure arithmetic, like Config.powerFactor,
+	--- so the verifier can execute it.
+	function Config.incomeRate(has: (string) -> boolean): number
+		local total, upgradeMult = 0, 1
+		for id, def in pairs(Config.ButtonById) do
+			if has(id) then
+				if def.kind == "Dropper" then
+					total += def.dropValue / def.dropRate
+				elseif def.kind == "Upgrader" then
+					upgradeMult *= def.multiplier
+				end
+			end
+		end
+		return total * upgradeMult * Config.powerFactor(has)
 	end
 
 	Config.Combat = {
@@ -11017,26 +11061,17 @@ __MODULES["SessionService"] = function()
 		if type(profile) ~= "table" then
 			return 0
 		end
-		local upgradeMult, total = 1, 0
-		for id, owned in pairs(profile.owned or {}) do
-			local def = owned and Config.ButtonById[id]
-			if def then
-				if def.kind == "Upgrader" then
-					upgradeMult *= def.multiplier
-				elseif def.kind == "Dropper" then
-					total += def.dropValue / def.dropRate
-				end
-			end
-		end
+		local owned = profile.owned or {}
 		local rebirths = math.max(0, math.floor(tonumber(profile.rebirths) or 0))
-		-- The generator IS included, for the same reason the rebirth multiplier is
-		-- and the boost is not: it is a property of the factory, bought once and
-		-- standing there whether or not anyone is logged in. Excluding it would pay
-		-- an offline player as though their yard were empty.
-		local power = Config.powerFactor(function(id)
-			return (profile.owned or {})[id] == true
-		end)
-		return total * upgradeMult * power * (Config.Rebirth.MultiplierPerRebirth ^ rebirths)
+		-- Config.incomeRate includes the generator, for the same reason the
+		-- rebirth multiplier is included and the boost is not: it is a property of
+		-- the factory, bought once and standing there whether or not anyone is
+		-- logged in. Session hooks are excluded by construction — the rate is the
+		-- factory's, and the only per-player term an absent player keeps is the
+		-- rebirth multiplier added here.
+		return Config.incomeRate(function(id)
+			return owned[id] == true
+		end) * (Config.Rebirth.MultiplierPerRebirth ^ rebirths)
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -14391,6 +14426,10 @@ __MODULES["Class"] = function()
 		self.powerFactor = 1
 		self.beltSpeed = L.BeltSpeed
 		self.dropCount = 0
+		self.dropPool = {}   -- retired drop bodies, shelved per variant (Drops.lua)
+		-- The storage unit's state (Storage.lua). A plain table here rather than
+		-- resetStorage(), because Class must not call methods the mixins attach.
+		self.storage = { health = Config.Storage.MaxHealth, broken = false }
 
 		-- Folders that come and go with the factory. Registered as they are built
 		-- rather than listed in setFactoryVisible; see registerFactoryFolder.
@@ -14538,21 +14577,35 @@ __MODULES["Drops"] = function()
 		tycoon/Drops.lua — spawning the things the belt carries, and the budget that
 		stops a finished factory spawning without limit.
 
+		DROPS ARE COSMETIC. design:D-02 — income is Config.incomeRate on a timer
+		(tycoon/Income.lua:startIncomeLoop); no part carries value. A drop exists to
+		make a producing plot look like one, and losing every drop costs nothing.
+
 		ONE CONSTRAINT AND ONE MODEL. The constraint: a LinearVelocity in Plane mode
 		plus an AlignOrientation, so a drop costs no per-frame script and physically
 		cannot drift sideways off the belt. The model: PivotTo overwrites the body's
 		rotation outright, so the upright pose has to be baked into the target CFrame
 		or every drop spawns lying on its side.
 
-		THE ATTRIBUTES ARE THE ROUTING. Value, PlotIndex, Leg and Path are what the
-		corner sensors, the upgrader triggers and the collector all filter on, so a
-		drop on the mezzanine is invisible to the ground floor's geometry and vice
-		versa. A drop built without them is a drop nothing will ever collect.
+		THE ATTRIBUTES ARE THE ROUTING. PlotIndex, Leg and Path are what the corner
+		sensors, the upgrader triggers and the collector all filter on, so a drop on
+		the mezzanine is invisible to the ground floor's geometry and vice versa. A
+		drop built without them sails off the first bend and stands wherever it
+		lands until the reaper takes it.
 
-		Config.Economy.MaxDropsPerPlot and self.dropCount are the budget. Every path
-		that removes a drop — collected, expired, cleared — has to decrement the
-		count, or the counter drifts up to the cap and the plot silently stops
-		dropping.
+		Config.Economy.MaxDropsPerPlot and self.dropCount are the VISUAL budget.
+		Every path that removes a drop — collected, expired, cleared — has to
+		decrement the count, or the counter drifts up to the cap and the plot
+		silently stops dropping.
+
+		THE POOL RECYCLES BODIES, per variant. A finished factory retires ~10
+		drops a second, and building a Model with constraints for each one is the
+		server cost the pool removes. recycleDrop is the ONE way off the belt for
+		an intact drop: it wipes the ride's attributes and the flash's tint,
+		unparents, and shelves the body under its variant. clearDrops destroys the
+		pool with the live drops — release hands the plot to a new owner whose
+		factory drops different variants, and a shelved body from the last tenant
+		is a leak wearing the wrong colour.
 	]]
 
 	local Req = __Req
@@ -14575,10 +14628,22 @@ __MODULES["Drops"] = function()
 		end
 		self.dropCount += 1
 
-		local drop = TungModels.buildDrop(def.variant, 0.62)
-		drop:SetAttribute("Value", def.dropValue)
+		local pool = self.dropPool[def.variant]
+		local drop = pool and table.remove(pool) or nil
+		if drop then
+			-- Wipe the last ride: every upgrader's once-flag and the collector's
+			-- claim, or a recycled drop arrives pre-flashed and pre-collected.
+			for id, buttonDef in pairs(Config.ButtonById) do
+				if buttonDef.kind == "Upgrader" then
+					drop:SetAttribute("up_" .. id, nil)
+				end
+			end
+			drop:SetAttribute("Collected", nil)
+		else
+			drop = TungModels.buildDrop(def.variant, 0.62)
+			drop:SetAttribute("Variant", def.variant)
+		end
 		drop:SetAttribute("PlotIndex", self.index)
-		drop:SetAttribute("Variant", def.variant)
 
 		-- Which belt, and how far along it: the corner sensors and the collector
 		-- all filter on these, so a drop on the mezzanine is invisible to the
@@ -14587,6 +14652,11 @@ __MODULES["Drops"] = function()
 		drop:SetAttribute("Path", pathIndex)
 
 		local body = drop.PrimaryPart :: BasePart
+		-- the upgrader flash tints the body toward its variant; a pooled body
+		-- comes back at the nozzle in its natural coat
+		local variant = Config.Variants[def.variant] or Config.Variants.classic
+		body.Color = variant.wood
+		body.Material = variant.material
 		local direction = self:legDirectionWorld(legIndex, pathIndex)
 		local across = self:legNormalWorld(legIndex, pathIndex)
 		local jitter = (math.random() - 0.5) * (L.BeltWidth * 0.35)
@@ -14598,48 +14668,92 @@ __MODULES["Drops"] = function()
 		local spawnPosition = nozzle.Position + across * jitter - Vector3.new(0, 1.6, 0)
 		drop:PivotTo(CFrame.new(spawnPosition) * upright)
 
-		local attachment = Instance.new("Attachment")
-		attachment.Name = "BeltAttach"
-		attachment.Parent = body
+		-- A pooled body keeps its rig; a fresh one gets it here. The dynamic
+		-- fields — the leg's axes, the plot's speed, the upright pose — are
+		-- written either way, every spawn.
+		local attachment = body:FindFirstChild("BeltAttach")
+		if not attachment then
+			attachment = Instance.new("Attachment")
+			attachment.Name = "BeltAttach"
+			attachment.Parent = body
+		end
 
 		-- conveyor motion, done with a constraint so there is no per-frame script
-		local mover = Instance.new("LinearVelocity")
-		mover.Name = "BeltMover"
-		mover.Attachment0 = attachment
-		mover.RelativeTo = Enum.ActuatorRelativeTo.World
-		mover.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
+		local mover = body:FindFirstChild("BeltMover")
+		if not mover then
+			mover = Instance.new("LinearVelocity")
+			mover.Name = "BeltMover"
+			mover.Attachment0 = attachment
+			mover.RelativeTo = Enum.ActuatorRelativeTo.World
+			mover.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
+			mover.MaxForce = 120000
+			mover.Parent = body
+		end
 		mover.PrimaryTangentAxis = direction
 		mover.SecondaryTangentAxis = across
 		mover.PlaneVelocity = Vector2.new(self.beltSpeed, 0)
-		mover.MaxForce = 120000
-		mover.Parent = body
 
 		-- keep the little guy standing up and facing back down the belt, so you
 		-- see a queue of angry faces instead of a pile of rolling logs
-		local upkeep = Instance.new("AlignOrientation")
-		upkeep.Name = "StayUpright"
-		upkeep.Mode = Enum.OrientationAlignmentMode.OneAttachment
-		upkeep.Attachment0 = attachment
-		upkeep.RigidityEnabled = true
+		local upkeep = body:FindFirstChild("StayUpright")
+		if not upkeep then
+			upkeep = Instance.new("AlignOrientation")
+			upkeep.Name = "StayUpright"
+			upkeep.Mode = Enum.OrientationAlignmentMode.OneAttachment
+			upkeep.Attachment0 = attachment
+			upkeep.RigidityEnabled = true
+			upkeep.Parent = body
+		end
 		upkeep.CFrame = upright
-		upkeep.Parent = body
+
+		-- The ride token. A recycled body still has the LAST ride's reaper
+		-- pending on it, and "is it parented" cannot tell ride 2 from ride 1 —
+		-- so the reaper only takes the ride it was armed for.
+		local ride = (drop:GetAttribute("Ride") or 0) + 1
+		drop:SetAttribute("Ride", ride)
 
 		drop.Parent = self.drops
 
 		Fx.tung(body, 1.6 + math.random() * 0.3, 0.08)
 
 		task.delay(Config.Economy.DropLifetime, function()
-			if drop.Parent then
-				self.dropCount = math.max(0, self.dropCount - 1)
-				drop:Destroy()
+			if drop.Parent and drop:GetAttribute("Ride") == ride then
+				self:recycleDrop(drop)
 			end
 		end)
+	end
+
+	--- The one way off the belt for an intact drop: back to its variant's shelf.
+	--- Decrements the budget, unparents, and leaves the ride's attributes for the
+	--- next spawn to wipe — spawnDrop resets everything it reuses.
+	function Tycoon:recycleDrop(drop: Model)
+		if not drop.Parent then
+			return
+		end
+		self.dropCount = math.max(0, self.dropCount - 1)
+		drop.Parent = nil
+		local variant = drop:GetAttribute("Variant")
+		local pool = self.dropPool[variant]
+		if not pool then
+			pool = {}
+			self.dropPool[variant] = pool
+		end
+		table.insert(pool, drop)
 	end
 
 	function Tycoon:clearDrops()
 		for _, drop in ipairs(self.drops:GetChildren()) do
 			drop:Destroy()
 		end
+		-- The pool goes with the live drops: release hands the plot to an owner
+		-- whose factory drops different variants, and a shelved body that
+		-- survives the handover is a leak wearing the last tenant's colours.
+		for _, pool in pairs(self.dropPool) do
+			for _, drop in ipairs(pool) do
+				drop:Destroy()
+			end
+		end
+		self.dropPool = {}
 		self.dropCount = 0
 	end
 
@@ -14652,18 +14766,18 @@ __MODULES["Income"] = function()
 		tycoon/Income.lua — what a plot is worth per second, and the signs that quote
 		it.
 
-		incomePerSecond IS THE MODEL: sum the droppers, multiply by the upgraders, by
-		Config.powerFactor and by the rebirth multiplier. It exists twice on purpose
-		— SessionService.incomePerSecondFor mirrors it from a SAVED profile, because
-		an offline player has no plot to ask — and the verifier's economy simulation
-		is a third reader of the same rule. Change the shape here and both of those
-		are part of the change.
+		THE MODEL LIVES IN Config.incomeRate, and this file is one of its three
+		readers. incomePerSecond wraps it with the live multiplier stack;
+		SessionService.incomePerSecondFor wraps it with the rebirth term from a
+		SAVED profile, because an offline player has no plot to ask; the verifier's
+		progression simulation reads it raw. Change the shape in Config and the
+		wrappers stay one line each.
 
-		refineryMultiplierFor is the REALITY the model has to keep agreeing with. A
-		path with no upgraders of its own is refined by the plot's at the vault,
-		which is what stops an upper floor being an additive term against a curve
-		that multiplies: unrefined, the mezzanine's dropper is 17% of plot income the
-		minute you buy it and 0.02% by the end of the build.
+		startIncomeLoop is the PAYER. design:D-02 — no part carries value; the loop
+		adds rate x tick through Economy.add every IncomeTickSeconds while its
+		owner keeps the plot. The loop tests self.owner each cycle, so release
+		kills it, a rebirth leaves it running against the freshly wiped `owned`,
+		and assign's owner guard means a plot can never carry two loops.
 
 		updateSign has a ONE-WRITER RULE. PlotService repaints every sign on a
 		3-second beat and VaultService recomputes the gauge on its own schedule, so
@@ -14691,55 +14805,40 @@ __MODULES["Income"] = function()
 			return self.owned[id] == true or id == extraId
 		end
 
-		local upgradeMult = 1
-		local total = 0
-		for id, def in pairs(Config.ButtonById) do
-			if has(id) then
-				if def.kind == "Upgrader" then
-					upgradeMult *= def.multiplier
-				elseif def.kind == "Dropper" then
-					total += (def.dropValue / def.dropRate)
-				end
-			end
-		end
+		-- Economy.multiplier carries rebirth and every session hook; the factory
+		-- itself is Config.incomeRate, the one copy of the arithmetic.
 		local rebirthMult = self.owner and Economy.multiplier(self.owner) or 1
-		-- The generator multiplies production, so it multiplies income. Through
-		-- Config.powerFactor rather than a loop of its own, because the offline
-		-- mirror in SessionService and the verifier's economy sim both need the
-		-- same answer and three hand-maintained copies of an arithmetic rule is
-		-- exactly the bug this round has already fixed once.
-		return total * upgradeMult * Config.powerFactor(has) * rebirthMult
+		return Config.incomeRate(has) * rebirthMult
 	end
 
-	--- What a drop arriving from `pathId` is multiplied by at the vault.
+	--- Pays the owner what the factory makes, on a fixed cadence.
 	---
-	--- Lives next to incomePerSecond deliberately: the pair of them are the model
-	--- and the reality of the same number, and the whole reason the mezzanine is
-	--- refined at all is so those two can keep agreeing. A path that carries its
-	--- own upgraders would return 1 here and be multiplied on the belt like the
-	--- ground floor is; today only the ground floor has any, so every other path
-	--- borrows the stack.
-	function Tycoon:refineryMultiplierFor(pathIndex: number?): number
-		-- a drop carries its path as the runtime INDEX (see spawnDrop); path 1 is
-		-- always the ground floor, and it crossed the scanners on the way down
-		if (pathIndex or 1) == 1 then
-			return 1
-		end
-		local path = self.paths[pathIndex]
-		local pathId = path and path.id
-		local ground = Config.BeltPaths[1].id
-
-		local mult = 1
-		for id, def in pairs(Config.ButtonById) do
-			if def.kind == "Upgrader" and self.owned[id] then
-				if (def.path or ground) == pathId then
-					-- this path has its own; it has already been refined
-					return 1
+	--- The loop's liveness test is `self.owner == owner` and nothing else:
+	--- release nils the owner and the loop dies with it; rebirth keeps the owner,
+	--- so the loop survives and next tick reads the wiped `owned` fresh — no
+	--- restart and nothing accumulated. assign refuses an owned plot, so a second
+	--- loop cannot start while this one lives.
+	---
+	--- The rate is re-derived from `owned` every cycle for the same reason
+	--- self.powerFactor is assigned and never accumulated: a cached rate is a
+	--- second copy of the model, and second copies drift (#35).
+	function Tycoon:startIncomeLoop(owner: Player)
+		task.spawn(function()
+			while self.owner == owner do
+				task.wait(Config.Economy.IncomeTickSeconds)
+				if self.owner ~= owner then
+					return
 				end
-				mult *= def.multiplier
+				local rate = Config.incomeRate(function(id)
+					return self.owned[id] == true
+				end)
+				if rate > 0 then
+					-- `true` applies Economy.multiplier — rebirth and the session
+					-- hooks — exactly as the vault's per-drop payout did.
+					Economy.add(owner, rate * Config.Economy.IncomeTickSeconds, true)
+				end
 			end
-		end
-		return mult
+		end)
 	end
 
 	--- One line of plain English for what a button actually does for you. Income
@@ -15066,6 +15165,10 @@ __MODULES["Installers"] = function()
 			color = Color3.fromRGB(255, 240, 210),
 		})
 
+		-- The flash. design:D-02 — the upgrader's multiplier lives in
+		-- Config.incomeRate; what the trigger does is make the arch visibly work a
+		-- drop as it passes. The once-flag stays because Touched fires twice, and
+		-- a double flash reads as a stutter.
 		local flagName = "up_" .. def.id
 		trigger.Touched:Connect(function(hit)
 			local drop = hit.Parent
@@ -15075,12 +15178,10 @@ __MODULES["Installers"] = function()
 			if drop:GetAttribute("PlotIndex") ~= self.index then
 				return
 			end
-			local value = drop:GetAttribute("Value")
-			if not value or drop:GetAttribute(flagName) then
+			if drop:GetAttribute(flagName) then
 				return
 			end
 			drop:SetAttribute(flagName, true)
-			drop:SetAttribute("Value", value * def.multiplier)
 
 			local body = drop.PrimaryPart or drop:FindFirstChild("Body")
 			if body and body:IsA("BasePart") then
@@ -15731,6 +15832,8 @@ __MODULES["Ownership"] = function()
 		self:refreshButtons()
 		self:updateSign()
 		self:fireOwnedChanged()
+		self:startIncomeLoop(player)
+		self:resetStorage()
 		return true
 	end
 
@@ -15767,6 +15870,9 @@ __MODULES["Ownership"] = function()
 		-- owner, and the last owner's "leaving now banks 2.4M" would be sitting on
 		-- a free plot's sign while the claim beacon lit up next to it.
 		self:setVaultGauge(0, nil, nil, false)
+		-- Storage state is tenancy-scoped: the next claimant starts with an
+		-- intact unit, whatever the last one let happen to it.
+		self:resetStorage()
 
 		self:refreshButtons()
 		self:updateSign()
@@ -16460,6 +16566,141 @@ __MODULES["Purchase"] = function()
 end
 
 
+__MODULES["Storage"] = function()
+	--[[
+		tycoon/Storage.lua — the storage unit's health, and the repair that needs
+		the owner standing at it.
+
+		design:D-02, via #93 — the vault body is the storage unit: it has health, a
+		raider hits it with a bat, and while it is broken the plot cannot bank
+		overflow. Where it stands and what it looks like are #88 and #126; what a
+		raid takes from it is #94; the cap it holds is #98. This file is the state
+		machine those tickets call into.
+
+		AUTHORITY IS THE TABLE, THE ATTRIBUTES ARE A MIRROR. self.storage holds
+		health and brokenness; StorageHealth/StorageMaxHealth/StorageBroken on the
+		vault base replicate so a client bar can draw with no remote, and nothing
+		server-side may read them back.
+
+		damageStorage IS THE SEAM. Raids (#94), mobs and bosses (#124) all land
+		here, and damage already scales by storedOverflowFraction — which returns 0
+		until #98 gives the unit a cap, so the raid arithmetic arrives in one place
+		later with no caller changing.
+
+		NO REMOTE, same argument as CollectOffline: the repair intent has no
+		payload, so there is no number for a client to send and none for the server
+		to disbelieve. The ProximityPrompt is only enabled while broken, and the
+		handler re-checks the owner anyway.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Tycoon = Req("Class")
+
+	local COLORS = Tycoon.COLORS
+	local S = Config.Storage
+
+	-- The charred coat a broken unit wears. A constant here rather than a lerp of
+	-- the live colour, so repair can restore COLORS.vault exactly.
+	local BROKEN_COLOR = Color3.fromRGB(38, 30, 34)
+
+	--- Fresh tenancy, full unit. assign() and release() both call this; a rebirth
+	--- keeps the owner and deliberately keeps the unit's dents with them.
+	function Tycoon:resetStorage()
+		self.storage = { health = S.MaxHealth, broken = false }
+		local base = self.storageBase
+		if base and base.Parent then
+			base.Color = COLORS.vault
+		end
+		self:mirrorStorage()
+	end
+
+	--- Writes the replication mirror. One writer: every state change ends here.
+	function Tycoon:mirrorStorage()
+		local base = self.storageBase
+		if base and base.Parent then
+			base:SetAttribute("StorageHealth", self.storage.health)
+			base:SetAttribute("StorageMaxHealth", S.MaxHealth)
+			base:SetAttribute("StorageBroken", self.storage.broken)
+		end
+		if self.storagePrompt and self.storagePrompt.Parent then
+			self.storagePrompt.Enabled = self.storage.broken
+		end
+	end
+
+	--- Hangs the repair prompt on the vault base. Called by buildCollector on the
+	--- headline vault only — the plot has one storage unit, whatever it grows.
+	function Tycoon:buildStorageUnit(base: BasePart)
+		self.storageBase = base
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "RepairStorage"
+		prompt.ActionText = "Repair"
+		prompt.ObjectText = "Storage Unit"
+		prompt.HoldDuration = S.RepairHoldSeconds
+		prompt.MaxActivationDistance = Config.Offline.Vault.PromptDistance
+		prompt.RequiresLineOfSight = false
+		prompt.Enabled = false          -- nothing to repair until something breaks
+		prompt.Parent = base
+		prompt.Triggered:Connect(function(player)
+			self:repairStorage(player)
+		end)
+		self.storagePrompt = prompt
+
+		self:mirrorStorage()
+	end
+
+	--- 0 until #98 gives the unit a cap. Named here so the damage scaling below
+	--- and #94's loot arithmetic read the same number when it exists.
+	function Tycoon:storedOverflowFraction(): number
+		return 0
+	end
+
+	--- The predicate #98's overflow banking consults: a broken unit banks nothing.
+	function Tycoon:storageIntact(): boolean
+		return self.storage.broken ~= true
+	end
+
+	--- One hit on the unit. Returns the damage actually dealt — a broken unit
+	--- absorbs nothing more, so hitting it again is wasted swings, and the return
+	--- value is how #94 will know the difference.
+	function Tycoon:damageStorage(amount: number, _attacker: Player?): number
+		if amount <= 0 or self.storage.broken then
+			return 0
+		end
+		local scaled = amount * (1 + S.DamagePerOverflowFraction * self:storedOverflowFraction())
+		self.storage.health = math.max(0, self.storage.health - scaled)
+		if self.storage.health <= 0 then
+			self.storage.broken = true
+			local base = self.storageBase
+			if base and base.Parent then
+				base.Color = BROKEN_COLOR
+			end
+		end
+		self:mirrorStorage()
+		return scaled
+	end
+
+	--- The owner, present, pressing the thing: the whole repair. Anyone else, or
+	--- an intact unit, is refused.
+	function Tycoon:repairStorage(player: Player): boolean
+		if player ~= self.owner or not self.storage.broken then
+			return false
+		end
+		self.storage.health = S.MaxHealth
+		self.storage.broken = false
+		local base = self.storageBase
+		if base and base.Parent then
+			base.Color = COLORS.vault
+		end
+		self:mirrorStorage()
+		return true
+	end
+
+	return Tycoon
+end
+
+
 __MODULES["Tycoon"] = function()
 	--[[
 		Tycoon.lua — the standardized tycoon.
@@ -16517,6 +16758,7 @@ __MODULES["Tycoon"] = function()
 	Req("Ownership")
 	Req("Props")
 	Req("Purchase")
+	Req("Storage")
 	Req("Vault")
 
 	--- The plot's own part constructor, exposed so FloorService builds its deck out
@@ -16531,16 +16773,17 @@ end
 __MODULES["Vault"] = function()
 	--[[
 		tycoon/Vault.lua — the collector at the end of a belt, the gauge on its side,
-		and the one place a drop becomes money.
+		and where a drop's ride ends.
 
-		onCollect IS INCOME REALISED. It claims the drop's Value attribute
-		immediately, because Touched fires twice; it refines a drop from a path with
-		no upgraders of its own by the plot's refinery (see
-		tycoon/Income.lua:refineryMultiplierFor); and it pays through Economy.add. A
-		drop the sensor does not see is 100% of its value, not a fraction of it,
-		which is why buildCollector ASSERTS that the vault shell stays downstream of
-		the run-off and why the trigger is Layout.TriggerThickness deep rather than
-		one stud.
+		onCollect RETIRES A DROP. design:D-02 — income is Config.incomeRate on a
+		timer (tycoon/Income.lua:startIncomeLoop) and no part carries value, so the
+		collector's job is to take a finished drop off the belt, return its slot to
+		the visual budget, and play the payout dressing. It claims the drop with a
+		Collected flag because Touched fires twice. A drop the sensor does not see
+		stands at the run-off until the reaper takes it, holding a budget slot the
+		whole time — which is why buildCollector ASSERTS that the vault shell stays
+		downstream of the run-off and why the trigger is Layout.TriggerThickness
+		deep rather than one stud.
 
 		setVaultGauge DECIDES NOTHING. All four of its values are worked out by
 		VaultService, which is the module allowed to know what offline earnings are.
@@ -16559,7 +16802,6 @@ __MODULES["Vault"] = function()
 	local Util = Req("Util")
 	local Fx = Req("Fx")
 	local TungModels = Req("TungModels")
-	local Economy = Req("Economy")
 	local Tycoon = Req("Class")
 	local Parts = Req("Parts")
 
@@ -16720,6 +16962,10 @@ __MODULES["Vault"] = function()
 		prompt.Parent = base
 		self.vaultPrompt = prompt
 
+		-- The body doubles as the storage unit (#93): health, brokenness and the
+		-- repair prompt all hang on this same base. Storage.lua owns that state.
+		self:buildStorageUnit(base)
+
 		local statue = TungModels.buildStatue("classic", V.statueScale)
 		statue:PivotTo(alongExit(runOff, V.statueY, 0) * CFrame.Angles(0, math.pi, 0))
 		statue.Parent = folder
@@ -16773,46 +17019,30 @@ __MODULES["Vault"] = function()
 		if not model or not model:IsA("Model") then
 			return
 		end
-		local rawValue = model:GetAttribute("Value")
-		if not rawValue then
-			return
-		end
 		if model:GetAttribute("PlotIndex") ~= self.index then
 			return
 		end
-		model:SetAttribute("Value", nil)  -- claim it immediately, touch fires twice
+		if model:GetAttribute("Collected") then
+			return  -- touch fires twice; the first one claimed it
+		end
+		model:SetAttribute("Collected", true)
 
-		-- THE MEZZANINE FEEDS THE SAME REFINERY.
-		--
-		-- Upgraders are physical scanners on the ground floor's leg 2, so a drop
-		-- from an upper floor crosses none of them and arrives at its raw value.
-		-- Left that way the second floor is an ADDITIVE term against a curve that
-		-- multiplies: modelled, the mezzanine's dropper is 17% of plot income the
-		-- minute you buy it, 4% one button later, and 0.02% by the end of the
-		-- build. You would buy a storey at minute forty and watch it become noise.
-		--
-		-- So a path with no upgraders of its own is refined by the plot's, at the
-		-- one place income is realised. Three lines, and it makes the existing
-		-- "sum the droppers, multiply by the upgraders" shape — which Tycoon,
-		-- SessionService and the verifier's economy sim each implement separately
-		-- — correct for both floors with no change to any of them.
-		local value = self:refineryMultiplierFor(model:GetAttribute("Path")) * rawValue
-
+		-- recycleDrop below returns the budget slot; decrementing here as well
+		-- would count one drop out twice and starve the spawners.
 		local owner = self.owner
-		self.dropCount = math.max(0, self.dropCount - 1)
-
 		if owner and owner.Parent then
-			local gained = Economy.add(owner, value, true)
 			-- late game the vault eats ~10 drops/sec; throttle the confetti so a
-			-- finished factory doesn't spam hundreds of billboards per minute
+			-- finished factory doesn't spam hundreds of billboards per minute. The
+			-- figure quoted is the plot's rate — the drop itself is worth nothing.
 			local now = os.clock()
 			if now - (self.lastPayoutFx or 0) > 0.3 then
 				self.lastPayoutFx = now
-				Fx.floatingText(hit.Position + Vector3.new(0, 3, 0), "+" .. Util.abbreviate(gained), COLORS.gold, self.model)
+				Fx.floatingText(hit.Position + Vector3.new(0, 3, 0),
+					"+" .. Util.abbreviate(self:incomePerSecond()) .. "/sec", COLORS.gold, self.model)
 				Fx.tung(hit, 0.9 + math.random() * 0.35, 0.18)
 			end
 		end
-		model:Destroy()
+		self:recycleDrop(model)
 	end
 
 	return Tycoon

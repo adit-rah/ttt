@@ -54,6 +54,7 @@ Req("Installers")
 Req("Ownership")
 Req("Props")
 Req("Purchase")
+Req("Storage")
 Req("Vault")
 
 --- The plot's own part constructor, exposed so FloorService builds its deck out

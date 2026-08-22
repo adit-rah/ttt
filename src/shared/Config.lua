@@ -1142,9 +1142,31 @@ Config.Economy = {
 	-- MUST be >= the cheapest button with no requirements, or a fresh player
 	-- has no income and no way to ever buy their first dropper.
 	StartingCash = 100,
+	-- design:D-02 — income is Config.incomeRate added on this cadence, by
+	-- Tycoon:startIncomeLoop. Longer than Economy's 0.1s replication
+	-- coalescer, short enough that the counter visibly moves.
+	IncomeTickSeconds = 1,
 	DropLifetime = 45,          -- seconds before an orphaned drop despawns
-	MaxDropsPerPlot = 70,       -- hard cap so a mega-tycoon can't melt the server
+	-- The VISUAL budget: drops are cosmetic, so past this cap a drop simply
+	-- is not drawn and nothing is lost. Still a hard cap — a mega-tycoon's
+	-- parts in flight is a server cost whatever the drops are worth.
+	MaxDropsPerPlot = 70,
 	OfflineGraceSeconds = 180,  -- keep a plot reserved this long after a disconnect
+}
+
+-- design:D-02, via #93 — the vault body is the storage unit: health, a repair
+-- that needs the owner present, and (with #98) the plot's overflow cap.
+-- tycoon/Storage.lua is the state machine; #94 and #124 are the callers that
+-- will damage it.
+Config.Storage = {
+	MaxHealth = 100,
+	-- Quick and manual: long enough to be an action, short enough to finish
+	-- inside a raid's warning window (asserted against Waves.WarningTime).
+	RepairHoldSeconds = 2,
+	-- Damage multiplier at full overflow: a stuffed unit takes double, an
+	-- empty one takes base. Reads storedOverflowFraction, which is 0 until
+	-- #98 gives the unit a cap.
+	DamagePerOverflowFraction = 1,
 }
 
 -- mechanism: ADMIN CHAT COMMANDS. See src/server/AdminService.lua.
@@ -1832,6 +1854,28 @@ function Config.powerFactor(owns: (string) -> boolean): number
 		end
 	end
 	return factor
+end
+
+--- design:D-02 — THE income model, in the one file all three readers reach.
+--- Tung/sec for a factory owning `has(id)`: dropper value over rate, summed,
+--- times every owned upgrader, times the generator. Per-player terms (rebirth,
+--- session multipliers) belong to the callers — Tycoon:incomePerSecond adds
+--- the live multiplier stack, SessionService.incomePerSecondFor adds the
+--- rebirth term from a saved profile, and the verifier's progression
+--- simulation uses this number raw. Pure arithmetic, like Config.powerFactor,
+--- so the verifier can execute it.
+function Config.incomeRate(has: (string) -> boolean): number
+	local total, upgradeMult = 0, 1
+	for id, def in pairs(Config.ButtonById) do
+		if has(id) then
+			if def.kind == "Dropper" then
+				total += def.dropValue / def.dropRate
+			elseif def.kind == "Upgrader" then
+				upgradeMult *= def.multiplier
+			end
+		end
+	end
+	return total * upgradeMult * Config.powerFactor(has)
 end
 
 Config.Combat = {

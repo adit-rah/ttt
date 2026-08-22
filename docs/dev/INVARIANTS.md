@@ -97,10 +97,26 @@ grepping the tool, not by remembering.
 ## 2. Economy & pacing
 
 Two standing facts that are not invariants but stop people reaching for the wrong lever:
-**belt speed does not affect income** (income is `dropValue / dropRate`), only latency and
-density — raising it to fix crowding is free. And **build length, not `BaseCost`, is the
+**the belt does not carry income** — income is `Config.incomeRate` paid on a timer
+(design:D-02), so belt speed, drop spawn rate and the visual budget are picture levers, and
+raising any of them to fix crowding is free. And **build length, not `BaseCost`, is the
 rebirth lever**: sweeping `BaseCost` across a 20× price cut moves the first rebirth about
 twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× between them.
+
+- **`Config.incomeRate` is THE income model and its three readers are wrappers.**
+  `Tycoon:incomePerSecond` adds the live multiplier stack, `SessionService.incomePerSecondFor`
+  adds the saved rebirth term, the verifier's progression simulation reads it raw. A fourth
+  copy of the arithmetic is the defect class behind #35. `[spec]` `income_spec.lua` pins both
+  wrappers to the model.
+- **One income loop per plot, and its liveness test is owner identity.**
+  `Tycoon:startIncomeLoop` re-derives the rate from `owned` every tick and pays
+  `rate × IncomeTickSeconds` through `Economy.add`; release nils the owner and kills it,
+  rebirth keeps the owner so the same loop reads the wiped `owned` fresh, and `assign`
+  refuses an owned plot so a second loop cannot start. `[spec]` `income_spec.lua` "release
+  kills the loop; rebirth leaves it reading the wiped plot", and the tick spec fires on a
+  double payment.
+- **`IncomeTickSeconds` sits between Economy's 0.1 s replication drain and 5 s.** Under the
+  drain the coalescer batches nothing; past 5 s the counter reads as stuck. `[assert]`
 
 - **`StartingCash` must cover the cheapest requirement-free button.** With no dropper there
   is no income, so a fresh player could never buy their first one and the tycoon deadlocks.
@@ -127,11 +143,13 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **Rebirth payout compounds** (`MultiplierPerRebirth ^ rebirths`). A linear bonus against a
   geometric cost curve dead-ends the prestige loop after two or three. `[assert]`
   "MultiplierPerRebirth must be > 1" plus the rebirth cost-ratio check.
-- **The generator must multiply belt speed by exactly the factor it multiplies drop rate
-  by.** In-flight drops are `peakRate × length / speed` and the two cancel; scale the
-  droppers alone and a plot already at 88% of `MaxDropsPerPlot` goes over and `spawnDrop`
-  silently discards the income you just bought. `[assert]` per tier, "power tier %s puts
-  %.0f drops in flight against %.0f ungoverned".
+- **The generator's belt-speed/drop-rate cancellation assertion is DELETED, not retuned.**
+  It existed so the drop cap could not eat income; no part carries income now, so its
+  stated reason is false and an assertion whose argument is gone can only fail for a reason
+  its message lies about. The picture it protected is held by the occupancy and
+  visual-budget checks, whose messages name the cosmetic cost. The generator still scales
+  both numbers — `dropInterval` divides by the cached factor and `refreshBeltSpeed`
+  multiplies by it — so the visuals stay coupled by mechanism rather than by assertion.
 - **`self.powerFactor` must be ASSIGNED, from `Config.powerFactor(owns)` — derived, never
   accumulated.** This is #35: the field was initialised to 1, reset to 1, and assigned
   nowhere, so the belt and every dropper ran at stock speed for two rounds while the HUD
@@ -254,8 +272,10 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   is harmless at an upgrader or a collector; at a corner it cuts the corner. `[nothing]`
 - **The belt has to physically fit the drops it carries**: ≤75% occupancy per belt, and total
   drops in flight summed across *every* floor within `MaxDropsPerPlot`, because `spawnDrop`'s
-  counter is per plot. Over the cap it silently eats the income you just bought. `[assert]`
-  "the plot carries %.0f drops at peak across %d belts".
+  counter is per plot. Drops are cosmetic, so the cost of a violation is the picture: over
+  occupancy the line jams and reads as broken, over the budget new drops stop being drawn
+  and a rich plot looks emptier than a mid one. `[assert]` "the plot carries %.0f drops at
+  peak across %d belts".
 - **A dropper cannot be sped past 0.2 s even at top power**, or it floods physics. `[assert]`
 - **A belt path is a polyline that states its own height and carries one outboard side per
   leg.** "Take the perpendicular pointing away from the plot origin" holds only while every
@@ -294,12 +314,12 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   A path is pure maths and registering one builds nothing — but buy buttons are built once, on
   first claim, and a button on the mezzanine needs its path to exist to know its own height.
   `[nothing]`
-- **THE MEZZANINE FEEDS THE SAME REFINERY.** Upgraders are physical scanners on the ground
-  floor's leg 2, so an upstairs drop crosses none of them; `Tycoon:onCollect` multiplies a
-  drop from a path with no upgraders of its own by the plot's stack. Without that the floor
-  is an additive term against a multiplicative curve — 17% of plot income on purchase, 0.02%
-  by the end. `refineryMultiplierFor` already returns 1 for a path with its own upgraders.
-  `[nothing]` for the mechanism; the income share it produces is asserted below.
+- **EVERY FLOOR IS REFINED BY THE WHOLE PLOT'S UPGRADERS, by construction.**
+  `Config.incomeRate` multiplies the summed droppers by every owned upgrader, whatever
+  floor either stands on, so an upper floor is a multiplicative term with no mechanism
+  needed — `refineryMultiplierFor` and the vault-side refining it did are deleted with the
+  per-drop economy. The income share a floor produces is still asserted below. `[spec]`
+  `income_spec.lua` pins the model's shape.
 - **The floor is LATE and it gates nothing.** v5's "halfway mark" and v7's "early but not
   first" are both superseded, and the second one only ever held because `Config.TrackUnlock`
   gated both cabinets on this button — #36 said so in its own words. Round 8 moved that gate
@@ -1086,8 +1106,6 @@ times in `verify.py`):
 
 - Overhead clearance over the tallest drop variant on the belt.
 - `TrackInfo.power.keepOnRebirth == false` — only the factory's row has its *value* asserted.
-- The mezzanine's refinery multiplier: the income-share band is asserted, the mechanism that
-  produces it is not.
 - Non-square pad edge strips reading both `PlotSize` halves.
 - ~~A hand-typed `requires` on a factory row~~ — **CLOSED in round 8.** The check is
   "the chain is exactly the table order", written as `requires` equals the row above,

@@ -63,6 +63,8 @@ function Tycoon:assign(player: Player)
 	self:refreshButtons()
 	self:updateSign()
 	self:fireOwnedChanged()
+	self:startIncomeLoop(player)
+	self:resetStorage()
 	return true
 end
 
@@ -99,6 +101,9 @@ function Tycoon:release()
 	-- owner, and the last owner's "leaving now banks 2.4M" would be sitting on
 	-- a free plot's sign while the claim beacon lit up next to it.
 	self:setVaultGauge(0, nil, nil, false)
+	-- Storage state is tenancy-scoped: the next claimant starts with an
+	-- intact unit, whatever the last one let happen to it.
+	self:resetStorage()
 
 	self:refreshButtons()
 	self:updateSign()

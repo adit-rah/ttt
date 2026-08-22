@@ -1,15 +1,16 @@
 --[[
 	tycoon/Vault.lua — the collector at the end of a belt, the gauge on its side,
-	and the one place a drop becomes money.
+	and where a drop's ride ends.
 
-	onCollect IS INCOME REALISED. It claims the drop's Value attribute
-	immediately, because Touched fires twice; it refines a drop from a path with
-	no upgraders of its own by the plot's refinery (see
-	tycoon/Income.lua:refineryMultiplierFor); and it pays through Economy.add. A
-	drop the sensor does not see is 100% of its value, not a fraction of it,
-	which is why buildCollector ASSERTS that the vault shell stays downstream of
-	the run-off and why the trigger is Layout.TriggerThickness deep rather than
-	one stud.
+	onCollect RETIRES A DROP. design:D-02 — income is Config.incomeRate on a
+	timer (tycoon/Income.lua:startIncomeLoop) and no part carries value, so the
+	collector's job is to take a finished drop off the belt, return its slot to
+	the visual budget, and play the payout dressing. It claims the drop with a
+	Collected flag because Touched fires twice. A drop the sensor does not see
+	stands at the run-off until the reaper takes it, holding a budget slot the
+	whole time — which is why buildCollector ASSERTS that the vault shell stays
+	downstream of the run-off and why the trigger is Layout.TriggerThickness
+	deep rather than one stud.
 
 	setVaultGauge DECIDES NOTHING. All four of its values are worked out by
 	VaultService, which is the module allowed to know what offline earnings are.
@@ -28,7 +29,6 @@ local Style = Req("Style")
 local Util = Req("Util")
 local Fx = Req("Fx")
 local TungModels = Req("TungModels")
-local Economy = Req("Economy")
 local Tycoon = Req("Class")
 local Parts = Req("Parts")
 
@@ -189,6 +189,10 @@ function Tycoon:buildCollector(pathIndex: number?, parent: Instance?, headline: 
 	prompt.Parent = base
 	self.vaultPrompt = prompt
 
+	-- The body doubles as the storage unit (#93): health, brokenness and the
+	-- repair prompt all hang on this same base. Storage.lua owns that state.
+	self:buildStorageUnit(base)
+
 	local statue = TungModels.buildStatue("classic", V.statueScale)
 	statue:PivotTo(alongExit(runOff, V.statueY, 0) * CFrame.Angles(0, math.pi, 0))
 	statue.Parent = folder
@@ -242,46 +246,30 @@ function Tycoon:onCollect(hit: BasePart)
 	if not model or not model:IsA("Model") then
 		return
 	end
-	local rawValue = model:GetAttribute("Value")
-	if not rawValue then
-		return
-	end
 	if model:GetAttribute("PlotIndex") ~= self.index then
 		return
 	end
-	model:SetAttribute("Value", nil)  -- claim it immediately, touch fires twice
+	if model:GetAttribute("Collected") then
+		return  -- touch fires twice; the first one claimed it
+	end
+	model:SetAttribute("Collected", true)
 
-	-- THE MEZZANINE FEEDS THE SAME REFINERY.
-	--
-	-- Upgraders are physical scanners on the ground floor's leg 2, so a drop
-	-- from an upper floor crosses none of them and arrives at its raw value.
-	-- Left that way the second floor is an ADDITIVE term against a curve that
-	-- multiplies: modelled, the mezzanine's dropper is 17% of plot income the
-	-- minute you buy it, 4% one button later, and 0.02% by the end of the
-	-- build. You would buy a storey at minute forty and watch it become noise.
-	--
-	-- So a path with no upgraders of its own is refined by the plot's, at the
-	-- one place income is realised. Three lines, and it makes the existing
-	-- "sum the droppers, multiply by the upgraders" shape — which Tycoon,
-	-- SessionService and the verifier's economy sim each implement separately
-	-- — correct for both floors with no change to any of them.
-	local value = self:refineryMultiplierFor(model:GetAttribute("Path")) * rawValue
-
+	-- recycleDrop below returns the budget slot; decrementing here as well
+	-- would count one drop out twice and starve the spawners.
 	local owner = self.owner
-	self.dropCount = math.max(0, self.dropCount - 1)
-
 	if owner and owner.Parent then
-		local gained = Economy.add(owner, value, true)
 		-- late game the vault eats ~10 drops/sec; throttle the confetti so a
-		-- finished factory doesn't spam hundreds of billboards per minute
+		-- finished factory doesn't spam hundreds of billboards per minute. The
+		-- figure quoted is the plot's rate — the drop itself is worth nothing.
 		local now = os.clock()
 		if now - (self.lastPayoutFx or 0) > 0.3 then
 			self.lastPayoutFx = now
-			Fx.floatingText(hit.Position + Vector3.new(0, 3, 0), "+" .. Util.abbreviate(gained), COLORS.gold, self.model)
+			Fx.floatingText(hit.Position + Vector3.new(0, 3, 0),
+				"+" .. Util.abbreviate(self:incomePerSecond()) .. "/sec", COLORS.gold, self.model)
 			Fx.tung(hit, 0.9 + math.random() * 0.35, 0.18)
 		end
 	end
-	model:Destroy()
+	self:recycleDrop(model)
 end
 
 return Tycoon

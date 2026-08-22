@@ -250,6 +250,10 @@ Tycoon.INSTALLERS.Upgrader = function(self, def, silent)
 		color = Color3.fromRGB(255, 240, 210),
 	})
 
+	-- The flash. design:D-02 — the upgrader's multiplier lives in
+	-- Config.incomeRate; what the trigger does is make the arch visibly work a
+	-- drop as it passes. The once-flag stays because Touched fires twice, and
+	-- a double flash reads as a stutter.
 	local flagName = "up_" .. def.id
 	trigger.Touched:Connect(function(hit)
 		local drop = hit.Parent
@@ -259,12 +263,10 @@ Tycoon.INSTALLERS.Upgrader = function(self, def, silent)
 		if drop:GetAttribute("PlotIndex") ~= self.index then
 			return
 		end
-		local value = drop:GetAttribute("Value")
-		if not value or drop:GetAttribute(flagName) then
+		if drop:GetAttribute(flagName) then
 			return
 		end
 		drop:SetAttribute(flagName, true)
-		drop:SetAttribute("Value", value * def.multiplier)
 
 		local body = drop.PrimaryPart or drop:FindFirstChild("Body")
 		if body and body:IsA("BasePart") then
