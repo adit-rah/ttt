@@ -60,7 +60,7 @@ T.spec("the water survives the save", function(t)
 	D.reconcile(player)
 	t:isTrue(Data.save(player, true), "the save did not go through")
 	local reloaded = Data.load(player)
-	t:isTrue(reloaded.disclosed.session == true,
+	t:isTrue(reloaded.disclosed.shop == true,
 		"the water did not survive the round trip — the payload is missing the field")
 end)
 
