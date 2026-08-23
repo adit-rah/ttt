@@ -467,8 +467,9 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   clear of the door it is reached through and you would step out of the back wall onto grass;
   the old 108-stud yard could not miss. `[assert]` "you would step out of the back wall onto
   grass".
-- **The yard's door can only be in the back-right corner.** The back edge of the plot IS the
-  dropper row and the left side is the upgrader alley. `DoorFrom` is still 46 and the wall
+- **The yard's door can only be in the back-right corner.** The back edge carries the
+  upgrader rows and the vault (#162), and the span past the east back leg's corner is the
+  one stretch of back wall with no machine behind it. `DoorFrom` is still 46 and the wall
   spec is unchanged — the yard moved to the door, not the door to the yard. `[assert]` for
   the position (the door must not open onto a machine, and must be ≥8 studs wide).
 - **The door is cut at wall-build time, not at generator-purchase time**, or anyone who buys

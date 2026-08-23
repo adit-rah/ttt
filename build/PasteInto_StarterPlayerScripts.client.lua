@@ -255,29 +255,33 @@ __MODULES["Config"] = function()
 	end
 
 	-- mechanism: plot-local layout. Plot origin = centre of the pad, floor top at
-	-- y = 0. +Z is "front" (faces the arena), -Z is the back where droppers live.
+	-- y = 0. +Z is "front" (faces the arena), -Z is the back where the vault
+	-- lives.
 	--
-	-- The belt runs as an L around the back and left edges rather than straight
-	-- through the middle, which is what puts every machine against a wall and lines
-	-- the buy buttons up along the inside of the run. design:D-02 for what the open
-	-- centre is for, and why every upgrader is downstream of every dropper.
+	-- design:D-02, via #162 — THE LINE IS TWO MIRRORED CONVEYORS: one up each
+	-- side edge, turning at the back corners and running inward along the back
+	-- wall into the vault at back-centre. Droppers ride the side legs, upgraders
+	-- the back legs, so every machine still stands against a wall with its buy
+	-- button on the inside of the run, every upgrader is still downstream of its
+	-- own path's droppers, and the plot reads symmetric from the centred gate.
+	-- The west line is the owner's RIGHT walking in, and it fills first.
 	--
 	--        back edge
-	--    +---------------+
-	--    |=====<=========|  <- leg 1: droppers
-	--    |v              |
-	--    |v              |     (open floor)
-	--    |v              |
-	--    |v  leg 2:      |
-	--    |v  upgraders   |
-	--    |[VAULT]        |
-	--    +---------------+
+	--    +--=========[VAULT]=========--+
+	--    |  ^ upgraders    upgraders ^ |
+	--    |==^                       ^==|
+	--    |^                           ^|
+	--    |^  droppers       droppers  ^|
+	--    |^        (open floor)       ^|
+	--    |^                           ^|
+	--    +----------|  gate |----------+
 	--        front edge (faces the arena)
 	Config.Layout = {
-		BeltStart  = Vector3.new( 46, 0, -56),   -- back-right corner
-		BeltCorner = Vector3.new(-44, 0, -56),   -- back-left corner
-		BeltEnd    = Vector3.new(-44, 0,  46),   -- front-left
-		CollectorAt = Vector3.new(-44, 0, 58),
+		BeltSideX   = 44,    -- |x| of the two side legs
+		BeltFrontZ  = 46,    -- where each side leg starts, toward the front
+		BeltBackZ   = -56,   -- the back legs' line
+		BeltInnerX  = 13,    -- where each back leg ends, at the vault's shoulder
+		CollectorAt = Vector3.new(0, 0, -56),   -- the vault, straddling the belt line
 
 		BeltY = 1.4,             -- TOP of the belt surface; low enough to step onto
 		BeltWidth = 8,
@@ -332,21 +336,25 @@ __MODULES["Config"] = function()
 		ButtonHeight = 1.4,      -- total button height; must be low enough to run over
 		MachineFootprint = 5,    -- machines are this deep along the belt
 
-		-- distance along leg 1 (back edge) for dropper slot 1..10
-		DropperDist  = { 5, 14, 23, 32, 41, 50, 59, 68, 77, 86 },
-		-- distance along leg 2 (left edge) for upgrader slot 1..6
-		UpgraderDist = { 14, 30, 46, 62, 78, 94 },
+		-- Distance along a SIDE leg (leg 1 of its path) for dropper slot 1..10.
+		-- Slots 1-5 ride the west path and 6-10 the east, at MIRRORED distances —
+		-- the same five values twice, asserted, so the two lines age identically.
+		DropperDist  = { 10, 28, 46, 64, 82, 10, 28, 46, 64, 82 },
+		-- Distance along a BACK leg (leg 2 of its path) for upgrader slot 1..6:
+		-- slots 1-3 west, 4-6 east, mirrored the same way.
+		UpgraderDist = { 6, 16, 26, 6, 16, 26 },
 
 		-- mechanism: buttons with no machine on the belt stand in a row down the
 		-- middle of the open floor, in purchase order. design:D-03 for why the aisle
 		-- reads as a queue.
 		--
-		-- THE COLUMN IS BOUNDED AT BOTH ENDS. Belt leg 1's buy-button row occupies
-		-- z -47.5..-42.5 at every x from -46.5 to 48.5, so nothing can go behind
-		-- z = -38; the 12-stud pitch then walks toward the gate. The column stands
-		-- EAST of the centred gateway's aisle (design:D-02, via #162 — the plot
-		-- reads symmetric from the gate), mirroring the rebirth pad west of it,
-		-- and x = 24 keeps every pedestal clear of OwnerSpawnAt (0, 44).
+		-- THE COLUMN IS BOUNDED AT BOTH ENDS. The back legs' buy-button rows run
+		-- at z ≈ -48 from |x| 13..44 and the vault stands behind them, so nothing
+		-- can go behind z = -38 with a pedestal's clearance; the 12-stud pitch
+		-- then walks toward the gate. The column stands EAST of the centred
+		-- gateway's aisle (design:D-02, via #162 — the plot reads symmetric from
+		-- the gate), mirroring the rebirth pad west of it, and x = 24 keeps every
+		-- pedestal clear of OwnerSpawnAt (0, 44).
 		MiscButtons = {
 			walls      = Vector3.new(24, 0, -34),
 			gates      = Vector3.new(24, 0, -22),
@@ -2841,11 +2849,31 @@ __MODULES["Config"] = function()
 	--- upper floor's return leg runs back across the middle of its own deck, where
 	--- the inferred side flips and puts the machines over the walkway and the buy
 	--- buttons out in space. One entry per leg, so one fewer than `points`.
+	-- TWO GROUND PATHS, mirrored (design:D-02, via #162). Both share the vault's
+	-- collectorAt; each carries its own five droppers on leg 1 and three
+	-- upgraders on leg 2, so the downstream rule holds per path. `west` first:
+	-- the owner's right walking in the centred gate, and the side that fills
+	-- first.
 	Config.BeltPaths = {
 		{
-			id = "ground",
+			id = "west",
 			y = 0,
-			points = { Config.Layout.BeltStart, Config.Layout.BeltCorner, Config.Layout.BeltEnd },
+			points = {
+				Vector3.new(-Config.Layout.BeltSideX, 0, Config.Layout.BeltFrontZ),
+				Vector3.new(-Config.Layout.BeltSideX, 0, Config.Layout.BeltBackZ),
+				Vector3.new(-Config.Layout.BeltInnerX, 0, Config.Layout.BeltBackZ),
+			},
+			outboard = { -1, -1 },
+			collectorAt = Config.Layout.CollectorAt,
+		},
+		{
+			id = "east",
+			y = 0,
+			points = {
+				Vector3.new(Config.Layout.BeltSideX, 0, Config.Layout.BeltFrontZ),
+				Vector3.new(Config.Layout.BeltSideX, 0, Config.Layout.BeltBackZ),
+				Vector3.new(Config.Layout.BeltInnerX, 0, Config.Layout.BeltBackZ),
+			},
 			outboard = { 1, 1 },
 			collectorAt = Config.Layout.CollectorAt,
 		},

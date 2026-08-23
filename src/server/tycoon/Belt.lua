@@ -443,8 +443,10 @@ function Tycoon:legNormalWorld(index: number, pathIndex: number?): Vector3
 	return self.cf:VectorToWorldSpace(normal).Unit
 end
 
---- Which leg (and which floor's belt) a machine lives on: droppers on the back
---- edge of the ground floor, upgraders on its left edge.
+--- Which leg (and which path) a machine lives on: the slot tables split down
+--- their middle across the two mirrored ground paths (#162) — the first half
+--- of each rides the west line, the second half the east — with droppers on
+--- a path's side leg (leg 1) and upgraders on its back leg (leg 2).
 ---
 --- A def may pin itself instead, which is how FloorService stands a dropper on
 --- an upper floor without inventing a second slot table.
@@ -453,9 +455,9 @@ function Tycoon:legOf(def): (number, number, number)
 		return def.legIndex, def.legDistance or 0, self:pathIndexOf(def)
 	end
 	if def.kind == "Dropper" then
-		return 1, L.DropperDist[def.slot], 1
+		return 1, L.DropperDist[def.slot], def.slot * 2 <= #L.DropperDist and 1 or 2
 	end
-	return 2, L.UpgraderDist[def.slot], 1
+	return 2, L.UpgraderDist[def.slot], def.slot * 2 <= #L.UpgraderDist and 1 or 2
 end
 
 --- Which registered path a def means. A button carries `path` as an ID rather

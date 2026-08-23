@@ -1841,16 +1841,54 @@ check(WV.BossLeashRadius > WV.BossSpawnRadius,
 		:format(WV.BossLeashRadius, WV.BossSpawnRadius))
 
 -- ── belt layout ─────────────────────────────────────────────────────────────
--- The belt is an L: leg 1 (BeltStart -> BeltCorner) carries the droppers,
--- leg 2 (BeltCorner -> BeltEnd) carries the upgraders.
+-- The line is TWO MIRRORED PATHS (#162): each runs a side leg (leg 1, the
+-- droppers) up its edge and a back leg (leg 2, the upgraders) inward to the
+-- vault at back-centre. The slot tables split down their middle across the
+-- two — Tycoon:legOf's rule, mirrored here.
 local L = Config.Layout
 
 local function sub(a, b) return Vector3.new(a.X - b.X, a.Y - b.Y, a.Z - b.Z) end
 local function len(v) return math.sqrt(v.X ^ 2 + v.Y ^ 2 + v.Z ^ 2) end
 
-local leg1 = len(sub(L.BeltCorner, L.BeltStart))
-local leg2 = len(sub(L.BeltEnd, L.BeltCorner))
+local leg1 = L.BeltFrontZ - L.BeltBackZ
+local leg2 = L.BeltSideX - L.BeltInnerX
 check(leg1 > 0 and leg2 > 0, "belt legs must have non-zero length")
+-- The MAIN line is the first two paths — the land strips append theirs
+-- after. legOf's slot split reads exactly these two.
+check(#Config.BeltPaths >= 2, "the ground floor is two mirrored paths; legOf's slot split assumes both")
+local mainPaths = { Config.BeltPaths[1], Config.BeltPaths[2] }
+for index, point in ipairs(mainPaths[1].points) do
+	local mirror = mainPaths[2].points[index]
+	check(point.X == -mirror.X and point.Z == mirror.Z,
+		("main path point %d is (%.0f, %.0f) against a mirror at (%.0f, %.0f) — the west and east lines are not reflections")
+			:format(index, point.X, point.Z, mirror.X, mirror.Z))
+end
+
+--- Which ground path a slotted machine rides: the first half of its slot
+--- table is BeltPaths[1], the second half BeltPaths[2] — legOf's rule.
+local function slottedPathId(def)
+	if not def.slot then
+		return nil
+	end
+	local size = (def.kind == "Dropper") and #L.DropperDist or #L.UpgraderDist
+	return def.slot * 2 <= size and Config.BeltPaths[1].id or Config.BeltPaths[2].id
+end
+
+-- ...and the two halves must MIRROR, or the lines age apart and the symmetry
+-- the split exists for is a lie at some slot.
+for _, pair in ipairs({ { "DropperDist", L.DropperDist }, { "UpgraderDist", L.UpgraderDist } }) do
+	local name, distances = pair[1], pair[2]
+	check(#distances % 2 == 0,
+		("%s has %d entries; the slot table splits down its middle across the two paths, so it needs an even count")
+			:format(name, #distances))
+	-- An odd table has no mirror to walk; the count check above is the report.
+	local half = math.floor(#distances / 2)
+	for i = 1, (#distances % 2 == 0) and half or 0 do
+		check(distances[i] == distances[i + half],
+			("%s[%d] is %.1f but its mirror [%d] is %.1f — the west and east lines would age apart")
+				:format(name, i, distances[i], i + half, distances[i + half]))
+	end
+end
 
 -- ergonomics: you should be able to run over a buy button, not jump onto it.
 -- A Roblox humanoid steps over about 2 studs unaided.
@@ -1859,12 +1897,14 @@ check(L.ButtonHeight <= 2,
 check(L.BeltY <= 2.5,
 	("Layout.BeltY is %.1f — the belt should be low enough to see over and step onto"):format(L.BeltY))
 
--- machines must not overlap their neighbours along the belt
+-- machines must not overlap their neighbours along the belt. Checked per
+-- HALF: the seam between the mirrored halves is two different belts.
 local function checkSpacing(name, distances, legLength)
+	local half = #distances / 2
 	for i, d in ipairs(distances) do
 		check(d >= 0 and d <= legLength,
 			("%s[%d] = %.1f is off the end of its leg (length %.1f)"):format(name, i, d, legLength))
-		if i > 1 then
+		if i > 1 and i ~= half + 1 then
 			local gap = d - distances[i - 1]
 			check(gap >= L.MachineFootprint,
 				("%s[%d] is only %.1f studs from its neighbour; machines are %.1f deep and would overlap")
@@ -1895,7 +1935,7 @@ local beltLength, transit, inFlight = 0, 0, 0
 for _, path in ipairs(Config.BeltPaths) do
 	local pathRate = 0
 	for _, def in ipairs(Config.Buttons) do
-		if def.kind == "Dropper" and (def.path or groundId) == path.id then
+		if def.kind == "Dropper" and (def.path or slottedPathId(def) or groundId) == path.id then
 			pathRate += 1 / def.dropRate
 		end
 	end
@@ -2004,28 +2044,42 @@ local function inPlot(label, point, margin)
 	check(math.abs(point.Z) <= halfZ - (margin or 0),
 		("%s sits at z=%.1f, outside the plot (half-depth %.1f)"):format(label, point.Z, halfZ))
 end
-inPlot("BeltStart", L.BeltStart, L.BeltWidth / 2)
-inPlot("BeltCorner", L.BeltCorner, L.BeltWidth / 2)
-inPlot("BeltEnd", L.BeltEnd, L.BeltWidth / 2)
+for _, path in ipairs(mainPaths) do
+	for index, point in ipairs(path.points) do
+		inPlot(("BeltPaths.%s point %d"):format(path.id, index), point, L.BeltWidth / 2)
+	end
+end
 inPlot("CollectorAt", L.CollectorAt, 6)
 
--- droppers sit outboard of leg 1 (toward -Z), upgraders outboard of leg 2 (-X)
+-- droppers sit outboard of the side legs (toward the side walls), upgraders
+-- outboard of the back legs (toward the back wall); the furthest machine on
+-- each is the corner where both rows approach the same wall
 inPlot("furthest dropper machine",
-	Vector3.new(L.BeltCorner.X, 0, L.BeltStart.Z - L.MachineOffset), L.MachineFootprint / 2)
+	Vector3.new(L.BeltSideX + L.MachineOffset, 0, L.BeltBackZ), L.MachineFootprint / 2)
 inPlot("furthest upgrader machine",
-	Vector3.new(L.BeltCorner.X - L.MachineOffset, 0, L.BeltEnd.Z), L.MachineFootprint / 2)
+	Vector3.new(L.BeltSideX, 0, L.BeltBackZ - L.MachineOffset), L.MachineFootprint / 2)
 
--- the vault must clear the end of the belt or it walls the conveyor off
-local runOff = len(sub(L.CollectorAt, L.BeltEnd))
-check(runOff > 8, ("collector is only %.1f studs past the belt end; the vault would block it"):format(runOff))
--- ...and still fit inside the plot behind it. The shell's half-depth was a
--- literal 5 here and a literal 10 in Tycoon:buildCollector, which is two copies
--- of one number in two files and no way for either to notice the other moving.
--- Both read Layout.Vault now.
-local vaultFar = L.BeltEnd.Z + runOff + L.Vault.bodyDepth / 2
-check(vaultFar <= halfZ - 2,
-	("the vault's far face lands at z=%.1f, into the front wall at z=%.1f")
-		:format(vaultFar, halfZ - 1))
+-- THE VAULT STRADDLES THE BELT LINE AT BACK-CENTRE (#162), fed by a run-off
+-- from each side. Each belt end must clear the body's near face, and the
+-- body must clear the back wall behind it.
+do
+	local V = L.Vault
+	for _, path in ipairs({ Config.BeltPaths[1], Config.BeltPaths[2] }) do
+		local last = path.points[#path.points]
+		local runOff = len(sub(path.collectorAt, last))
+		check(runOff > V.bodyDepth / 2 + 3,
+			("the %s belt ends only %.1f studs from the vault's centre; the body (half-depth %.1f) would wall the conveyor off")
+				:format(path.id, runOff, V.bodyDepth / 2))
+	end
+	-- The body is bodyWidth DEEP along z here — alongExit's frame looks along
+	-- the west path's +X exit, so the 18-stud axis lies across the aisle.
+	check(L.CollectorAt.Z - V.bodyWidth / 2 >= -(halfZ - 1) + Config.Structure.WallThickness / 2 + 1,
+		("the vault's back face lands at z=%.1f, into the back wall at z=%.1f")
+			:format(L.CollectorAt.Z - V.bodyWidth / 2, -(halfZ - 1)))
+	check(math.abs(L.CollectorAt.X) < 1,
+		("the vault sits at x=%.1f; back-CENTRE is the point of #162, and the two mirrored run-offs assume it")
+			:format(L.CollectorAt.X))
+end
 
 -- THE VAULT'S OWN FURNITURE. Everything below used to be a literal inside
 -- Tycoon:buildCollector, which meant the verifier could see where the vault
@@ -2097,17 +2151,26 @@ end
 -- piece of furniture carries the floor it stands on, and a collision check
 -- compares that before it compares geometry.
 --
--- The key is deliberately also a Config.BeltPaths id — the plot floor's path
--- is `"ground"` — which is what lets a piece of furniture find the belt it has
--- to stay off without a second table mapping one to the other.
+-- The plot floor's key is `"ground"`, and it maps to EVERY path running at
+-- y = 0 — the ground floor is two mirrored belts now (#162), and a piece of
+-- floor furniture has to stay off both. A named floor key still resolves to
+-- its own single path (the land strips' sub-belts).
 local GROUND = "ground"
 local beltPathById = {}
 for _, path in ipairs(Config.BeltPaths) do
 	beltPathById[path.id] = path
 end
-check(beltPathById[GROUND] ~= nil,
-	("no belt path is called %q, so the plot floor's furniture has no belt row to be checked against")
-		:format(GROUND))
+local function pathsOnFloor(floor)
+	if floor == GROUND then
+		-- The first two paths are the plot floor's own mirrored line; the
+		-- strips' sub-belts stand on their own ground, checked per strip.
+		return { Config.BeltPaths[1], Config.BeltPaths[2] }
+	end
+	local path = beltPathById[floor]
+	return path and { path } or {}
+end
+check(#pathsOnFloor(GROUND) > 0,
+	"no belt path runs at y = 0, so the plot floor's furniture has no belt row to be checked against")
 
 --- A buy-button pedestal, in plan. The one box every piece of furniture in the
 --- lists below shares.
@@ -2520,8 +2583,7 @@ end
 -- the running surface nor the machine row was looked at on either floor. legBoxes
 -- derives all three strips of every leg of the path whose id is the floor key.
 for _, entry in ipairs(miscList) do
-	local path = beltPathById[entry.floor]
-	if path then
+	for _, path in ipairs(pathsOnFloor(entry.floor)) do
 		for _, leg in ipairs(legBoxes(path)) do
 			for _, strip in ipairs({
 				{ "belt base", leg.belt },
@@ -2628,12 +2690,15 @@ check(Y.Centre.X + yardHalfX <= plotHalfWidth and Y.Centre.X - yardHalfX >= -plo
 	("the yard spans x %.0f..%.0f, past the %d-stud plot it hangs off the back of")
 		:format(Y.Centre.X - yardHalfX, Y.Centre.X + yardHalfX, Config.World.PlotSize.X))
 
--- THE DOOR. The back edge of the plot is the dropper row, so there is exactly
--- one span of wall with nothing behind it.
-local farthestDropper = L.BeltStart.X - L.DropperDist[1] + L.MachineFootprint / 2
-check(Y.DoorFrom >= farthestDropper + 2,
-	("the yard doorway starts at x=%.1f but dropper slot 1 stands out to x=%.1f — the door opens onto a machine")
-		:format(Y.DoorFrom, farthestDropper))
+-- THE DOOR. The back edge of the plot carries the upgrader rows and the
+-- vault now (#162), so the span past the east back leg's corner is the one
+-- stretch of back wall with no machine behind it. The east belt's corner
+-- square is inside the door's approach and that is fine — a belt is 1.4
+-- studs and you step onto it; a machine is not.
+local farthestUpgrader = L.BeltSideX - L.UpgraderDist[1] + L.MachineFootprint / 2
+check(Y.DoorFrom >= farthestUpgrader + 2,
+	("the yard doorway starts at x=%.1f but the east back leg's first upgrader stands out to x=%.1f — the door opens onto a machine")
+		:format(Y.DoorFrom, farthestUpgrader))
 -- THE DOORWAY'S WIDTH AND THE SLAB IT LANDS ON MOVED to the building-shell
 -- block below, because the hole in the wall is now a row in
 -- Config.Structure.Openings and this block was re-deriving it from Y.DoorFrom —
@@ -3163,18 +3228,20 @@ for _, opening in ipairs(SH.Openings) do
 			:format(where, opening.height, SH.WallHeight))
 end
 
--- 4. THE GATEWAY STILL CLEARS THE BELT.
+-- 4. THE GATEWAY STILL CLEARS THE BELTS.
 --
--- This inequality used to live in the yard block, read off GateCentre/GateWidth.
--- It reads the opening inventory now, because that is what the wall is built
--- from: the Layout keys are one indirection away from the geometry that ships.
+-- The centred gate opens onto the aisle between the two side legs (#162), so
+-- both of its jambs have to stay inboard of both lines' running surfaces
+-- with room to walk past.
 local gateway = openingById("gateway")
 check(gateway ~= nil, "Structure.Openings has no `gateway` — the front wall would be solid")
 if gateway then
-	local left = gateway.centre - gateway.width / 2
-	check(left > L.BeltEnd.X + L.BeltWidth / 2,
-		("the gateway starts at x=%.0f, over the belt/vault side of the plot (the belt's edge is x=%.0f)")
-			:format(left, L.BeltEnd.X + L.BeltWidth / 2))
+	local innerEdge = L.BeltSideX - L.BeltWidth / 2 - 2
+	check(gateway.centre - gateway.width / 2 > -innerEdge
+			and gateway.centre + gateway.width / 2 < innerEdge,
+		("the gateway spans x %.0f..%.0f against side belts whose inner faces are at x=±%.0f — walking in the gate lands you on a conveyor")
+			:format(gateway.centre - gateway.width / 2, gateway.centre + gateway.width / 2,
+				L.BeltSideX - L.BeltWidth / 2))
 end
 
 -- 5. THE YARD DOORWAY STILL LANDS OVER THE YARD SLAB — AS A SPAN, NOT A POINT.
