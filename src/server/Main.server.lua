@@ -123,6 +123,15 @@ DisclosureService.start()
 ShopService.start()
 -- Objectives (#97): reads persisted stats on a beat; no ordering needs.
 ObjectiveService.start()
+-- The guide (#100): its mouth is the hint machinery, one arrow, one line.
+-- It answers ANY player who talks to it — a visitor gets the owner's guide's
+-- flavour, which is a kindness surface, not a leak.
+Tycoon.guideSpeaker = function(tycoon, player)
+	local profile = DataService.get(player)
+	local hint = profile and ObjectiveService.hintFor(profile)
+	Economy.notify(player, { kind = "info", title = "Your Tung says",
+		body = hint or "Tung tung. The middle pays best. Come back when something new unlocks." })
+end
 SocialService.start()
 
 -- 6. players

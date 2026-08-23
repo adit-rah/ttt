@@ -334,6 +334,9 @@ Config.Layout = {
 	-- Where the owner lands on claim and on every respawn: just inside the
 	-- gateway, on the aisle, looking down plot-local -Z at the machines.
 	OwnerSpawnAt = Vector3.new(14, 5, 44),
+	-- The guide (#100): a small Tung standing beside the owner's spawn aisle,
+	-- inside the gateway, where every session walks past it.
+	GuideAt = Vector3.new(24, 0, 40),
 
 	-- The front wall's gateway. It sits over the open aisle on the right, NOT
 	-- at x = 0: the belt and the vault occupy the left half of the plot, and a

@@ -1,8 +1,8 @@
 # HANDOFF v19 — the game reveals itself, the shop, and today's three
 
 Wave 5: #96 (progressive disclosure), #108 (the shop replacing the cabinets)
-and #97 (daily objectives + the hint line). This handoff grows with the
-wave's remaining rounds.
+#97 (daily objectives + the hint line) and #100 (the guide). This handoff
+grows with the wave's remaining rounds.
 
 ## 1. What moved
 
@@ -71,3 +71,9 @@ wave's remaining rounds.
     MinScale with status card + session + party + objectives all up.
 11. **The tower objective.** "Clear 3 tower floors" reads profile.tower.best,
     which only moves on recordClear — confirm a real climb ticks the row.
+12. **The guide, met.** A small classic Tung beside the spawn aisle with a
+    Talk prompt: confirm it faces the arriving player (it is rotated to face
+    the gateway), the prompt reads at 10 studs, and the line lands as a
+    toast. A visitor talking to it should hear THEIR hint.
+13. **The guide vs the totem.** Both stand near the plot's front; check they
+    read as two different things at a glance.
