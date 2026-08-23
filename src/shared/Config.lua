@@ -147,7 +147,7 @@ Config.World = {
 	RingGap = 48,            -- clear studs between concentric plot rings
 	MinPlotRadius = 210,     -- closest the first ring may ever sit to the centre
 
-	PlotSize = Vector3.new(120, 2, 140),
+	PlotSize = Vector3.new(140, 2, 160),
 	-- 2000 since #88: the ring packs maxed plots, and the furthest generator
 	-- yard reaches ~918 studs out. Asserted against the packing.
 	BaseplateSize = 2000,
@@ -157,7 +157,7 @@ Config.World = {
 	-- ring, at a bearing between two plots — the rebalance closed the quiet
 	-- strip inside the ring that the spawn used to stand in. Walking inward
 	-- past the plots is the first thing a session does, which is the tour.
-	SpawnRadius = 680,
+	SpawnRadius = 760,
 	-- The plinth the statue stands on, in the middle of the arena. It was a 26
 	-- written into MapBuilder; it is here because the boss now spawns at a fixed
 	-- radius from the same centre and the verifier has to be able to check that
@@ -245,11 +245,11 @@ end
 --    +----------|  gate |----------+
 --        front edge (faces the arena)
 Config.Layout = {
-	BeltSideX   = 44,    -- |x| of the two side legs
-	BeltFrontZ  = 46,    -- where each side leg starts, toward the front
-	BeltBackZ   = -56,   -- the back legs' line
+	BeltSideX   = 54,    -- |x| of the two side legs
+	BeltFrontZ  = 56,    -- where each side leg starts, toward the front
+	BeltBackZ   = -66,   -- the back legs' line
 	BeltInnerX  = 13,    -- where each back leg ends, at the vault's shoulder
-	CollectorAt = Vector3.new(0, 0, -56),   -- the vault, straddling the belt line
+	CollectorAt = Vector3.new(0, 0, -66),   -- the vault, straddling the belt line
 
 	BeltY = 1.4,             -- TOP of the belt surface; low enough to step onto
 	BeltWidth = 8,
@@ -296,10 +296,9 @@ Config.Layout = {
 		kick = 0.7,        -- underside of the solid kick plate, over the surface
 		height = 1.9,      -- the neon top rail's centre, over the surface
 		bar = 0.35,        -- that rail's section
-		-- SETBACK FROM EACH END OF A LEG, along it. Big enough to clear the
-		-- corner square the surfaces overrun by half a belt width, and to clear
-		-- the turn sensor's leading face.
-		corner = 8,
+		-- No setback constant: at a bend a rail runs flush to the NEIGHBOUR'S
+		-- surface edge, half a belt width from the corner point, derived in
+		-- Belt.lua and mirrored by the verifier's overlap loop.
 	},
 	ButtonHeight = 1.4,      -- total button height; must be low enough to run over
 	MachineFootprint = 5,    -- machines are this deep along the belt
@@ -322,7 +321,7 @@ Config.Layout = {
 	-- then walks toward the gate. The column stands EAST of the centred
 	-- gateway's aisle (design:D-02, via #162 — the plot reads symmetric from
 	-- the gate), mirroring the rebirth pad west of it, and x = 24 keeps every
-	-- pedestal clear of OwnerSpawnAt (0, 44).
+	-- pedestal clear of OwnerSpawnAt (0, 54).
 	MiscButtons = {
 		walls      = Vector3.new(24, 0, -34),
 		gates      = Vector3.new(24, 0, -22),
@@ -344,19 +343,17 @@ Config.Layout = {
 	MiscButtonSpacing = 12,
 
 
-	-- WEST OF THE AISLE, mirroring the buy-pad column east of it: the centred
-	-- gateway made the middle of the plot the walk, so the two pieces of floor
-	-- furniture flank it. Still clear of the vault, which is the constraint
-	-- the old comment named and the only one that was ever about the pad
-	-- itself.
-	RebirthPadAt = Vector3.new(-24, 0, 0),
-	ClaimPadAt   = Vector3.new(0, 0, 52),   -- front-centre, on the aisle
+	-- THE FRONT-WEST CORNER (#162 tophat): the pad left the open middle so
+	-- the walk from the gate stays clear floor, and the corner pocket between
+	-- the west belt's start and the front wall is ground nothing else wants.
+	RebirthPadAt = Vector3.new(-38, 0, 58),
+	ClaimPadAt   = Vector3.new(0, 0, 62),   -- front-centre, on the aisle
 	-- Where the owner lands on claim and on every respawn: just inside the
 	-- gateway, on the aisle, looking down plot-local -Z at the machines.
-	OwnerSpawnAt = Vector3.new(0, 5, 44),
+	OwnerSpawnAt = Vector3.new(0, 5, 54),
 	-- The guide (#100): a small Tung standing beside the owner's spawn aisle,
 	-- inside the gateway, where every session walks past it.
-	GuideAt = Vector3.new(10, 0, 40),
+	GuideAt = Vector3.new(10, 0, 50),
 
 	-- The front wall's gateway, CENTRED (design:D-02, via #162). The old
 	-- x = 14 dodged the belt and the vault while they owned the left half of
@@ -494,23 +491,24 @@ Config.Layout.Yard = {
 	-- nothing behind it — which is already why DoorFrom is 46. The yard moves to
 	-- the door rather than the door moving to the yard, so the wall spec does
 	-- not change at all.
-	Centre = Vector3.new(46, 0, -83),
+	Centre = Vector3.new(56, 0, -93),
 
 	-- THE DOOR, and there is only one place it can go. The back edge of the
-	-- plot IS the dropper row — slots 1..10 occupy x = -42.5 to 43.5 — and the
-	-- left side is the upgrader alley. The back-right corner is the only span
-	-- of wall with nothing behind it, clear of dropper slot 1 by 2.5 studs.
+	-- plot carries the upgrader rows and the vault (#162), so the span past
+	-- the east back leg's corner is the only stretch of back wall with no
+	-- machine behind it — clear of that leg's first upgrader by the asserted
+	-- margin.
 	--
 	-- Cut at wall-build time rather than when the generator is bought: `walls`
 	-- lands around minute five and the first rung later, and a wall with no
 	-- door in it seals the yard off for good.
-	DoorFrom = 46,
+	DoorFrom = 54,
 
 	-- ONE STAND, ONE PAD. Slots/FirstX/Spacing are gone: there is no per-rung
 	-- position any more, because every rung upgrades the machine standing here
 	-- rather than adding another one beside it. See Config.PowerButtons.
-	MachineZ = -88,
-	ButtonZ = -75,         -- its pad, between the door and the machine
+	MachineZ = -98,
+	ButtonZ = -85,         -- its pad, between the door and the machine
 	MachineSize = Vector3.new(12, 14, 10),
 
 	FenceHeight = 8,
@@ -1097,7 +1095,11 @@ Config.Economy = {
 	-- Tycoon:startIncomeLoop. Longer than Economy's 0.1s replication
 	-- coalescer, short enough that the counter visibly moves.
 	IncomeTickSeconds = 1,
-	DropLifetime = 45,          -- seconds before an orphaned drop despawns
+	-- Seconds before an orphaned drop despawns. A drop that misses the
+	-- collect sensor stands at the run-off holding a budget slot until this
+	-- reaper takes it; a full ride is ~6s, so 15 is margin without the pile
+	-- of stragglers 45 left standing at the vault (#162 tophat).
+	DropLifetime = 15,
 	-- The VISUAL budget: drops are cosmetic, so past this cap a drop simply
 	-- is not drawn and nothing is lost. Still a hard cap — a mega-tycoon's
 	-- parts in flight is a server cost whatever the drops are worth. 80
@@ -1613,7 +1615,7 @@ Config.StructureButtons = {
 Config.LandLButtons = {
 	{
 		id = "landL1", name = "West Lot I", price = 197000,
-		kind = "Land", side = "left", width = 44,
+		kind = "Land", side = "left", width = 47,
 		blurb = "Ground to grow on.",
 	},
 	{
@@ -1632,7 +1634,7 @@ Config.LandLButtons = {
 	},
 	{
 		id = "landL2", name = "West Lot II", price = 4180000,
-		kind = "Land", side = "left", width = 36,
+		kind = "Land", side = "left", width = 39,
 		blurb = "The factory spreads west.",
 	},
 	{
@@ -1651,7 +1653,7 @@ Config.LandLButtons = {
 	},
 	{
 		id = "landL3", name = "West Lot III", price = 35300000,
-		kind = "Land", side = "left", width = 28,
+		kind = "Land", side = "left", width = 31,
 		blurb = "Further west.",
 	},
 	{
@@ -1670,7 +1672,7 @@ Config.LandLButtons = {
 	},
 	{
 		id = "landL4", name = "West Lot IV", price = 353000000,
-		kind = "Land", side = "left", width = 23,
+		kind = "Land", side = "left", width = 26,
 		blurb = "The neighbours moved out.",
 	},
 	{
@@ -1689,7 +1691,7 @@ Config.LandLButtons = {
 	},
 	{
 		id = "landL5", name = "West Lot V", price = 124000000000,
-		kind = "Land", side = "left", width = 19,
+		kind = "Land", side = "left", width = 22,
 		blurb = "The western frontier.",
 	},
 	{
@@ -1711,7 +1713,7 @@ Config.LandLButtons = {
 Config.LandRButtons = {
 	{
 		id = "landR1", name = "East Lot I", price = 217000,
-		kind = "Land", side = "right", width = 44,
+		kind = "Land", side = "right", width = 47,
 		blurb = "Ground to grow on.",
 	},
 	{
@@ -1730,7 +1732,7 @@ Config.LandRButtons = {
 	},
 	{
 		id = "landR2", name = "East Lot II", price = 4600000,
-		kind = "Land", side = "right", width = 36,
+		kind = "Land", side = "right", width = 39,
 		blurb = "The factory spreads east.",
 	},
 	{
@@ -1749,7 +1751,7 @@ Config.LandRButtons = {
 	},
 	{
 		id = "landR3", name = "East Lot III", price = 38800000,
-		kind = "Land", side = "right", width = 28,
+		kind = "Land", side = "right", width = 31,
 		blurb = "Further east.",
 	},
 	{
@@ -1768,7 +1770,7 @@ Config.LandRButtons = {
 	},
 	{
 		id = "landR4", name = "East Lot IV", price = 388000000,
-		kind = "Land", side = "right", width = 23,
+		kind = "Land", side = "right", width = 26,
 		blurb = "The neighbours moved out.",
 	},
 	{
@@ -1787,7 +1789,7 @@ Config.LandRButtons = {
 	},
 	{
 		id = "landR5", name = "East Lot V", price = 136000000000,
-		kind = "Land", side = "right", width = 19,
+		kind = "Land", side = "right", width = 22,
 		blurb = "The eastern frontier.",
 	},
 	{

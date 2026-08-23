@@ -144,15 +144,17 @@ function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
 		return surface
 	end
 
-	-- invariant: the guard walls. A run on ONE leg, set back from both of that
-	-- leg's ends by BeltGuard.corner, on both sides. design:D-03.
+	-- invariant: the guard walls. A run on ONE leg, on both sides, ending
+	-- flush against the NEIGHBOUR'S surface edge at every bend — half a belt
+	-- width from the corner point. design:D-03.
 	--
-	-- The setback is the whole of the fix. The old rails ran each leg's full
-	-- length, and because every leg's surface deliberately overruns its bend by
-	-- half a belt width (see the loop below), leg 2's inboard rail crossed leg
-	-- 1's path and vice versa. Pulling back eight studs at each end leaves the
-	-- corner square completely clear — of the neighbouring leg, and of the turn
-	-- sensor whose leading face sits just past the bend.
+	-- The old rails ran each leg's full length, and because every leg's
+	-- surface deliberately overruns its bend by half a belt width (see the
+	-- loop below), leg 2's inboard rail crossed leg 1's path and vice versa.
+	-- Flush at the neighbour's edge is the longest legal rail: touching is
+	-- shared-face, never a wall across the conveyor, and the blunt 8-stud
+	-- setback this replaces left seven railless studs downstream of every
+	-- bend (#162 tophat).
 	--
 	-- Two parts a side: a solid kick plate at drop height's underside with a neon
 	-- top rail sitting flush on it, so the pair reads as one guard with a lit
@@ -230,8 +232,8 @@ function Tycoon:buildBelt(pathIndex: number?, parent: Instance?)
 		local startsAtBend = index > 1
 		local endsAtBend = index < legs
 		buildGuard(index,
-			fromDist + (startsAtBend and GUARD.corner or 0),
-			toDist - (endsAtBend and GUARD.corner or 0))
+			startsAtBend and half or fromDist,
+			endsAtBend and (length - half) or toDist)
 	end
 	path.surfaces = surfaces
 
