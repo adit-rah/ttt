@@ -2,15 +2,14 @@
 	tycoon/Vault.lua — the collector at the end of a belt, the gauge on its side,
 	and where a drop's ride ends.
 
-	onCollect RETIRES A DROP. design:D-02 — income is Config.incomeRate on a
-	timer (tycoon/Income.lua:startIncomeLoop) and no part carries value, so the
-	collector's job is to take a finished drop off the belt, return its slot to
-	the visual budget, and play the payout dressing. It claims the drop with a
-	Collected flag because Touched fires twice. A drop the sensor does not see
-	stands at the run-off until the reaper takes it, holding a budget slot the
-	whole time — which is why buildCollector ASSERTS that the vault shell stays
-	downstream of the run-off and why the trigger is Layout.TriggerThickness
-	deep rather than one stud.
+	onCollect IS THE PAYER. design:D-02, via #180 — a tung carries its
+	dropper's value, and entering the vault pays it through Config.dropPayout
+	(every owned upgrader x the generator) and the live multiplier stack. It
+	claims the drop with a Collected flag because Touched fires twice, and a
+	double-firing sensor paying twice would mint money. A drop the sensor
+	does not see is INCOME LOST — it stands at the run-off until the reaper
+	takes it, unpaid — which is why buildCollector ASSERTS the vault shell
+	stays downstream of the run-off and why the sensor owns the whole intake.
 
 	setVaultGauge DECIDES NOTHING. All four of its values are worked out by
 	VaultService, which is the module allowed to know what offline earnings are.
@@ -25,6 +24,7 @@
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
+local Economy = Req("Economy")
 local Style = Req("Style")
 local Util = Req("Util")
 local Fx = Req("Fx")
@@ -302,14 +302,28 @@ function Tycoon:onCollect(hit: BasePart)
 	-- would count one drop out twice and starve the spawners.
 	local owner = self.owner
 	if owner and owner.Parent then
+		-- design:D-02, via #180 — THE PAYMENT. A collected tung pays its
+		-- dropper's value through the plot multiplier and the live session
+		-- stack, and this is the game's ONE live payer: a tung that never
+		-- reaches this line is income that never arrives. The Collected flag
+		-- above is what makes the double-firing Touched pay once.
+		local dropValue = model:GetAttribute("DropValue")
+		local paid = 0
+		if type(dropValue) == "number" and dropValue > 0 then
+			paid = Config.dropPayout(dropValue, function(id)
+				return self.owned[id] == true
+			end)
+			Economy.add(owner, paid, true)
+		end
+
 		-- late game the vault eats ~10 drops/sec; throttle the confetti so a
-		-- finished factory doesn't spam hundreds of billboards per minute. The
-		-- figure quoted is the plot's rate — the drop itself is worth nothing.
+		-- finished factory doesn't spam hundreds of billboards per minute.
 		local now = os.clock()
 		if now - (self.lastPayoutFx or 0) > 0.3 then
 			self.lastPayoutFx = now
 			Fx.floatingText(hit.Position + Vector3.new(0, 3, 0),
-				"+" .. Util.abbreviate(self:incomePerSecond()) .. "/sec", COLORS.gold, self.model)
+				"+" .. Util.abbreviate(paid > 0 and paid * Economy.multiplier(owner) or self:incomePerSecond()),
+				COLORS.gold, self.model)
 			Fx.tung(hit, 0.9 + math.random() * 0.35, 0.18)
 		end
 	end

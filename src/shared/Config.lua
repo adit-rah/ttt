@@ -1092,18 +1092,15 @@ Config.Economy = {
 	-- MUST be >= the cheapest button with no requirements, or a fresh player
 	-- has no income and no way to ever buy their first dropper.
 	StartingCash = 100,
-	-- design:D-02 — income is Config.incomeRate added on this cadence, by
-	-- Tycoon:startIncomeLoop. Longer than Economy's 0.1s replication
-	-- coalescer, short enough that the counter visibly moves.
-	IncomeTickSeconds = 1,
 	-- Seconds before an orphaned drop despawns. A drop that misses the
 	-- collect sensor stands at the run-off holding a budget slot until this
 	-- reaper takes it; a full ride is ~6s, so 15 is margin without the pile
 	-- of stragglers 45 left standing at the vault (#162 tophat).
 	DropLifetime = 15,
-	-- The VISUAL budget: drops are cosmetic, so past this cap a drop simply
-	-- is not drawn and nothing is lost. Still a hard cap — a mega-tycoon's
-	-- parts in flight is a server cost whatever the drops are worth. 80
+	-- THE INCOME BUDGET since #180: a tung past this cap is not spawned and
+	-- its money never arrives, so the verifier's in-flight model must keep
+	-- peak occupancy under it. Still a hard cap — a mega-tycoon's parts in
+	-- flight is a server cost whatever the drops are worth. 80
 	-- since #109: eleven belts share it, and the strips' slow spawners put
 	-- the modelled peak at 75.
 	MaxDropsPerPlot = 80,
@@ -2133,26 +2130,51 @@ function Config.powerFactor(owns: (string) -> boolean): number
 	return factor
 end
 
---- design:D-02 — THE income model, in the one file all three readers reach.
---- Tung/sec for a factory owning `has(id)`: dropper value over rate, summed,
---- times every owned upgrader, times the generator. Per-player terms (rebirth,
---- session multipliers) belong to the callers — Tycoon:incomePerSecond adds
---- the live multiplier stack, SessionService.incomePerSecondFor adds the
---- rebirth term from a saved profile, and the verifier's progression
---- simulation uses this number raw. Pure arithmetic, like Config.powerFactor,
---- so the verifier can execute it.
-function Config.incomeRate(has: (string) -> boolean): number
-	local total, upgradeMult = 0, 1
+--- design:D-02, via #180 — the plot-wide multiplier a finished drop is worth:
+--- every owned upgrader, times the generator. The FULL stack, deliberately,
+--- whichever side's arches the drop physically crossed: after the mirrored
+--- line split a drop only passes its own path's three upgraders, and a
+--- per-side stack would halve the effective multiplier and break every
+--- price on the curve. The arch flash is theatre; this is the accounting.
+function Config.plotMultiplier(has: (string) -> boolean): number
+	local upgradeMult = 1
 	for id, def in pairs(Config.ButtonById) do
-		if has(id) then
-			if def.kind == "Dropper" then
-				total += def.dropValue / def.dropRate
-			elseif def.kind == "Upgrader" then
-				upgradeMult *= def.multiplier
-			end
+		if has(id) and def.kind == "Upgrader" then
+			upgradeMult *= def.multiplier
 		end
 	end
-	return total * upgradeMult * Config.powerFactor(has)
+	return upgradeMult * Config.powerFactor(has)
+end
+
+--- design:D-02, via #180 — what ONE collected tung pays, before the
+--- per-player terms: its dropper's value through the plot multiplier. The
+--- live plot's payer since #180; onCollect is its one caller in the game.
+function Config.dropPayout(dropValue: number, has: (string) -> boolean): number
+	return dropValue * Config.plotMultiplier(has)
+end
+
+--- design:D-02 — THE income model, in the one file all readers reach.
+--- Tung/sec for a factory owning `has(id)`: dropper value over rate, summed,
+--- through the plot multiplier. Per-player terms (rebirth, session
+--- multipliers) belong to the callers — Tycoon:incomePerSecond adds the live
+--- multiplier stack, SessionService.incomePerSecondFor adds the rebirth term
+--- from a saved profile, and the verifier's progression simulation uses this
+--- number raw.
+---
+--- SINCE #180 THE LIVE PLOT PAYS THROUGH THE DROPS, and this rate is their
+--- long-run average — each owned dropper lands dropPayout(dropValue) every
+--- dropRate seconds — so the quote, the mirror and the simulation still read
+--- one model while the conveyor carries the actual money. Live pay is lumpy
+--- (one belt transit late) and LOSSY on purpose: a tung that never reaches
+--- the vault is income that never arrives.
+function Config.incomeRate(has: (string) -> boolean): number
+	local total = 0
+	for id, def in pairs(Config.ButtonById) do
+		if has(id) and def.kind == "Dropper" then
+			total += def.dropValue / def.dropRate
+		end
+	end
+	return total * Config.plotMultiplier(has)
 end
 
 Config.Combat = {

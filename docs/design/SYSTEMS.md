@@ -57,8 +57,9 @@ to whichever system it describes.
 happens when it reaches the end.
 
 The whole system is one identity, stated once in `GAME.md` §3 and implemented
-three times deliberately: on the live plot, in the offline mirror, and in the
-pacing simulation. **Those three must agree.** They are not a duplication to be
+three times deliberately: on the live plot — which pays it per collected tung
+since #180, the identity as the belt's long-run average — in the offline
+mirror, and in the pacing simulation. **Those three must agree.** They are not a duplication to be
 refactored away — each runs in a place the others cannot reach — but a change to
 one is a change to three.
 

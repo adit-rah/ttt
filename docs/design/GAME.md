@@ -122,21 +122,26 @@ income/sec  =  Σ(dropValue / dropRate)  ×  Π(upgrader multipliers)  ×  power
 It is implemented three times on purpose — on the live plot, in the offline
 mirror that pays you for time away, and in the verifier's simulation that
 enforces the price curve. All three must agree; a spec holds them together.
+Since #180 the live plot pays it **through the tungs**: each drop stamps its
+dropper's value and pays it at the vault through the full multiplier stack,
+so the identity is the belt's long-run average — and a tung that never
+reaches the vault is income that never arrives.
 
 **Droppers make the money.** Ten ground-floor slots, `dropper1` (value 1 every
 1.5s) through `dropper10`, "INFINITY TUNG TUNG TUNG SAHUR" (value 240,000 every
 1.0s).
 
-**Upgraders multiply it, physically.** Six scanner arches over the belt's second
-leg — ×1.6, ×1.85, ×2.1, ×2.4, ×2.8, ×3.4, a full stack of about **×134**. The
-belt is laid out so **every upgrader is downstream of every dropper**, which is
-why the stack always applies to everything and why the layout, not a rule,
-guarantees it.
+**Upgraders multiply it.** Six scanner arches, three over each back leg —
+×1.6, ×1.85, ×2.1, ×2.4, ×2.8, ×3.4, a full stack of about **×134**. The
+FULL stack applies to every collected tung whichever side's arches it
+physically crossed (#180): the mirrored line puts three arches on each path,
+and a per-side stack would halve the multiplier and break the curve, so the
+arch flash is theatre and the accounting is the stack.
 
-**The vault pays automatically.** There is no collect-your-earnings step; the
-`Collect` prompt on it exists only for the offline grant. Cash arrives while you
-are looking somewhere else, which is what makes walking away to fight a raid
-free.
+**The vault pays per tung, automatically.** There is no collect-your-earnings
+step; the `Collect` prompt on it exists only for the offline grant. Every tung
+that rolls in pays on arrival, so cash arrives while you are looking somewhere
+else — which is what makes walking away to fight a raid free.
 
 **The belt does not affect income.** It only changes how crowded the line is.
 This surprises people and is worth stating plainly: `belt1` "Belt Overdrive"
