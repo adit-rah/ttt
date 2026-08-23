@@ -19044,9 +19044,15 @@ __MODULES["Vault"] = function()
 		-- The run-off ramp spans the WHOLE gap: tucked 0.6 under the belt's end,
 		-- kissing 0.4 into the vault's face, so there is no seam for a tumbling
 		-- drop to fall through.
+		--
+		-- ITS TOP SITS 0.05 UNDER THE BELT SURFACE'S, and that is the launch fix
+		-- (#162 tophat): the ramp ran 0.1 PROUD of the surface it receives from,
+		-- and a lip standing against the travel is a ski jump — a shrug at the
+		-- shipped 28 studs/s and a launch into orbit at power3's 74. A drop may
+		-- always STEP DOWN onto the intake; it may never climb onto it.
 		local rampRun = faceDist + 1.0
 		local ramp = newPart(folder, "Ramp", Vector3.new(L.BeltWidth, 0.6, rampRun),
-			alongExit((faceDist - 0.2) / 2, L.BeltY - 0.2, 0),
+			alongExit((faceDist - 0.2) / 2, L.BeltY - 0.35, 0),
 			COLORS.belt, Enum.Material.SmoothPlastic)
 		ramp.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
 
@@ -19054,11 +19060,13 @@ __MODULES["Vault"] = function()
 		-- 100% of its value, not a fraction of it. The sensor owns the whole
 		-- run-off — belt end to face, a stud proud of the surface either way —
 		-- so a drop that bounces, drifts or settles anywhere on the intake still
-		-- ENTERS the volume and collects. It was a 5-stud slice at the belt end,
-		-- and a drop that cleared it airborne was never seen again.
+		-- ENTERS the volume and collects. Twelve studs TALL, because the failure
+		-- this family keeps re-finding is vertical: a drop popped upward by a
+		-- bunched queue or a bounce arcs over a short volume and is never seen
+		-- again.
 		local sensor = newPart(folder, "Sensor",
-			Vector3.new(L.BeltWidth + 3, 7, faceDist + 1.5),
-			alongExit((faceDist - 0.3) / 2, L.BeltY + 3, 0),
+			Vector3.new(L.BeltWidth + 3, 12, faceDist + 1.5),
+			alongExit((faceDist - 0.3) / 2, L.BeltY + 4.5, 0),
 			Color3.fromRGB(255, 255, 255), Enum.Material.Neon, false)
 		sensor.Transparency = 1
 		sensor.CanTouch = true
