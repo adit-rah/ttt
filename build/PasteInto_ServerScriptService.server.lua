@@ -19028,23 +19028,37 @@ __MODULES["Vault"] = function()
 			return self.cf * CFrame.lookAt(point, point + exitDir)
 		end
 
+		-- How far the vault's near face stands past the belt end. Everything
+		-- below is sized off it, so the intake ATTACHES whatever the spacing:
+		-- the fixed-length ramp it replaces stopped three studs short of the
+		-- face, and a drop that bounced on the lip fell into the gap and sat at
+		-- the vault's foot until the reaper took it (#162 tophat).
+		local faceDist = runOff - bodyDepth / 2
+
 		-- funnel mouth facing back down the belt
 		local mouth = newPart(folder, "Mouth", Vector3.new(bodyWidth - 6, 6, 1.5),
-			alongExit(runOff - bodyDepth / 2 - 0.5, L.BeltY + 3, 0),
+			alongExit(faceDist - 0.5, L.BeltY + 3, 0),
 			Color3.fromRGB(30, 24, 40), Enum.Material.Neon, false)
 		mouth.Transparency = 0.5
 
-		-- run-off ramp carrying drops off the end of the belt into the sensor
-		local ramp = newPart(folder, "Ramp", Vector3.new(L.BeltWidth, 0.6, 5), alongExit(2.4, L.BeltY - 0.2, 0),
+		-- The run-off ramp spans the WHOLE gap: tucked 0.6 under the belt's end,
+		-- kissing 0.4 into the vault's face, so there is no seam for a tumbling
+		-- drop to fall through.
+		local rampRun = faceDist + 1.0
+		local ramp = newPart(folder, "Ramp", Vector3.new(L.BeltWidth, 0.6, rampRun),
+			alongExit((faceDist - 0.2) / 2, L.BeltY - 0.2, 0),
 			COLORS.belt, Enum.Material.SmoothPlastic)
 		ramp.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
 
-		-- The most expensive one to miss: a drop the collector does not see is 100%
-		-- of its value, not a fraction of it. It sits at alongExit(2), so at 5
-		-- thick it spans -0.5..4.5 against a vault mouth well downstream — no
-		-- overlap.
-		local sensor = newPart(folder, "Sensor", Vector3.new(L.BeltWidth + 3, 7, L.TriggerThickness),
-			alongExit(2, L.BeltY + 3, 0),
+		-- The most expensive one to miss: a drop the collector does not see is
+		-- 100% of its value, not a fraction of it. The sensor owns the whole
+		-- run-off — belt end to face, a stud proud of the surface either way —
+		-- so a drop that bounces, drifts or settles anywhere on the intake still
+		-- ENTERS the volume and collects. It was a 5-stud slice at the belt end,
+		-- and a drop that cleared it airborne was never seen again.
+		local sensor = newPart(folder, "Sensor",
+			Vector3.new(L.BeltWidth + 3, 7, faceDist + 1.5),
+			alongExit((faceDist - 0.3) / 2, L.BeltY + 3, 0),
 			Color3.fromRGB(255, 255, 255), Enum.Material.Neon, false)
 		sensor.Transparency = 1
 		sensor.CanTouch = true
