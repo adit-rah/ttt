@@ -9,11 +9,10 @@
 	progression simulation reads it raw. Change the shape in Config and the
 	wrappers stay one line each.
 
-	startIncomeLoop is the PAYER. design:D-02 — no part carries value; the loop
-	adds rate x tick through Economy.add every IncomeTickSeconds while its
-	owner keeps the plot. The loop tests self.owner each cycle, so release
-	kills it, a rebirth leaves it running against the freshly wiped `owned`,
-	and assign's owner guard means a plot can never carry two loops.
+	THE PAYER LIVES IN Vault.lua NOW (design:D-02, via #180): a collected
+	tung pays its dropper's value through Config.dropPayout and the live
+	multiplier stack, and a tung that never reaches the vault pays nothing.
+	incomeRate stays the quote and the mirror — the drops' long-run average.
 
 	updateSign has a ONE-WRITER RULE. PlotService repaints every sign on a
 	3-second beat and VaultService recomputes the gauge on its own schedule, so
@@ -48,35 +47,12 @@ function Tycoon:incomePerSecond(extraId: string?): number
 	return Config.incomeRate(has) * rebirthMult
 end
 
---- Pays the owner what the factory makes, on a fixed cadence.
----
---- The loop's liveness test is `self.owner == owner` and nothing else:
---- release nils the owner and the loop dies with it; rebirth keeps the owner,
---- so the loop survives and next tick reads the wiped `owned` fresh — no
---- restart and nothing accumulated. assign refuses an owned plot, so a second
---- loop cannot start while this one lives.
----
---- The rate is re-derived from `owned` every cycle for the same reason
---- self.powerFactor is assigned and never accumulated: a cached rate is a
---- second copy of the model, and second copies drift (#35).
-function Tycoon:startIncomeLoop(owner: Player)
-	task.spawn(function()
-		while self.owner == owner do
-			task.wait(Config.Economy.IncomeTickSeconds)
-			if self.owner ~= owner then
-				return
-			end
-			local rate = Config.incomeRate(function(id)
-				return self.owned[id] == true
-			end)
-			if rate > 0 then
-				-- `true` applies Economy.multiplier — rebirth and the session
-				-- hooks — exactly as the vault's per-drop payout did.
-				Economy.add(owner, rate * Config.Economy.IncomeTickSeconds, true)
-			end
-		end
-	end)
-end
+-- design:D-02, via #180 — startIncomeLoop IS GONE. The live plot's payer is
+-- Tycoon:onCollect: a tung that enters the vault pays its dropper's value
+-- through Config.dropPayout and the live multiplier stack, and a tung that
+-- never arrives pays nothing. incomeRate stays the quote, the mirror and
+-- the simulation — the drops' long-run average — which is why this file
+-- keeps incomePerSecond and lost the loop.
 
 --- One line of plain English for what a button actually does for you. Income
 --- kinds get the measured delta; the rest get their blurb, because "walls" has

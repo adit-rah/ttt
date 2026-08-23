@@ -70,7 +70,6 @@ function Tycoon:assign(player: Player)
 	self:refreshButtons()
 	self:updateSign()
 	self:fireOwnedChanged()
-	self:startIncomeLoop(player)
 	self:resetStorage()
 	return true
 end

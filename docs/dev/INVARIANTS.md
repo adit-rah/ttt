@@ -156,13 +156,16 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **Rebirth payout compounds** (`MultiplierPerRebirth ^ rebirths`). A linear bonus against a
   geometric cost curve dead-ends the prestige loop after two or three. `[assert]`
   "MultiplierPerRebirth must be > 1" plus the rebirth cost-ratio check.
-- **The generator's belt-speed/drop-rate cancellation assertion is DELETED, not retuned.**
-  It existed so the drop cap could not eat income; no part carries income now, so its
-  stated reason is false and an assertion whose argument is gone can only fail for a reason
-  its message lies about. The picture it protected is held by the occupancy and
-  visual-budget checks, whose messages name the cosmetic cost. The generator still scales
-  both numbers — `dropInterval` divides by the cached factor and `refreshBeltSpeed`
-  multiplies by it — so the visuals stay coupled by mechanism rather than by assertion.
+- **The live plot pays PER COLLECTED TUNG** (design:D-02, via #180): a drop stamps its
+  dropper's raw value at spawn and `onCollect` pays it through `Config.dropPayout` — every
+  owned upgrader times the generator, the FULL stack whichever side's arches it crossed —
+  and the live multiplier stack. `Config.incomeRate` stays the quote, the offline mirror
+  and the pacing model, because it is the drops' long-run average, and a spec pins the
+  identity: payout over rate summed across owned droppers equals the rate exactly. Live
+  pay is lumpy (one transit late) and LOSSY on purpose — a launched, jammed, capped or
+  reaped tung is income that never arrives, which is what makes the belt fixes and the
+  drop budget load-bearing for the economy. `[spec]` `income_spec.lua`: the payout, the
+  once-only Collected claim, the owner guard, and the identity.
 - **`self.powerFactor` must be ASSIGNED, from `Config.powerFactor(owns)` — derived, never
   accumulated.** This is #35: the field was initialised to 1, reset to 1, and assigned
   nowhere, so the belt and every dropper ran at stock speed for two rounds while the HUD
@@ -280,9 +283,9 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   is harmless at an upgrader or a collector; at a corner it cuts the corner. `[nothing]`
 - **The belt has to physically fit the drops it carries**: ≤75% occupancy per belt, and total
   drops in flight summed across *every* floor within `MaxDropsPerPlot`, because `spawnDrop`'s
-  counter is per plot. Drops are cosmetic, so the cost of a violation is the picture: over
-  occupancy the line jams and reads as broken, over the budget new drops stop being drawn
-  and a rich plot looks emptier than a mid one. `[assert]` "the plot carries %.0f drops at
+  counter is per plot. Drops carry the money (#180), so the cost of a violation stopped
+  being the picture: over occupancy the line jams, and over the budget spawnDrop refuses —
+  income that never arrives. `[assert]` "the plot carries %.0f drops at
   peak across %d belts".
 - **A dropper cannot be sped past 0.2 s even at top power**, or it floods physics. `[assert]`
 - **A belt path is a polyline that states its own height and carries one outboard side per

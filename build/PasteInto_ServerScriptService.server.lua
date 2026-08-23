@@ -1124,18 +1124,15 @@ __MODULES["Config"] = function()
 		-- MUST be >= the cheapest button with no requirements, or a fresh player
 		-- has no income and no way to ever buy their first dropper.
 		StartingCash = 100,
-		-- design:D-02 — income is Config.incomeRate added on this cadence, by
-		-- Tycoon:startIncomeLoop. Longer than Economy's 0.1s replication
-		-- coalescer, short enough that the counter visibly moves.
-		IncomeTickSeconds = 1,
 		-- Seconds before an orphaned drop despawns. A drop that misses the
 		-- collect sensor stands at the run-off holding a budget slot until this
 		-- reaper takes it; a full ride is ~6s, so 15 is margin without the pile
 		-- of stragglers 45 left standing at the vault (#162 tophat).
 		DropLifetime = 15,
-		-- The VISUAL budget: drops are cosmetic, so past this cap a drop simply
-		-- is not drawn and nothing is lost. Still a hard cap — a mega-tycoon's
-		-- parts in flight is a server cost whatever the drops are worth. 80
+		-- THE INCOME BUDGET since #180: a tung past this cap is not spawned and
+		-- its money never arrives, so the verifier's in-flight model must keep
+		-- peak occupancy under it. Still a hard cap — a mega-tycoon's parts in
+		-- flight is a server cost whatever the drops are worth. 80
 		-- since #109: eleven belts share it, and the strips' slow spawners put
 		-- the modelled peak at 75.
 		MaxDropsPerPlot = 80,
@@ -2165,26 +2162,51 @@ __MODULES["Config"] = function()
 		return factor
 	end
 
-	--- design:D-02 — THE income model, in the one file all three readers reach.
-	--- Tung/sec for a factory owning `has(id)`: dropper value over rate, summed,
-	--- times every owned upgrader, times the generator. Per-player terms (rebirth,
-	--- session multipliers) belong to the callers — Tycoon:incomePerSecond adds
-	--- the live multiplier stack, SessionService.incomePerSecondFor adds the
-	--- rebirth term from a saved profile, and the verifier's progression
-	--- simulation uses this number raw. Pure arithmetic, like Config.powerFactor,
-	--- so the verifier can execute it.
-	function Config.incomeRate(has: (string) -> boolean): number
-		local total, upgradeMult = 0, 1
+	--- design:D-02, via #180 — the plot-wide multiplier a finished drop is worth:
+	--- every owned upgrader, times the generator. The FULL stack, deliberately,
+	--- whichever side's arches the drop physically crossed: after the mirrored
+	--- line split a drop only passes its own path's three upgraders, and a
+	--- per-side stack would halve the effective multiplier and break every
+	--- price on the curve. The arch flash is theatre; this is the accounting.
+	function Config.plotMultiplier(has: (string) -> boolean): number
+		local upgradeMult = 1
 		for id, def in pairs(Config.ButtonById) do
-			if has(id) then
-				if def.kind == "Dropper" then
-					total += def.dropValue / def.dropRate
-				elseif def.kind == "Upgrader" then
-					upgradeMult *= def.multiplier
-				end
+			if has(id) and def.kind == "Upgrader" then
+				upgradeMult *= def.multiplier
 			end
 		end
-		return total * upgradeMult * Config.powerFactor(has)
+		return upgradeMult * Config.powerFactor(has)
+	end
+
+	--- design:D-02, via #180 — what ONE collected tung pays, before the
+	--- per-player terms: its dropper's value through the plot multiplier. The
+	--- live plot's payer since #180; onCollect is its one caller in the game.
+	function Config.dropPayout(dropValue: number, has: (string) -> boolean): number
+		return dropValue * Config.plotMultiplier(has)
+	end
+
+	--- design:D-02 — THE income model, in the one file all readers reach.
+	--- Tung/sec for a factory owning `has(id)`: dropper value over rate, summed,
+	--- through the plot multiplier. Per-player terms (rebirth, session
+	--- multipliers) belong to the callers — Tycoon:incomePerSecond adds the live
+	--- multiplier stack, SessionService.incomePerSecondFor adds the rebirth term
+	--- from a saved profile, and the verifier's progression simulation uses this
+	--- number raw.
+	---
+	--- SINCE #180 THE LIVE PLOT PAYS THROUGH THE DROPS, and this rate is their
+	--- long-run average — each owned dropper lands dropPayout(dropValue) every
+	--- dropRate seconds — so the quote, the mirror and the simulation still read
+	--- one model while the conveyor carries the actual money. Live pay is lumpy
+	--- (one belt transit late) and LOSSY on purpose: a tung that never reaches
+	--- the vault is income that never arrives.
+	function Config.incomeRate(has: (string) -> boolean): number
+		local total = 0
+		for id, def in pairs(Config.ButtonById) do
+			if has(id) and def.kind == "Dropper" then
+				total += def.dropValue / def.dropRate
+			end
+		end
+		return total * Config.plotMultiplier(has)
 	end
 
 	Config.Combat = {
@@ -16474,9 +16496,13 @@ __MODULES["Drops"] = function()
 		tycoon/Drops.lua — spawning the things the belt carries, and the budget that
 		stops a finished factory spawning without limit.
 
-		DROPS ARE COSMETIC. design:D-02 — income is Config.incomeRate on a timer
-		(tycoon/Income.lua:startIncomeLoop); no part carries value. A drop exists to
-		make a producing plot look like one, and losing every drop costs nothing.
+		DROPS CARRY THE MONEY. design:D-02, via #180 — a tung stamps its
+		dropper's value at spawn and PAYS it at the vault, through the plot
+		multiplier and the live session stack. A tung that never reaches the
+		collector — launched, jammed, cleared, reaped — is income that never
+		arrives, which is what makes the conveyor the real indication of how the
+		money is made. Config.incomeRate stays the quote, the offline mirror and
+		the pacing model: it is the drops' long-run average.
 
 		ONE CONSTRAINT AND ONE MODEL. The constraint: a LinearVelocity in Plane mode
 		plus an AlignOrientation, so a drop costs no per-frame script and physically
@@ -16490,10 +16516,11 @@ __MODULES["Drops"] = function()
 		drop built without them sails off the first bend and stands wherever it
 		lands until the reaper takes it.
 
-		Config.Economy.MaxDropsPerPlot and self.dropCount are the VISUAL budget.
-		Every path that removes a drop — collected, expired, cleared — has to
-		decrement the count, or the counter drifts up to the cap and the plot
-		silently stops dropping.
+		Config.Economy.MaxDropsPerPlot and self.dropCount are the INCOME budget
+		since #180: a spawn the cap refuses is money that never arrives. Every
+		path that removes a drop — collected, expired, cleared — has to decrement
+		the count, or the counter drifts up to the cap and the plot silently
+		stops earning.
 
 		THE POOL RECYCLES BODIES, per variant. A finished factory retires ~10
 		drops a second, and building a Model with constraints for each one is the
@@ -16541,6 +16568,10 @@ __MODULES["Drops"] = function()
 			drop:SetAttribute("Variant", def.variant)
 		end
 		drop:SetAttribute("PlotIndex", self.index)
+		-- The money this tung is worth at the vault, before multipliers — stamped
+		-- raw so the stack is read fresh at COLLECTION and a mid-ride upgrade
+		-- pays through on everything still on the belt (#180).
+		drop:SetAttribute("DropValue", def.dropValue)
 
 		-- Which belt, and how far along it: the corner sensors and the collector
 		-- all filter on these, so a drop on the mezzanine is invisible to the
@@ -16685,11 +16716,10 @@ __MODULES["Income"] = function()
 		progression simulation reads it raw. Change the shape in Config and the
 		wrappers stay one line each.
 
-		startIncomeLoop is the PAYER. design:D-02 — no part carries value; the loop
-		adds rate x tick through Economy.add every IncomeTickSeconds while its
-		owner keeps the plot. The loop tests self.owner each cycle, so release
-		kills it, a rebirth leaves it running against the freshly wiped `owned`,
-		and assign's owner guard means a plot can never carry two loops.
+		THE PAYER LIVES IN Vault.lua NOW (design:D-02, via #180): a collected
+		tung pays its dropper's value through Config.dropPayout and the live
+		multiplier stack, and a tung that never reaches the vault pays nothing.
+		incomeRate stays the quote and the mirror — the drops' long-run average.
 
 		updateSign has a ONE-WRITER RULE. PlotService repaints every sign on a
 		3-second beat and VaultService recomputes the gauge on its own schedule, so
@@ -16724,35 +16754,12 @@ __MODULES["Income"] = function()
 		return Config.incomeRate(has) * rebirthMult
 	end
 
-	--- Pays the owner what the factory makes, on a fixed cadence.
-	---
-	--- The loop's liveness test is `self.owner == owner` and nothing else:
-	--- release nils the owner and the loop dies with it; rebirth keeps the owner,
-	--- so the loop survives and next tick reads the wiped `owned` fresh — no
-	--- restart and nothing accumulated. assign refuses an owned plot, so a second
-	--- loop cannot start while this one lives.
-	---
-	--- The rate is re-derived from `owned` every cycle for the same reason
-	--- self.powerFactor is assigned and never accumulated: a cached rate is a
-	--- second copy of the model, and second copies drift (#35).
-	function Tycoon:startIncomeLoop(owner: Player)
-		task.spawn(function()
-			while self.owner == owner do
-				task.wait(Config.Economy.IncomeTickSeconds)
-				if self.owner ~= owner then
-					return
-				end
-				local rate = Config.incomeRate(function(id)
-					return self.owned[id] == true
-				end)
-				if rate > 0 then
-					-- `true` applies Economy.multiplier — rebirth and the session
-					-- hooks — exactly as the vault's per-drop payout did.
-					Economy.add(owner, rate * Config.Economy.IncomeTickSeconds, true)
-				end
-			end
-		end)
-	end
+	-- design:D-02, via #180 — startIncomeLoop IS GONE. The live plot's payer is
+	-- Tycoon:onCollect: a tung that enters the vault pays its dropper's value
+	-- through Config.dropPayout and the live multiplier stack, and a tung that
+	-- never arrives pays nothing. incomeRate stays the quote, the mirror and
+	-- the simulation — the drops' long-run average — which is why this file
+	-- keeps incomePerSecond and lost the loop.
 
 	--- One line of plain English for what a button actually does for you. Income
 	--- kinds get the measured delta; the rest get their blurb, because "walls" has
@@ -17690,7 +17697,6 @@ __MODULES["Ownership"] = function()
 		self:refreshButtons()
 		self:updateSign()
 		self:fireOwnedChanged()
-		self:startIncomeLoop(player)
 		self:resetStorage()
 		return true
 	end
@@ -18999,15 +19005,14 @@ __MODULES["Vault"] = function()
 		tycoon/Vault.lua — the collector at the end of a belt, the gauge on its side,
 		and where a drop's ride ends.
 
-		onCollect RETIRES A DROP. design:D-02 — income is Config.incomeRate on a
-		timer (tycoon/Income.lua:startIncomeLoop) and no part carries value, so the
-		collector's job is to take a finished drop off the belt, return its slot to
-		the visual budget, and play the payout dressing. It claims the drop with a
-		Collected flag because Touched fires twice. A drop the sensor does not see
-		stands at the run-off until the reaper takes it, holding a budget slot the
-		whole time — which is why buildCollector ASSERTS that the vault shell stays
-		downstream of the run-off and why the trigger is Layout.TriggerThickness
-		deep rather than one stud.
+		onCollect IS THE PAYER. design:D-02, via #180 — a tung carries its
+		dropper's value, and entering the vault pays it through Config.dropPayout
+		(every owned upgrader x the generator) and the live multiplier stack. It
+		claims the drop with a Collected flag because Touched fires twice, and a
+		double-firing sensor paying twice would mint money. A drop the sensor
+		does not see is INCOME LOST — it stands at the run-off until the reaper
+		takes it, unpaid — which is why buildCollector ASSERTS the vault shell
+		stays downstream of the run-off and why the sensor owns the whole intake.
 
 		setVaultGauge DECIDES NOTHING. All four of its values are worked out by
 		VaultService, which is the module allowed to know what offline earnings are.
@@ -19022,6 +19027,7 @@ __MODULES["Vault"] = function()
 
 	local Req = __Req
 	local Config = Req("Config")
+	local Economy = Req("Economy")
 	local Style = Req("Style")
 	local Util = Req("Util")
 	local Fx = Req("Fx")
@@ -19291,14 +19297,28 @@ __MODULES["Vault"] = function()
 		-- would count one drop out twice and starve the spawners.
 		local owner = self.owner
 		if owner and owner.Parent then
+			-- design:D-02, via #180 — THE PAYMENT. A collected tung pays its
+			-- dropper's value through the plot multiplier and the live session
+			-- stack, and this is the game's ONE live payer: a tung that never
+			-- reaches this line is income that never arrives. The Collected flag
+			-- above is what makes the double-firing Touched pay once.
+			local dropValue = model:GetAttribute("DropValue")
+			local paid = 0
+			if type(dropValue) == "number" and dropValue > 0 then
+				paid = Config.dropPayout(dropValue, function(id)
+					return self.owned[id] == true
+				end)
+				Economy.add(owner, paid, true)
+			end
+
 			-- late game the vault eats ~10 drops/sec; throttle the confetti so a
-			-- finished factory doesn't spam hundreds of billboards per minute. The
-			-- figure quoted is the plot's rate — the drop itself is worth nothing.
+			-- finished factory doesn't spam hundreds of billboards per minute.
 			local now = os.clock()
 			if now - (self.lastPayoutFx or 0) > 0.3 then
 				self.lastPayoutFx = now
 				Fx.floatingText(hit.Position + Vector3.new(0, 3, 0),
-					"+" .. Util.abbreviate(self:incomePerSecond()) .. "/sec", COLORS.gold, self.model)
+					"+" .. Util.abbreviate(paid > 0 and paid * Economy.multiplier(owner) or self:incomePerSecond()),
+					COLORS.gold, self.model)
 				Fx.tung(hit, 0.9 + math.random() * 0.35, 0.18)
 			end
 		end

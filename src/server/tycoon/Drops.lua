@@ -2,9 +2,13 @@
 	tycoon/Drops.lua — spawning the things the belt carries, and the budget that
 	stops a finished factory spawning without limit.
 
-	DROPS ARE COSMETIC. design:D-02 — income is Config.incomeRate on a timer
-	(tycoon/Income.lua:startIncomeLoop); no part carries value. A drop exists to
-	make a producing plot look like one, and losing every drop costs nothing.
+	DROPS CARRY THE MONEY. design:D-02, via #180 — a tung stamps its
+	dropper's value at spawn and PAYS it at the vault, through the plot
+	multiplier and the live session stack. A tung that never reaches the
+	collector — launched, jammed, cleared, reaped — is income that never
+	arrives, which is what makes the conveyor the real indication of how the
+	money is made. Config.incomeRate stays the quote, the offline mirror and
+	the pacing model: it is the drops' long-run average.
 
 	ONE CONSTRAINT AND ONE MODEL. The constraint: a LinearVelocity in Plane mode
 	plus an AlignOrientation, so a drop costs no per-frame script and physically
@@ -18,10 +22,11 @@
 	drop built without them sails off the first bend and stands wherever it
 	lands until the reaper takes it.
 
-	Config.Economy.MaxDropsPerPlot and self.dropCount are the VISUAL budget.
-	Every path that removes a drop — collected, expired, cleared — has to
-	decrement the count, or the counter drifts up to the cap and the plot
-	silently stops dropping.
+	Config.Economy.MaxDropsPerPlot and self.dropCount are the INCOME budget
+	since #180: a spawn the cap refuses is money that never arrives. Every
+	path that removes a drop — collected, expired, cleared — has to decrement
+	the count, or the counter drifts up to the cap and the plot silently
+	stops earning.
 
 	THE POOL RECYCLES BODIES, per variant. A finished factory retires ~10
 	drops a second, and building a Model with constraints for each one is the
@@ -69,6 +74,10 @@ function Tycoon:spawnDrop(def, nozzle: BasePart, legIndex: number, pathIndex: nu
 		drop:SetAttribute("Variant", def.variant)
 	end
 	drop:SetAttribute("PlotIndex", self.index)
+	-- The money this tung is worth at the vault, before multipliers — stamped
+	-- raw so the stack is read fresh at COLLECTION and a mid-ride upgrade
+	-- pays through on everything still on the belt (#180).
+	drop:SetAttribute("DropValue", def.dropValue)
 
 	-- Which belt, and how far along it: the corner sensors and the collector
 	-- all filter on these, so a drop on the mezzanine is invisible to the

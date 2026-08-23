@@ -77,7 +77,27 @@ T.spec("a buy button's advertised delta is the model's delta", function(t)
 		"the +N/sec a pad advertises must be the model's own delta")
 end)
 
-T.spec("the tick pays rate x seconds x the live multiplier", function(t)
+--- A tung standing at a collect sensor, in the shape onCollect reads: a
+--- Model with a body, the routing attributes, and its dropper's raw value.
+local function fakeDrop(w, plotIndex, dropValue)
+	local drop = Instance.new("Model")
+	local body = Instance.new("Part")
+	body.Position = Vector3.new(0, 0, 0)
+	body.Parent = drop
+	drop.PrimaryPart = body
+	drop:SetAttribute("PlotIndex", plotIndex)
+	drop:SetAttribute("Variant", "classic")
+	drop:SetAttribute("DropValue", dropValue)
+	drop.Parent = Instance.new("Folder")
+	return drop, body
+end
+
+T.spec("a collected tung pays its dropper's value through the full stack, once", function(t)
+	-- design:D-02, via #180 — onCollect is the game's ONE live payer. What is
+	-- pinned: the payout is dropPayout (value x every owned upgrader x the
+	-- generator) times the live multiplier, the stack is read fresh at
+	-- COLLECTION, and the double-firing Touched pays exactly once through
+	-- the Collected flag.
 	local w = T.world()
 	local Config = w.config
 	local Data = w.req("DataService")
@@ -85,55 +105,93 @@ T.spec("the tick pays rate x seconds x the live multiplier", function(t)
 	local player = w.join("earner")
 	local profile = Data.load(player)
 
-	local owned = { dropper1 = true, upgrader1 = true, power1 = true }
+	local owned = { dropper2 = true, upgrader1 = true, power1 = true }
 	local plot = fakePlot(w, owned)
 	plot.owner = player
-	plot:startIncomeLoop(player)
+	plot.index = 1
+	plot.dropCount = 1
+	plot.dropPool = {}
+	plot.model = Instance.new("Model")
 
+	local value = Config.ButtonById.dropper2.dropValue
+	local drop, body = fakeDrop(w, 1, value)
 	local before = profile.cash
-	local ticks = 10
-	w.clock:advance(ticks * Config.Economy.IncomeTickSeconds)
+	plot:onCollect(body)
 
-	local rate = Config.incomeRate(function(id) return owned[id] == true end)
-	local expected = rate * ticks * Config.Economy.IncomeTickSeconds * Economy.multiplier(player)
-	t:near(profile.cash - before, expected, 1e-6,
-		"ten ticks must pay exactly ten seconds of the quoted rate")
+	local expected = Config.dropPayout(value, function(id) return owned[id] == true end)
+		* Economy.multiplier(player)
+	t:near(profile.cash - before, expected, 1e-9,
+		"one tung must pay its value through the plot multiplier and the live stack")
+	t:isNil(drop.Parent, "the collected tung was not recycled off the belt")
+	t:eq(plot.dropCount, 0, "the visual budget slot never came back")
+
+	plot:onCollect(body)
+	t:near(profile.cash - before, expected, 1e-9,
+		"Touched fires twice and the second firing paid a second time")
 end)
 
-T.spec("release kills the loop; rebirth leaves it reading the wiped plot", function(t)
+T.spec("a tung pays the owner alone, and the stack it pays through is the one owned now", function(t)
+	-- The wipe/rebirth property the old income loop carried, restated for the
+	-- collector: no owner means no payment (the slot still returns), and the
+	-- multiplier is read at collection — a tung spawned before an upgrader
+	-- was bought pays through it, and one collected after a rebirth wipe
+	-- pays the bare value.
 	local w = T.world()
 	local Config = w.config
 	local Data = w.req("DataService")
+	local Economy = w.req("Economy")
 	local player = w.join("cycler")
 	local profile = Data.load(player)
 
-	local owned = { dropper1 = true }
+	local owned = { dropper1 = true, upgrader1 = true }
 	local plot = fakePlot(w, owned)
 	plot.owner = player
-	plot:startIncomeLoop(player)
-	w.clock:advance(3 * Config.Economy.IncomeTickSeconds)
-	t:gt(profile.cash, Config.Economy.StartingCash, "the loop never paid at all")
+	plot.index = 1
+	plot.dropCount = 2
+	plot.dropPool = {}
+	plot.model = Instance.new("Model")
+	local value = Config.ButtonById.dropper1.dropValue
 
-	-- a rebirth keeps the owner and wipes `owned`; the SAME loop must read
-	-- the wiped table next tick and pay the new rate, which here is zero
+	-- the wipe: same plot, owned emptied mid-ride
 	for id in pairs(owned) do
 		owned[id] = nil
 	end
-	local atRebirth = profile.cash
-	w.clock:advance(5 * Config.Economy.IncomeTickSeconds)
-	t:near(profile.cash, atRebirth, 1e-9,
-		"the loop kept paying the pre-rebirth rate after the wipe")
+	local drop1, body1 = fakeDrop(w, 1, value)
+	local before = profile.cash
+	plot:onCollect(body1)
+	t:near(profile.cash - before, value * Economy.multiplier(player), 1e-9,
+		"a tung collected after the wipe still paid the wiped upgraders")
+	t:isNil(drop1.Parent)
 
-	-- ...and re-buying starts it earning again with no new loop
-	owned.dropper1 = true
-	w.clock:advance(2 * Config.Economy.IncomeTickSeconds)
-	t:gt(profile.cash, atRebirth, "the surviving loop ignored the re-bought dropper")
-
-	-- release nils the owner; the loop dies with it
+	-- no owner: nothing is paid, the slot still returns
 	plot.owner = nil
+	local drop2, body2 = fakeDrop(w, 1, value)
 	local atRelease = profile.cash
-	w.clock:advance(5 * Config.Economy.IncomeTickSeconds)
-	t:near(profile.cash, atRelease, 1e-9, "the loop outlived the plot's owner")
+	plot:onCollect(body2)
+	t:near(profile.cash, atRelease, 1e-9, "an ownerless plot's tung paid somebody")
+	t:isNil(drop2.Parent, "the ownerless tung was not recycled")
+	t:eq(plot.dropCount, 0, "the ownerless collect kept the budget slot")
+end)
+
+T.spec("the drops' long-run average IS the model", function(t)
+	-- THE IDENTITY, stated as an assertion (#180): every owned dropper lands
+	-- dropPayout(dropValue) each dropRate seconds, so the sum of payout over
+	-- rate must equal Config.incomeRate exactly — this is what lets the HUD
+	-- quote, the offline mirror and the pacing simulation keep reading one
+	-- model while the conveyor carries the actual money.
+	local w = T.world()
+	local Config = w.config
+	local owned = mixedOwned(Config)
+	local has = function(id) return owned[id] == true end
+
+	local average = 0
+	for id, def in pairs(Config.ButtonById) do
+		if owned[id] and def.kind == "Dropper" then
+			average += Config.dropPayout(def.dropValue, has) / def.dropRate
+		end
+	end
+	t:near(average, Config.incomeRate(has), 1e-9,
+		"the per-collection payout has drifted from the rate every other reader quotes")
 end)
 
 T.spec("the model multiplies the whole plot by every upgrader", function(t)

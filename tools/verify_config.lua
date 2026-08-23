@@ -1916,10 +1916,10 @@ checkSpacing("DropperDist", L.DropperDist, leg1)
 checkSpacing("UpgraderDist", L.UpgraderDist, leg2)
 
 -- THROUGHPUT: the belt has to physically fit the drops it carries. Drops are
--- cosmetic (design:D-02 — income is Config.incomeRate on a timer), so what
--- these checks protect is the picture: a belt over occupancy runs
--- bumper-to-bumper and reads as broken, and a plot spawning past the visual
--- budget stops drawing new drops and looks poorer than a plot half its size.
+-- THE MONEY since #180 (design:D-02): a tung pays at the vault, so what
+-- these checks protect stopped being the picture — a belt over occupancy
+-- runs bumper-to-bumper, and a plot spawning past the budget loses the
+-- income of every tung it refused to draw.
 --
 -- MaxDropsPerPlot is a WHOLE-PLOT budget — spawnDrop's counter is per plot, not
 -- per belt — so the cap is checked against the sum over every floor while the
@@ -2008,18 +2008,11 @@ check(fastest >= 0.2,
 		:format(topFactor, fastest))
 
 check(totalInFlight <= Config.Economy.MaxDropsPerPlot,
-	("the plot carries %.0f drops at peak across %d belts but MaxDropsPerPlot is %d — past the visual budget spawnDrop stops drawing, and a finished factory looks emptier than a mid one; raise BeltSpeed or thin a dropper")
+	("the plot carries %.0f drops at peak across %d belts but MaxDropsPerPlot is %d — past the cap spawnDrop refuses, and since #180 a tung not spawned is income that never arrives; raise BeltSpeed or thin a dropper")
 		:format(totalInFlight, #Config.BeltPaths, Config.Economy.MaxDropsPerPlot))
-
--- THE INCOME TICK. Longer than Economy's 0.1s replication coalescer or the
--- drain loop batches nothing, and short enough that the cash counter visibly
--- moves while you stand on your plot.
-check(Config.Economy.IncomeTickSeconds > 0.1,
-	("IncomeTickSeconds is %.2f — at or under Economy's 0.1s replication drain the coalescer batches nothing")
-		:format(Config.Economy.IncomeTickSeconds))
-check(Config.Economy.IncomeTickSeconds <= 5,
-	("IncomeTickSeconds is %.2f — past 5s the cash counter reads as stuck rather than earning")
-		:format(Config.Economy.IncomeTickSeconds))
+-- The IncomeTickSeconds pair stood here and retired with the income loop
+-- (design:D-02, via #180): the live payer is the collect sensor, so the
+-- cadence the cash counter moves at is the belt's own.
 
 -- THE STORAGE UNIT (#93). The numbers are a state machine's, so the checks
 -- are about the states being reachable: a unit that cannot break, a repair
