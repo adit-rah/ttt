@@ -83,8 +83,9 @@ source of truth and re-run the packer after any change.
   and one pad, and the pad upgrades what is standing there rather than adding
   another one beside it. Each rung speeds up the droppers and the belt together
   — the belt half is what stops a faster line simply running out of room.
-- The plot's **shell** — walls, then gates — is a separate
-  ladder running alongside the factory, so scenery never blocks income.
+- The plot's **shell** — walls, gates, then four masonry tiers that turn the
+  wooden castle to stone and toughen it — is a separate ladder running
+  alongside the factory, so scenery never blocks income.
 - The **Bat Forge** buttons upgrade your weapon, six tiers from Sahur Bat to
   Eclipse. Bats are ordinary Roblox `Tool`s, so the built-in hotbar and backpack
   equip them.
@@ -203,7 +204,7 @@ Supported `kind` values and what each needs:
 | `Dropper` | `slot`, `variant`, `dropValue`, `dropRate` | machine + spout + drop loop on belt leg 1 |
 | `Upgrader` | `slot`, `variant`, `multiplier` | scanner over belt leg 2 that multiplies passing drops |
 | `Belt` | `speedBonus` | speeds up the conveyor |
-| `Structure` | `structure` (`"walls"` / `"gates"`) | plot buildout, one instalment at a time |
+| `Structure` | `structure` (`"walls"` / `"gates"` / a masonry tier) | plot buildout, one instalment at a time |
 | `Gear` | `grants` (a `Config.Bats` id) | anvil display + weapon upgrade |
 | `Armor` | `grants` (a `Config.Armor.Tiers` id) | cabinet shelf + max-health upgrade |
 | `Power` | `factor`, `variant` | the generator in the yard; speeds up droppers and belt together |

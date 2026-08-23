@@ -37,6 +37,18 @@ T.spec("the siege level is the land plus one, and health follows it", function(t
 	t:eq(grown:siegeLevel(), 4, "three expansions must make level 4")
 	t:gt(grown:siegeMaxHealth("gate_gateway"), bare:siegeMaxHealth("gate_gateway"),
 		"land did not toughen the gate")
+
+	-- ...and the masonry is the second axis (#162): a tier owned is a
+	-- PerTier step on walls AND gates, with the arithmetic pinned to the
+	-- same Config functions the verifier's grid walks.
+	local stone = fakePlot(w, nil, { walls = true, gates = true, cobble = true })
+	t:eq(stone:masonryTiers(), 1)
+	t:eq(stone:siegeMaxHealth("wall_front"), Config.wallMaxHealth(1, 1),
+		"a cobbled wall's health is not the level-1 tier-1 number")
+	t:eq(stone:siegeMaxHealth("gate_gateway"), Config.gateMaxHealth(1, 1),
+		"a cobbled plot's gate missed its tier step")
+	t:gt(stone:siegeMaxHealth("wall_front"), bare:siegeMaxHealth("wall_front"),
+		"masonry did not toughen the wall")
 end)
 
 T.spec("damage accumulates per key and the wall breaks exactly at zero", function(t)

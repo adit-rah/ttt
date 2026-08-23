@@ -347,16 +347,25 @@ __MODULES["Config"] = function()
 		-- pedestal clear of OwnerSpawnAt (14, 44); at x = 8 the far one lands 10
 		-- studs away and you respawn standing on a buy button.
 		MiscButtons = {
-			walls     = Vector3.new(0, 0, -34),
-			gates     = Vector3.new(0, 0, -20),
-			belt1     = Vector3.new(0, 0,  -6),
+			walls      = Vector3.new(0, 0, -34),
+			gates      = Vector3.new(0, 0, -22),
+			cobble     = Vector3.new(0, 0, -10),
+			belt1      = Vector3.new(0, 0,   2),
+			stone      = Vector3.new(0, 0,  14),
+			slate      = Vector3.new(0, 0,  26),
+			stonebrick = Vector3.new(0, 0,  38),
 			-- The column runs in purchase order with the later steps nearer the
-			-- gate. Every key here must name a button id, and every button on a
-			-- misc-furniture track must have a key — both are asserted, because a
-			-- button with no entry used to be built silently at the plot origin,
-			-- on top of the belt.
+			-- gate; belt1 (96,300) sits between cobble and stone by price. Every
+			-- key here must name a button id, and every button on a misc-furniture
+			-- track must have a key — both are asserted, because a button with no
+			-- entry used to be built silently at the plot origin, on top of the
+			-- belt.
 		},
-		MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
+		-- Asserted minimum gap between two MiscButtons. 12, tightened from 14
+		-- when the masonry made the column seven pedestals deep: the far end has
+		-- to stay clear of OwnerSpawnAt (15.2 studs at z = 38) and nothing can go
+		-- behind z = -38.
+		MiscButtonSpacing = 12,
 
 
 		-- MOVED OFF THE RIGHT-HAND WALL, so the armoury can be one straight file.
@@ -1422,7 +1431,7 @@ __MODULES["Config"] = function()
 	--  Upgrader:  variant, multiplier
 	--  Belt:      speedBonus
 	--  Power:     factor (cumulative, not a step), variant. No slot.
-	--  Structure: structure ("walls" | "gates")
+	--  Structure: structure ("walls" | "gates" | "cobble" | "stone" | "slate" | "stonebrick")
 	--  Gear:      grants (a Config.Bats id)
 	--  Armor:     grants (a Config.Armor.Tiers id)
 	--  Land:      side ("left" | "right"), width (studs of X; depth is the plot's)
@@ -1557,12 +1566,21 @@ __MODULES["Config"] = function()
 	-- design:D-03 — the building is a PARALLEL track gated on `dropper1`, so it is
 	-- something you buy alongside the line while the line pays for it.
 	--
-	-- mechanism: WALLS, THEN GATES — the gate leaves hang on the ring, so buying
-	-- them first would be parts attached to a building that is not there yet. The
-	-- wall arrives SOLID and CLOSED and opaque at every point in its life; the
-	-- plot is open to the sky (design:D-02, via #162 — the shell is an open-air
-	-- castle, and the masonry tiers that restyle it arrive with that issue's
-	-- later PRs).
+	-- mechanism: WALLS, THEN GATES, THEN THE MASONRY — the gate leaves hang on
+	-- the ring, so buying them first would be parts attached to a building that
+	-- is not there yet, and each masonry tier restyles the ring that is standing.
+	-- The wall arrives SOLID and CLOSED and opaque at every point in its life;
+	-- the plot is open to the sky (design:D-02, via #162 — the shell is an
+	-- open-air castle sold as masonry: wooden first, stone by instalments, each
+	-- tier a material change on parts that already exist plus a Health bump, so
+	-- the part count never moves and the budget argument survives every tier).
+	--
+	-- THE PRICES SIT BETWEEN SPINE NEIGHBOURS ON PURPOSE: cobble and stone
+	-- after upgrader3 (an income-neutral rung parked earlier landed the armour
+	-- detour's affordability row on flat income and tripped its 4-minute
+	-- limit), slate inside the first land pair, stonebrick in the roof's old
+	-- slot between power2 and power3 — so the merged greedy curve keeps earners
+	-- close and the flat-run guard quiet.
 	Config.StructureButtons = {
 		{
 			id = "walls", name = "Plot Walls", price = 1500,
@@ -1573,6 +1591,26 @@ __MODULES["Config"] = function()
 			id = "gates", name = "Sliding Gates", price = 1600,
 			kind = "Structure", structure = "gates",
 			blurb = "They know when you're coming.",
+		},
+		{
+			id = "cobble", name = "Cobblestone Walls", price = 115000,
+			kind = "Structure", structure = "cobble",
+			blurb = "The mud gets organised.",
+		},
+		{
+			id = "stone", name = "Cut Stone Walls", price = 155000,
+			kind = "Structure", structure = "stone",
+			blurb = "Straight from the quarry.",
+		},
+		{
+			id = "slate", name = "Slate Walls", price = 365000,
+			kind = "Structure", structure = "slate",
+			blurb = "Cold to the touch, colder to raiders.",
+		},
+		{
+			id = "stonebrick", name = "Stone Brick Keep", price = 690000,
+			kind = "Structure", structure = "stonebrick",
+			blurb = "Now it's a real castle.",
 		},
 	}
 
@@ -2938,19 +2976,42 @@ __MODULES["Config"] = function()
 		PartBudget = 200,
 	}
 
+	-- design:D-02, via #162 — THE MASONRY, in tier order. The wall ships wooden;
+	-- each purchase restyles every standing course, lintel and buttress in place
+	-- — the glazing mechanism generalised: a material change on parts that
+	-- already exist, zero new ones — and raises wall and gate health by one
+	-- Health.WallPerTier/GatePerTier step. The gate leaves and the trim keep
+	-- their timber: a castle's doors are wood, and a stone door reads as more
+	-- wall.
+	--
+	-- `material` is an Enum.Material NAME, resolved at build time; whether each
+	-- name is a real material only Studio can say, so the shipped four are on
+	-- the Studio checklist.
+	Config.Structure.Tiers = {
+		{ structure = "cobble",     material = "Cobblestone", color = Color3.fromRGB(124, 120, 112) },
+		{ structure = "stone",      material = "Limestone",   color = Color3.fromRGB(150, 146, 138) },
+		{ structure = "slate",      material = "Slate",       color = Color3.fromRGB(102, 106, 114) },
+		{ structure = "stonebrick", material = "Brick",       color = Color3.fromRGB(146, 140, 130) },
+	}
+
 	-- design:D-02, via #124 — the walls and gate are breakable, and their
-	-- toughness arrives with the land: level = expansions owned + 1, so a grown
-	-- plot is a harder target with no separate wall ladder to climb. The state
-	-- machine is tycoon/Siege.lua; players land damage through CombatService's
-	-- structure observer, mobs will land theirs when #89 lets them reach a wall.
+	-- toughness arrives with the land (level = expansions owned + 1) and with the
+	-- masonry (#162: each tier owned adds a PerTier step), so a grown, stone
+	-- plot is a harder target. The state machine is tycoon/Siege.lua; players
+	-- land damage through CombatService's structure observer, mobs will land
+	-- theirs when #163 lets them reach a wall.
 	Config.Structure.Health = {
 		WallBase = 600,
 		WallPerLevel = 150,
+		WallPerTier = 300,
 		-- The gate is the door a raider is MEANT to break (#94): cheaper than a
 		-- wall, and the verifier holds it to "never one swing, never a siege" for
-		-- every bat at every level.
+		-- every bat at every level and every tier. GatePerTier is bounded above by
+		-- the maxed-break check: past ~96 the starter bat cannot open a fully
+		-- grown stone keep inside 90 seconds.
 		GateBase = 300,
 		GatePerLevel = 75,
+		GatePerTier = 90,
 		-- Same shape as the storage unit's repair: quick, manual, owner-present,
 		-- and it has to finish inside the raid's warning window (asserted).
 		RepairSeconds = 3,
@@ -2975,16 +3036,18 @@ __MODULES["Config"] = function()
 		return math.max(Config.Storage.CapFloor, rate * Config.Storage.CapMinutes * 60)
 	end
 
-	--- A wall's full health at `level` = expansions owned + 1.
-	function Config.wallMaxHealth(level: number): number
+	--- A wall's full health at `level` = expansions owned + 1 and `tiers` =
+	--- masonry tiers owned (default 0, the wooden wall — so every caller that
+	--- predates the masonry stays correct).
+	function Config.wallMaxHealth(level: number, tiers: number?): number
 		local H = Config.Structure.Health
-		return H.WallBase + H.WallPerLevel * (level - 1)
+		return H.WallBase + H.WallPerLevel * (level - 1) + H.WallPerTier * (tiers or 0)
 	end
 
-	--- A gate's full health at the same level.
-	function Config.gateMaxHealth(level: number): number
+	--- A gate's full health at the same level and tier.
+	function Config.gateMaxHealth(level: number, tiers: number?): number
 		local H = Config.Structure.Health
-		return H.GateBase + H.GatePerLevel * (level - 1)
+		return H.GateBase + H.GatePerLevel * (level - 1) + H.GatePerTier * (tiers or 0)
 	end
 
 	-- The one structural line: floor top to the wall's top.
@@ -17177,11 +17240,57 @@ __MODULES["Installers"] = function()
 		return hung
 	end
 
+	--- How many masonry tiers this plot owns. The tier rows are a chain, so the
+	--- count IS the highest tier standing; counting stays correct even under a
+	--- save holding a later tier without an earlier one.
+	function Tycoon:masonryTiers(): number
+		local owned = 0
+		for _, tier in ipairs(Config.Structure.Tiers) do
+			if self:hasStructure(tier.structure) then
+				owned += 1
+			end
+		end
+		return owned
+	end
+
+	--- The material and colour the ring's masonry currently wears: the owned
+	--- tier's, or the wooden default.
+	function Tycoon:masonryLook(): (Enum.Material, Color3)
+		local tier = Config.Structure.Tiers[self:masonryTiers()]
+		if tier then
+			return Enum.Material[tier.material], tier.color
+		end
+		return Enum.Material.WoodPlanks, WALL_COLOR
+	end
+
+	-- The parts a masonry tier restyles: the courses, the lintels and the
+	-- buttresses — the wall itself. The trim and the torches keep their timber,
+	-- and so do the gate leaves: a castle's doors are wood, and a stone door
+	-- reads as more wall.
+	local MASONRY_PREFIXES = { Sill = true, Body = true, Head = true, Lintel = true, Buttress = true }
+
+	--- Restyle the standing ring to the owned tier. The glazing mechanism
+	--- generalised: idempotent, and it adds no parts, which is what keeps
+	--- Config.shellPartCount and the whole PartBudget argument tier-blind.
+	function Tycoon:applyMasonry(model: Instance)
+		local material, color = self:masonryLook()
+		local restyled = 0
+		for _, part in ipairs(model:GetChildren()) do
+			if part:IsA("BasePart") and MASONRY_PREFIXES[part.Name:match("^(%a+)_") or ""] then
+				part.Material = material
+				part.Color = color
+				restyled += 1
+			end
+		end
+		return restyled
+	end
+
 	--- Bring the ring up to whatever this plot has bought.
 	function Tycoon:applyStructureUpgrades(model: Instance)
 		if self:hasStructure("gates") then
 			self:hangGateLeaves(model)
 		end
+		self:applyMasonry(model)
 	end
 
 	--- The wall ring standing on this plot right now, handed to `fn`, or nothing.
@@ -17209,20 +17318,27 @@ __MODULES["Installers"] = function()
 
 		if def.structure == "walls" then
 			self:buildWallRing(model)
-		elseif def.structure == "gates" then
+		else
 			-- ADDITIVE — never a rebuild. The obvious implementation is to re-emit
-			-- the wall with the leaves included, and that would destroy the gate
+			-- the wall with the upgrade included, and that would destroy the gate
 			-- leaves GateService may be mid-tween on and re-emit dozens of parts
 			-- that have not changed. A leaf is a part with nothing standing where
-			-- it goes, so it needs no wall touched.
+			-- it goes, and a masonry tier is a material change on parts already
+			-- standing, so neither needs the wall touched.
 			--
-			-- `model` stays empty for this one and that is deliberate: the leaves
-			-- belong to the ring they hang on, so a rebirth takes them down with
+			-- `model` stays empty for these and that is deliberate: the leaves and
+			-- the restyle belong to the ring, so a rebirth takes them down with
 			-- the wall rather than leaving doors floating in a plot with no shell.
 			-- The entry below still records the model so the object bookkeeping is
-			-- uniform.
+			-- uniform. applySiegeState runs after a restyle so a standing stump
+			-- keeps its char over the new stone.
 			self:withWallRing(function(ring)
-				self:hangGateLeaves(ring)
+				if def.structure == "gates" then
+					self:hangGateLeaves(ring)
+				else
+					self:applyMasonry(ring)
+					self:applySiegeState(ring)
+				end
 			end)
 		end
 
@@ -18203,7 +18319,6 @@ __MODULES["Siege"] = function()
 	local H = S.Health
 
 	local STUMP_COLOR = Color3.fromRGB(64, 48, 38)
-	local WALL_COLOR = Color3.fromRGB(150, 111, 74)
 
 	-- Course prefixes that belong to a wall side. `Sill` is deliberately absent:
 	-- the sill course survives a break as the stump the repair prompt stands on.
@@ -18222,12 +18337,12 @@ __MODULES["Siege"] = function()
 		return counts.left + counts.right + 1
 	end
 
-	--- Full health for one siege key at the current level.
+	--- Full health for one siege key at the current level and masonry tier.
 	function Tycoon:siegeMaxHealth(key: string): number
 		if key:sub(1, 5) == "gate_" then
-			return Config.gateMaxHealth(self:siegeLevel())
+			return Config.gateMaxHealth(self:siegeLevel(), self:masonryTiers())
 		end
-		return Config.wallMaxHealth(self:siegeLevel())
+		return Config.wallMaxHealth(self:siegeLevel(), self:masonryTiers())
 	end
 
 	--- Every siege key this plot has: one per side, one per opening.
@@ -18337,7 +18452,10 @@ __MODULES["Siege"] = function()
 				elseif key then
 					local prefix = part.Name:match("^(%a+)_")
 					if prefix == "Sill" and part.Color == STUMP_COLOR then
-						part.Color = WALL_COLOR
+						-- Healed: back to whatever the masonry currently wears,
+						-- so a stone plot's repaired stump stops reading charred
+						-- without dropping back to wood.
+						part.Color = select(2, self:masonryLook())
 					end
 				else
 					-- The torches resolve to no key — they are dressing — but

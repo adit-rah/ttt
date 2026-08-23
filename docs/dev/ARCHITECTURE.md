@@ -342,7 +342,7 @@ asserts it. Every row needs `id`, `name`, `price`
 | `Upgrader` | placement (below) + `variant`, `multiplier` (> 1) | `INSTALLERS.Upgrader` |
 | `Belt` | `speedBonus` (> 0) | `INSTALLERS.Belt` |
 | `Power` | `factor` (> 1, **cumulative**), `variant`, and **no `slot`** — there is one generator stand and every rung upgrades the machine on it | `INSTALLERS.Power` |
-| `Structure` | `structure` ∈ `{ "walls", "gates" }` | `INSTALLERS.Structure` — a two-line dispatch; it emits what `Config.wallSegments` describes and decides no geometry of its own |
+| `Structure` | `structure` ∈ `{ "walls", "gates" }` ∪ the `Config.Structure.Tiers` names | `INSTALLERS.Structure` — a short dispatch; walls emit what `Config.wallSegments` describes, gates hang leaves, and a masonry tier restyles the standing ring (`applyMasonry`) with no geometry of its own |
 | `Gear` | `grants` → a `Config.Bats` id | `INSTALLERS.Gear` |
 | `Armor` | `grants` → a `Config.Armor` id | `INSTALLERS.Armor` |
 | `Land` | `side` ∈ `{ "left", "right" }`, `width` — one expansion strip of ground, outward from the centre | `INSTALLERS.Land` calls `ensureLand`, and the same reconciler runs on every `refreshButtons` beat |

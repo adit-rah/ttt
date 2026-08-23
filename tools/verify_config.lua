@@ -42,7 +42,10 @@ end
 
 -- installers that Tycoon.lua actually implements
 local KNOWN_KINDS = { Dropper = true, Upgrader = true, Belt = true, Structure = true, Gear = true, Armor = true, Power = true, Land = true }
-local KNOWN_STRUCTURES = { walls = true, gates = true }
+local KNOWN_STRUCTURES = {
+	walls = true, gates = true,
+	cobble = true, stone = true, slate = true, stonebrick = true,
+}
 
 local seenIds, dropperSlots, upgraderSlots = {}, {}, {}
 -- Per TRACK, not global. Prices only have to climb against the other rungs of
@@ -1094,6 +1097,9 @@ do
 			local hit = math.min(Config.Waves.BaseDamage * (Config.Waves.DamageGrowth ^ (level - 1)),
 				Config.Waves.MaxDamage) * SHH.MobDamageScale
 			local dps = hit / cycle * PW.GateSlots
+			-- Tier 0 deliberately: a wooden gate is the FASTEST breach, so
+			-- warning + breach covering the run home at tier 0 covers it at
+			-- every tier — the masonry only ever buys the owner time.
 			local breach = Config.gateMaxHealth(expansions + 1) / dps
 			check(Config.Waves.WarningTime + breach >= runHome,
 				("at %d expansions / %d rebirths the gate falls in %.0fs; warning %ds + breach covers %.0fs but the run home from the centre is %.0fs")
@@ -2953,12 +2959,13 @@ local function openingById(id)
 	return nil
 end
 
--- ── the shell is TWO purchases, in one order ────────────────────────────────
+-- ── the shell is SIX purchases, in one order ────────────────────────────────
 --
--- walls, then gates. The loader derives the chain from table order — which
--- means the ordering is real but nothing states it, and INVARIANTS.md's
--- "table order IS dependency order" is marked [nothing] for exactly this
--- reason. Moving a row is the way to get it wrong and no check refuses it.
+-- walls, then gates, then the four masonry tiers. The loader derives the
+-- chain from table order — which means the ordering is real but nothing
+-- states it, and INVARIANTS.md's "table order IS dependency order" is marked
+-- [nothing] for exactly this reason. Moving a row is the way to get it wrong
+-- and no check refuses it.
 --
 -- SCANNED OVER Config.Buttons, NOT OVER ONE TRACK. This block read
 -- Config.Tracks.factory, which was true when the shell was welded into the
@@ -2983,10 +2990,16 @@ for _, def in ipairs(Config.Buttons) do
 		structureOrder[def.structure] = def.order
 	end
 end
--- GATES NEED WALLS. hangGateLeaves puts its leaves in the wall ring's own
+-- GATES NEED WALLS — hangGateLeaves puts its leaves in the wall ring's own
 -- model, so leaves bought first are parts attached to a building that is not
--- there yet.
-for _, needs in ipairs({ { "gates", "walls" } }) do
+-- there yet — and EVERY MASONRY TIER NEEDS THE ONE BELOW IT, because
+-- masonryTiers counts owned tiers and a skipped rung would wear a lower
+-- tier's look than the one just paid for.
+for _, needs in ipairs({
+	{ "gates", "walls" },
+	{ "cobble", "gates" }, { "stone", "cobble" },
+	{ "slate", "stone" }, { "stonebrick", "slate" },
+}) do
 	local later, earlier = needs[1], needs[2]
 	check(structureOrder[later] ~= nil,
 		("no button anywhere builds %q; INSTALLERS.Structure has a case for it that can never run"):format(later))
@@ -3012,6 +3025,41 @@ do
 	check(leaves == 0 or structureOrder.gates ~= nil,
 		("Structure.Openings declares %d gate leaves and no button builds them; every opening would stay a hole and the wall spans would still tile perfectly")
 			:format(leaves))
+end
+
+-- ...AND THE MASONRY SPEC AND THE MASONRY BUTTONS NAME THE SAME TIERS, in the
+-- same order. Structure.Tiers is what applyMasonry restyles from and what
+-- masonryTiers counts against; a tier with no button is a look nobody can
+-- buy, a tier button outside the list is a purchase that restyles nothing,
+-- and a Tiers list out of purchase order wears the wrong stone at some rung.
+do
+	local tierCount = 0
+	local lastOrder = 0
+	for index, tier in ipairs(SH.Tiers) do
+		tierCount += 1
+		check(type(tier.material) == "string" and #tier.material > 0,
+			("Structure.Tiers[%d] names no material — the restyle would be a colour change wearing a masonry name"):format(index))
+		check(tier.color ~= nil,
+			("Structure.Tiers[%d] has no colour"):format(index))
+		local order = structureOrder[tier.structure]
+		check(order ~= nil,
+			("Structure.Tiers[%d] (%s) has no button anywhere — a look nobody can buy"):format(index, tostring(tier.structure)))
+		if order then
+			check(order > lastOrder,
+				("Structure.Tiers[%d] (%s) is bought before the tier listed under it — masonryTiers counts owned tiers, so the ring would wear the wrong stone")
+					:format(index, tostring(tier.structure)))
+			lastOrder = order
+		end
+	end
+	local tierButtons = 0
+	for structure in pairs(structureOrder) do
+		if structure ~= "walls" and structure ~= "gates" then
+			tierButtons += 1
+		end
+	end
+	check(tierButtons == tierCount,
+		("%d Structure buttons are masonry against %d Structure.Tiers rows — a tier button outside the list restyles nothing")
+			:format(tierButtons, tierCount))
 end
 
 -- THE RING IS FOUR WALLS, and Structure.Sides is the list every loop below runs
@@ -4092,43 +4140,61 @@ check(elapsed / 60 >= MIN_TOTAL_MINUTES,
 do
 	local H = Config.Structure.Health
 	local maxLevel = 1 + #Config.LandLButtons + #Config.LandRButtons
+	local maxTier = #Config.Structure.Tiers
 
 	check(H.WallBase > 0 and H.GateBase > 0,
 		"a wall or gate with no base health is born broken")
-	for level = 2, maxLevel do
-		check(Config.wallMaxHealth(level) > Config.wallMaxHealth(level - 1),
-			("wallMaxHealth is not increasing at level %d — land stopped toughening the wall"):format(level))
-		check(Config.gateMaxHealth(level) > Config.gateMaxHealth(level - 1),
-			("gateMaxHealth is not increasing at level %d"):format(level))
+	-- Monotone in LEVEL at both ends of the masonry, and monotone in TIER at
+	-- both ends of the land: toughness has two axes now (#162) and either one
+	-- flatlining is a ladder rung that grants nothing.
+	for _, tiers in ipairs({ 0, maxTier }) do
+		for level = 2, maxLevel do
+			check(Config.wallMaxHealth(level, tiers) > Config.wallMaxHealth(level - 1, tiers),
+				("wallMaxHealth is not increasing at level %d (tier %d) — land stopped toughening the wall"):format(level, tiers))
+			check(Config.gateMaxHealth(level, tiers) > Config.gateMaxHealth(level - 1, tiers),
+				("gateMaxHealth is not increasing at level %d (tier %d)"):format(level, tiers))
+		end
+	end
+	for _, level in ipairs({ 1, maxLevel }) do
+		for tiers = 1, maxTier do
+			check(Config.wallMaxHealth(level, tiers) > Config.wallMaxHealth(level, tiers - 1),
+				("wallMaxHealth is not increasing at tier %d (level %d) — a masonry purchase that toughens nothing"):format(tiers, level))
+			check(Config.gateMaxHealth(level, tiers) > Config.gateMaxHealth(level, tiers - 1),
+				("gateMaxHealth is not increasing at tier %d (level %d)"):format(tiers, level))
+		end
 	end
 
 	check(H.RepairSeconds > 0 and H.RepairSeconds < Config.Waves.WarningTime,
 		("Structure.Health.RepairSeconds (%.1f) must finish inside Waves.WarningTime (%.1f) — a repair you cannot complete before the raid lands is a repair loop that does not exist")
 			:format(H.RepairSeconds, Config.Waves.WarningTime))
 
-	-- The gate against every bat, at both ends of the ladder: never one
-	-- swing, never a siege. 90 seconds of swinging at one door is where
+	-- The gate against every bat, at both ends of BOTH ladders: never one
+	-- swing (weakest gate: level 1, wooden), never a siege (toughest gate:
+	-- maxed land, full stone). 90 seconds of swinging at one door is where
 	-- breaking in stops being a raid and becomes a chore (#94 arrives with
-	-- this verb, so its pacing starts here).
+	-- this verb, so its pacing starts here) — and this is the check that
+	-- bounds GatePerTier from above.
 	local MAX_BREAK_SECONDS = 90
 	for _, bat in ipairs(Config.Bats) do
 		local damage = bat.damage * H.PlayerDamageScale
 		check(Config.gateMaxHealth(1) > damage,
 			("%s one-shots a level-1 gate (%.0f damage against %.0f health) — a door that falls to a single swing is not a door")
 				:format(bat.id, damage, Config.gateMaxHealth(1)))
-		local swings = math.ceil(Config.gateMaxHealth(maxLevel) / damage)
+		local swings = math.ceil(Config.gateMaxHealth(maxLevel, maxTier) / damage)
 		local seconds = swings * bat.cooldown
 		check(seconds <= MAX_BREAK_SECONDS,
-			("%s takes %.0f seconds to break a level-%d gate (limit %d) — breaking in is a raid's opening move, not its whole evening")
-				:format(bat.id, seconds, maxLevel, MAX_BREAK_SECONDS))
+			("%s takes %.0f seconds to break a level-%d tier-%d gate (limit %d) — breaking in is a raid's opening move, not its whole evening")
+				:format(bat.id, seconds, maxLevel, maxTier, MAX_BREAK_SECONDS))
 	end
 
-	-- A wall out-lasts its own gate at every level: the gate is the door a
-	-- raider is MEANT to use.
+	-- A wall out-lasts its own gate over the whole level x tier grid: the
+	-- gate is the door a raider is MEANT to use, whatever the plot wears.
 	for level = 1, maxLevel do
-		check(Config.wallMaxHealth(level) > Config.gateMaxHealth(level),
-			("at level %d the wall (%.0f) is no tougher than the gate (%.0f) — a raider would go through the wall and the gate stops meaning anything")
-				:format(level, Config.wallMaxHealth(level), Config.gateMaxHealth(level)))
+		for tiers = 0, maxTier do
+			check(Config.wallMaxHealth(level, tiers) > Config.gateMaxHealth(level, tiers),
+				("at level %d tier %d the wall (%.0f) is no tougher than the gate (%.0f) — a raider would go through the wall and the gate stops meaning anything")
+					:format(level, tiers, Config.wallMaxHealth(level, tiers), Config.gateMaxHealth(level, tiers)))
+		end
 	end
 end
 

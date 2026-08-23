@@ -40,7 +40,7 @@ timeline
         min 3  : dropper3 : the shop opens — bats and armour
     section Build
         min 3-40 : the factory ladder : droppers, upgraders, the belt, the generator
-        min 3+   : the shell, in parallel : walls, then gates
+        min 3+   : the shell, in parallel : walls, gates, then the masonry
         min 20+  : the land : ten expansions, each with its own line
     section Close
         min 30 : the sitting ends : on saving toward a choice, never on being done
@@ -156,7 +156,7 @@ live, and it is what keeps the plot readable as one thing rather than as a maze.
 graph TD
     subgraph spine["THE SPINE — walked by the pacing simulation"]
         F["<b>FACTORY</b> — 17 rungs<br/>droppers, upgraders, the belt"]
-        S["<b>STRUCTURE</b> — 2 rungs<br/>walls → gates"]
+        S["<b>STRUCTURE</b> — 6 rungs<br/>walls → gates → the masonry"]
         P["<b>POWER</b> — 4 rungs<br/>one generator, upgraded in place"]
         LL["<b>WEST LAND</b> — 5 strips ×3 rungs"]
         LR2["<b>EAST LAND</b> — 5 strips ×3 rungs"]
@@ -239,8 +239,9 @@ levels every dropper on the plot (#109): ground, then its machines, then more
 ground, in one strict order per side. The simulated build buys the lots
 strictly alternating, which the verifier asserts.
 
-The other four: **structure** `walls` 1,500 → `gates` 1,600 (#162 took the
-windows and the roof off the ladder; its masonry tiers arrive later).
+The other four: **structure** `walls` 1,500 → `gates` 1,600 → `cobble`
+115,000 → `stone` 155,000 → `slate` 365,000 → `stonebrick` 690,000 (#162:
+each masonry tier restyles the standing castle and toughens it).
 **Weapons** `batforge` 2,500 → Ash 45,000 → Crimson 520,000 →
 Void 5,200,000 → Eclipse 84,000,000, granting bats from 18 to 86 damage.
 **Armory** 4,500 / 150,000 / 2,500,000 / 40,000,000, granting 140 / 190 / 250 /
