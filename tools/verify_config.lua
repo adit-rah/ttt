@@ -2315,9 +2315,9 @@ do
 			-- Counted per END rather than doubled: an open end takes no setback, so
 			-- a short first or last leg is legal where a short middle one is not.
 			local setbacks = ((index > 1) and 1 or 0) + ((index < #legs) and 1 or 0)
-			check(leg.along > setbacks * GUARD.corner + 6,
-				("BeltPaths.%s leg %d is %.0f studs with %d setback(s) of %d; under %d there is no rail left to build and the leg silently gets none")
-					:format(path.id, index, leg.along, setbacks, GUARD.corner, setbacks * GUARD.corner + 6))
+			check(leg.along > setbacks * (L.BeltWidth / 2) + 6,
+				("BeltPaths.%s leg %d is %.0f studs with %d flush setback(s) of %.1f; under %.1f there is no rail left to build and the leg silently gets none")
+					:format(path.id, index, leg.along, setbacks, L.BeltWidth / 2, setbacks * (L.BeltWidth / 2) + 6))
 
 			-- The rail's own box, derived from THE SAME LEG-LOCAL SPAN Belt.lua
 			-- builds from rather than from an approximation of it.
@@ -2333,9 +2333,10 @@ do
 			local half = L.BeltWidth / 2
 			local fromDist = (index == 1) and -1 or (half - 0.6)
 			local toDist = (index == #legs) and leg.along or (leg.along + half)
-			-- Pulled back only where the leg meets another one; see Belt.lua.
-			local guardFrom = fromDist + (index > 1 and GUARD.corner or 0)
-			local guardTo = toDist - (index < #legs and GUARD.corner or 0)
+			-- At a bend the rail runs flush to the neighbour's surface edge —
+			-- half a belt width from the corner point, both sides; see Belt.lua.
+			local guardFrom = (index > 1) and half or fromDist
+			local guardTo = (index < #legs) and (leg.along - half) or toDist
 			local run = math.max(guardTo - guardFrom, 0)
 			local alongMid = (guardFrom + guardTo) / 2
 			local midX = leg.a.X + leg.dirX * alongMid
@@ -2381,7 +2382,7 @@ do
 						local TOUCH = 1e-6
 						local into = boxBoxOverlap(railAt, railSize, surfaceAt, surfaceSize)
 						check(into <= TOUCH,
-							("BeltPaths.%s leg %d's %s guard rail overlaps leg %d's running surface by %.2f studs — that is a solid wall straight across the conveyor, and it is exactly the bug the old full-length rails shipped. Raise Layout.BeltGuard.corner.")
+							("BeltPaths.%s leg %d's %s guard rail overlaps leg %d's running surface by %.2f studs — that is a solid wall straight across the conveyor, and it is exactly the bug the old full-length rails shipped; the flush derivation in Belt.lua and this model have diverged.")
 								:format(path.id, index, side < 0 and "inboard" or "outboard", other, into))
 					end
 				end
@@ -2391,23 +2392,18 @@ do
 
 	-- ...AND IT MAY NOT BE SHORTER THAN THE OVERRUN IT IS PULLING BACK FROM.
 	-- The setback is measured off the SURFACE's span, and every leg but the last
-	-- overruns its bend by half a belt width, so a rail ends `corner - half`
-	-- short of the bend while the next leg's surface begins `half` short of it.
-	-- Under BeltWidth the rail crosses the neighbour — the deleted-rails bug
-	-- exactly — and the overlap loop above would catch it, but only on a path
-	-- whose legs happen to bend the wrong way. This says the condition once, on
-	-- the number, so it holds for a path nobody has drawn yet.
-	check(GUARD.corner >= L.BeltWidth,
-		("Layout.BeltGuard.corner is %.1f against a belt %.1f wide; a leg's surface overruns its bend by half that, so under %.1f a rail reaches across the neighbouring leg")
-			:format(GUARD.corner, L.BeltWidth, L.BeltWidth))
-	-- The setback has to clear the corner square the surfaces overrun...
-	check(GUARD.corner >= L.BeltWidth / 2 + GUARD.thickness + 2,
-		("Layout.BeltGuard.corner is %.1f against a corner square %.1f deep plus a %.1f rail; a rail that reaches the bend is a rail in the corner the drops turn through")
-			:format(GUARD.corner, L.BeltWidth / 2, GUARD.thickness))
-	-- ...and the turn sensor's leading face, which sits downstream of the bend.
-	check(GUARD.corner >= L.TriggerThickness / 2 + (L.TriggerThickness - 2.5) / 2 + 1,
-		("Layout.BeltGuard.corner is %.1f and the turn sensor reaches %.1f past the bend; a rail inside it is a part the sensor's Touched fires on")
-			:format(GUARD.corner, L.TriggerThickness / 2 + (L.TriggerThickness - 2.5) / 2))
+	-- overruns its bend by half a belt width, and a rail now ends FLUSH at
+	-- the edge of that overrun, so the corner square is completely clear by
+	-- construction and the overlap loop above holds the construction to it.
+	--
+	-- THE THREE `BeltGuard.corner` BOUNDS THAT STOOD HERE ARE DELETED WITH
+	-- THE CONSTANT. Two restated what the flush derivation now guarantees by
+	-- construction; the third bounded the rail against the turn sensor's
+	-- reach, and its premise does not hold — the sensor is shifted downstream
+	-- so its upstream face sits a constant 1.25 studs before the bend
+	-- whatever TriggerThickness is, a flush rail stops 4 short, and Touched
+	-- cannot fire between two anchored parts anyway. An assertion that
+	-- cannot fail is a guess with a check() around it.
 
 	-- THE RAIL MAY NOT REACH THE MACHINE ROW. This is the tightest pair in the
 	-- design and the reason `thickness` is 0.8 rather than something rounder.
