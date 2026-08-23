@@ -2423,13 +2423,19 @@ Config.Disclosure = {
 	{ id = "hud", name = "Your factory", help = "Buy droppers, follow the gold beacon. The vault banks what the machines earn." },
 	{ id = "movement", name = "Sprint and dash", help = "Hold Shift to sprint, Q to dash. On touch: RUN and DASH, bottom left." },
 	{ id = "terms", after = "dropper2", name = "Multipliers", help = "The line under your cash names every bonus you hold." },
-	{ id = "session", after = "dropper3", name = "Streaks and boosts", help = "The session panel: daily streak, playtime ladder, the boost button." },
-	{ id = "social", after = "dropper4", name = "Friends pay", help = "Every friend in the server is +10% income. Invite from the status card." },
+	-- design:D-05, via #162 — THE SIDEBAR ARRIVES ONCE THE LINE RUNS, not
+	-- while it is being laid: the session panel, the friends line and the
+	-- daily objectives all landed inside the first three minutes and read as
+	-- clutter over a plot that had not earned them yet. The gameplay-coupled
+	-- rows keep their beats (the shop opens WITH its track at dropper3, the
+	-- siege with the walls).
+	{ id = "session", after = "dropper4", name = "Streaks and boosts", help = "The session panel: daily streak, playtime ladder, the boost button." },
+	{ id = "social", after = "dropper5", name = "Friends pay", help = "Every friend in the server is +10% income. Invite from the status card." },
 	{ id = "world", after = "dropper5", name = "The world outside", help = "Sahur roam the grass — weakest near the plots, strongest in the middle. Kills pay." },
 	{ id = "siege", after = "walls", gate = true, name = "Raids on your plot", help = "Sahur press your gate now and then. The siren gives you time to run home; repair what breaks." },
 	{ id = "party", after = "walls", name = "Parties", help = "Party up from the left card: no friendly fire, shared gates, +5% income each." },
 	{ id = "recall", after = "walls", name = "Recall", help = "H (or HOME on touch) walks you home after six still seconds. Never with stolen Tung." },
-	{ id = "objectives", after = "upgrader1", name = "Daily objectives", help = "Three things to do today, on the left card. Each pays minutes of your income." },
+	{ id = "objectives", after = "belt1", name = "Daily objectives", help = "Three things to do today, on the left card. Each pays minutes of your income." },
 	{ id = "shop", after = "dropper3", name = "The shop", help = "Bats and armour live in the SHOP now — the rail button, or the merchant by the spawn." },
 	{ id = "raiding", after = "gates", name = "Raiding", help = "Break a storage unit, carry the spill home. Half their cap is always safe; camping pays half each repeat." },
 	{ id = "tower", after = "power1", name = "The tower", help = "The spire at the core's edge. A new deck of floors every day; each floor pays minutes of your income." },
