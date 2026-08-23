@@ -1,7 +1,8 @@
-# HANDOFF v19 — the game reveals itself, and the shop
+# HANDOFF v19 — the game reveals itself, the shop, and today's three
 
-Wave 5: #96 (progressive disclosure) and #108 (the shop replacing the
-cabinets). This handoff grows with the wave's remaining rounds.
+Wave 5: #96 (progressive disclosure), #108 (the shop replacing the cabinets)
+and #97 (daily objectives + the hint line). This handoff grows with the
+wave's remaining rounds.
 
 ## 1. What moved
 
@@ -29,6 +30,13 @@ cabinets). This handoff grows with the wave's remaining rounds.
   same monotonic grants; ShopUI is an overlay card with the pads' measured
   effect lines, opened from the SHOP rail item or the golden merchant by the
   spawn. The NEXT UPGRADE card says "in the SHOP" for shop rows.
+
+- **Objectives (#97)**: three a day from a seeded pool, progress measured
+  against a day-baseline of persisted stats (no observers anywhere),
+  completion pays minutes of your own income once, the richest possible day
+  is asserted under 12 minutes. The card sits in the left column under the
+  session panel, disclosure-gated on upgrader1, and carries the hint line —
+  the first unmet non-purchase milestone, which the guide (#100) will speak.
 
 ## 2. What only Studio can tell you
 
@@ -58,3 +66,8 @@ cabinets). This handoff grows with the wave's remaining rounds.
 9. **The bat in hand after a shop buy.** grantBat now returns early with no
    Backpack (the headless guard); confirm a live buy still re-equips
    immediately, not on next spawn.
+10. **The objectives beat.** Five-second cadence: complete an objective and
+    watch the toast land within a beat; check the column still fits at
+    MinScale with status card + session + party + objectives all up.
+11. **The tower objective.** "Clear 3 tower floors" reads profile.tower.best,
+    which only moves on recordClear — confirm a real climb ticks the row.

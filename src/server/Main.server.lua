@@ -22,6 +22,7 @@ local RecallService = Req("RecallService")
 local TowerService = Req("TowerService")
 local DisclosureService = Req("DisclosureService")
 local ShopService = Req("ShopService")
+local ObjectiveService = Req("ObjectiveService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -120,6 +121,8 @@ DisclosureService.start()
 -- The shop (#108): after PlotService, whose plotOf keeps the owned mirrors
 -- in step.
 ShopService.start()
+-- Objectives (#97): reads persisted stats on a beat; no ordering needs.
+ObjectiveService.start()
 SocialService.start()
 
 -- 6. players

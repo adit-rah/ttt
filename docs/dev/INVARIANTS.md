@@ -872,6 +872,23 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   printed ("34 dmg • 14% crit", the armour's health). `[nothing]` — it is presentation;
   the Studio list owns reading it.
 
+### Objectives and hints (#97)
+
+- **Progress is a baseline, never a counter.** The day's first beat snapshots the live
+  profile stats; progress is live minus snapshot, so nothing observes kills or purchases
+  and yesterday's grind counts for nothing. `[spec]` `objective_spec.lua`, falsified by
+  zeroing the baseline.
+- **A crossing pays once**, in minutes of the player's own income through the capped door,
+  and the DONE flag persists in `profile.objectives` (both homes, round-tripped). `[spec]`
+- **The richest possible day is bounded**: the top `PerDay` rewards in the pool sum under
+  `MaxDayMinutes`, asserted — the streak and the offline grant are why players log in, and
+  this stays a nudge by arithmetic. `[assert]`, falsified at 27 minutes.
+- **The draw is the tower's seeded deal**: deterministic, distinct, the same three on
+  every server that day. `[spec]` over thirty seeds.
+- **Hints read persisted stats only** (kills, reputation, rebirths), answer in ladder
+  order, and run out — a player past every milestone is not nagged. `[spec]` + `[assert]`
+  on the stat names.
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch

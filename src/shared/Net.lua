@@ -71,6 +71,10 @@ Net.NAMES = {
 	-- client already holds, and ownership rides the Stats payload.
 	"Shop",          -- C->S buy; S->C open
 
+	-- Objectives (#97). Server-pushed whole state: today's three, progress,
+	-- done flags, and the hint line. The client renders and sends nothing.
+	"Objectives",    -- S->C { rows, hint }
+
 	-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 	-- demand so a client that connects with a flag off still resolves them and
 	-- never sits in WaitForChild for 30 seconds.

@@ -2277,6 +2277,62 @@ Config.Help = {
 	PairCooldownSeconds = 300,
 }
 
+-- design:D-01, via #97 — DAILY OBJECTIVES AND THE HINT LINE. A short list of
+-- things to do today, paid in MINUTES OF YOUR OWN INCOME on completion (the
+-- tower's denomination — it scales with the player and structurally cannot
+-- out-earn the plot for long, and the verifier bounds the day's total).
+-- Objectives are per-account per-day: progress is a baseline snapshot taken
+-- at the day's first beat, measured against live profile stats, and the
+-- daily reset is the same day-number arithmetic the tower uses. The draw is
+-- the tower's seeded deal, so every server offers the same three that day.
+Config.Objectives = {
+	PerDay = 3,
+	-- What one day's objectives may pay IN TOTAL, in minutes of income. The
+	-- streak and the offline grant are why players log in; this is a nudge.
+	MaxDayMinutes = 12,
+	Pool = {
+		{ id = "kills5", name = "Knock down 5 Sahur", stat = "kills", count = 5, rewardMinutes = 3 },
+		{ id = "kills12", name = "Knock down 12 Sahur", stat = "kills", count = 12, rewardMinutes = 4 },
+		{ id = "buys3", name = "Buy 3 upgrades", stat = "buys", count = 3, rewardMinutes = 2 },
+		{ id = "buys7", name = "Buy 7 upgrades", stat = "buys", count = 7, rewardMinutes = 4 },
+		{ id = "kind1", name = "Do somebody a kindness", stat = "reputation", count = 1, rewardMinutes = 3 },
+		{ id = "tower3", name = "Clear 3 tower floors", stat = "towerBest", count = 3, rewardMinutes = 4 },
+	},
+}
+
+--- The day's draw: PerDay distinct pool rows, dealt by the same seeded LCG
+--- the tower uses, identical on every server that day.
+function Config.objectivesFor(daySeed: number)
+	local pool = Config.Objectives.Pool
+	local state = daySeed * 668265263 + 374761393
+	local function nextRandom(n: number): number
+		state = (state * 1103515245 + 12345) % 2147483648
+		return (state % n) + 1
+	end
+	local indices = {}
+	for i = 1, #pool do
+		indices[i] = i
+	end
+	for i = #indices, 2, -1 do
+		local swap = nextRandom(i)
+		indices[i], indices[swap] = indices[swap], indices[i]
+	end
+	local drawn = {}
+	for i = 1, math.min(Config.Objectives.PerDay, #pool) do
+		drawn[i] = pool[indices[i]]
+	end
+	return drawn
+end
+
+-- The hint line: the first of these the player has not done yet, shown on
+-- the objectives card and spoken by the guide (#100). Non-purchase
+-- milestones only — the beacon and the NEXT card already own purchases.
+Config.Hints = {
+	{ id = "firstKill", text = "Sahur roam the grass outside. Knock one down — kills pay.", stat = "kills", atLeast = 1 },
+	{ id = "firstKindness", text = "Repair a stranger's wall, or down a thief. Kindness pays Rep and a boost.", stat = "reputation", atLeast = 1 },
+	{ id = "firstRebirth", text = "The rebirth pad multiplies everything after it. The re-climb is fast.", stat = "rebirths", atLeast = 1 },
+}
+
 -- design:D-05, via #96 — PROGRESSIVE DISCLOSURE. The game starts small and
 -- grows its own interface: a surface takes up space only once the player can
 -- use it, every arrival is earned by something they just did, and nothing
@@ -2299,6 +2355,7 @@ Config.Disclosure = {
 	{ id = "siege", after = "walls", gate = true, name = "Raids on your plot", help = "Sahur press your gate now and then. The siren gives you time to run home; repair what breaks." },
 	{ id = "party", after = "walls", name = "Parties", help = "Party up from the left card: no friendly fire, shared gates, +5% income each." },
 	{ id = "recall", after = "walls", name = "Recall", help = "H (or HOME on touch) walks you home after six still seconds. Never with stolen Tung." },
+	{ id = "objectives", after = "upgrader1", name = "Daily objectives", help = "Three things to do today, on the left card. Each pays minutes of your income." },
 	{ id = "shop", after = "dropper3", name = "The shop", help = "Bats and armour live in the SHOP now — the rail button, or the merchant by the spawn." },
 	{ id = "raiding", after = "gates", name = "Raiding", help = "Break a storage unit, carry the spill home. Half their cap is always safe; camping pays half each repeat." },
 	{ id = "tower", after = "power1", name = "The tower", help = "The spire at the core's edge. A new deck of floors every day; each floor pays minutes of your income." },
