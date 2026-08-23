@@ -1116,6 +1116,15 @@ do
 	end
 	check(Config.tierName(0) == Config.Tiers[1].name, "tierName(0) does not answer the first rank")
 	check(Config.tierName(99) == Config.Tiers[#Config.Tiers].name, "a huge rebirth count does not wear the top rank")
+	-- #107's screen reads the motto off the row; the two walkers must agree
+	for rebirths = 0, 8 do
+		check(Config.tierRow(rebirths).name == Config.tierName(rebirths),
+			("tierRow and tierName disagree at %d rebirths"):format(rebirths))
+	end
+	for i, tier in ipairs(Config.Tiers) do
+		check(type(tier.motto) == "string" and #tier.motto > 0 and #tier.motto <= 80,
+			("Tiers[%d] has no motto, or one past 80 chars — the rebirth card prints it on one line"):format(i))
+	end
 end
 
 -- ── objectives and hints (#97) ─────────────────────────────────────────────

@@ -915,6 +915,17 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - One writer: `updateSign` on the 3-second repaint, which also catches the profile
   lagging a rebirth by a beat. `[nothing]`
 
+### The rebirth moment (#107)
+
+- **Every line on the card is DERIVED.** Rank and motto off `Config.tierRow`, the
+  multiplier off Economy, the keeps off the kept set and the gear tiers — a new tier row
+  cannot ship with a stale list because no list exists to go stale. `[assert]` tierRow
+  and tierName agree at every count; mottos present and one-line.
+- **The card shows what was lost too**: one honest line — a promotion that hides its
+  cost reads as a trick. `[nothing]` — the record that the line is deliberate.
+- **Dismissible AND self-dismissing** (14s): never a hard modal. `[nothing]`; the feel is
+  a Studio item.
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch

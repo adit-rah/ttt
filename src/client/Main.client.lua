@@ -11,6 +11,7 @@ local MovementClient = Req("MovementClient")
 local PartyUI = Req("PartyUI")
 local ShopUI = Req("ShopUI")
 local ObjectivesUI = Req("ObjectivesUI")
+local RebirthUI = Req("RebirthUI")
 local UpgradeUI = Req("UpgradeUI")
 local SessionUI = Req("SessionUI")
 
@@ -22,6 +23,7 @@ MovementClient.start()
 PartyUI.start()
 ShopUI.start()
 ObjectivesUI.start()
+RebirthUI.start()
 
 -- Prototype panels. Both return immediately unless their Config.Prototypes
 -- flag is on.
