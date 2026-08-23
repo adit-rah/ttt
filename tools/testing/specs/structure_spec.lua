@@ -459,7 +459,7 @@ end)
 
 -- ── the shell as its own track ──────────────────────────────────────────────
 
-T.spec("the shell is walls, then gates, on a track of its own", function(t)
+T.spec("the shell is walls, gates, then the masonry, on a track of its own", function(t)
 	-- The ORDER IS THE TABLE ORDER — the loader derives `requires` from it and
 	-- nothing else states the dependency. INVARIANTS.md marks that [nothing],
 	-- and this is half of what closes it; the other half is a config check.
@@ -478,7 +478,7 @@ T.spec("the shell is walls, then gates, on a track of its own", function(t)
 		seen[def.structure] = def.trackOrder
 		structures += 1
 	end
-	t:eq(structures, 2, "walls and the gates")
+	t:eq(structures, 6, "walls, gates, and the four masonry tiers")
 
 	-- ...and nothing was left behind on the spine. A Structure row still sitting
 	-- in FactoryButtons would be a piece of building blocking the line, which is
@@ -498,6 +498,21 @@ T.spec("the shell is walls, then gates, on a track of its own", function(t)
 		"walls is the root of the structure track; a root with a requirement is a track nothing can start")
 	t:eq(Config.ButtonById.gates.requires, "walls",
 		"the derived chain no longer runs walls -> gates")
+	t:eq(Config.ButtonById.cobble.requires, "gates",
+		"the derived chain no longer runs gates -> cobble")
+	t:eq(Config.ButtonById.stone.requires, "cobble",
+		"the derived chain no longer runs cobble -> stone")
+	t:eq(Config.ButtonById.slate.requires, "stone",
+		"the derived chain no longer runs stone -> slate")
+	t:eq(Config.ButtonById.stonebrick.requires, "slate",
+		"the derived chain no longer runs slate -> stonebrick")
+
+	-- ...and the Tiers list walks the same chain in the same order, because
+	-- masonryTiers counts the list against `owned`.
+	for index, tier in ipairs(Config.Structure.Tiers) do
+		t:eq(tier.structure, Config.Tracks.structure[index + 2].structure,
+			("Structure.Tiers[%d] disagrees with the track's rung %d"):format(index, index + 2))
+	end
 
 	-- The whole ladder waits on the first dropper, so the shell can never be
 	-- somebody's opening purchase.
@@ -539,6 +554,64 @@ T.spec("a plot owns the leaves only while it owns the wall they hang on", functi
 		"an owned id with no Config row is being treated as a structure")
 end)
 
+T.spec("a masonry tier restyles the standing ring and adds no parts", function(t)
+	-- The glazing mechanism generalised (#162): applyMasonry walks the ring
+	-- and changes Material/Color on the wall's own parts. What is pinned:
+	-- the count is derived from `owned`, the restyle touches courses, lintels
+	-- and buttresses and NOTHING else, and the part count never moves — the
+	-- whole PartBudget argument is tier-blind because of this spec.
+	local w = T.world()
+	local Config = w.config
+	local Tycoon = w.req("Tycoon")
+
+	local function plot(owned)
+		return setmetatable({ owned = owned }, { __index = Tycoon })
+	end
+
+	t:eq(plot({}):masonryTiers(), 0, "a bare plot wears a tier")
+	t:eq(plot({ walls = true, gates = true, cobble = true }):masonryTiers(), 1)
+	t:eq(plot({ walls = true, gates = true, cobble = true, stone = true,
+		slate = true, stonebrick = true }):masonryTiers(), 4, "the whole ladder is four tiers")
+	t:eq(plot({ cobble = true, dropper1 = true }):masonryTiers(), 1,
+		"masonryTiers answers about structures, so an unrelated id counts nothing")
+
+	local ring = Instance.new("Model")
+	local function part(name)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Parent = ring
+		return p
+	end
+	local body = part("Body_front_1")
+	local sill = part("Sill_front_1")
+	part("Buttress_left_2")
+	part("Lintel_front_2")
+	local trim = part("Trim_front")
+	local leaf = part("Gate_gateway_1")
+	part("Torch_left_1")
+	trim.Material = Enum.Material.Wood
+	leaf.Material = Enum.Material.WoodPlanks
+
+	local stone = plot({ walls = true, gates = true, cobble = true, stone = true })
+	local before = #ring:GetChildren()
+	local restyled = stone:applyMasonry(ring)
+	t:eq(#ring:GetChildren(), before,
+		"the restyle moved the part count — the budget argument just broke")
+	t:eq(restyled, 4,
+		"the two courses, the lintel and the buttress restyle; the trim, the leaf and the torch keep their timber")
+	local tier = Config.Structure.Tiers[2]
+	t:eq(body.Material, Enum.Material[tier.material], "the body course missed the stone")
+	t:eq(sill.Color, tier.color, "the sill course missed the colour")
+	t:eq(trim.Material, Enum.Material.Wood, "the trim went stone")
+	t:eq(leaf.Material, Enum.Material.WoodPlanks,
+		"the gate leaf went stone — a stone door reads as more wall")
+
+	-- Tier 0 is the wooden default, so a ring rebuilt after a rebirth
+	-- restyles back down with no special case.
+	plot({}):applyMasonry(ring)
+	t:eq(body.Material, Enum.Material.WoodPlanks, "a bare plot's ring must wear wood")
+end)
+
 -- ── the purchase surface is three categories ────────────────────────────────
 
 T.spec("every button carries a category ordinal the width of its category", function(t)
@@ -563,7 +636,7 @@ T.spec("every button carries a category ordinal the width of its category", func
 				("%s is missing ordinal %d of %d"):format(category, ordinal, count))
 		end
 	end
-	t:eq(Config.CategoryCount.plot, 32, "the plot category is structure's 2 plus thirty land rows")
+	t:eq(Config.CategoryCount.plot, 36, "the plot category is structure's 6 plus thirty land rows")
 	t:eq(Config.CategoryCount.conveyor, 17, "the conveyor category is the factory chain")
 end)
 

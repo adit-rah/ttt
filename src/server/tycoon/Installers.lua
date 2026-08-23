@@ -529,11 +529,57 @@ function Tycoon:hangGateLeaves(model: Instance)
 	return hung
 end
 
+--- How many masonry tiers this plot owns. The tier rows are a chain, so the
+--- count IS the highest tier standing; counting stays correct even under a
+--- save holding a later tier without an earlier one.
+function Tycoon:masonryTiers(): number
+	local owned = 0
+	for _, tier in ipairs(Config.Structure.Tiers) do
+		if self:hasStructure(tier.structure) then
+			owned += 1
+		end
+	end
+	return owned
+end
+
+--- The material and colour the ring's masonry currently wears: the owned
+--- tier's, or the wooden default.
+function Tycoon:masonryLook(): (Enum.Material, Color3)
+	local tier = Config.Structure.Tiers[self:masonryTiers()]
+	if tier then
+		return Enum.Material[tier.material], tier.color
+	end
+	return Enum.Material.WoodPlanks, WALL_COLOR
+end
+
+-- The parts a masonry tier restyles: the courses, the lintels and the
+-- buttresses — the wall itself. The trim and the torches keep their timber,
+-- and so do the gate leaves: a castle's doors are wood, and a stone door
+-- reads as more wall.
+local MASONRY_PREFIXES = { Sill = true, Body = true, Head = true, Lintel = true, Buttress = true }
+
+--- Restyle the standing ring to the owned tier. The glazing mechanism
+--- generalised: idempotent, and it adds no parts, which is what keeps
+--- Config.shellPartCount and the whole PartBudget argument tier-blind.
+function Tycoon:applyMasonry(model: Instance)
+	local material, color = self:masonryLook()
+	local restyled = 0
+	for _, part in ipairs(model:GetChildren()) do
+		if part:IsA("BasePart") and MASONRY_PREFIXES[part.Name:match("^(%a+)_") or ""] then
+			part.Material = material
+			part.Color = color
+			restyled += 1
+		end
+	end
+	return restyled
+end
+
 --- Bring the ring up to whatever this plot has bought.
 function Tycoon:applyStructureUpgrades(model: Instance)
 	if self:hasStructure("gates") then
 		self:hangGateLeaves(model)
 	end
+	self:applyMasonry(model)
 end
 
 --- The wall ring standing on this plot right now, handed to `fn`, or nothing.
@@ -561,20 +607,27 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 
 	if def.structure == "walls" then
 		self:buildWallRing(model)
-	elseif def.structure == "gates" then
+	else
 		-- ADDITIVE — never a rebuild. The obvious implementation is to re-emit
-		-- the wall with the leaves included, and that would destroy the gate
+		-- the wall with the upgrade included, and that would destroy the gate
 		-- leaves GateService may be mid-tween on and re-emit dozens of parts
 		-- that have not changed. A leaf is a part with nothing standing where
-		-- it goes, so it needs no wall touched.
+		-- it goes, and a masonry tier is a material change on parts already
+		-- standing, so neither needs the wall touched.
 		--
-		-- `model` stays empty for this one and that is deliberate: the leaves
-		-- belong to the ring they hang on, so a rebirth takes them down with
+		-- `model` stays empty for these and that is deliberate: the leaves and
+		-- the restyle belong to the ring, so a rebirth takes them down with
 		-- the wall rather than leaving doors floating in a plot with no shell.
 		-- The entry below still records the model so the object bookkeeping is
-		-- uniform.
+		-- uniform. applySiegeState runs after a restyle so a standing stump
+		-- keeps its char over the new stone.
 		self:withWallRing(function(ring)
-			self:hangGateLeaves(ring)
+			if def.structure == "gates" then
+				self:hangGateLeaves(ring)
+			else
+				self:applyMasonry(ring)
+				self:applySiegeState(ring)
+			end
 		end)
 	end
 

@@ -44,7 +44,6 @@ local S = Config.Structure
 local H = S.Health
 
 local STUMP_COLOR = Color3.fromRGB(64, 48, 38)
-local WALL_COLOR = Color3.fromRGB(150, 111, 74)
 
 -- Course prefixes that belong to a wall side. `Sill` is deliberately absent:
 -- the sill course survives a break as the stump the repair prompt stands on.
@@ -63,12 +62,12 @@ function Tycoon:siegeLevel(): number
 	return counts.left + counts.right + 1
 end
 
---- Full health for one siege key at the current level.
+--- Full health for one siege key at the current level and masonry tier.
 function Tycoon:siegeMaxHealth(key: string): number
 	if key:sub(1, 5) == "gate_" then
-		return Config.gateMaxHealth(self:siegeLevel())
+		return Config.gateMaxHealth(self:siegeLevel(), self:masonryTiers())
 	end
-	return Config.wallMaxHealth(self:siegeLevel())
+	return Config.wallMaxHealth(self:siegeLevel(), self:masonryTiers())
 end
 
 --- Every siege key this plot has: one per side, one per opening.
@@ -178,7 +177,10 @@ function Tycoon:applySiegeState(ring: Instance)
 			elseif key then
 				local prefix = part.Name:match("^(%a+)_")
 				if prefix == "Sill" and part.Color == STUMP_COLOR then
-					part.Color = WALL_COLOR
+					-- Healed: back to whatever the masonry currently wears,
+					-- so a stone plot's repaired stump stops reading charred
+					-- without dropping back to wood.
+					part.Color = select(2, self:masonryLook())
 				end
 			else
 				-- The torches resolve to no key — they are dressing — but
