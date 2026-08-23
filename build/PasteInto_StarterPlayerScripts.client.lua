@@ -375,10 +375,11 @@ __MODULES["Config"] = function()
 		MiscButtonSpacing = 12,
 
 
-		-- THE FRONT-WEST CORNER (#162 tophat): the pad left the open middle so
-		-- the walk from the gate stays clear floor, and the corner pocket between
-		-- the west belt's start and the front wall is ground nothing else wants.
-		RebirthPadAt = Vector3.new(-38, 0, 58),
+		-- THE FRONT-WEST CORNER, all the way in (#162 tophat): two studs off both
+		-- wall faces, above the west belt's cap — the pocket is ground nothing
+		-- else wants, and a pad shy of the corner reads as furniture standing in
+		-- the room rather than tucked into it.
+		RebirthPadAt = Vector3.new(-60, 0, 70),
 		ClaimPadAt   = Vector3.new(0, 0, 62),   -- front-centre, on the aisle
 		-- Where the owner lands on claim and on every respawn: just inside the
 		-- gateway, on the aisle, looking down plot-local -Z at the machines.

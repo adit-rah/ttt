@@ -375,10 +375,11 @@ __MODULES["Config"] = function()
 		MiscButtonSpacing = 12,
 
 
-		-- THE FRONT-WEST CORNER (#162 tophat): the pad left the open middle so
-		-- the walk from the gate stays clear floor, and the corner pocket between
-		-- the west belt's start and the front wall is ground nothing else wants.
-		RebirthPadAt = Vector3.new(-38, 0, 58),
+		-- THE FRONT-WEST CORNER, all the way in (#162 tophat): two studs off both
+		-- wall faces, above the west belt's cap — the pocket is ground nothing
+		-- else wants, and a pad shy of the corner reads as furniture standing in
+		-- the room rather than tucked into it.
+		RebirthPadAt = Vector3.new(-60, 0, 70),
 		ClaimPadAt   = Vector3.new(0, 0, 62),   -- front-centre, on the aisle
 		-- Where the owner lands on claim and on every respawn: just inside the
 		-- gateway, on the aisle, looking down plot-local -Z at the machines.
@@ -15338,44 +15339,33 @@ __MODULES["Belt"] = function()
 		--
 		-- NEVER COLLIDABLE. Same contract as the end cap and the flow markers, and
 		-- the long argument is in Config.Layout.BeltGuard.
-		local function buildGuard(index, fromDist, toDist)
+		--
+		-- `height` IS THE BAR'S CENTRE, which is what Config says it is and what
+		-- the kick plate is sized against: kickHeight is `height - bar/2 - kick`,
+		-- so the plate's top lands at exactly the bar's underside and the two
+		-- make one continuous guard. This read `height + bar` once and three
+		-- things disagreed about one rail — Config documented the centre, the
+		-- kick assumed it, the verifier modelled it — while only the builder
+		-- added the extra section, floating the rail 0.35 studs clear of its own
+		-- plate.
+		local function guardPiece(index, fromDist, toDist, side, lateral, name)
 			local run = toDist - fromDist
 			if run <= Tycoon.MIN_PART then
 				return
 			end
 			local mid = (fromDist + toDist) / 2
-			local lateral = half - GUARD.bite + GUARD.thickness / 2
-
-			for _, side in ipairs({ -1, 1 }) do
-				local kickHeight = GUARD.height - GUARD.bar / 2 - GUARD.kick
-				local kick = newPart(folder, ("Guard%d_%s"):format(index, side < 0 and "in" or "out"),
-					Vector3.new(GUARD.thickness, kickHeight, run),
-					self:segmentCF(index, mid, side * lateral, surfaceY + GUARD.kick + kickHeight / 2, pathIndex),
-					COLORS.frame, Enum.Material.DiamondPlate, false)
-				kick.CanQuery = false
-
-				-- `height` IS THE BAR'S CENTRE, which is what Config says it is and
-				-- what the kick plate above is sized against: kickHeight is
-				-- `height - bar/2 - kick`, so the plate's top lands at exactly the
-				-- bar's underside and the two make one continuous guard.
-				--
-				-- This read `height + bar` and three things disagreed about one
-				-- rail. Config documented the field as the centre; the kick plate's
-				-- own arithmetic assumed the centre; the verifier's clearance check
-				-- modelled the top at `BeltY + height + bar/2`. Only the builder
-				-- added the extra section, so the rail floated 0.35 studs clear of
-				-- the plate it is supposed to sit on, and every clearance check in
-				-- verify_config was measuring a rail 0.35 studs shorter than the one
-				-- being built. The comment above this block then explained the slot
-				-- as deliberate air "at exactly drop-body height" — 0.35 studs is
-				-- not a drop, and the gap was arithmetic rather than a decision.
-				local bar = newPart(folder, ("GuardRail%d_%s"):format(index, side < 0 and "in" or "out"),
-					Vector3.new(GUARD.bar, GUARD.bar, run),
-					self:segmentCF(index, mid, side * lateral, surfaceY + GUARD.height, pathIndex),
-					COLORS.beltLine, Enum.Material.Neon, false)
-				bar.CanQuery = false
-				bar.CastShadow = false
-			end
+			local kickHeight = GUARD.height - GUARD.bar / 2 - GUARD.kick
+			local kick = newPart(folder, "Guard" .. name,
+				Vector3.new(GUARD.thickness, kickHeight, run),
+				self:segmentCF(index, mid, side * lateral, surfaceY + GUARD.kick + kickHeight / 2, pathIndex),
+				COLORS.frame, Enum.Material.DiamondPlate, false)
+			kick.CanQuery = false
+			local bar = newPart(folder, "GuardRail" .. name,
+				Vector3.new(GUARD.bar, GUARD.bar, run),
+				self:segmentCF(index, mid, side * lateral, surfaceY + GUARD.height, pathIndex),
+				COLORS.beltLine, Enum.Material.Neon, false)
+			bar.CanQuery = false
+			bar.CastShadow = false
 		end
 
 		local path = self:beltPath(pathIndex)
@@ -15406,11 +15396,37 @@ __MODULES["Belt"] = function()
 			-- being applied where its reason had run out.
 			local startsAtBend = index > 1
 			local endsAtBend = index < legs
-			buildGuard(index,
-				startsAtBend and half or fromDist,
-				endsAtBend and (length - half) or toDist)
+			local railLateral = half - GUARD.bite + GUARD.thickness / 2
+			for _, side in ipairs({ -1, 1 }) do
+				guardPiece(index,
+					startsAtBend and half or fromDist,
+					endsAtBend and (length - half) or toDist,
+					side, railLateral,
+					("%d_%s"):format(index, side < 0 and "in" or "out"))
+			end
 		end
 		path.surfaces = surfaces
+
+		-- THE OUTER CORNER FILL (#162 tophat). The flush rails stop at the
+		-- neighbour's surface edge, which leaves the bend's OUTER pocket — the
+		-- corner square's two outboard edges — open. Two short guard pieces
+		-- complete the L, stood a hair outside BOTH surfaces (no bite: there is
+		-- no surface under them to bury a face in), so the rail reads continuous
+		-- around the turn and still crosses neither conveyor. The outer side is
+		-- derived per bend, so a path that turned the other way would fill the
+		-- right pocket.
+		local cornerLateral = half + GUARD.thickness / 2 + 0.05
+		for index = 1, legs - 1 do
+			local _, _, dirA, lengthA, normalA = self:leg(index, pathIndex)
+			local _, _, dirB, _, normalB = self:leg(index + 1, pathIndex)
+			local sideA = ((normalA.X * dirB.X + normalA.Z * dirB.Z) < 0) and 1 or -1
+			local sideB = ((normalB.X * dirA.X + normalB.Z * dirA.Z) > 0) and 1 or -1
+			local reach = cornerLateral + GUARD.thickness / 2
+			guardPiece(index, lengthA - half, lengthA + reach,
+				sideA, cornerLateral, ("Corner%d_a"):format(index))
+			guardPiece(index + 1, -reach, half,
+				sideB, cornerLateral, ("Corner%d_b"):format(index))
+		end
 
 		-- Visual end cap behind the first dropper. Non-collidable: nothing should
 		-- ever reach it, and if something does we want it to slide off, not wedge.

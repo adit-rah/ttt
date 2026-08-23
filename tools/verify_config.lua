@@ -2388,6 +2388,53 @@ do
 				end
 			end
 		end
+
+		-- THE OUTER CORNER FILL (#162 tophat): at every bend two guard pieces
+		-- close the L on the turn's outer side, stood clear of BOTH surfaces —
+		-- Belt.lua's derivation, mirrored, held to overlap NOTHING. Every leg's
+		-- surface, own included: the fill has no surface of its own to bite.
+		local half = L.BeltWidth / 2
+		local cornerLateral = half + GUARD.thickness / 2 + 0.05
+		local reach = cornerLateral + GUARD.thickness / 2
+		for index = 1, #legs - 1 do
+			local a, b = legs[index], legs[index + 1]
+			local aSign = (path.outboard and path.outboard[index]) or 1
+			local bSign = (path.outboard and path.outboard[index + 1]) or 1
+			local aNX, aNZ = -a.dirZ * aSign, a.dirX * aSign
+			local bNX, bNZ = -b.dirZ * bSign, b.dirX * bSign
+			local sideA = ((aNX * b.dirX + aNZ * b.dirZ) < 0) and 1 or -1
+			local sideB = ((bNX * a.dirX + bNZ * a.dirZ) > 0) and 1 or -1
+			local pieces = {
+				{ leg = a, from = a.along - half, to = a.along + reach,
+					nX = aNX * sideA, nZ = aNZ * sideA, label = "a" },
+				{ leg = b, from = -reach, to = half,
+					nX = bNX * sideB, nZ = bNZ * sideB, label = "b" },
+			}
+			for _, piece in ipairs(pieces) do
+				local alongMid = (piece.from + piece.to) / 2
+				local run = piece.to - piece.from
+				local at = Vector3.new(
+					piece.leg.a.X + piece.leg.dirX * alongMid + piece.nX * cornerLateral, 0,
+					piece.leg.a.Z + piece.leg.dirZ * alongMid + piece.nZ * cornerLateral)
+				local size = Vector3.new(
+					math.abs(piece.leg.dirX) * run + math.abs(piece.nX) * GUARD.thickness, 1,
+					math.abs(piece.leg.dirZ) * run + math.abs(piece.nZ) * GUARD.thickness)
+				for other, otherLeg in ipairs(legs) do
+					local overrun = (other == #legs) and 0 or half
+					local oMidX = (otherLeg.a.X + otherLeg.b.X) / 2 + otherLeg.dirX * overrun / 2
+					local oMidZ = (otherLeg.a.Z + otherLeg.b.Z) / 2 + otherLeg.dirZ * overrun / 2
+					local oLen = otherLeg.along + overrun
+					local oNX, oNZ = math.abs(otherLeg.dirZ), math.abs(otherLeg.dirX)
+					local into = boxBoxOverlap(at, size,
+						Vector3.new(oMidX, 0, oMidZ),
+						Vector3.new(math.abs(otherLeg.dirX) * oLen + oNX * L.BeltWidth, 1,
+							math.abs(otherLeg.dirZ) * oLen + oNZ * L.BeltWidth))
+					check(into <= 1e-6,
+						("BeltPaths.%s bend %d's corner fill %q overlaps leg %d's running surface by %.2f studs — the fill belongs OUTSIDE both conveyors")
+							:format(path.id, index, piece.label, other, into))
+				end
+			end
+		end
 	end
 
 	-- ...AND IT MAY NOT BE SHORTER THAN THE OVERRUN IT IS PULLING BACK FROM.
