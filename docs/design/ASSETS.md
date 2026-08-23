@@ -55,7 +55,7 @@ entry here works today.
 | the claim rig — pad, beacon, halo, sign | `tycoon/Props.lua` `buildClaimPad` |
 | the rebirth pad and ring | `tycoon/Props.lua` `buildRebirthPad` |
 | shelf displays — the shelf and its plate | `tycoon/Installers.lua` `buildShelfDisplay`. The statue standing on the shelf is the character — see [#120](https://github.com/adit-rah/ttt/issues/120) below. |
-| the plot shell — walls, panes, gate leaves, lintels, neon trim, ceiling battens, roof and columns | `tycoon/Installers.lua` `buildStoreyWalls`, `hangGateLeaves`, `refreshStoreyLights`, `buildRoofModel`. Part count is asserted against `Config.shellPartCount`. |
+| the plot shell — wall courses, gate leaves, lintels, neon trim | `tycoon/Installers.lua` `buildWallRing`, `hangGateLeaves`. Part count is asserted against `Config.shellPartCount`. |
 | the mezzanine — deck, edge and hatch guards, ladder | `src/server/FloorService.lua` `buildDeck`, `buildEdgeGuards`, `buildHatchGuards`, `buildLadder` |
 | the world — ground, arena floor, rim and dais, spawn pad, plot pads, edges and totems | `src/server/MapBuilder.lua` `build`, `buildArena`, `buildSpawn`, `buildPlotPad` |
 | particle and light recipes — variant effects, purchase bursts, floating text, swing trails, ceiling fixtures | `src/shared/Fx.lua` `RECIPES`, `burst`, `floatingText`, `trail`, `ceilingLight`. Textures are the engine's own (`rbxasset://textures/particles/*`) and cannot be moderated away. |
@@ -129,11 +129,11 @@ work under `D-06` and `D-05`.
 
 - **Player-facing copy** is a literal in the module that sends it: every
   notification title and body, every button label, the arena title and
-  subtitle, the claim, rebirth, vault, cabinet and roof signs. Only a
+  subtitle, the claim, rebirth, vault and cabinet signs. Only a
   purchase's `name` and `blurb` are data.
 - **Machine silhouettes** — the shape of a dropper and an upgrader — are
   `MACHINE_MASSES` in `tycoon/Parts.lua`.
 - **The two palettes.** The plot's colour language is `Tycoon.COLORS` in
   `tycoon/Class.lua`, `PALETTE` in `src/server/MapBuilder.lua` and the shell's
-  `WALL_COLOR` / `ROOF_COLOR` in `tycoon/Installers.lua`; the screen's is
+  `WALL_COLOR` in `tycoon/Installers.lua`; the screen's is
   `UiKit.PALETTE` and `UiKit.INK` in `src/client/UiKit.lua`.

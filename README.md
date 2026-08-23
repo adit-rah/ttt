@@ -75,7 +75,7 @@ source of truth and re-run the packer after any change.
 - The weapon and armour cabinets appear on the right-hand side of your plot at
   your **fourth purchase**, about three minutes in — bare ground until then.
 - From the middle of the build you buy **land**: ten expansions, five a side,
-  each narrower than the one before, and the walls and roof move outward with
+  each narrower than the one before, and the walls move outward with
   every one. Prices alternate west and east, so a plot bought cheapest-first
   grows symmetric — and a maxed plot is three and a half times the ground you
   started on.
@@ -83,7 +83,7 @@ source of truth and re-run the packer after any change.
   and one pad, and the pad upgrades what is standing there rather than adding
   another one beside it. Each rung speeds up the droppers and the belt together
   — the belt half is what stops a faster line simply running out of room.
-- The plot's **shell** — walls, gates, glazed bays, then a roof — is a separate
+- The plot's **shell** — walls, then gates — is a separate
   ladder running alongside the factory, so scenery never blocks income.
 - The **Bat Forge** buttons upgrade your weapon, six tiers from Sahur Bat to
   Eclipse. Bats are ordinary Roblox `Tool`s, so the built-in hotbar and backpack
@@ -203,7 +203,7 @@ Supported `kind` values and what each needs:
 | `Dropper` | `slot`, `variant`, `dropValue`, `dropRate` | machine + spout + drop loop on belt leg 1 |
 | `Upgrader` | `slot`, `variant`, `multiplier` | scanner over belt leg 2 that multiplies passing drops |
 | `Belt` | `speedBonus` | speeds up the conveyor |
-| `Structure` | `structure` (`"walls"` / `"gates"` / `"windows"` / `"roof"`) | plot buildout, one instalment at a time |
+| `Structure` | `structure` (`"walls"` / `"gates"`) | plot buildout, one instalment at a time |
 | `Gear` | `grants` (a `Config.Bats` id) | anvil display + weapon upgrade |
 | `Armor` | `grants` (a `Config.Armor.Tiers` id) | cabinet shelf + max-health upgrade |
 | `Power` | `factor`, `variant` | the generator in the yard; speeds up droppers and belt together |
