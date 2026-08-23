@@ -61,7 +61,7 @@ source of truth and re-run the packer after any change.
 - Step on a plot pad to claim a factory (you also get auto-assigned on join).
 - Green buttons are affordable, red ones aren't. Walk into one to buy it.
 - Droppers spit out Tung guys → the conveyor carries them around the back and
-  down the left edge → **upgraders multiply their value** → the vault pays you.
+  along the back wall → **upgraders multiply their value** → the vault pays you.
 - The belt hugs the plot border, so the middle of your plot stays open floor.
   Every upgrader is downstream of every dropper, so the upgrade stack always
   applies to everything.
@@ -286,9 +286,9 @@ Everything below lives in `Config.lua`.
 | Allow PvP everywhere | `Combat.ArenaPvP = false` |
 | Change how hard bats hit | `Config.Bats[n].damage / cooldown / crit` |
 | More or fewer plots | set MaxPlayers in Game Settings (clamped to `World.MinPlots`..`MaxPlots`, 4–10) — the ring sizes itself around the count |
-| Bigger plots | `World.PlotSize`; then move `Layout.BeltStart/Corner/End/CollectorAt` and the floor furniture in `Layout` to match — the verifier will tell you what no longer fits |
+| Bigger plots | `World.PlotSize`; then move `Layout.BeltSideX/BeltFrontZ/BeltBackZ/BeltInnerX/CollectorAt` and the floor furniture in `Layout` to match — the verifier will tell you what no longer fits |
 | Plots further apart | `World.PlotGap` (the ring radius is solved from it) or `World.MinPlotRadius` (a hard floor on the first ring) |
-| Move the conveyor | `Layout.BeltStart` / `BeltCorner` / `BeltEnd`; machines and buttons follow |
+| Move the conveyor | `Layout.BeltSideX` / `BeltFrontZ` / `BeltBackZ` / `BeltInnerX` — both mirrored lines derive from them; machines and buttons follow |
 | Button / belt height | `Layout.ButtonHeight`, `Layout.BeltY` (verifier rejects anything you'd have to jump onto) |
 | Change rebirth pacing | `Rebirth.BaseCost`, `Rebirth.CostGrowth`, `Rebirth.MultiplierPerRebirth` |
 

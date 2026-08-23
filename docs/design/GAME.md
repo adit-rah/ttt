@@ -99,9 +99,9 @@ is intentional: the pitch is the raid, and a player who learns the game as
 
 ```mermaid
 flowchart LR
-    D["Droppers<br/><i>make value</i>"] --> B1["Belt, leg 1<br/><i>back edge</i>"]
+    D["Droppers, five a side<br/><i>make value</i>"] --> B1["Two mirrored belts<br/><i>up the side edges</i>"]
     B1 --> C(("corner"))
-    C --> B2["Belt, leg 2<br/><i>left edge</i>"]
+    C --> B2["Back legs, inward<br/><i>along the back wall</i>"]
     B2 --> U["Upgraders<br/><i>multiply value in flight</i>"]
     U --> V["The vault<br/><i>pays automatically</i>"]
     V --> W["Your bank"]

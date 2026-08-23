@@ -1881,8 +1881,9 @@ for _, pair in ipairs({ { "DropperDist", L.DropperDist }, { "UpgraderDist", L.Up
 	check(#distances % 2 == 0,
 		("%s has %d entries; the slot table splits down its middle across the two paths, so it needs an even count")
 			:format(name, #distances))
-	local half = #distances / 2
-	for i = 1, half do
+	-- An odd table has no mirror to walk; the count check above is the report.
+	local half = math.floor(#distances / 2)
+	for i = 1, (#distances % 2 == 0) and half or 0 do
 		check(distances[i] == distances[i + half],
 			("%s[%d] is %.1f but its mirror [%d] is %.1f — the west and east lines would age apart")
 				:format(name, i, distances[i], i + half, distances[i + half]))
