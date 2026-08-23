@@ -346,6 +346,17 @@ function Tycoon:onTurn(hit: BasePart, pathIndex: number, fromLeg: number)
 		mover.SecondaryTangentAxis = self:legNormalWorld(toLeg, pathIndex)
 		mover.PlaneVelocity = Vector2.new(self.beltSpeed, 0)
 	end
+
+	-- SNAP THE VELOCITY, never just the constraint (#162 tophat). Retargeting
+	-- the plane leaves the drop's momentum pointing down the OLD leg, and the
+	-- constraint has to grind all of it away as lateral error with MaxForce —
+	-- which fits inside the corner square at the shipped speed and shoots the
+	-- drop out the side of the bend at power3's. Setting the assembly's real
+	-- velocity makes the turn exact at any speed; the vertical component is
+	-- kept so a drop mid-settle does not have its fall erased.
+	body.AssemblyLinearVelocity = direction * self.beltSpeed
+		+ Vector3.new(0, body.AssemblyLinearVelocity.Y, 0)
+
 	if upkeep and upkeep:IsA("AlignOrientation") then
 		upkeep.CFrame = TungModels.dropOrientation(direction)
 	end
