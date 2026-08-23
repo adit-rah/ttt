@@ -139,8 +139,14 @@ function Tycoon.new(index: number, parent: Instance)
 	self.drops.Name = "Drops"
 	self.drops.Parent = model
 
+	-- Two mirrored ground conveyors into one vault (#162): the west path
+	-- builds the shared folders and the vault shell, the east path adds its
+	-- surfaces and its own intake into the same vault.
 	self:buildBelt(1)
+	self:buildBelt(2, self.beltFolder)
 	self:buildCollector(1, nil, true)
+	self:buildCollectorIntake(2, self.collectorFolder,
+		Config.Layout.Vault.bodyDepth, Config.Layout.Vault.bodyWidth)
 	self:buildRebirthPad()
 	self:buildClaimPad()
 	-- The generator standing on the yard is a machine and comes and goes

@@ -41,6 +41,48 @@ local OV = Config.Offline.Vault
 
 -- ── collector ────────────────────────────────────────────────────────────────
 
+--- One path's way INTO a collector: the run-off ramp, the collect sensor and
+--- the funnel mouth at the end of its last leg. Its own method (#162) because
+--- the ground floor is two mirrored paths feeding one vault — the shell is
+--- built once by buildCollector and each path brings its own intake.
+function Tycoon:buildCollectorIntake(pathIndex: number, folder: Instance,
+	bodyDepth: number, bodyWidth: number)
+	local path = self:beltPath(pathIndex)
+	local _, beltEnd, exitDir = self:leg(self:legCount(pathIndex), pathIndex)
+	local runOff = (path.collectorAt - beltEnd).Magnitude
+
+	local function alongExit(distance, y, lateral)
+		local point = beltEnd + exitDir * distance + Vector3.new(0, y + path.y, 0)
+			+ Vector3.new(-exitDir.Z, 0, exitDir.X) * (lateral or 0)
+		return self.cf * CFrame.lookAt(point, point + exitDir)
+	end
+
+	-- funnel mouth facing back down the belt
+	local mouth = newPart(folder, "Mouth", Vector3.new(bodyWidth - 6, 6, 1.5),
+		alongExit(runOff - bodyDepth / 2 - 0.5, L.BeltY + 3, 0),
+		Color3.fromRGB(30, 24, 40), Enum.Material.Neon, false)
+	mouth.Transparency = 0.5
+
+	-- run-off ramp carrying drops off the end of the belt into the sensor
+	local ramp = newPart(folder, "Ramp", Vector3.new(L.BeltWidth, 0.6, 5), alongExit(2.4, L.BeltY - 0.2, 0),
+		COLORS.belt, Enum.Material.SmoothPlastic)
+	ramp.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
+
+	-- The most expensive one to miss: a drop the collector does not see is 100%
+	-- of its value, not a fraction of it. It sits at alongExit(2), so at 5
+	-- thick it spans -0.5..4.5 against a vault mouth well downstream — no
+	-- overlap.
+	local sensor = newPart(folder, "Sensor", Vector3.new(L.BeltWidth + 3, 7, L.TriggerThickness),
+		alongExit(2, L.BeltY + 3, 0),
+		Color3.fromRGB(255, 255, 255), Enum.Material.Neon, false)
+	sensor.Transparency = 1
+	sensor.CanTouch = true
+
+	sensor.Touched:Connect(function(hit)
+		self:onCollect(hit)
+	end)
+end
+
 --- Run-off ramp, collect sensor and the body that catches the drops, at the end
 --- of a path's last leg.
 ---
@@ -86,29 +128,7 @@ function Tycoon:buildCollector(pathIndex: number?, parent: Instance?, headline: 
 	newPart(folder, "VaultTrim", Vector3.new(bodyWidth + 1, 1.2, bodyDepth + 1),
 		alongExit(runOff, bodyHeight + 0.4, 0), COLORS.gold, Enum.Material.Metal)
 
-	-- funnel mouth facing back down the belt
-	local mouth = newPart(folder, "Mouth", Vector3.new(bodyWidth - 6, 6, 1.5),
-		alongExit(runOff - bodyDepth / 2 - 0.5, L.BeltY + 3, 0),
-		Color3.fromRGB(30, 24, 40), Enum.Material.Neon, false)
-	mouth.Transparency = 0.5
-
-	-- run-off ramp carrying drops off the end of the belt into the sensor
-	local ramp = newPart(folder, "Ramp", Vector3.new(L.BeltWidth, 0.6, 5), alongExit(2.4, L.BeltY - 0.2, 0),
-		COLORS.belt, Enum.Material.SmoothPlastic)
-	ramp.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
-
-	-- The most expensive one to miss: a drop the collector does not see is 100%
-	-- of its value, not a fraction of it. It sits at alongExit(2), so at 5
-	-- thick it spans -0.5..4.5 against a vault mouth at 6.5 — no overlap.
-	local sensor = newPart(folder, "Sensor", Vector3.new(L.BeltWidth + 3, 7, L.TriggerThickness),
-		alongExit(2, L.BeltY + 3, 0),
-		Color3.fromRGB(255, 255, 255), Enum.Material.Neon, false)
-	sensor.Transparency = 1
-	sensor.CanTouch = true
-
-	sensor.Touched:Connect(function(hit)
-		self:onCollect(hit)
-	end)
+	self:buildCollectorIntake(pathIndex, folder, bodyDepth, bodyWidth)
 
 	if not headline then
 		return
@@ -131,18 +151,17 @@ function Tycoon:buildCollector(pathIndex: number?, parent: Instance?, headline: 
 	-- The lid is spoken for three times over — trim at bodyHeight + 0.4, the
 	-- 20x6 board spanning y 9..15, the statue above that — so a column on the
 	-- roof would grow straight through two of them. The lateral faces are the
-	-- only clear ones, and of the two only one faces the open floor and the
-	-- aisle you actually walk down on your way off the plot; the other faces
-	-- the side wall two studs away, where nobody will ever stand.
+	-- only clear ones, and of the two only one faces the open floor: with the
+	-- vault at back-centre (#162), that is the FRONT face, looking straight
+	-- down the aisle at the gate.
 	--
-	-- WHICH ONE THAT IS depends on the sign of the last leg's exit direction.
-	-- alongExit puts lateral on (-exitDir.Z, 0, exitDir.X); the ground belt
-	-- exits along +Z (BeltEnd -> CollectorAt), which makes that perpendicular
-	-- -X, so a NEGATIVE lateral lands at plot-local x = -35 — the open side —
-	-- and a positive one at x = -53, in the wall. Hence the minus signs below.
-	-- Derived, not measured: UNVERIFIED IN STUDIO.
+	-- WHICH SIGN THAT IS depends on the last leg's exit direction. alongExit
+	-- puts lateral on (-exitDir.Z, 0, exitDir.X); this is built off the WEST
+	-- path, which exits along +X, making that perpendicular +Z — so a
+	-- POSITIVE lateral lands on the front face and a negative one in the gap
+	-- behind the vault. Derived, not measured: UNVERIFIED IN STUDIO.
 	local w = V.window
-	local windowCF = alongExit(runOff, w.y, -w.lateral)
+	local windowCF = alongExit(runOff, w.y, w.lateral)
 	local window = newPart(folder, "FillWindow", Vector3.new(w.thickness, w.height, w.width),
 		windowCF, COLORS.gold, Enum.Material.Glass, false)
 	window.Transparency = 0.55
@@ -165,7 +184,7 @@ function Tycoon:buildCollector(pathIndex: number?, parent: Instance?, headline: 
 	-- the headline is the plot's number and carries to the arena, the
 	-- arithmetic behind it only has to resolve once you are standing here.
 	local detailAnchor = newPart(folder, "DetailAnchor", Vector3.new(1, 1, 1),
-		alongExit(runOff, V.detailSignY, -V.detailLateral), COLORS.vault, nil, false)
+		alongExit(runOff, V.detailSignY, V.detailLateral), COLORS.vault, nil, false)
 	detailAnchor.Transparency = 1
 	local detailBoard = Style.billboard(detailAnchor, {
 		name = "Detail", width = V.detailWidth, height = V.detailHeight, distance = OV.NearDistance,
@@ -193,8 +212,11 @@ function Tycoon:buildCollector(pathIndex: number?, parent: Instance?, headline: 
 	-- repair prompt all hang on this same base. Storage.lua owns that state.
 	self:buildStorageUnit(base)
 
+	-- Facing the gate: the frame looks along the west path's +X exit, so a
+	-- quarter turn the other way points the statue down the aisle at the
+	-- gateway. UNVERIFIED IN STUDIO, same as the gauge face.
 	local statue = TungModels.buildStatue("classic", V.statueScale)
-	statue:PivotTo(alongExit(runOff, V.statueY, 0) * CFrame.Angles(0, math.pi, 0))
+	statue:PivotTo(alongExit(runOff, V.statueY, 0) * CFrame.Angles(0, -math.pi / 2, 0))
 	statue.Parent = folder
 	self.vaultStatue = statue
 end

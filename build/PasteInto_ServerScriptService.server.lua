@@ -255,29 +255,33 @@ __MODULES["Config"] = function()
 	end
 
 	-- mechanism: plot-local layout. Plot origin = centre of the pad, floor top at
-	-- y = 0. +Z is "front" (faces the arena), -Z is the back where droppers live.
+	-- y = 0. +Z is "front" (faces the arena), -Z is the back where the vault
+	-- lives.
 	--
-	-- The belt runs as an L around the back and left edges rather than straight
-	-- through the middle, which is what puts every machine against a wall and lines
-	-- the buy buttons up along the inside of the run. design:D-02 for what the open
-	-- centre is for, and why every upgrader is downstream of every dropper.
+	-- design:D-02, via #162 — THE LINE IS TWO MIRRORED CONVEYORS: one up each
+	-- side edge, turning at the back corners and running inward along the back
+	-- wall into the vault at back-centre. Droppers ride the side legs, upgraders
+	-- the back legs, so every machine still stands against a wall with its buy
+	-- button on the inside of the run, every upgrader is still downstream of its
+	-- own path's droppers, and the plot reads symmetric from the centred gate.
+	-- The west line is the owner's RIGHT walking in, and it fills first.
 	--
 	--        back edge
-	--    +---------------+
-	--    |=====<=========|  <- leg 1: droppers
-	--    |v              |
-	--    |v              |     (open floor)
-	--    |v              |
-	--    |v  leg 2:      |
-	--    |v  upgraders   |
-	--    |[VAULT]        |
-	--    +---------------+
+	--    +--=========[VAULT]=========--+
+	--    |  ^ upgraders    upgraders ^ |
+	--    |==^                       ^==|
+	--    |^                           ^|
+	--    |^  droppers       droppers  ^|
+	--    |^        (open floor)       ^|
+	--    |^                           ^|
+	--    +----------|  gate |----------+
 	--        front edge (faces the arena)
 	Config.Layout = {
-		BeltStart  = Vector3.new( 46, 0, -56),   -- back-right corner
-		BeltCorner = Vector3.new(-44, 0, -56),   -- back-left corner
-		BeltEnd    = Vector3.new(-44, 0,  46),   -- front-left
-		CollectorAt = Vector3.new(-44, 0, 58),
+		BeltSideX   = 44,    -- |x| of the two side legs
+		BeltFrontZ  = 46,    -- where each side leg starts, toward the front
+		BeltBackZ   = -56,   -- the back legs' line
+		BeltInnerX  = 13,    -- where each back leg ends, at the vault's shoulder
+		CollectorAt = Vector3.new(0, 0, -56),   -- the vault, straddling the belt line
 
 		BeltY = 1.4,             -- TOP of the belt surface; low enough to step onto
 		BeltWidth = 8,
@@ -332,21 +336,25 @@ __MODULES["Config"] = function()
 		ButtonHeight = 1.4,      -- total button height; must be low enough to run over
 		MachineFootprint = 5,    -- machines are this deep along the belt
 
-		-- distance along leg 1 (back edge) for dropper slot 1..10
-		DropperDist  = { 5, 14, 23, 32, 41, 50, 59, 68, 77, 86 },
-		-- distance along leg 2 (left edge) for upgrader slot 1..6
-		UpgraderDist = { 14, 30, 46, 62, 78, 94 },
+		-- Distance along a SIDE leg (leg 1 of its path) for dropper slot 1..10.
+		-- Slots 1-5 ride the west path and 6-10 the east, at MIRRORED distances —
+		-- the same five values twice, asserted, so the two lines age identically.
+		DropperDist  = { 10, 28, 46, 64, 82, 10, 28, 46, 64, 82 },
+		-- Distance along a BACK leg (leg 2 of its path) for upgrader slot 1..6:
+		-- slots 1-3 west, 4-6 east, mirrored the same way.
+		UpgraderDist = { 6, 16, 26, 6, 16, 26 },
 
 		-- mechanism: buttons with no machine on the belt stand in a row down the
 		-- middle of the open floor, in purchase order. design:D-03 for why the aisle
 		-- reads as a queue.
 		--
-		-- THE COLUMN IS BOUNDED AT BOTH ENDS. Belt leg 1's buy-button row occupies
-		-- z -47.5..-42.5 at every x from -46.5 to 48.5, so nothing can go behind
-		-- z = -38; the 12-stud pitch then walks toward the gate. The column stands
-		-- EAST of the centred gateway's aisle (design:D-02, via #162 — the plot
-		-- reads symmetric from the gate), mirroring the rebirth pad west of it,
-		-- and x = 24 keeps every pedestal clear of OwnerSpawnAt (0, 44).
+		-- THE COLUMN IS BOUNDED AT BOTH ENDS. The back legs' buy-button rows run
+		-- at z ≈ -48 from |x| 13..44 and the vault stands behind them, so nothing
+		-- can go behind z = -38 with a pedestal's clearance; the 12-stud pitch
+		-- then walks toward the gate. The column stands EAST of the centred
+		-- gateway's aisle (design:D-02, via #162 — the plot reads symmetric from
+		-- the gate), mirroring the rebirth pad west of it, and x = 24 keeps every
+		-- pedestal clear of OwnerSpawnAt (0, 44).
 		MiscButtons = {
 			walls      = Vector3.new(24, 0, -34),
 			gates      = Vector3.new(24, 0, -22),
@@ -2841,11 +2849,31 @@ __MODULES["Config"] = function()
 	--- upper floor's return leg runs back across the middle of its own deck, where
 	--- the inferred side flips and puts the machines over the walkway and the buy
 	--- buttons out in space. One entry per leg, so one fewer than `points`.
+	-- TWO GROUND PATHS, mirrored (design:D-02, via #162). Both share the vault's
+	-- collectorAt; each carries its own five droppers on leg 1 and three
+	-- upgraders on leg 2, so the downstream rule holds per path. `west` first:
+	-- the owner's right walking in the centred gate, and the side that fills
+	-- first.
 	Config.BeltPaths = {
 		{
-			id = "ground",
+			id = "west",
 			y = 0,
-			points = { Config.Layout.BeltStart, Config.Layout.BeltCorner, Config.Layout.BeltEnd },
+			points = {
+				Vector3.new(-Config.Layout.BeltSideX, 0, Config.Layout.BeltFrontZ),
+				Vector3.new(-Config.Layout.BeltSideX, 0, Config.Layout.BeltBackZ),
+				Vector3.new(-Config.Layout.BeltInnerX, 0, Config.Layout.BeltBackZ),
+			},
+			outboard = { -1, -1 },
+			collectorAt = Config.Layout.CollectorAt,
+		},
+		{
+			id = "east",
+			y = 0,
+			points = {
+				Vector3.new(Config.Layout.BeltSideX, 0, Config.Layout.BeltFrontZ),
+				Vector3.new(Config.Layout.BeltSideX, 0, Config.Layout.BeltBackZ),
+				Vector3.new(Config.Layout.BeltInnerX, 0, Config.Layout.BeltBackZ),
+			},
 			outboard = { 1, 1 },
 			collectorAt = Config.Layout.CollectorAt,
 		},
@@ -15588,8 +15616,10 @@ __MODULES["Belt"] = function()
 		return self.cf:VectorToWorldSpace(normal).Unit
 	end
 
-	--- Which leg (and which floor's belt) a machine lives on: droppers on the back
-	--- edge of the ground floor, upgraders on its left edge.
+	--- Which leg (and which path) a machine lives on: the slot tables split down
+	--- their middle across the two mirrored ground paths (#162) — the first half
+	--- of each rides the west line, the second half the east — with droppers on
+	--- a path's side leg (leg 1) and upgraders on its back leg (leg 2).
 	---
 	--- A def may pin itself instead, which is how FloorService stands a dropper on
 	--- an upper floor without inventing a second slot table.
@@ -15598,9 +15628,9 @@ __MODULES["Belt"] = function()
 			return def.legIndex, def.legDistance or 0, self:pathIndexOf(def)
 		end
 		if def.kind == "Dropper" then
-			return 1, L.DropperDist[def.slot], 1
+			return 1, L.DropperDist[def.slot], def.slot * 2 <= #L.DropperDist and 1 or 2
 		end
-		return 2, L.UpgraderDist[def.slot], 1
+		return 2, L.UpgraderDist[def.slot], def.slot * 2 <= #L.UpgraderDist and 1 or 2
 	end
 
 	--- Which registered path a def means. A button carries `path` as an ID rather
@@ -16296,8 +16326,14 @@ __MODULES["Class"] = function()
 		self.drops.Name = "Drops"
 		self.drops.Parent = model
 
+		-- Two mirrored ground conveyors into one vault (#162): the west path
+		-- builds the shared folders and the vault shell, the east path adds its
+		-- surfaces and its own intake into the same vault.
 		self:buildBelt(1)
+		self:buildBelt(2, self.beltFolder)
 		self:buildCollector(1, nil, true)
+		self:buildCollectorIntake(2, self.collectorFolder,
+			Config.Layout.Vault.bodyDepth, Config.Layout.Vault.bodyWidth)
 		self:buildRebirthPad()
 		self:buildClaimPad()
 		-- The generator standing on the yard is a machine and comes and goes
@@ -18945,6 +18981,48 @@ __MODULES["Vault"] = function()
 
 	-- ── collector ────────────────────────────────────────────────────────────────
 
+	--- One path's way INTO a collector: the run-off ramp, the collect sensor and
+	--- the funnel mouth at the end of its last leg. Its own method (#162) because
+	--- the ground floor is two mirrored paths feeding one vault — the shell is
+	--- built once by buildCollector and each path brings its own intake.
+	function Tycoon:buildCollectorIntake(pathIndex: number, folder: Instance,
+		bodyDepth: number, bodyWidth: number)
+		local path = self:beltPath(pathIndex)
+		local _, beltEnd, exitDir = self:leg(self:legCount(pathIndex), pathIndex)
+		local runOff = (path.collectorAt - beltEnd).Magnitude
+
+		local function alongExit(distance, y, lateral)
+			local point = beltEnd + exitDir * distance + Vector3.new(0, y + path.y, 0)
+				+ Vector3.new(-exitDir.Z, 0, exitDir.X) * (lateral or 0)
+			return self.cf * CFrame.lookAt(point, point + exitDir)
+		end
+
+		-- funnel mouth facing back down the belt
+		local mouth = newPart(folder, "Mouth", Vector3.new(bodyWidth - 6, 6, 1.5),
+			alongExit(runOff - bodyDepth / 2 - 0.5, L.BeltY + 3, 0),
+			Color3.fromRGB(30, 24, 40), Enum.Material.Neon, false)
+		mouth.Transparency = 0.5
+
+		-- run-off ramp carrying drops off the end of the belt into the sensor
+		local ramp = newPart(folder, "Ramp", Vector3.new(L.BeltWidth, 0.6, 5), alongExit(2.4, L.BeltY - 0.2, 0),
+			COLORS.belt, Enum.Material.SmoothPlastic)
+		ramp.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
+
+		-- The most expensive one to miss: a drop the collector does not see is 100%
+		-- of its value, not a fraction of it. It sits at alongExit(2), so at 5
+		-- thick it spans -0.5..4.5 against a vault mouth well downstream — no
+		-- overlap.
+		local sensor = newPart(folder, "Sensor", Vector3.new(L.BeltWidth + 3, 7, L.TriggerThickness),
+			alongExit(2, L.BeltY + 3, 0),
+			Color3.fromRGB(255, 255, 255), Enum.Material.Neon, false)
+		sensor.Transparency = 1
+		sensor.CanTouch = true
+
+		sensor.Touched:Connect(function(hit)
+			self:onCollect(hit)
+		end)
+	end
+
 	--- Run-off ramp, collect sensor and the body that catches the drops, at the end
 	--- of a path's last leg.
 	---
@@ -18990,29 +19068,7 @@ __MODULES["Vault"] = function()
 		newPart(folder, "VaultTrim", Vector3.new(bodyWidth + 1, 1.2, bodyDepth + 1),
 			alongExit(runOff, bodyHeight + 0.4, 0), COLORS.gold, Enum.Material.Metal)
 
-		-- funnel mouth facing back down the belt
-		local mouth = newPart(folder, "Mouth", Vector3.new(bodyWidth - 6, 6, 1.5),
-			alongExit(runOff - bodyDepth / 2 - 0.5, L.BeltY + 3, 0),
-			Color3.fromRGB(30, 24, 40), Enum.Material.Neon, false)
-		mouth.Transparency = 0.5
-
-		-- run-off ramp carrying drops off the end of the belt into the sensor
-		local ramp = newPart(folder, "Ramp", Vector3.new(L.BeltWidth, 0.6, 5), alongExit(2.4, L.BeltY - 0.2, 0),
-			COLORS.belt, Enum.Material.SmoothPlastic)
-		ramp.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.05, 0.1, 1, 1)
-
-		-- The most expensive one to miss: a drop the collector does not see is 100%
-		-- of its value, not a fraction of it. It sits at alongExit(2), so at 5
-		-- thick it spans -0.5..4.5 against a vault mouth at 6.5 — no overlap.
-		local sensor = newPart(folder, "Sensor", Vector3.new(L.BeltWidth + 3, 7, L.TriggerThickness),
-			alongExit(2, L.BeltY + 3, 0),
-			Color3.fromRGB(255, 255, 255), Enum.Material.Neon, false)
-		sensor.Transparency = 1
-		sensor.CanTouch = true
-
-		sensor.Touched:Connect(function(hit)
-			self:onCollect(hit)
-		end)
+		self:buildCollectorIntake(pathIndex, folder, bodyDepth, bodyWidth)
 
 		if not headline then
 			return
@@ -19035,18 +19091,17 @@ __MODULES["Vault"] = function()
 		-- The lid is spoken for three times over — trim at bodyHeight + 0.4, the
 		-- 20x6 board spanning y 9..15, the statue above that — so a column on the
 		-- roof would grow straight through two of them. The lateral faces are the
-		-- only clear ones, and of the two only one faces the open floor and the
-		-- aisle you actually walk down on your way off the plot; the other faces
-		-- the side wall two studs away, where nobody will ever stand.
+		-- only clear ones, and of the two only one faces the open floor: with the
+		-- vault at back-centre (#162), that is the FRONT face, looking straight
+		-- down the aisle at the gate.
 		--
-		-- WHICH ONE THAT IS depends on the sign of the last leg's exit direction.
-		-- alongExit puts lateral on (-exitDir.Z, 0, exitDir.X); the ground belt
-		-- exits along +Z (BeltEnd -> CollectorAt), which makes that perpendicular
-		-- -X, so a NEGATIVE lateral lands at plot-local x = -35 — the open side —
-		-- and a positive one at x = -53, in the wall. Hence the minus signs below.
-		-- Derived, not measured: UNVERIFIED IN STUDIO.
+		-- WHICH SIGN THAT IS depends on the last leg's exit direction. alongExit
+		-- puts lateral on (-exitDir.Z, 0, exitDir.X); this is built off the WEST
+		-- path, which exits along +X, making that perpendicular +Z — so a
+		-- POSITIVE lateral lands on the front face and a negative one in the gap
+		-- behind the vault. Derived, not measured: UNVERIFIED IN STUDIO.
 		local w = V.window
-		local windowCF = alongExit(runOff, w.y, -w.lateral)
+		local windowCF = alongExit(runOff, w.y, w.lateral)
 		local window = newPart(folder, "FillWindow", Vector3.new(w.thickness, w.height, w.width),
 			windowCF, COLORS.gold, Enum.Material.Glass, false)
 		window.Transparency = 0.55
@@ -19069,7 +19124,7 @@ __MODULES["Vault"] = function()
 		-- the headline is the plot's number and carries to the arena, the
 		-- arithmetic behind it only has to resolve once you are standing here.
 		local detailAnchor = newPart(folder, "DetailAnchor", Vector3.new(1, 1, 1),
-			alongExit(runOff, V.detailSignY, -V.detailLateral), COLORS.vault, nil, false)
+			alongExit(runOff, V.detailSignY, V.detailLateral), COLORS.vault, nil, false)
 		detailAnchor.Transparency = 1
 		local detailBoard = Style.billboard(detailAnchor, {
 			name = "Detail", width = V.detailWidth, height = V.detailHeight, distance = OV.NearDistance,
@@ -19097,8 +19152,11 @@ __MODULES["Vault"] = function()
 		-- repair prompt all hang on this same base. Storage.lua owns that state.
 		self:buildStorageUnit(base)
 
+		-- Facing the gate: the frame looks along the west path's +X exit, so a
+		-- quarter turn the other way points the statue down the aisle at the
+		-- gateway. UNVERIFIED IN STUDIO, same as the gauge face.
 		local statue = TungModels.buildStatue("classic", V.statueScale)
-		statue:PivotTo(alongExit(runOff, V.statueY, 0) * CFrame.Angles(0, math.pi, 0))
+		statue:PivotTo(alongExit(runOff, V.statueY, 0) * CFrame.Angles(0, -math.pi / 2, 0))
 		statue.Parent = folder
 		self.vaultStatue = statue
 	end
