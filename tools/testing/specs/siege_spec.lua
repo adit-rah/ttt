@@ -109,14 +109,14 @@ T.spec("part names resolve to stable keys, and only siege parts resolve", functi
 		return part
 	end
 	t:eq(Tycoon.siegeKeyForPart(named("Sill_front_2")), "wall_front")
-	t:eq(Tycoon.siegeKeyForPart(named("Pane_left_1_3")), "wall_left")
+	t:eq(Tycoon.siegeKeyForPart(named("Body_left_1")), "wall_left")
+	t:eq(Tycoon.siegeKeyForPart(named("Head_right_2")), "wall_right")
 	t:eq(Tycoon.siegeKeyForPart(named("Lintel_back_4")), "wall_back")
 	t:eq(Tycoon.siegeKeyForPart(named("Gate_gateway_2")), "gate_gateway")
 	t:eq(Tycoon.siegeKeyForPart(named("Gate_yardDoor_1")), "gate_yardDoor")
-	t:isNil(Tycoon.siegeKeyForPart(named("Roof")), "the roof is not a siege target")
+	t:isNil(Tycoon.siegeKeyForPart(named("Trim_front")), "the trim cap is not a siege target")
 	t:isNil(Tycoon.siegeKeyForPart(named("VaultBase")),
 		"the storage body must stay outside the wall machinery — its route is siegeStrike's own")
-	t:isNil(Tycoon.siegeKeyForPart(named("Fixture_3")), "a light batten is not a wall")
 end)
 
 T.spec("a dent survives the save as a fraction, and scales onto new maxes", function(t)
@@ -163,7 +163,7 @@ T.spec("one swing hits one key once, and never the swinger's own plot", function
 		part.Parent = plot.model
 		return part
 	end
-	local parts = { wallPart("Pane_front_3_1"), wallPart("Pier_front_3_2"), wallPart("Head_front_3") }
+	local parts = { wallPart("Sill_front_3"), wallPart("Body_front_3"), wallPart("Head_front_3") }
 
 	local max = plot:siegeMaxHealth("wall_front")
 	Tycoon.siegeStrike(parts, raider, 30)

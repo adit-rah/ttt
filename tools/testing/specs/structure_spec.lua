@@ -5,57 +5,44 @@
 	(tools/testing/mock/instance.lua), so nothing here builds a wall and looks at
 	it. It does not need to: the shell's geometry was deliberately written as
 	FUNCTIONS on Config rather than inlined in the builder, precisely so the same
-	arithmetic the builder emits from can be read by a test. Config.wallSegments,
-	Config.wallBays, Config.roofUnderside and Config.shellPartCount are pure
-	scalar functions over Config.Structure, and that is the whole surface below.
+	arithmetic the builder emits from can be read by a test. Config.wallSegments
+	and Config.shellPartCount are pure scalar functions over Config.Structure,
+	and that is the whole surface below.
 
 	WHY IT IS NOT tools/verify_config.lua'S JOB. The verifier asserts these
-	functions against the SHIPPED numbers — one plot size, two openings, one
-	window spec. That proves the functions agree with one table of values. It does
-	not prove they are correct, because every degenerate case the shipped config
-	happens not to contain is unchecked: a wall with two openings, an opening
-	flush to the START of a wall, two openings that share an edge, a solid run one
-	stud too short for a pane. Those are where span arithmetic actually breaks, so
-	those are what this file feeds it. Several specs below therefore MUTATE
-	Config.Structure.Openings — legal because T.world() builds a fresh realm with
-	its own load of Config (tools/test.py's __newRealm), and asserted as legal by
-	"a fresh realm's Config is untouched by another spec's mutation".
+	functions against the SHIPPED numbers — one plot size, two openings. That
+	proves the functions agree with one table of values. It does not prove they
+	are correct, because every degenerate case the shipped config happens not to
+	contain is unchecked: a wall with two openings, an opening flush to the START
+	of a wall, two openings that share an edge. Those are where span arithmetic
+	actually breaks, so those are what this file feeds it. Several specs below
+	therefore MUTATE Config.Structure.Openings — legal because T.world() builds a
+	fresh realm with its own load of Config (tools/test.py's __newRealm), and
+	asserted as legal by "a fresh realm's Config is untouched by another spec's
+	mutation".
 
-	THE BUG THIS ROUND CLOSED, as a property. The walls were five boxes at a
+	THE BUG THIS FAMILY CLOSED, as a property. The walls were five boxes at a
 	literal h = 13 under a roof at y = 20, so every plot had a seven-stud band of
 	daylight all the way round and no check anywhere looked at it. Stated as a
-	property that is: a wall's spans must account for its whole extent, and a
-	storey's wall must stop exactly at the floor above it. Both are specs here —
-	the first horizontally, the second vertically (the deck's UNDERSIDE, not its
-	middle; that number was briefly wrong by half a thickness while the contract
-	was being written, and half a thickness is a wall ending inside the floor
-	above it).
+	property that is: a wall's spans must account for its whole extent.
 
 	EVERY LOOP COUNTS WHAT IT VISITED. A spec that iterates a list and asserts
 	inside the loop passes for free when the list is empty, which is how a green
 	spec ends up being evidence of nothing. Every loop below ends with an
-	assertion on how many walls, runs, bays or openings it actually saw.
+	assertion on how many walls, runs or openings it actually saw.
 
 	EVERY SPEC HERE HAS BEEN MADE TO FAIL. Two specs in this project were found
 	that could not, and a green spec over a wrong mock reads as evidence while
-	being worse than nothing. Each of the nineteen below was watched failing under
-	a broken copy of the function it guards, injected into its own realm's Config:
+	being worse than nothing. Each spec below was watched failing under a broken
+	copy of the function it guards, injected into its own realm's Config:
 	wallSegments without the trailing run (the seven-stud band itself), with `>=`
 	and `<=` so flush edges emit zero-width runs, openingsIn without its sort,
-	wallBays with the slack all on the last pier / counting panes as
-	floor(length / (pane+pier)) / guarding on `panes < 0` / dropping the leading
-	pier / never glazing, roofUnderside ignoring the mezzanine, the ground storey
-	at half a deck thickness, a 30-stud window, shortened side walls, an opening
-	moved off its wall, a 130-stud leaf with nothing to slide onto, a constant
-	shellPartCount, and glass at 0.1. The counted numbers (six unbroken walls,
-	nine runs, two openings) are what those failures printed, so they are here as
-	oracles rather than as decoration — if one moves, someone changed the shell
-	and this file is the second half of that change.
-
-	ONE THING RUNTIME CANNOT SEE. Storeys[1].clear is asserted equal to
-	`Floors[1].height - deckSize.Y`, which catches the deck MOVING, but a literal
-	20.4 typed in its place would pass — the derivation itself is only visible in
-	the source. That check belongs to review, not here.
+	shortened side walls, an opening moved off its wall, a 130-stud leaf with
+	nothing to slide onto, and a constant shellPartCount. The counted numbers
+	(six unbroken walls, nine runs, two openings) are what those failures
+	printed, so they are here as oracles rather than as decoration — if one
+	moves, someone changed the shell and this file is the second half of that
+	change.
 ]]
 
 return function(T)
@@ -106,16 +93,6 @@ end
 local function idAt(spans, index: number)
 	local span = spans[index]
 	return span and span.opening and span.opening.id
-end
-
-local function countKind(spans, kind: string): number
-	local n = 0
-	for _, span in ipairs(spans) do
-		if span.kind == kind then
-			n += 1
-		end
-	end
-	return n
 end
 
 --- An opening literal, in the shape Config.Structure.Openings holds. Centre and
@@ -370,192 +347,42 @@ T.spec("a fresh realm's Config is untouched by another spec's mutation", functio
 	t:eq(#third.config.openingsIn("right"), 0)
 end)
 
--- ── the bay course ──────────────────────────────────────────────────────────
+-- ── the courses, vertically ─────────────────────────────────────────────────
 
-T.spec("wallBays tiles its run, pier first, pier last, alternating", function(t)
+T.spec("the three courses stack to the wall's top with a head course left", function(t)
 	local w = T.world()
 	local Config = w.config
-	local window = Config.Structure.Window
+	local course = Config.Structure.Course
 
-	-- Shipped run lengths and then some the shipped config has never produced,
-	-- including fractional ones and a run offset off the origin.
-	local runs = {
-		{ -59, 46 }, { -59, 3 }, { 25, 59 }, { -70, 70 },     -- as shipped
-		{ 0, 32 }, { 0, 33.5 }, { -13.25, 88.75 }, { 100, 420 }, { -400, -399.5 },
-	}
-
-	local checked, withPanes = 0, 0
-	for _, run in ipairs(runs) do
-		local from, to = run[1], run[2]
-		local bays = Config.wallBays(from, to)
-		local label = ("run %g..%g"):format(from, to)
-
-		tiles(t, bays, from, to, label)
-		t:eq(bays[1].kind, "pier", label .. ": a bay course must start on a pier")
-		t:eq(bays[#bays].kind, "pier", label .. ": a bay course must end on a pier")
-		t:eq(#bays % 2, 1, label .. ": pier-first pier-last means an odd number of bays")
-
-		local panes = countKind(bays, "pane")
-		t:eq(#bays, 2 * panes + 1, label .. ": bays are not 2n+1 for n panes")
-		for index, bay in ipairs(bays) do
-			t:eq(bay.kind, index % 2 == 1 and "pier" or "pane",
-				("%s: bay %d breaks the pier/pane alternation"):format(label, index))
-		end
-		if panes > 0 then
-			withPanes += 1
-		end
-		checked += 1
-	end
-	t:eq(checked, #runs)
-	t:gte(withPanes, 6, "most of these runs are wide enough to glaze — do not test only pier runs")
-	t:gt(window.pier, 0, "a pier needs a width")
-	t:gt(window.pane, 0, "a pane needs a width")
-end)
-
-T.spec("a run too short for a pane is all pier, not a negative pane", function(t)
-	local w = T.world()
-	local Config = w.config
-	local window = Config.Structure.Window
-
-	-- A bay needs a pier on BOTH sides, so the real threshold is
-	-- pane + 2*pier, not pane + pier. Check either side of both, because
-	-- `panes = floor((length - pier) / (pane + pier))` gets one of them wrong if
-	-- the guard is written as `panes < 0` or the floor drops.
-	local pier, pane = window.pier, window.pane
-	local short = { 0.5, 1, pier, pane, pier + pane - 0.001, pier + pane, pier + pane + 0.001,
-		pane + 2 * pier - 0.001 }
-	for _, length in ipairs(short) do
-		local bays = Config.wallBays(0, length)
-		local label = ("a %g-stud run"):format(length)
-		t:eq(kinds(bays), "pier", label .. " is too short to glaze and must be solid pier")
-		tiles(t, bays, 0, length, label)
-	end
-
-	-- The first length that CAN take a pane takes exactly one, with a minimum
-	-- pier either side and nothing left over.
-	local exact = pane + 2 * pier
-	local bays = Config.wallBays(0, exact)
-	t:eq(kinds(bays), "pier|pane|pier", ("a %g-stud run is exactly one bay"):format(exact))
-	tiles(t, bays, 0, exact, "the one-bay run")
-	t:near(bays[2].to - bays[2].from, pane, EPS, "the pane is not a full pane wide")
-	t:near(bays[1].to - bays[1].from, pier, EPS, "the pier is thinner than the spec")
-	t:near(bays[3].to - bays[3].from, pier, EPS)
-end)
-
-T.spec("panes are exactly pane wide and the slack is even on the piers", function(t)
-	local w = T.world()
-	local Config = w.config
-	local window = Config.Structure.Window
-
-	-- The pane count is an ORACLE here, not a re-derivation: n panes need
-	-- n*pane + (n+1)*pier, so the boundary for every n is walked from below,
-	-- exactly on, and above. A floor() that drops or an off-by-one pier lands on
-	-- one of these three, for some n, always.
-	local step = window.pane + window.pier
-	local lengths = {}
-	for n = 1, 8 do
-		local minimum = n * step + window.pier
-		table.insert(lengths, { minimum - 0.001, n - 1 })
-		table.insert(lengths, { minimum, n })
-		table.insert(lengths, { minimum + 0.001, n })
-		table.insert(lengths, { minimum + step / 2, n })
-	end
-	-- and the five run lengths the shipped shell actually produces, counted by
-	-- hand off Config.Structure.Window rather than off Config.wallBays
-	for _, pair in ipairs({ { 34, 1 }, { 62, 2 }, { 105, 4 }, { 118, 4 }, { 140, 5 } }) do
-		table.insert(lengths, pair)
-	end
-
-	local glazed = 0
-	for _, entry in ipairs(lengths) do
-		local length, expected = entry[1], entry[2]
-		local bays = Config.wallBays(0, length)
-		local panes = countKind(bays, "pane")
-		local label = ("a %g-stud run"):format(length)
-		tiles(t, bays, 0, length, label)
-		t:eq(panes, expected, label .. (" should hold exactly %d pane(s)"):format(expected))
-		if expected == 0 then
-			t:eq(kinds(bays), "pier", label .. " is too short to glaze")
-			continue
-		end
-
-		local firstPier = nil
-		for _, bay in ipairs(bays) do
-			if bay.kind == "pane" then
-				t:near(bay.to - bay.from, window.pane, EPS,
-					label .. ": a pane is not exactly Window.pane wide — glass must not stretch")
-			else
-				local width = bay.to - bay.from
-				t:gte(width, window.pier - EPS,
-					label .. ": a pier is thinner than Window.pier — the slack went the wrong way")
-				firstPier = firstPier or width
-				t:near(width, firstPier, EPS,
-					label .. ": the piers are not all the same width — the slack is not spread evenly")
-			end
-		end
-
-		-- The packing is MAXIMAL: one more pane would not have fitted. This is
-		-- the half of the arithmetic a floor() typo silently loses.
-		t:gt((panes + 1) * window.pane + (panes + 2) * window.pier, length,
-			label .. (": %d panes leaves room for another one"):format(panes))
-		glazed += 1
-	end
-	t:eq(glazed, 36, "every glazed length in the table must have been walked")
-end)
-
-T.spec("the bay course fits inside the wall, sill and head included", function(t)
-	local w = T.world()
-	local Config = w.config
-	local window = Config.Structure.Window
-
-	t:gt(window.sill, 0, "a sill course with no height")
-	t:gt(window.height, 0, "glass with no height")
-	t:lt(window.sill + window.height, Config.Structure.WallHeight,
-		"no room for a head course — the glass reaches the ceiling")
-end)
-
--- ── vertically: the wall and the roof ───────────────────────────────────────
-
-T.spec("roofUnderside is the wall's top", function(t)
-	local w = T.world()
-	local Config = w.config
-
-	t:near(Config.roofUnderside(), Config.Structure.WallHeight, EPS,
-		"the roof sits on the wall's top — one structural line, both readers")
 	t:gt(Config.Structure.WallHeight, 0, "a shell with no height")
+	t:gt(course.sill, 0, "a sill course with no height cannot be a repair stump")
+	t:gt(course.body, 0, "a body course with no height")
+	t:lt(course.sill + course.body, Config.Structure.WallHeight,
+		"no room for a head course — the body reaches the top of the wall")
 end)
 
 -- ── the part budget ─────────────────────────────────────────────────────────
 
-T.spec("shellPartCount is 2n+3 a run, and is stable", function(t)
+T.spec("shellPartCount is three courses a run, and is stable", function(t)
 	local w = T.world()
 	local Config = w.config
 
 	-- An independent model of the same total, from the documented per-course
-	-- claim ("parts per run is 2n+3 where n is the pane count") rather than from
+	-- claim ("per solid run: a sill, body and head course") rather than from
 	-- shellPartCount's own loop.
 	--
-	-- The two per-side extras and the sign anchor are here because they were
-	-- MISSING from shellPartCount when this spec was first written: it modelled
-	-- the wall spec rather than what the builder emits, and reported 59 against 68
+	-- The per-side trim is here because two per-side parts were MISSING from
+	-- shellPartCount when this spec was first written: it modelled the wall
+	-- spec rather than what the builder emits, and reported 59 against 68
 	-- actually built. A budget asserted 13% under the truth is a budget that
-	-- passes right up until it matters, so this model counts the trim cap, the
-	-- interior light strip and the anchor the roof sign hangs on.
+	-- passes right up until it matters.
 	local function model()
-		local total, runs, cuts = 6, 0, 0   -- roof slab + four columns + sign anchor
-		-- The ceiling fixtures, modelled from columns x rows rather than from
-		-- the function that places them — so this stays a second opinion. A
-		-- grid that stopped emitting its far column would agree with itself
-		-- and disagree here.
-		total += Config.Structure.Lights.columns * Config.Structure.Lights.rows
+		local total, runs, cuts = 0, 0, 0
 		for _, side in ipairs(Config.Structure.Sides) do
-			total += 2   -- this wall's neon cap, and the light strip inside it
+			total += 1   -- this wall's trim cap
 			for _, segment in ipairs(Config.wallSegments(side)) do
 				if segment.kind == "solid" then
-					local bays = Config.wallBays(segment.from, segment.to)
-					local panes = countKind(bays, "pane")
-					t:eq(#bays, 2 * panes + 1, "a run's bay course is not 2n+1")
-					total += 2 * panes + 3   -- sill + head + (2n+1) bays
+					total += 3   -- sill + body + head
 					runs += 1
 				else
 					total += 1 + segment.opening.leaves   -- lintel + leaves
@@ -567,7 +394,7 @@ T.spec("shellPartCount is 2n+3 a run, and is stable", function(t)
 	end
 
 	local full, runs, cuts = model()
-	t:eq(Config.shellPartCount(), full, "shellPartCount disagrees with 2n+3 a run")
+	t:eq(Config.shellPartCount(), full, "shellPartCount disagrees with three courses a run")
 	t:eq(runs, 5, "five solid runs around the ring")
 	t:eq(cuts, 2, "the gateway and the yard doorway")
 
@@ -591,41 +418,27 @@ T.spec("shellPartCount answers to inputs the shipped config never has", function
 	t:lte(withDoor, Config.Structure.PartBudget,
 		"a third opening puts the shell over budget")
 
-	Config.Structure.Window.pane = Config.Structure.Window.pane / 2
-	t:gt(Config.shellPartCount(), withDoor,
-		"halving the pane must double up the bays, and each bay is a part")
+	-- The delta is exact: the left wall's one run (3 courses) becomes two runs
+	-- (6) plus a lintel and a single leaf — 8 against 3, so +5.
+	t:eq(withDoor, base + 5,
+		"a third opening's cost is one extra run of courses, a lintel and its leaf")
 
-	Config.Structure.Window.pier = 400   -- wider than any run: every wall goes solid
-	local solid = Config.shellPartCount()
-	t:lt(solid, withDoor, "with no run wide enough to glaze the shell must get cheaper")
-	t:gt(solid, 5, "the roof and its columns are always there")
-end)
-
-T.spec("glass stays at or above PopperCam's 0.25 occlusion threshold", function(t)
-	-- Roblox's PopperCam only treats a part as occluding when
-	-- `Transparency < 0.25 and CanCollide`. Every pane in this shell is
-	-- CanCollide, so below 0.25 the camera shoves itself through the windows of
-	-- a plot that is now fully enclosed — and the plot is only enclosed BECAUSE
-	-- of this round. This number is load-bearing, not cosmetic.
-	local w = T.world()
-	local window = w.config.Structure.Window
-
-	t:gte(window.transparency, 0.25,
-		"glass below 0.25 is opaque to PopperCam — the camera will pop through the walls")
-	t:lt(window.transparency, 1, "a fully invisible pane is not a window")
+	-- ...and the count moves with the LAND, because the front and back walls
+	-- split their runs at every owned boundary.
+	t:gt(Config.shellPartCount(1, 1), base,
+		"a grown plot's shell counts the same as the bare one — the land splits are not being counted")
 end)
 
 -- ── the shell as its own track ──────────────────────────────────────────────
 
-T.spec("the shell is walls, then gates, then windows, then roof, on a track of its own", function(t)
+T.spec("the shell is walls, then gates, on a track of its own", function(t)
 	-- The ORDER IS THE TABLE ORDER — the loader derives `requires` from it and
 	-- nothing else states the dependency. INVARIANTS.md marks that [nothing],
 	-- and this is half of what closes it; the other half is a config check.
 	--
-	-- THE TRACK IS `structure` AND IT USED TO BE `factory`. The four rows were
-	-- positions 5, 6, 7 and 14 of the factory chain, which made the building
-	-- mandatory and blocking: no dropper4 until you had bought walls, gates and
-	-- windows. They are a parallel ladder now, gated as a whole on `dropper1`.
+	-- THE TRACK IS `structure` AND IT USED TO BE `factory`, where the shell's
+	-- rows were welded into the chain and blocking. They are a parallel ladder
+	-- now, gated as a whole on `dropper1`.
 	local w = T.world()
 	local Config = w.config
 
@@ -637,11 +450,11 @@ T.spec("the shell is walls, then gates, then windows, then roof, on a track of i
 		seen[def.structure] = def.trackOrder
 		structures += 1
 	end
-	t:eq(structures, 4, "walls, gates, windows and the roof")
+	t:eq(structures, 2, "walls and the gates")
 
 	-- ...and nothing was left behind on the spine. A Structure row still sitting
-	-- in FactoryButtons would be a fifth piece of building blocking the line,
-	-- which is the entire defect this split was for.
+	-- in FactoryButtons would be a piece of building blocking the line, which is
+	-- the entire defect this split was for.
 	for _, def in ipairs(Config.Tracks.factory) do
 		t:isTrue(def.kind ~= "Structure",
 			("%s is a Structure row still on the factory track — the shell is not supposed to block the line any more"):format(def.id))
@@ -649,21 +462,14 @@ T.spec("the shell is walls, then gates, then windows, then roof, on a track of i
 
 	t:notNil(seen.walls)
 	t:gt(seen.gates, seen.walls, "gates hang on the wall ring, so they cannot precede it")
-	t:gt(seen.windows, seen.walls, "glass is set into the bay course, so it cannot precede it")
-	t:gt(seen.roof, seen.windows, "the roof is still the last piece of the shell")
 
 	-- The chain the loader derives, end to end: each names the one before it
 	-- without any of them saying so in Config, and the FIRST one names nothing.
-	-- `walls` is a track root now rather than a link behind dropper3, and a root
-	-- that carried a requirement would be a ladder nothing can start.
+	-- A root that carried a requirement would be a ladder nothing can start.
 	t:isNil(Config.ButtonById.walls.requires,
 		"walls is the root of the structure track; a root with a requirement is a track nothing can start")
 	t:eq(Config.ButtonById.gates.requires, "walls",
 		"the derived chain no longer runs walls -> gates")
-	t:eq(Config.ButtonById.windows.requires, "gates",
-		"the derived chain no longer runs gates -> windows")
-	t:eq(Config.ButtonById.roof.requires, "windows",
-		"the derived chain no longer runs windows -> roof")
 
 	-- The whole ladder waits on the first dropper, so the shell can never be
 	-- somebody's opening purchase.
@@ -675,95 +481,34 @@ T.spec("the shell is walls, then gates, then windows, then roof, on a track of i
 		"one dropper in, the building becomes something you can want")
 end)
 
-T.spec("splitting the shell costs no parts, because an unglazed bay is still a wall", function(t)
-	-- THE DESIGN DECISION, AS AN ASSERTION. `walls` could have left the bays as
-	-- holes for `windows` to fill, and that reading is refused: a purchase
-	-- called "Plot Walls" that does not keep a raider out is not walls. So a bay
-	-- is built solid and glazing restyles it.
-	--
-	-- The consequence worth pinning is that Config.shellPartCount — and
-	-- therefore the whole PartBudget argument — is measuring the same shell it
-	-- measured before the split. If someone later makes `windows` emit its own
-	-- parts, this is what says the budget has to be re-derived.
-	local w = T.world()
-	local Config = w.config
-
-	local panes, piers = 0, 0
-	for _, side in ipairs(Config.Structure.Sides) do
-		for _, segment in ipairs(Config.wallSegments(side)) do
-			if segment.kind == "solid" then
-				for _, bay in ipairs(Config.wallBays(segment.from, segment.to)) do
-					if bay.kind == "pane" then panes += 1 else piers += 1 end
-				end
-			end
-		end
-	end
-	t:gt(panes, 0, "a shell with no bays cannot demonstrate anything about glazing")
-	t:gt(piers, 0, "a bay course with no piers is one continuous window")
-
-	-- Both kinds are boxes in the same course, and shellPartCount counts a bay
-	-- as one part whichever it is — which is what makes the glass free.
-	local counted = Config.shellPartCount()
-	Config.Structure.Window.transparency = 1
-	t:eq(Config.shellPartCount(), counted,
-		"the part count moved with the glass; glazing is a material change, not a part")
-end)
-
-T.spec("a plot owns the glass only while it owns the wall the glass is in", function(t)
+T.spec("a plot owns the leaves only while it owns the wall they hang on", function(t)
 	-- Tycoon:hasStructure is derived from `owned` rather than stored, and this is
-	-- the reason: rebirth wipes the factory track, so it takes `walls` AND
-	-- `windows` together. A stored flag would survive it and leave a plot
-	-- claiming to be glazed with no shell to be glazed in — the same failure the
-	-- sticky cabinet gate exists to prevent, one purchase over.
+	-- the reason: rebirth wipes the structure track, so it takes `walls` AND
+	-- `gates` together. A stored flag would survive it and leave a plot claiming
+	-- doors with no shell to hang them in — the same failure the sticky cabinet
+	-- gate exists to prevent, one purchase over.
 	local w = T.world()
 	local Tycoon = w.req("Tycoon")
 
 	local bare = { owned = {} }
 	t:isFalse(Tycoon.hasStructure(bare, "walls"))
 	t:isFalse(Tycoon.hasStructure(bare, "gates"))
-	t:isFalse(Tycoon.hasStructure(bare, "windows"))
 
-	local glazed = { owned = { walls = true, gates = true, windows = true } }
-	t:isTrue(Tycoon.hasStructure(glazed, "walls"))
-	t:isTrue(Tycoon.hasStructure(glazed, "gates"))
-	t:isTrue(Tycoon.hasStructure(glazed, "windows"))
-	t:isFalse(Tycoon.hasStructure(glazed, "roof"),
-		"owning the other three must not imply the roof")
+	local gated = { owned = { walls = true, gates = true } }
+	t:isTrue(Tycoon.hasStructure(gated, "walls"))
+	t:isTrue(Tycoon.hasStructure(gated, "gates"))
 
 	-- It answers about the STRUCTURE, not the id, so a plot that owns a dropper
-	-- of the same name would not be glazed by it.
+	-- of the same name would not be gated by it.
 	local partial = { owned = { walls = true, dropper1 = true } }
 	t:isTrue(Tycoon.hasStructure(partial, "walls"))
-	t:isFalse(Tycoon.hasStructure(partial, "windows"),
-		"a plot with walls and no windows is reporting glass it never bought")
+	t:isFalse(Tycoon.hasStructure(partial, "gates"),
+		"a plot with walls and no gates is reporting doors it never bought")
 
 	-- An id that is not a button at all must not answer true for anything.
 	local junk = { owned = { not_a_button = true } }
 	t:isFalse(Tycoon.hasStructure(junk, "walls"),
 		"an owned id with no Config row is being treated as a structure")
-end)
-
--- ── the room is lit when it is covered, not when it is walled ───────────────
-
-T.spec("the ceiling battens exist only once the plot owns a roof", function(t)
-	-- THE FIXTURES USED TO ARRIVE WITH THE WALL RING, unconditionally —
-	-- thirty minutes of lit battens hanging at ceiling height under open sky.
-	-- The verifier cannot see this: Config.storeyLightPositions is a pure
-	-- function and shellPartCount counts every fixture whenever it is built.
-	-- WHEN a batten exists is runtime, and hasStructure("roof") is the whole
-	-- of the decision now that the storey system has retired.
-	local w = T.world()
-	local Tycoon = w.req("Tycoon")
-
-	local function plot(owned)
-		return setmetatable({ owned = owned }, { __index = Tycoon })
-	end
-
-	t:isFalse(plot({}):hasStructure("roof"), "a bare plot claims a ceiling")
-	t:isFalse(plot({ walls = true, gates = true, windows = true }):hasStructure("roof"),
-		"the whole rest of the shell is bought, there is still open sky overhead")
-	t:isTrue(plot({ walls = true, roof = true }):hasStructure("roof"),
-		"the roof is on and the room below it reads as uncovered")
 end)
 
 -- ── the purchase surface is three categories ────────────────────────────────
@@ -790,7 +535,7 @@ T.spec("every button carries a category ordinal the width of its category", func
 				("%s is missing ordinal %d of %d"):format(category, ordinal, count))
 		end
 	end
-	t:eq(Config.CategoryCount.plot, 34, "the plot category is structure's 4 plus thirty land rows")
+	t:eq(Config.CategoryCount.plot, 32, "the plot category is structure's 2 plus thirty land rows")
 	t:eq(Config.CategoryCount.conveyor, 17, "the conveyor category is the factory chain")
 end)
 
@@ -801,7 +546,7 @@ T.spec("a rebirth takes the whole shell down and every rung of it is buyable aga
 	-- test because nothing else in the repo can see it.
 	--
 	-- TrackInfo.structure.keepOnRebirth is false. If it were true:
-	-- Tycoon:rebirth keeps the four ids in `profile.owned`, SKIPS clearing their
+	-- Tycoon:rebirth keeps the track's ids in `profile.owned`, SKIPS clearing their
 	-- entry.machine handles because the skip is keyed on the same flag, and then
 	-- calls self.machines:ClearAllChildren() anyway — which destroys the wall
 	-- ring, because the ring is parented to self.machines and not to the

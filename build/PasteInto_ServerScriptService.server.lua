@@ -72,7 +72,7 @@ __MODULES["Config"] = function()
 		                       here can enforce.
 		  (no banner)          Config.Layout — plot-LOCAL coordinates for everything a
 		                       Tycoon builds: belt corners, machine slots, buy-button
-		                       spine, roof, Layout.Vault, Layout.Yard, Layout.Tracks.
+		                       spine, Layout.Vault, Layout.Yard, Layout.Tracks.
 		                       The ASCII plot map just above it is the fastest way in.
 		  WORLD TEXT           Config.Style — the fonts, outlines and view distances
 		                       every in-world label uses. They live here so the
@@ -341,22 +341,20 @@ __MODULES["Config"] = function()
 		-- middle of the open floor, in purchase order. design:D-03 for why the aisle
 		-- reads as a queue.
 		--
-		-- THE COLUMN IS BOUNDED AT BOTH ENDS and currently runs six pedestals deep.
-		-- Belt leg 1's buy-button row occupies z -47.5..-42.5 at every x from -46.5
-		-- to 48.5, so nothing can go behind z = -38; six at the 14-stud pitch then
-		-- reaches z = 36. x = 0 is what keeps the far pedestal 16.1 studs clear of
-		-- OwnerSpawnAt (14, 44). At x = 8 it lands 10 studs away and you respawn
-		-- standing on the button that buys the storey.
+		-- THE COLUMN IS BOUNDED AT BOTH ENDS. Belt leg 1's buy-button row occupies
+		-- z -47.5..-42.5 at every x from -46.5 to 48.5, so nothing can go behind
+		-- z = -38; the 14-stud pitch then walks toward the gate. x = 0 keeps every
+		-- pedestal clear of OwnerSpawnAt (14, 44); at x = 8 the far one lands 10
+		-- studs away and you respawn standing on a buy button.
 		MiscButtons = {
 			walls     = Vector3.new(0, 0, -34),
 			gates     = Vector3.new(0, 0, -20),
-			windows   = Vector3.new(0, 0,  -6),
-			belt1     = Vector3.new(0, 0,   8),
-			roof      = Vector3.new(0, 0,  22),
+			belt1     = Vector3.new(0, 0,  -6),
 			-- The column runs in purchase order with the later steps nearer the
-			-- gate, so the floor goes at the near end. A button with no entry here
-			-- gets built at the plot origin, on top of the belt — buttonPosition
-			-- falls back to (0,0,0) and says nothing about it.
+			-- gate. Every key here must name a button id, and every button on a
+			-- misc-furniture track must have a key — both are asserted, because a
+			-- button with no entry used to be built silently at the plot origin,
+			-- on top of the belt.
 		},
 		MiscButtonSpacing = 14,  -- asserted minimum gap between two MiscButtons
 
@@ -427,20 +425,15 @@ __MODULES["Config"] = function()
 	-- studs it is 135ms, which is four steps even demoted.
 	Config.Layout.TriggerThickness = 5
 
-	-- THE ROOF AND THE WALLS LIVE IN Config.Structure, near the bottom of this
-	-- file, with the rest of the shell's spec.
-	--
-	-- Config.Layout.RoofY/RoofThickness/RoofColumn/RoofColumnInset are gone. RoofY
-	-- was 20 while the deck's underside was 20.4, and the roof carried a shrink rule
-	-- to dodge the deck — two pieces of geometry reaching into each other, each
-	-- correct on its own. There is one structural line now and both of them are
-	-- derived from it. See Config.Structure.
+	-- THE WALLS LIVE IN Config.Structure, near the bottom of this file, with the
+	-- rest of the shell's spec. There is one structural line, WallHeight, and
+	-- everything at the wall's top derives from it.
 
 	-- THE VAULT SHELL, which now carries a gauge as well as a sign.
 	--
 	-- Every number below was a literal inside Tycoon:buildCollector — the body's
-	-- 18x9x10, the sign anchor's +12, the statue's +13.5 — which is exactly the
-	-- situation RoofY above was written to fix. The lid is crowded: the trim sits
+	-- 18x9x10, the sign anchor's +12, the statue's +13.5 — geometry the verifier
+	-- could not see while it lived in code. The lid is crowded: the trim sits
 	-- at bodyHeight + 0.4, the 20x6 sign spans y 9..15 and the statue stands over
 	-- both of them, so ANYTHING added to this object has to be checked against
 	-- three neighbours at once, and the verifier could not see a single one of
@@ -1429,7 +1422,7 @@ __MODULES["Config"] = function()
 	--  Upgrader:  variant, multiplier
 	--  Belt:      speedBonus
 	--  Power:     factor (cumulative, not a step), variant. No slot.
-	--  Structure: structure ("walls" | "gates" | "windows" | "roof")
+	--  Structure: structure ("walls" | "gates")
 	--  Gear:      grants (a Config.Bats id)
 	--  Armor:     grants (a Config.Armor.Tiers id)
 	--  Land:      side ("left" | "right"), width (studs of X; depth is the plot's)
@@ -1562,19 +1555,14 @@ __MODULES["Config"] = function()
 	}
 
 	-- design:D-03 — the building is a PARALLEL track gated on `dropper1`, so it is
-	-- something you buy alongside the line rather than instead of it.
+	-- something you buy alongside the line while the line pays for it.
 	--
-	-- mechanism: WALLS, THEN GATES, THEN WINDOWS — each is only worth anything
-	-- once the one before it is standing. The wall arrives SOLID and CLOSED, bays
-	-- included, glazed later. INSTALLERS.Structure builds a bay as a box either
-	-- way, so glazing is a material change on a part that already exists rather
-	-- than sixty new ones; the part count does not move across the first three.
-	--
-	-- THE ROOF IS ON THIS TRACK AND STILL GATES THE MEZZANINE. It is the one place
-	-- the shell reached back into the spine while the storey lived. Being last
-	-- here is load-bearing twice over: buildRoofModel derives its column positions
-	-- from Config.wallExtent, so a roof with no wall under it is four columns and a
-	-- slab standing in a field.
+	-- mechanism: WALLS, THEN GATES — the gate leaves hang on the ring, so buying
+	-- them first would be parts attached to a building that is not there yet. The
+	-- wall arrives SOLID and CLOSED and opaque at every point in its life; the
+	-- plot is open to the sky (design:D-02, via #162 — the shell is an open-air
+	-- castle, and the masonry tiers that restyle it arrive with that issue's
+	-- later PRs).
 	Config.StructureButtons = {
 		{
 			id = "walls", name = "Plot Walls", price = 1500,
@@ -1585,16 +1573,6 @@ __MODULES["Config"] = function()
 			id = "gates", name = "Sliding Gates", price = 1600,
 			kind = "Structure", structure = "gates",
 			blurb = "They know when you're coming.",
-		},
-		{
-			id = "windows", name = "Glazed Bays", price = 1900,
-			kind = "Structure", structure = "windows",
-			blurb = "Let the neighbours watch.",
-		},
-		{
-			id = "roof", name = "Sahur Roof + Sign", price = 690000,
-			kind = "Structure", structure = "roof",
-			blurb = "Now it's a real business.",
 		},
 	}
 
@@ -2838,10 +2816,10 @@ __MODULES["Config"] = function()
 	}
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- invariant: THE BUILDING SHELL — walls, windows, gates and the roof.
+	-- invariant: THE BUILDING SHELL — walls and gates, open to the sky.
 	--
-	-- ONE STRUCTURAL LINE. Config.Structure.WallHeight is the wall's top and the
-	-- roof's underside, and everything at ceiling height derives from it.
+	-- ONE STRUCTURAL LINE. Config.Structure.WallHeight is the wall's top, and
+	-- everything at that height derives from it.
 	--
 	-- SPANS ARE A LIST, NOT ARITHMETIC IN A LOOP. Config.wallSegments returns the
 	-- solid runs and the openings of one wall of one storey, and the builder emits
@@ -2862,24 +2840,14 @@ __MODULES["Config"] = function()
 		-- the budget was being asserted against a number 13% below what is built.
 		Trim = { section = 1, proud = 0.4 },
 
-		-- WINDOW BAYS. A solid run is built as three courses: a sill course from the
-		-- floor to `sill`, a bay course of alternating piers and glass panes, and a
-		-- head course from `sill + height` to the wall top.
-		--
-		-- Wide bays, few piers, deliberately: parts per run is 2n+3 where n is the
-		-- pane count, and this shell is the largest single addition to a plot's part
-		-- count the project has made. See PartBudget.
-		Window = {
-			pane = 16,
-			pier = 8,
-			sill = 6,
-			height = 9,
-			-- GLASS MUST STAY AT OR ABOVE 0.25. Roblox's PopperCam only treats a
-			-- part as occluding when `Transparency < 0.25 and CanCollide`, so at
-			-- 0.45 a glazed bay passes the camera and the light while staying solid
-			-- to a player. Below 0.25 every window becomes a thing the camera
-			-- shoves itself through, indoors, on a plot that is now enclosed.
-			transparency = 0.45,
+		-- A solid run is built as three courses — sill, body, head — stacked to
+		-- WallHeight. Three, so a broken wall can leave its sill standing as the
+		-- repair stump while the courses above it fall (tycoon/Siege.lua). The
+		-- numbers keep the old sill line and bay line, so the courses that ship
+		-- are the courses that shipped.
+		Course = {
+			sill = 6,   -- floor to here
+			body = 9,   -- sill to here + this; the head runs on to WallHeight
 		},
 
 		-- THE OPENINGS, as an inventory. Both keep height 13 — the old wall height —
@@ -2936,61 +2904,10 @@ __MODULES["Config"] = function()
 			travelTime = 0.45,       -- tween seconds, each direction
 		},
 
-		Roof = {
-			thickness = 1.4,
-			column = 2.4,
-			columnInset = 3,         -- in from the wall ring
-			signLift = 6,            -- the company sign, above the roof's top face
-		},
-
-		-- invariant: A BUDGET. The shell was ~10 parts; windows and gates take it to ~115,
-		-- times ten plots. Config.shellPartCount() models it from this spec and the
-		-- verifier asserts the result. Whether it holds at full scale in a real
-		-- server is open — design:D-03.
-		-- invariant: LIGHT, BECAUSE A STOREY WITH A CEILING IS INDOORS.
-		-- Lighting.Ambient is (0,0,0) and the mezzanine deck spans wall face to wall
-		-- face, so from the minute the storey lands the ground floor has no sky.
-		--
-		-- Material.Neon ILLUMINATES NOTHING in Roblox. The wall's "light strip" is a
-		-- look, not a light, and the variant glow on machine cores is too — classic,
-		-- oak and ash carry none at all, so the first three droppers and the first
-		-- upgrader emit nothing.
-		--
-		-- SurfaceLight ON THE BOTTOM FACE, and that is the whole design. Every light
-		-- here runs Shadows = false — at 8 fixtures x 2 storeys x 10 plots it has
-		-- to — and a Roblox light with shadows off IGNORES OCCLUDERS ENTIRELY. A
-		-- PointLight bolted under the deck would shine straight through a 1.6-stud
-		-- slab and light the mezzanine floor above it. A SurfaceLight emits from one
-		-- face into a cone and cannot leak upward at all. SpotLight makes a pool on
-		-- the floor and leaves the walls black.
-		--
-		-- A GRID, DERIVED FROM THE WALL RING, exactly like the wall spans are.
-		-- Hand-listed coordinates are coordinates that stop being under the ceiling
-		-- the first time the plot changes size.
-		--
-		-- 3x4 AT AN INSET OF 20, and the coverage assertion chose all three numbers.
-		-- 2x4 at an inset of 30 was the first guess and it fails: it puts the
-		-- darkest floor sample 46.8 studs from its nearest fixture against a range
-		-- of 55, and a light's falloff is not a cliff. The binding point is not the
-		-- corner — it is the MIDDLE OF THE BACK WALL, which two columns leave 47
-		-- studs from either of them. A third column down the centre line fixes it.
-		--
-		-- `inset` is also what keeps the +X column off the armoury: a batten at
-		-- x = 38 spans 36.5..39.5 against a cabinet at 46..50. Asserted, not
-		-- remembered.
-		Lights = {
-			columns = 3,
-			rows = 4,
-			inset = 20,
-			batten = { width = 3, length = 24, thickness = 0.6 },
-			drop = 0.3,              -- top face sunk this far into the ceiling above
-			brightness = 2,
-			-- Roblox CLAMPS a light's Range at 60 and says nothing about it, so a
-			-- number above that reads as set and is not. Asserted below.
-			range = 55,
-			angle = 150,
-		},
-
+		-- invariant: A BUDGET. Config.shellPartCount() models the shell's part
+		-- count from this spec and the verifier asserts the result at every land
+		-- state. Whether it holds at full scale in a real server is open —
+		-- design:D-03.
 		PartBudget = 200,
 	}
 
@@ -3043,17 +2960,11 @@ __MODULES["Config"] = function()
 		return H.GateBase + H.GatePerLevel * (level - 1)
 	end
 
-	-- The one structural line: floor top to the wall's top, which is also the
-	-- roof's underside. It was Storeys[1].clear, derived from the mezzanine
-	-- deck's underside; the storey system retired with #88 and the shipped number
-	-- stays, verbatim, so the roof line, the trim, the light plane and every
-	-- label assertion hold still.
+	-- The one structural line: floor top to the wall's top. It was
+	-- Storeys[1].clear, derived from the mezzanine deck's underside; the storey
+	-- system retired with #88 and the shipped number stays, verbatim, so the
+	-- trim line and every label assertion hold still.
 	Config.Structure.WallHeight = 20.4
-
-	--- The underside of the roof: the wall's top. One line, one reader each side.
-	function Config.roofUnderside(): number
-		return Config.Structure.WallHeight
-	end
 
 	--- One wall of the ring: the axis it runs along, its fixed coordinate on the
 	--- other axis, and its extent — for a plot owning `left`/`right` expansions a
@@ -3110,7 +3021,7 @@ __MODULES["Config"] = function()
 	--- every land boundary, so each expansion's frontage is its own span. The
 	--- centre's boxes never change size when land arrives — an expansion ADDS
 	--- spans — and every opening stays on the centre span, which is what keeps
-	--- "gates and windows are never rebuilt" true whatever the plot owns.
+	--- "the gates are never rebuilt" true whatever the plot owns.
 	function Config.wallSegments(side: string, left: number?, right: number?)
 		local extent = Config.wallExtent(side, left, right)
 		local segments = {}
@@ -3169,113 +3080,31 @@ __MODULES["Config"] = function()
 		return segments, extent
 	end
 
-	--- The bay course of one solid run: alternating piers and glass panes, starting
-	--- and ending on a pier. A run too short for a single pane is all pier.
-	function Config.wallBays(from: number, to: number)
-		local w = Config.Structure.Window
-		local length = to - from
-		local panes = math.floor((length - w.pier) / (w.pane + w.pier))
-		if panes < 1 then
-			return { { kind = "pier", from = from, to = to } }
-		end
-		-- Spread the leftover across the piers so the bays stay centred in the run
-		-- rather than all the slack landing on the last pier.
-		local pier = (length - panes * w.pane) / (panes + 1)
-		local bays = {}
-		local cursor = from
-		for index = 1, panes do
-			table.insert(bays, { kind = "pier", from = cursor, to = cursor + pier })
-			cursor += pier
-			table.insert(bays, { kind = "pane", from = cursor, to = cursor + w.pane })
-			cursor += w.pane
-			if index == panes then
-				table.insert(bays, { kind = "pier", from = cursor, to = to })
-			end
-		end
-		return bays
-	end
-
 	--- invariant: how many parts one plot's shell costs, modelled from the spec
 	--- above so the verifier can hold it to Config.Structure.PartBudget.
 	---
-	--- Per solid run: a sill course, a head course, and the bay course's piers and
-	--- panes. Per opening: a lintel course over it, plus its leaves. Per side: a
-	--- trim cap and an interior light strip. Plus the roof slab, its four columns
-	--- and its sign anchor.
+	--- Per solid run: a sill, body and head course. Per opening: a lintel course
+	--- over it, plus its leaves. Per side: a trim cap.
 	---
 	--- IT MUST COUNT WHAT THE BUILDER EMITS, not what the wall spec implies. Its
 	--- first version left out the trim, the light strip and the sign anchor, so it
 	--- reported 59 against 68 actually built and 107 against 124 — a budget asserted
 	--- 13% under the truth, which is a budget that passes right up until it matters.
 	--- Both numbers were reconciled against a count taken from the real builder.
-	--- mechanism: WHERE THE CEILING FIXTURES HANG, in plot-local coordinates.
-	---
-	--- Derived from the wall ring, so a fixture cannot end up outside the room or
-	--- below the machines. Component arithmetic only: the verifier's Vector3 is a
-	--- bare table with no operators.
-	--- The room grows along X with the land, so the COLUMN COUNT grows with it:
-	--- a fixed grid stretched over a maxed plot leaves the middle of each wing
-	--- past the fixtures' range, and the sampled coverage check is what chose
-	--- the divisor.
-	function Config.lightColumnsFor(left: number?, right: number?): number
-		local L = Config.Structure.Lights
-		local extents = Config.landExtents(left or 0, right or 0)
-		local width = extents.maxX - extents.minX
-		return math.max(L.columns, math.ceil(width / 42))
-	end
-
-	function Config.storeyLightPositions(left: number?, right: number?): { Vector3 }
-		local L = Config.Structure.Lights
-		local extents = Config.landExtents(left or 0, right or 0)
-		local inset = 1 + Config.Structure.WallThickness / 2 + L.inset
-		local fromX, toX = extents.minX + inset, extents.maxX - inset
-		local halfZ = Config.World.PlotSize.Z / 2 - 1 - Config.Structure.WallThickness / 2
-		local y = Config.Structure.WallHeight - L.drop - L.batten.thickness / 2
-		local columns = Config.lightColumnsFor(left, right)
-
-		local spots = {}
-		local spanZ = halfZ - L.inset
-		for column = 1, columns do
-			local x = fromX
-			if columns > 1 then
-				x += (column - 1) * (toX - fromX) / (columns - 1)
-			else
-				x = (fromX + toX) / 2
-			end
-			for row = 1, L.rows do
-				local z = -spanZ
-				if L.rows > 1 then
-					z += (row - 1) * (2 * spanZ) / (L.rows - 1)
-				else
-					z = 0
-				end
-				table.insert(spots, Vector3.new(x, y, z))
-			end
-		end
-		return spots
-	end
-
 	function Config.shellPartCount(left: number?, right: number?): number
 		local total = 0
-		-- the ceiling fixtures. They are Parts; the Lights themselves are not, so
-		-- this counts battens and not lights.
-		total += #Config.storeyLightPositions(left, right)
 		for _, side in ipairs(Config.Structure.Sides) do
-			-- the neon cap along this wall's top, and the light strip inside it
-			total += 2
+			-- the trim cap along this wall's top
+			total += 1
 			for _, segment in ipairs(Config.wallSegments(side, left, right)) do
 				if segment.kind == "solid" then
-					total += 2   -- sill course + head course
-					for _, _bay in ipairs(Config.wallBays(segment.from, segment.to)) do
-						total += 1
-					end
+					total += 3   -- sill, body and head course
 				else
 					total += 1 + segment.opening.leaves   -- lintel + gate leaves
 				end
 			end
 		end
-		-- the roof slab, its four columns, and the invisible anchor its sign hangs on
-		return total + 6
+		return total
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -3617,15 +3446,14 @@ __MODULES["Config"] = function()
 		-- "the conveyor's label sits highest" already means to the card and the
 		-- beacon: both rank by (TrackRank, price).
 		factory = { label = "CONVEYOR", category = "conveyor", preview = 3, keepOnRebirth = false, paced = "spine", furniture = "misc" },
-		-- invariant: THE SHELL. Three of its five facts are FORCED rather than
-		-- chosen; preview is design:D-03.
+		-- invariant: THE SHELL. Most of its facts are FORCED rather than chosen;
+		-- preview is design:D-03.
 		--
-		-- paced = "spine" because the detour model prices a track against a curve it
-		-- does not change AND assumes you can decline it. The second half stopped
-		-- being true when a cross-ladder gate once put `roof` between the player and the
-		-- mezzanine. Measured as a detour the build reads 46 minutes against a
-		-- MIN_TOTAL_MINUTES of 45 — the four purchases did not stop happening, the
-		-- verifier just stopped counting them.
+		-- paced = "spine" because the detour model prices a track against a curve
+		-- it does not change AND assumes you can decline it, and the shell's
+		-- purchases have historically been gated on and by the spine. Priced as a
+		-- detour, the purchases do not stop happening — the verifier just stops
+		-- counting them.
 		--
 		-- keepOnRebirth = false because rebirth() clears self.machines
 		-- unconditionally and the wall ring lives there, not in self.props. Set it
@@ -3634,13 +3462,13 @@ __MODULES["Config"] = function()
 		-- plot has no shell for the rest of that owner's life. The cabinets get to
 		-- be true because their props are the exempt folder; this track is not.
 		--
-		-- furniture = "misc" because these four already have hand-placed positions
+		-- furniture = "misc" because these rows already have hand-placed positions
 		-- in Layout.MiscButtons and they are exactly the case that table is for:
 		-- unrelated purchases in a line down an open floor.
 		--
-		-- preview = 2 is the one real choice. At 3 the whole four-rung track is
-		-- visible from the moment you claim, which puts a 690000 price tag on the
-		-- plot at minute three; at 2 the roof stays hidden until `gates` is owned.
+		-- preview = 2 is the one real choice: the pad one rung out is visible, the
+		-- rest of the ladder waits. #162's masonry tiers will lean on it the way
+		-- the roof's price tag once did.
 		structure = { label = "PLOT", category = "plot", preview = 2, keepOnRebirth = false, paced = "spine", furniture = "misc" },
 		weapons = { label = "WEAPONS", category = "weapons", preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "shop" },
 		armor   = { label = "ARMORY",  category = "armor",  preview = 2, keepOnRebirth = true,  paced = "side",  furniture = "shop" },
@@ -4291,30 +4119,6 @@ __MODULES["Fx"] = function()
 			light.Shadows = false
 			light.Parent = part
 		end
-	end
-
-	--- The ceiling fixture that lights an enclosed storey.
-	---
-	--- A SurfaceLight on the BOTTOM face, and both halves of that are load-bearing.
-	--- Shadows are off — at eight fixtures per storey across ten plots they have to
-	--- be — and a Roblox light with shadows off ignores occluders entirely, so a
-	--- PointLight hung under the mezzanine deck would shine straight through a
-	--- 1.6-stud slab and light the floor above it. A SurfaceLight emits from one
-	--- face into a cone and cannot leak upward at all.
-	---
-	--- Every number comes from Config.Structure.Lights, because tools/verify_config
-	--- reads Config and nothing else: a brightness typed here is a brightness no
-	--- check can ever see.
-	function Fx.ceilingLight(part: BasePart)
-		local spec = Config.Structure.Lights
-		local light = Instance.new("SurfaceLight")
-		light.Face = Enum.NormalId.Bottom
-		light.Range = spec.range
-		light.Brightness = spec.brightness
-		light.Angle = spec.angle
-		light.Shadows = false
-		light.Parent = part
-		return light
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -15986,7 +15790,7 @@ __MODULES["Buttons"] = function()
 	function Tycoon:refreshButtons()
 		-- The ground reconciles before the pads: land is derived from `owned` the
 		-- same way the buttons are, and it has to exist for the beat's other
-		-- readers (the ring, the roof) to measure against. Runs on the ownerless
+		-- readers (the ring) to measure against. Runs on the ownerless
 		-- path too — release wipes `owned`, and the slabs follow it down.
 		self:ensureLand()
 		if not self.owner then
@@ -16799,23 +16603,18 @@ __MODULES["Installers"] = function()
 	-- live in it, but they are read by Config.Structure.Openings now: the shell is
 	-- built from ONE spec, and a builder that reached into Layout for half a wall
 	-- would be a second source for the same geometry.
-	local W = Config.World
 	local S = Config.Structure
 
 	-- The shell's palette. Colour is the one thing about the wall this rewrite did
 	-- NOT move into Config: what changed is its geometry, and the wall you walk up
 	-- to is the same colour and material it always was.
 	local WALL_COLOR = Color3.fromRGB(150, 111, 74)
-	local ROOF_COLOR = Color3.fromRGB(138, 88, 58)
 
-	-- THE NEON TRIM, AND THE INTERIOR STRIP BUILT FROM THE SAME IDIOM.
-	--
-	-- Config.Structure.Trim, not derived from the wall's thickness. It was derived
-	-- while this was written, which read as thrift and was actually a second source
-	-- for a shipped number: Config.shellPartCount could not count a part whose
-	-- existence it could not see, and the budget was being asserted 13% under what
-	-- the builder emits.
-	local LIGHTS = S.Lights
+	-- THE NEON TRIM. Config.Structure.Trim, not derived from the wall's thickness.
+	-- It was derived while this was written, which read as thrift and was actually
+	-- a second source for a shipped number: Config.shellPartCount could not count
+	-- a part whose existence it could not see, and the budget was being asserted
+	-- 13% under what the builder emits.
 	local TRIM_SECTION = S.Trim.section
 	local TRIM_PROUD = S.Trim.proud
 
@@ -17161,20 +16960,18 @@ __MODULES["Installers"] = function()
 	end
 
 	--- invariant: the ring of walls — the courses Config.wallSegments describes,
-	--- the gate leaves in its openings, a neon cap along the top of each side and
-	--- a neon strip along the inside of the ceiling line.
+	--- the gate leaves in its openings, and a neon cap along the top of each side.
 	---
-	--- invariant: THREE COURSES PER SOLID RUN, one lintel per opening. The bay course is
-	--- Config.wallBays: piers in wall material, panes in glass. A pane is
-	--- CanCollide — what keeps the camera out of an enclosed plot is the
-	--- TRANSPARENCY, because PopperCam only treats a part as occluding below 0.25,
-	--- and Config.Structure.Window.transparency sits at 0.45 for exactly that.
+	--- invariant: THREE COURSES PER SOLID RUN — sill, body, head — one lintel per
+	--- opening. The sill is the course a broken wall keeps as its repair stump
+	--- (tycoon/Siege.lua), so the split is load-bearing, and the course heights
+	--- are Config.Structure.Course.
 	function Tycoon:buildWallRing(model: Instance)
-		local win = S.Window
+		local course = S.Course
 		local floorY = 0
 		local top = S.WallHeight
-		local sill = floorY + win.sill
-		local head = sill + win.height
+		local sill = floorY + course.sill
+		local head = sill + course.body
 		local counts = self:landState()
 
 		for _, side in ipairs(S.Sides) do
@@ -17183,21 +16980,7 @@ __MODULES["Installers"] = function()
 				local tag = ("%s_%d"):format(side, index)
 				if segment.kind == "solid" then
 					wallBox(self, model, "Sill_" .. tag, extent, segment.from, segment.to, floorY, sill)
-					-- A BAY IS BUILT SOLID AND GLAZED LATER. `windows` is its own
-					-- purchase now (TODO.md item 3), and the alternative — leaving
-					-- the bay as a hole until it is bought — would mean a wall that
-					-- does not keep a raider out, which is the one thing `walls` is
-					-- sold on. So an unglazed bay is literally a piece of wall, and
-					-- buying the windows restyles it rather than filling it.
-					--
-					-- That also means the part count does not move when the glass
-					-- arrives, so Config.shellPartCount and the PartBudget are
-					-- measuring the same shell they always were.
-					for bay, span in ipairs(Config.wallBays(segment.from, segment.to)) do
-						wallBox(self, model,
-							("%s_%s_%d"):format(span.kind == "pane" and "Pane" or "Pier", tag, bay),
-							extent, span.from, span.to, sill, head)
-					end
+					wallBox(self, model, "Body_" .. tag, extent, segment.from, segment.to, sill, head)
 					wallBox(self, model, "Head_" .. tag, extent, segment.from, segment.to, head, top)
 				else
 					-- A lintel, not a full-height cut: a 20-stud gateway is not a
@@ -17208,33 +16991,20 @@ __MODULES["Installers"] = function()
 				end
 			end
 
-			-- ONE CAP AND ONE STRIP PER SIDE, not one per box. The old wall drew a
-			-- trim over each of its five pieces; this one is up to thirteen boxes a
-			-- side, and thirteen neon slivers is thirteen parts to say one line.
-			--
-			-- The cap straddles the wall plane and the strip reaches inboard from it,
-			-- so from outside the band reads as an eave under the roof and from
-			-- inside as a light cove where the wall meets the ceiling. THE STRIP IS
-			-- WHY IT IS THERE: the ground floor is an enclosed box now, and the
-			-- cheapest light in an enclosed box is a neon part you can see.
+			-- ONE CAP PER SIDE, not one per box. The old wall drew a trim over each
+			-- of its five pieces; this one is several boxes a side, and that many
+			-- neon slivers is that many parts to say one line. The cap straddles
+			-- the wall plane, so the band reads from both faces.
 			neonBar(self, model, "Trim_" .. side, extent,
 				extent.from - TRIM_PROUD / 2, extent.to + TRIM_PROUD / 2, top,
 				S.WallThickness + TRIM_PROUD, 0)
-			neonBar(self, model, "Light_" .. side, extent,
-				extent.from, extent.to, top, TRIM_SECTION, S.WallThickness / 2)
 		end
 
-		-- invariant: THE CEILING FIXTURES ARRIVE WITH THE CEILING, not the ring.
-		-- refreshCeilingLights is idempotent and driven by whether the plot owns a
-		-- roof, so a ring built before the roof comes up unlit and gains its
-		-- battens the moment something is overhead.
-		self:refreshCeilingLights(model)
-
-		-- invariant: THE TWO UPGRADES THIS RING MAY ALREADY HAVE BEEN SOLD.
+		-- invariant: THE UPGRADE THIS RING MAY ALREADY HAVE BEEN SOLD.
 		--
-		-- `walls`, `gates` and `windows` are three purchases and an installer runs
-		-- once, so a ring built after one of them was bought — assign() replaying
-		-- a save — has to arrive already carrying it.
+		-- `walls` and `gates` are two purchases and an installer runs once, so a
+		-- ring built after `gates` was bought — assign() replaying a save — has to
+		-- arrive already carrying its leaves.
 		self:applyStructureUpgrades(model)
 
 		-- ...and the DAMAGE it may already have taken (#124). The health table is
@@ -17243,56 +17013,12 @@ __MODULES["Installers"] = function()
 		self:applySiegeState(model)
 	end
 
-	--- Build or remove the ceiling battens to match whether the room is covered —
-	--- which, with the storey system retired, is exactly "does the plot own a
-	--- roof".
-	---
-	--- IDEMPOTENT IN BOTH DIRECTIONS, because it is called from the roof purchase
-	--- and because buildWallRing calls it for a ring that may be built after the
-	--- roof already exists (assign replaying a save). Counted by
-	--- Config.shellPartCount as part of the shell.
-	function Tycoon:refreshCeilingLights(model: Instance)
-		local wanted = self:hasStructure("roof")
-		local prefix = "Fixture_"
-		local standing = 0
-		for _, part in ipairs(model:GetChildren()) do
-			if part.Name:sub(1, #prefix) == prefix then
-				if wanted then
-					standing += 1
-				else
-					part:Destroy()
-				end
-			end
-		end
-		local counts = self:landState()
-		local spots = Config.storeyLightPositions(counts.left, counts.right)
-		-- the grid gains columns as the land grows, so a standing set of the
-		-- wrong SIZE is stale, not satisfied — it comes down and re-emits
-		if not wanted or standing == #spots then
-			return
-		end
-		if standing > 0 then
-			for _, part in ipairs(model:GetChildren()) do
-				if part.Name:sub(1, #prefix) == prefix then
-					part:Destroy()
-				end
-			end
-		end
-		for index, spot in ipairs(spots) do
-			local batten = newPart(model, ("Fixture_%d"):format(index),
-				Vector3.new(LIGHTS.batten.width, LIGHTS.batten.thickness, LIGHTS.batten.length),
-				self:at(spot.X, spot.Y, spot.Z), Color3.fromRGB(236, 226, 202), Enum.Material.SmoothPlastic, false)
-			batten.CanQuery = false
-			Fx.ceilingLight(batten)
-		end
-	end
-
 	--- Whether this plot owns a `Structure` button of the given kind.
 	---
 	--- Derived from `owned` rather than stored, so it survives release, rebirth and
 	--- re-claim for free — the same argument as Config.trackUnlocked. A plot that
-	--- has been rebirthed has lost `walls` too, so there is no state where the glass
-	--- outlives the wall it is set into.
+	--- has been rebirthed has lost `walls` too, so there is no state where the
+	--- leaves outlive the wall they hang on.
 	function Tycoon:hasStructure(structure: string): boolean
 		for id in pairs(self.owned) do
 			local def = Config.ButtonById[id]
@@ -17301,19 +17027,6 @@ __MODULES["Installers"] = function()
 			end
 		end
 		return false
-	end
-
-	--- Turn the ring's solid bays into glass. Idempotent, and it adds no parts.
-	function Tycoon:glazeStorey(model: Instance)
-		local glazed = 0
-		for _, part in ipairs(model:GetDescendants()) do
-			if part:IsA("BasePart") and part.Name:sub(1, 5) == "Pane_" then
-				part.Material = Enum.Material.Glass
-				part.Transparency = S.Window.transparency
-				glazed += 1
-			end
-		end
-		return glazed
 	end
 
 	--- Hang the ring's gate leaves, off the face `opening.face` names.
@@ -17336,9 +17049,6 @@ __MODULES["Installers"] = function()
 
 	--- Bring the ring up to whatever this plot has bought.
 	function Tycoon:applyStructureUpgrades(model: Instance)
-		if self:hasStructure("windows") then
-			self:glazeStorey(model)
-		end
 		if self:hasStructure("gates") then
 			self:hangGateLeaves(model)
 		end
@@ -17349,7 +17059,7 @@ __MODULES["Installers"] = function()
 	--- Found by its own trim bar rather than by a folder reference, so a caller
 	--- never holds a model that a release or rebirth already destroyed. This is
 	--- the same lookup GateService does for a leaf, and it is here so that
-	--- `gates` and `windows` do not have to learn where the ring lives.
+	--- `gates` does not have to learn where the ring lives.
 	function Tycoon:withWallRing(fn)
 		local marker = "Trim_" .. S.Sides[1]
 		for _, folder in ipairs(self.factoryFolders) do
@@ -17369,104 +17079,26 @@ __MODULES["Installers"] = function()
 
 		if def.structure == "walls" then
 			self:buildWallRing(model)
-		elseif def.structure == "gates" or def.structure == "windows" then
+		elseif def.structure == "gates" then
 			-- ADDITIVE — never a rebuild. The obvious implementation is to re-emit
-			-- the wall with the upgrade included, and that would destroy the gate
-			-- leaves GateService may be mid-tween on and re-emit sixty parts that
-			-- have not changed. Glass is a material change on a bay that is
-			-- already built and a leaf is a part with nothing standing where it
-			-- goes, so neither needs the wall touched.
+			-- the wall with the leaves included, and that would destroy the gate
+			-- leaves GateService may be mid-tween on and re-emit dozens of parts
+			-- that have not changed. A leaf is a part with nothing standing where
+			-- it goes, so it needs no wall touched.
 			--
-			-- `model` stays empty for these two and that is deliberate: the parts
-			-- belong to the ring they are part of, so a rebirth takes the glass
-			-- down with the wall rather than leaving panes floating in a plot with
-			-- no shell. The entry below still records the model so the object
-			-- bookkeeping is uniform.
+			-- `model` stays empty for this one and that is deliberate: the leaves
+			-- belong to the ring they hang on, so a rebirth takes them down with
+			-- the wall rather than leaving doors floating in a plot with no shell.
+			-- The entry below still records the model so the object bookkeeping is
+			-- uniform.
 			self:withWallRing(function(ring)
-				if def.structure == "windows" then
-					self:glazeStorey(ring)
-				else
-					self:hangGateLeaves(ring)
-				end
-			end)
-		elseif def.structure == "roof" then
-			self:buildRoofModel(model)
-			-- THE MOMENT THE ROOM GAINS A CEILING. The ring was built at `walls`
-			-- some twenty minutes ago and came up unlit, because until now there
-			-- was nothing over it to hang a fixture under.
-			self:withWallRing(function(ring)
-				self:refreshCeilingLights(ring)
+				self:hangGateLeaves(ring)
 			end)
 		end
 
 		local entry = self.objects[def.id]
 		if entry then
 			entry.machine = model
-		end
-	end
-
-	--- invariant: the roof slab, its columns and the company sign.
-	---
-	--- Extracted from the installer so refreshRoof can REBUILD it — tween-free,
-	--- leaf-free, and therefore the one piece of structure that a rebuild cannot
-	--- hurt. Config.roofUnderside is the one structural line, and the walls are
-	--- derived from the same one.
-	function Tycoon:buildRoofModel(model: Instance)
-		model:ClearAllChildren()
-
-		local underside = Config.roofUnderside()
-		-- The wall ring's own extents, read from the walls the roof stands over
-		-- rather than re-derived here: land moves the side walls, and the roof
-		-- follows them.
-		local counts = self:landState()
-		local leftWall = Config.wallExtent("left", counts.left, counts.right)
-		local rightWall = Config.wallExtent("right", counts.left, counts.right)
-		local ringZ = Config.wallExtent("front", counts.left, counts.right).fixed
-		local minX, maxX = leftWall.fixed, rightWall.fixed
-
-		local roof = newPart(model, "Roof",
-			Vector3.new(maxX - minX + 2, S.Roof.thickness, W.PlotSize.Z),
-			self:at((minX + maxX) / 2, underside + S.Roof.thickness / 2, 0),
-			ROOF_COLOR, Enum.Material.WoodPlanks)
-		roof.CanCollide = true
-
-		for _, columnX in ipairs({ minX + S.Roof.columnInset, maxX - S.Roof.columnInset }) do
-			for _, signZ in ipairs({ -1, 1 }) do
-				newPart(model, "Column", Vector3.new(S.Roof.column, underside, S.Roof.column),
-					self:at(columnX, underside / 2, signZ * (ringZ - S.Roof.columnInset)),
-					WALL_COLOR, Enum.Material.Wood)
-			end
-		end
-
-		-- THE SIGN CLEARS THE ROOF'S TOP FACE, and it is the roof's own top face it
-		-- clears. This was a literal 27 against a roof at 20; at the mezzanine's
-		-- underside of 38 that anchor would have been buried inside the slab.
-		local signAnchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1),
-			self:at(0, underside + S.Roof.thickness + S.Roof.signLift, 0), COLORS.frame, nil, false)
-		signAnchor.Transparency = 1
-		local billboard = Style.billboard(signAnchor, {
-			name = "Sign", width = 46, height = 12, distance = "plot",
-		})
-		self.roofSign = Style.text(billboard, {
-			text = "TUNG TUNG TUNG SAHUR CO.", color = COLORS.gold,
-		})
-		self:updateSign()
-	end
-
-	--- Rebuilds an already-built roof and re-answers whether the room is lit.
-	--- The lights ride along because it is the same event — "something over the
-	--- room changed" — and they are refreshed FIRST and unconditionally, because
-	--- on a plot that owns no roof `self.objects.roof` is nil and the tail of
-	--- this function does nothing at all.
-	function Tycoon:refreshRoof()
-		self:withWallRing(function(ring)
-			self:refreshCeilingLights(ring)
-		end)
-
-		local entry = self.objects.roof
-		local model = entry and entry.machine
-		if model and model.Parent then
-			self:buildRoofModel(model)
 		end
 	end
 
@@ -17481,8 +17113,8 @@ __MODULES["Land"] = function()
 		design:D-02, via #88. Land is bought outward from the centre and the centre
 		pad is the permanent anchor. ensureLand runs on the refreshButtons beat and
 		makes the world match `owned`: slabs and their edge strips per expansion,
-		the wall ring re-emitted around whatever ground is standing, the roof and
-		its lights re-spanned. Purchase, release, rebirth and re-claim all reach
+		and the wall ring re-emitted around whatever ground is standing. Purchase,
+		release, rebirth and re-claim all reach
 		refreshButtons, which is why there is no service and no listener — the
 		FloorService this replaces existed to catch those four events, and a
 		derived reconciler catches them by construction.
@@ -17563,9 +17195,9 @@ __MODULES["Land"] = function()
 		end)
 	end
 
-	--- Make the ground, the ring and the roof match `owned`. Idempotent: called
-	--- on every refreshButtons beat, it builds what is missing, destroys what is
-	--- no longer owned, and touches nothing that already agrees.
+	--- Make the ground and the ring match `owned`. Idempotent: called on every
+	--- refreshButtons beat, it builds what is missing, destroys what is no longer
+	--- owned, and touches nothing that already agrees.
 	function Tycoon:ensureLand()
 		-- A stub plot (the spec harness's fakes) has no model and no plot CFrame;
 		-- there is no world for the ground to exist in, so there is nothing to
@@ -17608,7 +17240,6 @@ __MODULES["Land"] = function()
 
 		if changed then
 			self:rebuildWallRing()
-			self:refreshRoof()
 		end
 	end
 
@@ -17715,7 +17346,6 @@ __MODULES["Ownership"] = function()
 		self:eachBeltSurface(function(surface)
 			surface.Color = COLORS.belt
 		end)
-		self.roofSign = nil
 		-- Dropped BEFORE updateSign runs below, not left for VaultService to clear
 		-- on the owned-changed that follows: for those few lines the plot has no
 		-- owner, and the last owner's "leaving now banks 2.4M" would be sitting on
@@ -18447,7 +18077,7 @@ __MODULES["Siege"] = function()
 
 	-- Course prefixes that belong to a wall side. `Sill` is deliberately absent:
 	-- the sill course survives a break as the stump the repair prompt stands on.
-	local BREAKABLE_PREFIXES = { Pier = true, Pane = true, Head = true, Lintel = true }
+	local BREAKABLE_PREFIXES = { Body = true, Head = true, Lintel = true }
 
 	--- The siege level: expansions owned + 1. Derived, never stored.
 	function Tycoon:siegeLevel(): number
@@ -18920,7 +18550,7 @@ __MODULES["Tycoon"] = function()
 			kind = "Upgrader"  -> needs slot, variant, multiplier
 			kind = "Belt"      -> needs speedBonus
 			kind = "Power"     -> needs factor (cumulative), variant, and NO slot
-			kind = "Structure" -> needs structure ("walls" | "gates" | "windows" | "roof")
+			kind = "Structure" -> needs structure ("walls" | "gates")
 			kind = "Gear"      -> needs grants (a Config.Bats id)
 			kind = "Armor"     -> needs grants (a Config.Armor id)
 			kind = "Land"      -> needs side ("left" | "right") and width. One

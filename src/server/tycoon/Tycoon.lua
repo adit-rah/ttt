@@ -9,7 +9,7 @@
 		kind = "Upgrader"  -> needs slot, variant, multiplier
 		kind = "Belt"      -> needs speedBonus
 		kind = "Power"     -> needs factor (cumulative), variant, and NO slot
-		kind = "Structure" -> needs structure ("walls" | "gates" | "windows" | "roof")
+		kind = "Structure" -> needs structure ("walls" | "gates")
 		kind = "Gear"      -> needs grants (a Config.Bats id)
 		kind = "Armor"     -> needs grants (a Config.Armor id)
 		kind = "Land"      -> needs side ("left" | "right") and width. One

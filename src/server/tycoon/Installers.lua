@@ -41,23 +41,18 @@ local COLORS = Tycoon.COLORS
 -- live in it, but they are read by Config.Structure.Openings now: the shell is
 -- built from ONE spec, and a builder that reached into Layout for half a wall
 -- would be a second source for the same geometry.
-local W = Config.World
 local S = Config.Structure
 
 -- The shell's palette. Colour is the one thing about the wall this rewrite did
 -- NOT move into Config: what changed is its geometry, and the wall you walk up
 -- to is the same colour and material it always was.
 local WALL_COLOR = Color3.fromRGB(150, 111, 74)
-local ROOF_COLOR = Color3.fromRGB(138, 88, 58)
 
--- THE NEON TRIM, AND THE INTERIOR STRIP BUILT FROM THE SAME IDIOM.
---
--- Config.Structure.Trim, not derived from the wall's thickness. It was derived
--- while this was written, which read as thrift and was actually a second source
--- for a shipped number: Config.shellPartCount could not count a part whose
--- existence it could not see, and the budget was being asserted 13% under what
--- the builder emits.
-local LIGHTS = S.Lights
+-- THE NEON TRIM. Config.Structure.Trim, not derived from the wall's thickness.
+-- It was derived while this was written, which read as thrift and was actually
+-- a second source for a shipped number: Config.shellPartCount could not count
+-- a part whose existence it could not see, and the budget was being asserted
+-- 13% under what the builder emits.
 local TRIM_SECTION = S.Trim.section
 local TRIM_PROUD = S.Trim.proud
 
@@ -403,20 +398,18 @@ function Tycoon:gateLeafSpecs()
 end
 
 --- invariant: the ring of walls — the courses Config.wallSegments describes,
---- the gate leaves in its openings, a neon cap along the top of each side and
---- a neon strip along the inside of the ceiling line.
+--- the gate leaves in its openings, and a neon cap along the top of each side.
 ---
---- invariant: THREE COURSES PER SOLID RUN, one lintel per opening. The bay course is
---- Config.wallBays: piers in wall material, panes in glass. A pane is
---- CanCollide — what keeps the camera out of an enclosed plot is the
---- TRANSPARENCY, because PopperCam only treats a part as occluding below 0.25,
---- and Config.Structure.Window.transparency sits at 0.45 for exactly that.
+--- invariant: THREE COURSES PER SOLID RUN — sill, body, head — one lintel per
+--- opening. The sill is the course a broken wall keeps as its repair stump
+--- (tycoon/Siege.lua), so the split is load-bearing, and the course heights
+--- are Config.Structure.Course.
 function Tycoon:buildWallRing(model: Instance)
-	local win = S.Window
+	local course = S.Course
 	local floorY = 0
 	local top = S.WallHeight
-	local sill = floorY + win.sill
-	local head = sill + win.height
+	local sill = floorY + course.sill
+	local head = sill + course.body
 	local counts = self:landState()
 
 	for _, side in ipairs(S.Sides) do
@@ -425,21 +418,7 @@ function Tycoon:buildWallRing(model: Instance)
 			local tag = ("%s_%d"):format(side, index)
 			if segment.kind == "solid" then
 				wallBox(self, model, "Sill_" .. tag, extent, segment.from, segment.to, floorY, sill)
-				-- A BAY IS BUILT SOLID AND GLAZED LATER. `windows` is its own
-				-- purchase now (TODO.md item 3), and the alternative — leaving
-				-- the bay as a hole until it is bought — would mean a wall that
-				-- does not keep a raider out, which is the one thing `walls` is
-				-- sold on. So an unglazed bay is literally a piece of wall, and
-				-- buying the windows restyles it rather than filling it.
-				--
-				-- That also means the part count does not move when the glass
-				-- arrives, so Config.shellPartCount and the PartBudget are
-				-- measuring the same shell they always were.
-				for bay, span in ipairs(Config.wallBays(segment.from, segment.to)) do
-					wallBox(self, model,
-						("%s_%s_%d"):format(span.kind == "pane" and "Pane" or "Pier", tag, bay),
-						extent, span.from, span.to, sill, head)
-				end
+				wallBox(self, model, "Body_" .. tag, extent, segment.from, segment.to, sill, head)
 				wallBox(self, model, "Head_" .. tag, extent, segment.from, segment.to, head, top)
 			else
 				-- A lintel, not a full-height cut: a 20-stud gateway is not a
@@ -450,33 +429,20 @@ function Tycoon:buildWallRing(model: Instance)
 			end
 		end
 
-		-- ONE CAP AND ONE STRIP PER SIDE, not one per box. The old wall drew a
-		-- trim over each of its five pieces; this one is up to thirteen boxes a
-		-- side, and thirteen neon slivers is thirteen parts to say one line.
-		--
-		-- The cap straddles the wall plane and the strip reaches inboard from it,
-		-- so from outside the band reads as an eave under the roof and from
-		-- inside as a light cove where the wall meets the ceiling. THE STRIP IS
-		-- WHY IT IS THERE: the ground floor is an enclosed box now, and the
-		-- cheapest light in an enclosed box is a neon part you can see.
+		-- ONE CAP PER SIDE, not one per box. The old wall drew a trim over each
+		-- of its five pieces; this one is several boxes a side, and that many
+		-- neon slivers is that many parts to say one line. The cap straddles
+		-- the wall plane, so the band reads from both faces.
 		neonBar(self, model, "Trim_" .. side, extent,
 			extent.from - TRIM_PROUD / 2, extent.to + TRIM_PROUD / 2, top,
 			S.WallThickness + TRIM_PROUD, 0)
-		neonBar(self, model, "Light_" .. side, extent,
-			extent.from, extent.to, top, TRIM_SECTION, S.WallThickness / 2)
 	end
 
-	-- invariant: THE CEILING FIXTURES ARRIVE WITH THE CEILING, not the ring.
-	-- refreshCeilingLights is idempotent and driven by whether the plot owns a
-	-- roof, so a ring built before the roof comes up unlit and gains its
-	-- battens the moment something is overhead.
-	self:refreshCeilingLights(model)
-
-	-- invariant: THE TWO UPGRADES THIS RING MAY ALREADY HAVE BEEN SOLD.
+	-- invariant: THE UPGRADE THIS RING MAY ALREADY HAVE BEEN SOLD.
 	--
-	-- `walls`, `gates` and `windows` are three purchases and an installer runs
-	-- once, so a ring built after one of them was bought — assign() replaying
-	-- a save — has to arrive already carrying it.
+	-- `walls` and `gates` are two purchases and an installer runs once, so a
+	-- ring built after `gates` was bought — assign() replaying a save — has to
+	-- arrive already carrying its leaves.
 	self:applyStructureUpgrades(model)
 
 	-- ...and the DAMAGE it may already have taken (#124). The health table is
@@ -485,56 +451,12 @@ function Tycoon:buildWallRing(model: Instance)
 	self:applySiegeState(model)
 end
 
---- Build or remove the ceiling battens to match whether the room is covered —
---- which, with the storey system retired, is exactly "does the plot own a
---- roof".
----
---- IDEMPOTENT IN BOTH DIRECTIONS, because it is called from the roof purchase
---- and because buildWallRing calls it for a ring that may be built after the
---- roof already exists (assign replaying a save). Counted by
---- Config.shellPartCount as part of the shell.
-function Tycoon:refreshCeilingLights(model: Instance)
-	local wanted = self:hasStructure("roof")
-	local prefix = "Fixture_"
-	local standing = 0
-	for _, part in ipairs(model:GetChildren()) do
-		if part.Name:sub(1, #prefix) == prefix then
-			if wanted then
-				standing += 1
-			else
-				part:Destroy()
-			end
-		end
-	end
-	local counts = self:landState()
-	local spots = Config.storeyLightPositions(counts.left, counts.right)
-	-- the grid gains columns as the land grows, so a standing set of the
-	-- wrong SIZE is stale, not satisfied — it comes down and re-emits
-	if not wanted or standing == #spots then
-		return
-	end
-	if standing > 0 then
-		for _, part in ipairs(model:GetChildren()) do
-			if part.Name:sub(1, #prefix) == prefix then
-				part:Destroy()
-			end
-		end
-	end
-	for index, spot in ipairs(spots) do
-		local batten = newPart(model, ("Fixture_%d"):format(index),
-			Vector3.new(LIGHTS.batten.width, LIGHTS.batten.thickness, LIGHTS.batten.length),
-			self:at(spot.X, spot.Y, spot.Z), Color3.fromRGB(236, 226, 202), Enum.Material.SmoothPlastic, false)
-		batten.CanQuery = false
-		Fx.ceilingLight(batten)
-	end
-end
-
 --- Whether this plot owns a `Structure` button of the given kind.
 ---
 --- Derived from `owned` rather than stored, so it survives release, rebirth and
 --- re-claim for free — the same argument as Config.trackUnlocked. A plot that
---- has been rebirthed has lost `walls` too, so there is no state where the glass
---- outlives the wall it is set into.
+--- has been rebirthed has lost `walls` too, so there is no state where the
+--- leaves outlive the wall they hang on.
 function Tycoon:hasStructure(structure: string): boolean
 	for id in pairs(self.owned) do
 		local def = Config.ButtonById[id]
@@ -543,19 +465,6 @@ function Tycoon:hasStructure(structure: string): boolean
 		end
 	end
 	return false
-end
-
---- Turn the ring's solid bays into glass. Idempotent, and it adds no parts.
-function Tycoon:glazeStorey(model: Instance)
-	local glazed = 0
-	for _, part in ipairs(model:GetDescendants()) do
-		if part:IsA("BasePart") and part.Name:sub(1, 5) == "Pane_" then
-			part.Material = Enum.Material.Glass
-			part.Transparency = S.Window.transparency
-			glazed += 1
-		end
-	end
-	return glazed
 end
 
 --- Hang the ring's gate leaves, off the face `opening.face` names.
@@ -578,9 +487,6 @@ end
 
 --- Bring the ring up to whatever this plot has bought.
 function Tycoon:applyStructureUpgrades(model: Instance)
-	if self:hasStructure("windows") then
-		self:glazeStorey(model)
-	end
 	if self:hasStructure("gates") then
 		self:hangGateLeaves(model)
 	end
@@ -591,7 +497,7 @@ end
 --- Found by its own trim bar rather than by a folder reference, so a caller
 --- never holds a model that a release or rebirth already destroyed. This is
 --- the same lookup GateService does for a leaf, and it is here so that
---- `gates` and `windows` do not have to learn where the ring lives.
+--- `gates` does not have to learn where the ring lives.
 function Tycoon:withWallRing(fn)
 	local marker = "Trim_" .. S.Sides[1]
 	for _, folder in ipairs(self.factoryFolders) do
@@ -611,104 +517,26 @@ Tycoon.INSTALLERS.Structure = function(self, def, silent)
 
 	if def.structure == "walls" then
 		self:buildWallRing(model)
-	elseif def.structure == "gates" or def.structure == "windows" then
+	elseif def.structure == "gates" then
 		-- ADDITIVE — never a rebuild. The obvious implementation is to re-emit
-		-- the wall with the upgrade included, and that would destroy the gate
-		-- leaves GateService may be mid-tween on and re-emit sixty parts that
-		-- have not changed. Glass is a material change on a bay that is
-		-- already built and a leaf is a part with nothing standing where it
-		-- goes, so neither needs the wall touched.
+		-- the wall with the leaves included, and that would destroy the gate
+		-- leaves GateService may be mid-tween on and re-emit dozens of parts
+		-- that have not changed. A leaf is a part with nothing standing where
+		-- it goes, so it needs no wall touched.
 		--
-		-- `model` stays empty for these two and that is deliberate: the parts
-		-- belong to the ring they are part of, so a rebirth takes the glass
-		-- down with the wall rather than leaving panes floating in a plot with
-		-- no shell. The entry below still records the model so the object
-		-- bookkeeping is uniform.
+		-- `model` stays empty for this one and that is deliberate: the leaves
+		-- belong to the ring they hang on, so a rebirth takes them down with
+		-- the wall rather than leaving doors floating in a plot with no shell.
+		-- The entry below still records the model so the object bookkeeping is
+		-- uniform.
 		self:withWallRing(function(ring)
-			if def.structure == "windows" then
-				self:glazeStorey(ring)
-			else
-				self:hangGateLeaves(ring)
-			end
-		end)
-	elseif def.structure == "roof" then
-		self:buildRoofModel(model)
-		-- THE MOMENT THE ROOM GAINS A CEILING. The ring was built at `walls`
-		-- some twenty minutes ago and came up unlit, because until now there
-		-- was nothing over it to hang a fixture under.
-		self:withWallRing(function(ring)
-			self:refreshCeilingLights(ring)
+			self:hangGateLeaves(ring)
 		end)
 	end
 
 	local entry = self.objects[def.id]
 	if entry then
 		entry.machine = model
-	end
-end
-
---- invariant: the roof slab, its columns and the company sign.
----
---- Extracted from the installer so refreshRoof can REBUILD it — tween-free,
---- leaf-free, and therefore the one piece of structure that a rebuild cannot
---- hurt. Config.roofUnderside is the one structural line, and the walls are
---- derived from the same one.
-function Tycoon:buildRoofModel(model: Instance)
-	model:ClearAllChildren()
-
-	local underside = Config.roofUnderside()
-	-- The wall ring's own extents, read from the walls the roof stands over
-	-- rather than re-derived here: land moves the side walls, and the roof
-	-- follows them.
-	local counts = self:landState()
-	local leftWall = Config.wallExtent("left", counts.left, counts.right)
-	local rightWall = Config.wallExtent("right", counts.left, counts.right)
-	local ringZ = Config.wallExtent("front", counts.left, counts.right).fixed
-	local minX, maxX = leftWall.fixed, rightWall.fixed
-
-	local roof = newPart(model, "Roof",
-		Vector3.new(maxX - minX + 2, S.Roof.thickness, W.PlotSize.Z),
-		self:at((minX + maxX) / 2, underside + S.Roof.thickness / 2, 0),
-		ROOF_COLOR, Enum.Material.WoodPlanks)
-	roof.CanCollide = true
-
-	for _, columnX in ipairs({ minX + S.Roof.columnInset, maxX - S.Roof.columnInset }) do
-		for _, signZ in ipairs({ -1, 1 }) do
-			newPart(model, "Column", Vector3.new(S.Roof.column, underside, S.Roof.column),
-				self:at(columnX, underside / 2, signZ * (ringZ - S.Roof.columnInset)),
-				WALL_COLOR, Enum.Material.Wood)
-		end
-	end
-
-	-- THE SIGN CLEARS THE ROOF'S TOP FACE, and it is the roof's own top face it
-	-- clears. This was a literal 27 against a roof at 20; at the mezzanine's
-	-- underside of 38 that anchor would have been buried inside the slab.
-	local signAnchor = newPart(model, "SignAnchor", Vector3.new(1, 1, 1),
-		self:at(0, underside + S.Roof.thickness + S.Roof.signLift, 0), COLORS.frame, nil, false)
-	signAnchor.Transparency = 1
-	local billboard = Style.billboard(signAnchor, {
-		name = "Sign", width = 46, height = 12, distance = "plot",
-	})
-	self.roofSign = Style.text(billboard, {
-		text = "TUNG TUNG TUNG SAHUR CO.", color = COLORS.gold,
-	})
-	self:updateSign()
-end
-
---- Rebuilds an already-built roof and re-answers whether the room is lit.
---- The lights ride along because it is the same event — "something over the
---- room changed" — and they are refreshed FIRST and unconditionally, because
---- on a plot that owns no roof `self.objects.roof` is nil and the tail of
---- this function does nothing at all.
-function Tycoon:refreshRoof()
-	self:withWallRing(function(ring)
-		self:refreshCeilingLights(ring)
-	end)
-
-	local entry = self.objects.roof
-	local model = entry and entry.machine
-	if model and model.Parent then
-		self:buildRoofModel(model)
 	end
 end
 
