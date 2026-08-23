@@ -3157,6 +3157,67 @@ check(SH.Course.sill + SH.Course.body + 2 <= SH.WallHeight,
 	("the courses run y 0..%.1f inside a %.2f-high wall — the head course needs at least 2 studs, or the body IS the top of the wall")
 		:format(SH.Course.sill + SH.Course.body, SH.WallHeight))
 
+-- 6b. THE CASTLE DRESSING: buttress posts and torches (#162).
+--
+-- Both are placed by postsAlong's arithmetic in Config, and both have the
+-- same two ways to be wrong that a hand-placed list would: a post standing
+-- in an opening (a buttress inside the gateway is a bollard the gate closes
+-- onto) and a post off the end of its wall. So every post is asserted to
+-- stand INSIDE a solid run with its clearance intact, per side, counted.
+do
+	local B, T = SH.Buttress, SH.Torch
+	check(B.spacing > 0 and B.width > 0 and B.proud > 0,
+		"a buttress needs a positive pitch, width and proudness, or the posts are nothing")
+	check(B.height > 0 and B.height <= SH.WallHeight,
+		("the buttress posts are %.1f tall on a %.1f wall — a post over the top reads as a tower nobody built")
+			:format(B.height, SH.WallHeight))
+	check(B.spacing > B.width,
+		("buttress pitch %.1f against width %.1f — posts closer than their own width are a second wall"):format(B.spacing, B.width))
+
+	-- The torch numbers. Range has Roblox's silent 60 clamp; the bracket has
+	-- to hang ABOVE the machine line, because the plan clearances between the
+	-- wall and the machine rows are the machines' own and a torch at chest
+	-- height would need its own; and the flame has to stay under the trim.
+	check(T.range > 0 and T.range <= 60,
+		("Structure.Torch.range is %.0f; Roblox clamps a light's Range at 60 and says nothing, so anything above it is a number that reads as set and is not")
+			:format(T.range))
+	check(T.brightness > 0,
+		"Structure.Torch.brightness is 0 — the flames would be built, counted against the part budget, and light nothing")
+	check(T.height - T.bracket[2] / 2 > L.MachineTopY,
+		("a torch bracket's bottom edge is at y=%.1f against machines at y=%.1f — below the machine line it needs plan clearances this file does not model")
+			:format(T.height - T.bracket[2] / 2, L.MachineTopY))
+	check(T.height + T.bracket[2] / 2 + T.flame[2] <= SH.WallHeight,
+		("the flame's top is at y=%.1f, over the wall's top at %.1f — the fire pokes through the trim")
+			:format(T.height + T.bracket[2] / 2 + T.flame[2], SH.WallHeight))
+
+	local function postsStandInSolidWall(what, positions, halfWidth, clearance)
+		for _, side in ipairs(sides) do
+			local posts = positions(side.id)
+			check(#posts > 0, ("the %s wall carries no %s at all"):format(side.id, what))
+			for _, post in ipairs(posts) do
+				local where = ("the %s wall's %s at %.1f"):format(side.id, what, post)
+				local standing = false
+				for _, segment in ipairs(Config.wallSegments(side.id)) do
+					if segment.kind == "solid"
+							and post - halfWidth >= segment.from + clearance - EPS
+							and post + halfWidth <= segment.to - clearance + EPS then
+						standing = true
+					end
+				end
+				check(standing,
+					("%s does not stand inside a solid run with %.1f studs of clearance — it is in an opening, off the wall, or crowding a jamb")
+						:format(where, clearance))
+			end
+		end
+	end
+	postsStandInSolidWall("buttress", function(side)
+		return Config.buttressPositions(side)
+	end, B.width / 2, B.clearance)
+	postsStandInSolidWall("torch", function(side)
+		return Config.torchPositions(side)
+	end, T.bracket[1] / 2, T.clearance)
+end
+
 -- 7. GATE LEAVES FIT, AND FIT SOMEWHERE TO SLIDE.
 --
 -- A leaf slides along the inside face of the wall and its travel is one leaf
@@ -3268,12 +3329,15 @@ end
 --
 -- The leash block above asserts the same inequality against the plot EDGE. This
 -- one reads the WALL: its outer face is `PlotSize.Z/2 - 1` plus half a wall
--- thickness, so a thicker wall or a ring moved outboard fires this and not that.
+-- thickness PLUS a buttress's proudness — the posts are breakable wall face,
+-- and they are the part of the ring nearest the arena — so a thicker wall, a
+-- prouder post or a ring moved outboard fires this and not that.
 local frontWallOut = (Config.World.PlotSize.Z / 2 - 1) + SH.WallThickness / 2
+	+ SH.Buttress.proud
 local tightestRadius = tightestPlotEdge + Config.World.PlotSize.Z / 2
 local toFrontWall = tightestRadius - frontWallOut
 check(raiderReach < toFrontWall,
-	("a leashed raider reaches %.0f studs from the arena centre and the nearest plot's FRONT WALL — the one the gateway is cut into — is %.0f studs out; any closer and a closed gate stops being decoration as far as combat is concerned and starts being the thing a raider is standing at")
+	("a leashed raider reaches %.0f studs from the arena centre and the nearest plot's FRONT WALL — the one the gateway is cut into, buttresses included — is %.0f studs out; any closer and a closed gate stops being decoration as far as combat is concerned and starts being the thing a raider is standing at")
 		:format(raiderReach, toFrontWall))
 
 -- ── world text ──────────────────────────────────────────────────────────────

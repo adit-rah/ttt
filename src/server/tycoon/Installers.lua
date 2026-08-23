@@ -114,14 +114,17 @@ local function wallBox(tycoon, parent: Instance, name: string, extent,
 	return newPart(parent, name, size, cf, WALL_COLOR, Enum.Material.WoodPlanks)
 end
 
---- A neon bar along one wall, STRADDLING the line it marks rather than sitting
---- flush with it: two coplanar faces at one Y is the z-fight every stacked
---- surface in this game is offset to avoid.
-local function neonBar(tycoon, parent: Instance, name: string, extent,
+--- The coping bar along one wall's top, STRADDLING the line it marks rather
+--- than sitting flush with it: two coplanar faces at one Y is the z-fight
+--- every stacked surface in this game is offset to avoid. Dark timber now
+--- (#162's castle look); it was neon while the trim doubled as the enclosed
+--- room's light cove.
+local TRIM_COLOR = Color3.fromRGB(96, 70, 46)
+local function trimBar(tycoon, parent: Instance, name: string, extent,
 	from: number, to: number, y: number, thickness: number, cross: number)
 	local size, cf = alongWall(tycoon, extent, (from + to) / 2, y, cross,
 		to - from, TRIM_SECTION, thickness)
-	local bar = newPart(parent, name, size, cf, COLORS.beltLine, Enum.Material.Neon, false)
+	local bar = newPart(parent, name, size, cf, TRIM_COLOR, Enum.Material.Wood, false)
 	bar.CanQuery = false
 	bar.CastShadow = false
 	return bar
@@ -398,7 +401,10 @@ function Tycoon:gateLeafSpecs()
 end
 
 --- invariant: the ring of walls — the courses Config.wallSegments describes,
---- the gate leaves in its openings, and a neon cap along the top of each side.
+--- the gate leaves in its openings, a coping cap along the top of each side,
+--- the buttress posts off the outer face and the torches along the inner one
+--- (both from their Config position functions, which is what lets the
+--- verifier and shellPartCount see them).
 ---
 --- invariant: THREE COURSES PER SOLID RUN — sill, body, head — one lintel per
 --- opening. The sill is the course a broken wall keeps as its repair stump
@@ -431,11 +437,46 @@ function Tycoon:buildWallRing(model: Instance)
 
 		-- ONE CAP PER SIDE, not one per box. The old wall drew a trim over each
 		-- of its five pieces; this one is several boxes a side, and that many
-		-- neon slivers is that many parts to say one line. The cap straddles
-		-- the wall plane, so the band reads from both faces.
-		neonBar(self, model, "Trim_" .. side, extent,
+		-- slivers is that many parts to say one line. The cap straddles the
+		-- wall plane, so the band reads from both faces.
+		trimBar(self, model, "Trim_" .. side, extent,
 			extent.from - TRIM_PROUD / 2, extent.to + TRIM_PROUD / 2, top,
 			S.WallThickness + TRIM_PROUD, 0)
+
+		-- The buttress posts, on the OUTER face. Embedded 0.4 studs into the
+		-- wall so the meeting faces never sit coplanar.
+		local buttress = S.Buttress
+		local buttressDepth = buttress.proud + 0.4
+		local buttressCross = -(S.WallThickness / 2 - 0.4 + buttressDepth / 2)
+		for postIndex, along in ipairs(Config.buttressPositions(side, counts.left, counts.right)) do
+			local size, cf = alongWall(self, extent, along, buttress.height / 2, buttressCross,
+				buttress.width, buttress.height, buttressDepth)
+			newPart(model, ("Buttress_%s_%d"):format(side, postIndex), size, cf,
+				WALL_COLOR, Enum.Material.WoodPlanks)
+		end
+
+		-- The torches, on the INNER face, above the machine line (asserted):
+		-- a bracket embedded into the wall and a neon flame on its tip,
+		-- carrying the PointLight.
+		local torch = S.Torch
+		local bracketDepth = torch.bracket[3] + 0.4
+		local bracketCross = S.WallThickness / 2 - 0.4 + bracketDepth / 2
+		local flameCross = S.WallThickness / 2 + torch.bracket[3] - torch.flame[3] / 2
+		for torchIndex, along in ipairs(Config.torchPositions(side, counts.left, counts.right)) do
+			local size, cf = alongWall(self, extent, along, torch.height, bracketCross,
+				torch.bracket[1], torch.bracket[2], bracketDepth)
+			local bracket = newPart(model, ("Torch_%s_%d"):format(side, torchIndex), size, cf,
+				TRIM_COLOR, Enum.Material.Wood, false)
+			bracket.CanQuery = false
+			local flameSize, flameCf = alongWall(self, extent, along,
+				torch.height + torch.bracket[2] / 2 + torch.flame[2] / 2, flameCross,
+				torch.flame[1], torch.flame[2], torch.flame[3])
+			local flame = newPart(model, ("TorchFlame_%s_%d"):format(side, torchIndex),
+				flameSize, flameCf, Color3.fromRGB(255, 170, 70), Enum.Material.Neon, false)
+			flame.CanQuery = false
+			flame.CastShadow = false
+			Fx.torchLight(flame)
+		end
 	end
 
 	-- invariant: THE UPGRADE THIS RING MAY ALREADY HAVE BEEN SOLD.
@@ -475,10 +516,13 @@ end
 --- trusting it. Idempotent by name: `gates` can be replayed by assign() over a
 --- ring that already has them.
 function Tycoon:hangGateLeaves(model: Instance)
+	-- Darker than the wall so a closed gate reads as a DOOR in the ring
+	-- rather than more wall — the trim's timber, one shade down.
 	local hung = 0
 	for _, leaf in ipairs(self:gateLeafSpecs()) do
 		if not model:FindFirstChild(leaf.name, true) then
-			newPart(model, leaf.name, leaf.size, leaf.closed, WALL_COLOR, Enum.Material.WoodPlanks)
+			newPart(model, leaf.name, leaf.size, leaf.closed,
+				Color3.fromRGB(118, 86, 56), Enum.Material.WoodPlanks)
 			hung += 1
 		end
 	end

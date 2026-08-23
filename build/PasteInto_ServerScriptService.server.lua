@@ -2904,6 +2904,33 @@ __MODULES["Config"] = function()
 			travelTime = 0.45,       -- tween seconds, each direction
 		},
 
+		-- design:D-02, via #162 — the castle silhouette: posts jutting off the
+		-- wall's OUTER face at a wide, even pitch. One box per post, walked per
+		-- solid run so none lands in an opening; `clearance` is the solid wall
+		-- kept between a post and a run's edge.
+		Buttress = {
+			spacing = 35,
+			width = 3,
+			proud = 1.8,    -- how far the post stands off the wall's outer face
+			height = 18,
+			clearance = 2,
+		},
+
+		-- design:D-02, via #162 — torches along the INNER face: a bracket and a
+		-- neon flame carrying a PointLight, above the machine line so the plan
+		-- clearances below stay the machines' own.
+		Torch = {
+			spacing = 45,
+			height = 15,             -- bracket centre above the floor
+			bracket = { 0.8, 0.8, 1.4 },   -- along the wall, tall, reach off the face
+			flame = { 1, 1.6, 1 },
+			brightness = 1.6,
+			-- Roblox CLAMPS a light's Range at 60 and says nothing about it, so a
+			-- number above that reads as set and is not. Asserted.
+			range = 26,
+			clearance = 2,
+		},
+
 		-- invariant: A BUDGET. Config.shellPartCount() models the shell's part
 		-- count from this spec and the verifier asserts the result at every land
 		-- state. Whether it holds at full scale in a real server is open —
@@ -2960,11 +2987,12 @@ __MODULES["Config"] = function()
 		return H.GateBase + H.GatePerLevel * (level - 1)
 	end
 
-	-- The one structural line: floor top to the wall's top. It was
-	-- Storeys[1].clear, derived from the mezzanine deck's underside; the storey
-	-- system retired with #88 and the shipped number stays, verbatim, so the
-	-- trim line and every label assertion hold still.
-	Config.Structure.WallHeight = 20.4
+	-- The one structural line: floor top to the wall's top.
+	-- design:D-02, via #162 — raised from the storey system's inherited 20.4 for
+	-- the castle silhouette. Every reader is an inequality that relaxes upward
+	-- (labels under it, machines under it, openings inside it), so the trim line
+	-- moves and nothing else does.
+	Config.Structure.WallHeight = 24
 
 	--- One wall of the ring: the axis it runs along, its fixed coordinate on the
 	--- other axis, and its extent — for a plot owning `left`/`right` expansions a
@@ -3080,11 +3108,48 @@ __MODULES["Config"] = function()
 		return segments, extent
 	end
 
+	--- Post centres along one wall at an even pitch: walked per SOLID run so no
+	--- post lands in an opening, `clearance` of solid wall kept at every run
+	--- edge, and the leftover split evenly so the row reads centred in its run.
+	--- A run too short for the pitch still carries one centred post.
+	local function postsAlong(side: string, left: number?, right: number?,
+		spacing: number, clearance: number)
+		local posts = {}
+		for _, segment in ipairs(Config.wallSegments(side, left, right)) do
+			if segment.kind == "solid" then
+				local usable = (segment.to - segment.from) - 2 * clearance
+				if usable >= 0 then
+					local count = math.floor(usable / spacing) + 1
+					local start = segment.from + clearance
+						+ (usable - (count - 1) * spacing) / 2
+					for index = 1, count do
+						table.insert(posts, start + (index - 1) * spacing)
+					end
+				end
+			end
+		end
+		return posts
+	end
+
+	--- Where one wall's buttress posts stand, along the wall's own axis.
+	function Config.buttressPositions(side: string, left: number?, right: number?)
+		local b = Config.Structure.Buttress
+		return postsAlong(side, left, right, b.spacing, b.clearance + b.width / 2)
+	end
+
+	--- Where one wall's torch brackets hang, along the wall's own axis.
+	function Config.torchPositions(side: string, left: number?, right: number?)
+		local torch = Config.Structure.Torch
+		return postsAlong(side, left, right, torch.spacing,
+			torch.clearance + torch.bracket[1] / 2)
+	end
+
 	--- invariant: how many parts one plot's shell costs, modelled from the spec
 	--- above so the verifier can hold it to Config.Structure.PartBudget.
 	---
 	--- Per solid run: a sill, body and head course. Per opening: a lintel course
-	--- over it, plus its leaves. Per side: a trim cap.
+	--- over it, plus its leaves. Per side: a trim cap, the buttress posts, and
+	--- two parts per torch (bracket + flame; the PointLight is not a Part).
 	---
 	--- IT MUST COUNT WHAT THE BUILDER EMITS, not what the wall spec implies. Its
 	--- first version left out the trim, the light strip and the sign anchor, so it
@@ -3096,6 +3161,8 @@ __MODULES["Config"] = function()
 		for _, side in ipairs(Config.Structure.Sides) do
 			-- the trim cap along this wall's top
 			total += 1
+			total += #Config.buttressPositions(side, left, right)
+			total += 2 * #Config.torchPositions(side, left, right)
 			for _, segment in ipairs(Config.wallSegments(side, left, right)) do
 				if segment.kind == "solid" then
 					total += 3   -- sill, body and head course
@@ -4119,6 +4186,25 @@ __MODULES["Fx"] = function()
 			light.Shadows = false
 			light.Parent = part
 		end
+	end
+
+	--- The light a wall torch casts. A PointLight on the flame part, warm and
+	--- shadowless — at up to a few dozen torches per plot across ten plots,
+	--- shadows are off by necessity, and a shadowless Roblox light ignores
+	--- occluders, which an open-air ring has none of at torch height anyway.
+	---
+	--- Every number comes from Config.Structure.Torch, because tools/verify_config
+	--- reads Config and nothing else: a brightness typed here is a brightness no
+	--- check can ever see.
+	function Fx.torchLight(part: BasePart)
+		local spec = Config.Structure.Torch
+		local light = Instance.new("PointLight")
+		light.Range = spec.range
+		light.Brightness = spec.brightness
+		light.Color = Color3.fromRGB(255, 176, 92)
+		light.Shadows = false
+		light.Parent = part
+		return light
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -16676,14 +16762,17 @@ __MODULES["Installers"] = function()
 		return newPart(parent, name, size, cf, WALL_COLOR, Enum.Material.WoodPlanks)
 	end
 
-	--- A neon bar along one wall, STRADDLING the line it marks rather than sitting
-	--- flush with it: two coplanar faces at one Y is the z-fight every stacked
-	--- surface in this game is offset to avoid.
-	local function neonBar(tycoon, parent: Instance, name: string, extent,
+	--- The coping bar along one wall's top, STRADDLING the line it marks rather
+	--- than sitting flush with it: two coplanar faces at one Y is the z-fight
+	--- every stacked surface in this game is offset to avoid. Dark timber now
+	--- (#162's castle look); it was neon while the trim doubled as the enclosed
+	--- room's light cove.
+	local TRIM_COLOR = Color3.fromRGB(96, 70, 46)
+	local function trimBar(tycoon, parent: Instance, name: string, extent,
 		from: number, to: number, y: number, thickness: number, cross: number)
 		local size, cf = alongWall(tycoon, extent, (from + to) / 2, y, cross,
 			to - from, TRIM_SECTION, thickness)
-		local bar = newPart(parent, name, size, cf, COLORS.beltLine, Enum.Material.Neon, false)
+		local bar = newPart(parent, name, size, cf, TRIM_COLOR, Enum.Material.Wood, false)
 		bar.CanQuery = false
 		bar.CastShadow = false
 		return bar
@@ -16960,7 +17049,10 @@ __MODULES["Installers"] = function()
 	end
 
 	--- invariant: the ring of walls — the courses Config.wallSegments describes,
-	--- the gate leaves in its openings, and a neon cap along the top of each side.
+	--- the gate leaves in its openings, a coping cap along the top of each side,
+	--- the buttress posts off the outer face and the torches along the inner one
+	--- (both from their Config position functions, which is what lets the
+	--- verifier and shellPartCount see them).
 	---
 	--- invariant: THREE COURSES PER SOLID RUN — sill, body, head — one lintel per
 	--- opening. The sill is the course a broken wall keeps as its repair stump
@@ -16993,11 +17085,46 @@ __MODULES["Installers"] = function()
 
 			-- ONE CAP PER SIDE, not one per box. The old wall drew a trim over each
 			-- of its five pieces; this one is several boxes a side, and that many
-			-- neon slivers is that many parts to say one line. The cap straddles
-			-- the wall plane, so the band reads from both faces.
-			neonBar(self, model, "Trim_" .. side, extent,
+			-- slivers is that many parts to say one line. The cap straddles the
+			-- wall plane, so the band reads from both faces.
+			trimBar(self, model, "Trim_" .. side, extent,
 				extent.from - TRIM_PROUD / 2, extent.to + TRIM_PROUD / 2, top,
 				S.WallThickness + TRIM_PROUD, 0)
+
+			-- The buttress posts, on the OUTER face. Embedded 0.4 studs into the
+			-- wall so the meeting faces never sit coplanar.
+			local buttress = S.Buttress
+			local buttressDepth = buttress.proud + 0.4
+			local buttressCross = -(S.WallThickness / 2 - 0.4 + buttressDepth / 2)
+			for postIndex, along in ipairs(Config.buttressPositions(side, counts.left, counts.right)) do
+				local size, cf = alongWall(self, extent, along, buttress.height / 2, buttressCross,
+					buttress.width, buttress.height, buttressDepth)
+				newPart(model, ("Buttress_%s_%d"):format(side, postIndex), size, cf,
+					WALL_COLOR, Enum.Material.WoodPlanks)
+			end
+
+			-- The torches, on the INNER face, above the machine line (asserted):
+			-- a bracket embedded into the wall and a neon flame on its tip,
+			-- carrying the PointLight.
+			local torch = S.Torch
+			local bracketDepth = torch.bracket[3] + 0.4
+			local bracketCross = S.WallThickness / 2 - 0.4 + bracketDepth / 2
+			local flameCross = S.WallThickness / 2 + torch.bracket[3] - torch.flame[3] / 2
+			for torchIndex, along in ipairs(Config.torchPositions(side, counts.left, counts.right)) do
+				local size, cf = alongWall(self, extent, along, torch.height, bracketCross,
+					torch.bracket[1], torch.bracket[2], bracketDepth)
+				local bracket = newPart(model, ("Torch_%s_%d"):format(side, torchIndex), size, cf,
+					TRIM_COLOR, Enum.Material.Wood, false)
+				bracket.CanQuery = false
+				local flameSize, flameCf = alongWall(self, extent, along,
+					torch.height + torch.bracket[2] / 2 + torch.flame[2] / 2, flameCross,
+					torch.flame[1], torch.flame[2], torch.flame[3])
+				local flame = newPart(model, ("TorchFlame_%s_%d"):format(side, torchIndex),
+					flameSize, flameCf, Color3.fromRGB(255, 170, 70), Enum.Material.Neon, false)
+				flame.CanQuery = false
+				flame.CastShadow = false
+				Fx.torchLight(flame)
+			end
 		end
 
 		-- invariant: THE UPGRADE THIS RING MAY ALREADY HAVE BEEN SOLD.
@@ -17037,10 +17164,13 @@ __MODULES["Installers"] = function()
 	--- trusting it. Idempotent by name: `gates` can be replayed by assign() over a
 	--- ring that already has them.
 	function Tycoon:hangGateLeaves(model: Instance)
+		-- Darker than the wall so a closed gate reads as a DOOR in the ring
+		-- rather than more wall — the trim's timber, one shade down.
 		local hung = 0
 		for _, leaf in ipairs(self:gateLeafSpecs()) do
 			if not model:FindFirstChild(leaf.name, true) then
-				newPart(model, leaf.name, leaf.size, leaf.closed, WALL_COLOR, Enum.Material.WoodPlanks)
+				newPart(model, leaf.name, leaf.size, leaf.closed,
+					Color3.fromRGB(118, 86, 56), Enum.Material.WoodPlanks)
 				hung += 1
 			end
 		end
@@ -18077,7 +18207,14 @@ __MODULES["Siege"] = function()
 
 	-- Course prefixes that belong to a wall side. `Sill` is deliberately absent:
 	-- the sill course survives a break as the stump the repair prompt stands on.
-	local BREAKABLE_PREFIXES = { Body = true, Head = true, Lintel = true }
+	-- `Buttress` is a chunk of the wall's face, so it falls with its side and a
+	-- swing on it lands on the wall.
+	local BREAKABLE_PREFIXES = { Body = true, Head = true, Lintel = true, Buttress = true }
+
+	-- The torches are dressing, never targets: a swing on one lands nowhere. But
+	-- they hang on a wall, so when that wall breaks they go down with it — a
+	-- floating torch over a breach is the fixture-ghost bug with a flame on it.
+	local RIDES_ON_WALL = { Torch = true, TorchFlame = true }
 
 	--- The siege level: expansions owned + 1. Derived, never stored.
 	function Tycoon:siegeLevel(): number
@@ -18201,6 +18338,15 @@ __MODULES["Siege"] = function()
 					local prefix = part.Name:match("^(%a+)_")
 					if prefix == "Sill" and part.Color == STUMP_COLOR then
 						part.Color = WALL_COLOR
+					end
+				else
+					-- The torches resolve to no key — they are dressing — but
+					-- they ride their wall down. Repair rebuilds the ring, so
+					-- they come back with the courses.
+					local prefix, rest = part.Name:match("^(%a+)_(%a+)")
+					if prefix and RIDES_ON_WALL[prefix]
+							and self:structureBroken("wall_" .. tostring(rest)) then
+						part:Destroy()
 					end
 				end
 			end

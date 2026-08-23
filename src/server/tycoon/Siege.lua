@@ -48,7 +48,14 @@ local WALL_COLOR = Color3.fromRGB(150, 111, 74)
 
 -- Course prefixes that belong to a wall side. `Sill` is deliberately absent:
 -- the sill course survives a break as the stump the repair prompt stands on.
-local BREAKABLE_PREFIXES = { Body = true, Head = true, Lintel = true }
+-- `Buttress` is a chunk of the wall's face, so it falls with its side and a
+-- swing on it lands on the wall.
+local BREAKABLE_PREFIXES = { Body = true, Head = true, Lintel = true, Buttress = true }
+
+-- The torches are dressing, never targets: a swing on one lands nowhere. But
+-- they hang on a wall, so when that wall breaks they go down with it — a
+-- floating torch over a breach is the fixture-ghost bug with a flame on it.
+local RIDES_ON_WALL = { Torch = true, TorchFlame = true }
 
 --- The siege level: expansions owned + 1. Derived, never stored.
 function Tycoon:siegeLevel(): number
@@ -172,6 +179,15 @@ function Tycoon:applySiegeState(ring: Instance)
 				local prefix = part.Name:match("^(%a+)_")
 				if prefix == "Sill" and part.Color == STUMP_COLOR then
 					part.Color = WALL_COLOR
+				end
+			else
+				-- The torches resolve to no key — they are dressing — but
+				-- they ride their wall down. Repair rebuilds the ring, so
+				-- they come back with the courses.
+				local prefix, rest = part.Name:match("^(%a+)_(%a+)")
+				if prefix and RIDES_ON_WALL[prefix]
+						and self:structureBroken("wall_" .. tostring(rest)) then
+					part:Destroy()
 				end
 			end
 		end

@@ -118,8 +118,20 @@ function Inst:WaitForChild(name: string, _timeout: number?)
 	return self:FindFirstChild(name)
 end
 
+-- The superclass facts specs have needed, stated explicitly: a Part IS a
+-- BasePart. Exact match for everything else — the mock claims only what is
+-- true of Roblox, and an unlisted hierarchy answers false the way it always
+-- has rather than guessing.
+local SUPERCLASSES = {
+	Part = { BasePart = true, PVInstance = true, Instance = true },
+}
+
 function Inst:IsA(class: string): boolean
-	return self.ClassName == class
+	if self.ClassName == class then
+		return true
+	end
+	local supers = SUPERCLASSES[self.ClassName]
+	return supers ~= nil and supers[class] == true
 end
 
 function Inst:Destroy()

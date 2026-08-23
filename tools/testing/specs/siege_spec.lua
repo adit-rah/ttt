@@ -112,11 +112,49 @@ T.spec("part names resolve to stable keys, and only siege parts resolve", functi
 	t:eq(Tycoon.siegeKeyForPart(named("Body_left_1")), "wall_left")
 	t:eq(Tycoon.siegeKeyForPart(named("Head_right_2")), "wall_right")
 	t:eq(Tycoon.siegeKeyForPart(named("Lintel_back_4")), "wall_back")
+	t:eq(Tycoon.siegeKeyForPart(named("Buttress_front_3")), "wall_front",
+		"a buttress is a chunk of its wall's face; a swing on it lands on the wall")
 	t:eq(Tycoon.siegeKeyForPart(named("Gate_gateway_2")), "gate_gateway")
 	t:eq(Tycoon.siegeKeyForPart(named("Gate_yardDoor_1")), "gate_yardDoor")
 	t:isNil(Tycoon.siegeKeyForPart(named("Trim_front")), "the trim cap is not a siege target")
+	t:isNil(Tycoon.siegeKeyForPart(named("Torch_left_2")), "a torch is dressing, never a target")
+	t:isNil(Tycoon.siegeKeyForPart(named("TorchFlame_left_2")), "a flame is dressing, never a target")
 	t:isNil(Tycoon.siegeKeyForPart(named("VaultBase")),
 		"the storage body must stay outside the wall machinery — its route is siegeStrike's own")
+end)
+
+T.spec("a broken wall takes its torches down and leaves the neighbours' burning", function(t)
+	-- The torches resolve to no siege key — dressing, never targets — so the
+	-- generic sweep cannot touch them and applySiegeState carries an explicit
+	-- branch: a torch parses its side from its own name and falls with it.
+	-- Without the branch a breach leaves a bracket and a flame floating in
+	-- the gap, which is the batten-ghost bug with a fire on it.
+	local w = T.world()
+	local plot = fakePlot(w, nil)
+	plot.refreshSiegePrompts = function() end   -- prompts are Studio's half
+
+	local ring = Instance.new("Model")
+	local function part(name)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Parent = ring
+		return p
+	end
+	part("Sill_front_1")
+	local body = part("Body_front_1")
+	local frontTorch = part("Torch_front_1")
+	local frontFlame = part("TorchFlame_front_1")
+	local leftTorch = part("Torch_left_1")
+	local buttress = part("Buttress_front_2")
+
+	plot.structureHealth.wall_front = 0
+	plot:applySiegeState(ring)
+
+	t:isNil(body.Parent, "the broken wall's body course is still standing")
+	t:isNil(buttress.Parent, "the broken wall's buttress is floating over the breach")
+	t:isNil(frontTorch.Parent, "the broken wall's torch bracket is floating over the breach")
+	t:isNil(frontFlame.Parent, "the broken wall's flame is burning in mid-air")
+	t:notNil(leftTorch.Parent, "an intact wall lost its torch to another side's break")
 end)
 
 T.spec("a dent survives the save as a fraction, and scales onto new maxes", function(t)

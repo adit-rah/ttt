@@ -206,6 +206,25 @@ function Fx.applyVariant(part: BasePart, variant, opts)
 	end
 end
 
+--- The light a wall torch casts. A PointLight on the flame part, warm and
+--- shadowless — at up to a few dozen torches per plot across ten plots,
+--- shadows are off by necessity, and a shadowless Roblox light ignores
+--- occluders, which an open-air ring has none of at torch height anyway.
+---
+--- Every number comes from Config.Structure.Torch, because tools/verify_config
+--- reads Config and nothing else: a brightness typed here is a brightness no
+--- check can ever see.
+function Fx.torchLight(part: BasePart)
+	local spec = Config.Structure.Torch
+	local light = Instance.new("PointLight")
+	light.Range = spec.range
+	light.Brightness = spec.brightness
+	light.Color = Color3.fromRGB(255, 176, 92)
+	light.Shadows = false
+	light.Parent = part
+	return light
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- One-shot effects
 -- ─────────────────────────────────────────────────────────────────────────────
