@@ -27,7 +27,6 @@
 	  in self.machines, and release() and rebirth() both do
 	  machines:ClearAllChildren() — so a leaf can vanish under this service
 	  between two ticks. Every tick checks Parent and re-resolves, exactly as
-	  Tycoon:updateCabinetSigns drops a sign whose cabinet has been taken down.
 
 	WHERE THE GEOMETRY LIVES: not here. Tycoon:gateLeafSpecs (tycoon/Installers.lua)
 	answers what a leaf is called, where it hangs closed and where it slides to,

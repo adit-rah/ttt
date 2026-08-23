@@ -135,8 +135,15 @@ Config.World = {
 	-- scriptable one, so nothing here can enforce it; PlotService just leaves
 	-- late joiners plotless until someone disconnects.
 	MinPlots = 4,
-	MaxPlots = 10,           -- geometry budget ceiling; set MaxPlayers to match
-	PlotGap = 44,            -- clear studs between neighbouring plot edges
+	-- 8 since the belt rebalance: the fixed belt radius is pitch/(2·sin(π/n)),
+	-- and n is its dominant term — ten maxed plots forced the belt to 751 and
+	-- the world read as sprawl. Eight brings the belt to ~585 for two seats a
+	-- server. Set the place's MaxPlayers to match.
+	MaxPlots = 8,
+	-- 28 since the same rebalance (was 44): with the walls up, the grass
+	-- between neighbours is dead ground, and every stud of it multiplies
+	-- through the chord into belt radius.
+	PlotGap = 28,
 	RingGap = 48,            -- clear studs between concentric plot rings
 	MinPlotRadius = 210,     -- closest the first ring may ever sit to the centre
 
@@ -146,10 +153,11 @@ Config.World = {
 	BaseplateSize = 2000,
 	ArenaRadius = 70,
 	ArenaWallHeight = 22,
-	-- Where fresh players land: outside the outermost mob band's reach and
-	-- inside the plot belt, in the quiet strip of grass. The bearing is picked
-	-- by MapBuilder to sit between two plots.
-	SpawnRadius = 660,
+	-- Where fresh players land: OUTSIDE the belt, in the grass beyond the
+	-- ring, at a bearing between two plots — the rebalance closed the quiet
+	-- strip inside the ring that the spawn used to stand in. Walking inward
+	-- past the plots is the first thing a session does, which is the tour.
+	SpawnRadius = 680,
 	-- The plinth the statue stands on, in the middle of the arena. It was a 26
 	-- written into MapBuilder; it is here because the boss now spawns at a fixed
 	-- radius from the same centre and the verifier has to be able to check that
@@ -2203,9 +2211,9 @@ Config.Mobs = {
 	-- HealthGrowth^(level-1), damage capped at MaxDamage), and `count` is the
 	-- band's standing population.
 	Bands = {
-		{ name = "core",      inner = 0,   outer = 150, level = 15, count = 8 },
-		{ name = "mid",       inner = 150, outer = 400, level = 8,  count = 8 },
-		{ name = "outskirts", inner = 400, outer = 560, level = 2,  count = 8 },
+		{ name = "core",      inner = 0,   outer = 140, level = 15, count = 8 },
+		{ name = "mid",       inner = 140, outer = 300, level = 8,  count = 8 },
+		{ name = "outskirts", inner = 300, outer = 420, level = 2,  count = 8 },
 	},
 	-- Home patches keep this clear of their band's edges, so a roamer's
 	-- wander never straddles a boundary.

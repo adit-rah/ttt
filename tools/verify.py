@@ -446,6 +446,57 @@ def check_mixin_folders():
     return True
 
 
+# A METHOD CALL ON A CLASS TABLE IS A DYNAMIC LOOKUP, and deleting the method
+# does not break the build — it breaks the first RUNTIME that reaches the call.
+# That is not hypothetical: #108 deleted ensureCabinets and the constructor in
+# Class.lua kept calling it, so Tycoon.new threw, PlotService.build died, the
+# PlayerAdded wiring after it never ran, and every claim pad on main was dead
+# with a green build. The harness never runs the real constructor (specs use
+# metatable fakes), and the undeclared-global pass cannot see a method name.
+#
+# So: every `self:name(` call inside the mixin folder, and every `tycoon:name(`
+# call anywhere in src/server, must resolve to a `function Tycoon:name` /
+# `function Tycoon.name` definition somewhere in the mixin folder.
+TYCOON_DEF = re.compile(r"^function\s+Tycoon[.:](\w+)\s*\(", re.M)
+TYCOON_SELF_CALL = re.compile(r"self:(\w+)\s*\(")
+TYCOON_VAR_CALL = re.compile(r"tycoon:(\w+)\s*\(")
+
+
+def check_method_resolution(files):
+    step("tycoon method resolution")
+    mixin_dir = ROOT / "src" / "server" / "tycoon"
+    defined = set()
+    for path in sorted(mixin_dir.glob("*.lua")):
+        defined |= set(TYCOON_DEF.findall(path.read_text(encoding="utf-8")))
+
+    findings = []
+    for path in sorted(mixin_dir.glob("*.lua")):
+        text = _uncommented(path.read_text(encoding="utf-8"))
+        for i, line in enumerate(text.split("\n"), 1):
+            for name in TYCOON_SELF_CALL.findall(line):
+                if name not in defined:
+                    findings.append(
+                        f"{path.relative_to(ROOT)}:{i} calls self:{name}() and no mixin defines it — "
+                        f"the first runtime to reach this line throws on a nil method"
+                    )
+    for path in sorted((ROOT / "src" / "server").glob("*.lua")):
+        text = _uncommented(path.read_text(encoding="utf-8"))
+        for i, line in enumerate(text.split("\n"), 1):
+            for name in TYCOON_VAR_CALL.findall(line):
+                if name not in defined:
+                    findings.append(
+                        f"{path.relative_to(ROOT)}:{i} calls tycoon:{name}() and no mixin defines it"
+                    )
+
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for text in findings:
+            print(f"    {text}")
+        return False
+    print(f"  {GREEN}ok{RESET}  every self:/tycoon: method call resolves to a mixin definition")
+    return True
+
+
 # A GRADUATED FEATURE'S FLAG IS DELETED, NOT SET FALSE — see FloorService.lua and
 # verify_config.lua's "prototypes ship off" family. That is the right convention
 # and it has one sharp edge: every `if not P.Whatever` guard left behind reads as
@@ -842,6 +893,7 @@ def main():
         check_prototypes(files),
         check_config_paths(files),
         check_mixin_folders(),
+        check_method_resolution(files),
         check_ui_geometry(files),
         check_single_screengui(files),
         check_design_refs(files),

@@ -14,7 +14,7 @@
 	door. They are read there, never written.
 
 	Tycoon.new CALLS METHODS THIS FILE DOES NOT DEFINE (buildBelt,
-	buildCollector, ensureCabinets, updateSign, ...). That is safe because
+	buildCollector, ensureGuide, updateSign, ...). That is safe because
 	nothing reaches Tycoon.new without going through Req("Tycoon"), the
 	aggregator, which requires every mixin first. Req("Class") on its own would
 	hand you a class that builds a pad and nothing on it.
@@ -143,10 +143,9 @@ function Tycoon.new(index: number, parent: Instance)
 	self:buildCollector(1, nil, true)
 	self:buildRebirthPad()
 	self:buildClaimPad()
-	self:ensureCabinets()
-	-- Kept like a cabinet body. The generator standing on it is a machine and
-	-- comes and goes with a rebirth; the slab does not. Idempotent, and also
-	-- re-run from refreshButtons, because release() clears self.props.
+	-- The generator standing on the yard is a machine and comes and goes
+	-- with a rebirth; the slab does not. Idempotent, and also re-run from
+	-- refreshButtons, because release() clears self.props.
 	self:ensureYard()
 
 	-- An unclaimed plot shows a bare pad and a claim marker, nothing else.
