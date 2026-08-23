@@ -187,19 +187,20 @@ from that: the cabinets moved off the claim and onto a gate, the yard shrank
 from 4,320 square studs of concrete to a corner, and the generator previews
 nothing because all four of its rungs resolve to one pad.
 
-**The shell is a building sold in instalments**, not four interchangeable tiers.
-Walls arrive solid and closed so that "Plot Walls" actually keeps a raider out;
-windows are a material change to parts that already exist; the roof is last
-because it derives its columns from the walls.
+**The shell is a building sold in instalments.** Walls arrive solid, closed
+and opaque for life, so "Plot Walls" actually keeps a raider out; the gates
+hang on the standing ring. The plot is open to the sky (#162): plots are one
+floor, the roof and its sign are gone, and the world lights the interior. The
+masonry tiers that restyle and toughen the standing wall — the castle look —
+arrive with #162's later PRs.
 
 **Growth is outward now** (#88): land is bought in alternating strips, the
-walls and roof follow it, and the centre pad stays the anchor. What stands on
-new ground is #109's decision; the second storey this replaced is in the
-handoff chain.
+walls follow it, and the centre pad stays the anchor. What stands on new
+ground is #109's decision; the second storey this replaced is in the handoff
+chain.
 
 **Assumes of production:** the belt's shape. Assumes of progression: that a
-building rung is declinable, which is new and is why the roof had to become a
-gate.
+building rung is declinable.
 
 ---
 

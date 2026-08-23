@@ -231,20 +231,11 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **`Lighting.Technology` is not script-writable at runtime.** It is set in the Rojo project
   file and the runtime assignment is wrapped in `pcall` so a paste-in install does not die
   on boot. `[nothing]`
-- **AN ENCLOSED ROOM NEEDS REAL FIXTURES, AND THEY ARE `SurfaceLight` ON THE BOTTOM FACE.**
-  `Ambient` is black, so from the minute the roof lands the room has no sky — and the wall's
-  neon "light strip" is `Material.Neon`, which illuminates nothing. Every fixture runs
-  `Shadows = false`, and a Roblox light with shadows off **ignores occluders entirely**: a
-  `PointLight` would shine through the roof slab. A `SurfaceLight` emits from one face into
-  a cone and cannot. `[assert]`
-- **Roblox CLAMPS a light's `Range` at 60 and says nothing about it,** so a larger number
-  reads as set in the source and is not. `[assert]`
-- **The grid has to reach the corners, and that is sampled rather than reasoned about.**
-  "The fixtures are inside the room" says nothing about the room being lit; drop `rows` and
-  the back of the plot goes dark with every containment check still passing. The darkest
-  floor sample must sit within 80% of a fixture's range — which is the check that chose the
-  shipped 3x4, because two columns leave the middle of the back wall 47 studs from either of
-  them. `[assert]`
+- **THE PLOT IS OPEN-AIR AND THE WORLD LIGHTS IT** (#162). The roof, the ceiling batten
+  grid and `Fx.ceilingLight` are gone with the roof purchase; nothing on a plot emits real
+  light. `Material.Neon` — the trim — illuminates nothing. What this looks like at night is
+  a Studio question; interior fixtures return with #162's torches, and Roblox's silent
+  `Range` clamp at 60 returns to the verifier with them. `[nothing]`
 
 ### The belt
 
@@ -339,11 +330,10 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   east lot costs a shade more than the west; between pairs the step is 3x plus; and the
   greedy simulation's land purchases are asserted to run L1 R1 L2 R2... A lopsided base
   stays legal and expensive. `[assert]`
-- **Everything at ceiling height follows the land.** The roof spans the wall extents, the
-  ceiling grid gains columns by width (the sampled coverage check chose the divisor and
-  runs per land state), and `shellPartCount(left, right)` is asserted against `PartBudget`
-  at all eleven alternating states plus a lopsided pair — 187 of 200 fully grown, which is
-  where the budget binds. `[assert]`
+- **The shell's cost follows the land.** The front and back walls split a run per owned
+  boundary, so `shellPartCount(left, right)` is asserted against `PartBudget` at all eleven
+  alternating states plus a lopsided pair — fully grown is where the budget binds, and the
+  verifier's `shell parts:` report line is the number to read. `[assert]`
 - **The ring pitch reserves the MAXED footprint.** Land is acquired rather than reserved,
   so two fully-grown neighbours are the case the world must hold; the pairwise chord check
   needs `PlotMaxWidth`, the walk limit is 880 with #89/#101 named as the owners of the
@@ -399,16 +389,14 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   checks looked at wall height. The builder now emits exactly the spans that function returns.
   `[assert]` "a wall that does not account for its whole extent is exactly the seven-stud band
   of daylight that shipped round every plot"; `[spec]` `structure_spec.lua`.
-- **`Config.Structure.WallHeight` is the one structural line.** The wall's top, the roof's
-  underside and the light plane all derive from it; it keeps the shipped 20.4 verbatim from
-  the storey system it replaced (#88). `[assert]`, `[spec]`.
-- **There is no `Layout.RoofY` and no roof-shrink rule.** The roof sits on the wall's top —
-  `Config.roofUnderside()` — and follows the land's extents. The old rule existed because a
-  slab at 20 and a ceiling at 20.4 were each derived separately and had to dodge each
-  other. `[assert]`
-- **Glass stays at or above `Transparency` 0.25.** Roblox's PopperCam only occludes on
-  `Transparency < 0.25 and CanCollide`, so below that every pane becomes a hole the camera
-  shoves itself through — on a plot that is now enclosed. `[assert]`, `[spec]`.
+- **`Config.Structure.WallHeight` is the one structural line.** The wall's top, the trim
+  line and the buy-button label ceiling all derive from it; it keeps the shipped 20.4
+  verbatim from the storey system it replaced (#88). `[assert]`, `[spec]`.
+- **A solid run is three courses — sill, body, head — and the split is siege machinery,
+  not decoration** (#162). The sill survives a break as the repair stump; `Body`, `Head`
+  and `Lintel` are the breakable prefixes. `Config.Structure.Course` holds the split
+  lines, and the head course keeps at least 2 studs. `[assert]` the course fit; `[spec]`
+  `structure_spec.lua` and `siege_spec.lua`'s name-to-key table.
 - **A gate leaf hangs on the face `opening.face` names, and that is not cosmetic.** The yard
   door is flush to the end of the back wall, so its single leaf can only slide inward along
   x — and the inside of the back wall IS the dropper row. An inboard leaf swept 0.1 studs
@@ -424,10 +412,10 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   an arrival lock and a `TouchEnded` sweep. `[nothing]` — `GateService` is outside
   `SERVER_MODULES`.
 - **`Config.shellPartCount` must count what the BUILDER emits, not what the wall spec
-  implies.** Its first version left out the per-side trim cap, the interior light strip and the
-  roof's sign anchor, and so asserted the budget 13% under the truth — 59 against 68 actually
-  built. Trim is a Config key for that reason rather than derived in the builder. `[assert]`
-  against `Structure.PartBudget`, printed in the report; `[spec]` against an independent model.
+  implies.** Its first version left out per-side parts and asserted the budget 13% under
+  the truth — 59 against 68 actually built. Trim is a Config key for that reason rather
+  than derived in the builder. `[assert]` against `Structure.PartBudget`, printed in the
+  report; `[spec]` against an independent model.
 - **A gate answers to its OWNER's proximity, nobody else's** (#89). Any-humanoid triggering
   would hand a PvP raider a free entrance (gutting #124's break-in verb) and open your
   door for the plot wave standing at it; NPCs never open anything — `GateService` sweeps
@@ -553,24 +541,26 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   the restating hid a fork that made the second storey a branch you could skip entirely. Now
   `[assert]` — the chain must be exactly the table order, checked as "requires equals the row
   above" because the loader has filled the field in by the time the verifier runs.
-- **THE SHELL IS FOUR PURCHASES ON A TRACK OF ITS OWN, IN ONE ORDER.**
-  `walls` -> `gates` -> `windows` -> `roof`, gated as a whole on `dropper1`. The ordering is
-  derived from table order and nothing else stated it. The wall arrives SOLID: an unglazed
-  bay is a piece of wall, not a hole, because a purchase called "Plot Walls" that does not
-  keep a raider out is not walls. Glazing is therefore a material change and the part count
-  does not move between the first three. `[assert]` the order — including `roof` needs
-  `walls`, which was never checked and is what stops a roof being four columns and a slab
-  standing in a field — and that every declared gate leaf is paid for by a `gates` button.
-  The order check now scans `Config.Buttons` on the GLOBAL `order` key rather than one
-  track's `trackOrder`, so it survives the shell moving again.
-- **The shell is PARALLEL to the factory, and that is the point of the track.** These four
-  were rungs 5, 6, 7 and 14 of the factory chain, which is a strict chain — so you could not
-  buy `dropper4` until you had bought walls, gates and windows, and three consecutive
-  purchases that drop, refine and multiply nothing sat on the one ladder the player measures
-  themselves by. `MAX_FLAT_RUN` was written to guard that hazard rather than remove it.
-  Prices and internal order did not move in the split and the simulated curve is unchanged
-  row for row, because the spine simulation buys the cheapest available rung and these four
-  still fall in the same places. `[assert]` no `Structure` row remains on the factory track.
+- **THE SHELL IS TWO PURCHASES ON A TRACK OF ITS OWN, IN ONE ORDER.**
+  `walls` -> `gates`, gated as a whole on `dropper1` (#162 took `windows` and `roof` off
+  the ladder; old saves shed the ids through `DataService.reconcile`'s prune). The ordering
+  is derived from table order and nothing else stated it. The wall arrives SOLID and stays
+  opaque for life, because a purchase called "Plot Walls" that does not keep a raider out
+  is not walls. `[assert]` the order — gates hang on the ring, so they need `walls` — and
+  that every declared gate leaf is paid for by a `gates` button. The order check scans
+  `Config.Buttons` on the GLOBAL `order` key rather than one track's `trackOrder`, so it
+  survives the shell moving again.
+- **The shell is PARALLEL to the factory, and that is the point of the track.** Its rows
+  were rungs of the factory chain, which is a strict chain — purchases that drop, refine
+  and multiply nothing sat on the one ladder the player measures themselves by.
+  `MAX_FLAT_RUN` was written to guard that hazard rather than remove it. `[assert]` no
+  `Structure` row remains on the factory track.
+- **Land purchases RESET the flat-run guard** (#162). A land strip earns nothing when it
+  is bought, but it is the ground its own dropper stands on one purchase later, and land
+  pacing is owned by the alternation family and the week walk. Counting it made the
+  guard's verdict depend on what sat beside the land rows in the merged curve: the
+  back-to-back `landL5`/`landR5` pair reads as 67 flat minutes. `[assert]` — take `Land`
+  out of `RESETS_FLAT_RUN` and that pair is what fires.
 - **The shell and the land are paced as SPINE, not as detours.** The detour model prices a
   track against a curve it does not change and assumes you can decline it; the plot's own
   growth is neither. Measured as detours the build once read 46 minutes against a
@@ -585,11 +575,11 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   `[assert]` `keepOnRebirth == (furniture == "cabinet" or furniture == "land")` for every
   track — land survives because ensureLand rebuilds it from `owned` — which also retires
   the old `[nothing]` about only the factory's value being checked. A runtime spec runs the
-  real rebirth and confirms all four ids clear while a weapons tier survives.
-- **`gates` and `windows` ADD to the ring that is standing; they never rebuild it.** A
-  rebuild would destroy the gate leaves `GateService` may be mid-tween on and re-emit sixty
-  parts that have not changed. Their parts live in the ring's own model, so a rebirth takes
-  the glass down with the wall — and when a land purchase re-emits the ring's COURSES,
+  real rebirth and confirms the track's ids clear while a weapons tier survives.
+- **`gates` ADDS to the ring that is standing; it never rebuilds it.** A rebuild would
+  destroy the gate leaves `GateService` may be mid-tween on and re-emit dozens of parts
+  that have not changed. The leaves live in the ring's own model, so a rebirth takes them
+  down with the wall — and when a land purchase re-emits the ring's COURSES,
   `rebuildWallRing` spares every `Gate_*` part by name for the same reason. `[nothing]`
 - **Every button must be reachable, every bat and armour tier must be granted by exactly one
   button, and armour tier 1 must grant nothing** (it is the bare humanoid you spawn as, which
@@ -1391,7 +1381,6 @@ times in `verify.py`):
 - `ensureYard`/`ensureCabinets` idempotence across a `release()`; the generator not being
   written into `self.objects[id].machine`; `cabinetSigns` holding only cabinets.
 - The sticky, derived cabinet gate surviving a rebirth.
-- The roof rebuild when the floor lands.
 - The multiplier hook being an O(1) read on `Economy.add`.
 - `Util.abbreviate`'s trailing-zero rule — three lines, and it shipped wrong once.
 - **The status card's progress bar following `displayedCash` rather than `state.cash`.** The

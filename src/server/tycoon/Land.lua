@@ -4,8 +4,8 @@
 	design:D-02, via #88. Land is bought outward from the centre and the centre
 	pad is the permanent anchor. ensureLand runs on the refreshButtons beat and
 	makes the world match `owned`: slabs and their edge strips per expansion,
-	the wall ring re-emitted around whatever ground is standing, the roof and
-	its lights re-spanned. Purchase, release, rebirth and re-claim all reach
+	and the wall ring re-emitted around whatever ground is standing. Purchase,
+	release, rebirth and re-claim all reach
 	refreshButtons, which is why there is no service and no listener — the
 	FloorService this replaces existed to catch those four events, and a
 	derived reconciler catches them by construction.
@@ -86,9 +86,9 @@ function Tycoon:rebuildWallRing()
 	end)
 end
 
---- Make the ground, the ring and the roof match `owned`. Idempotent: called
---- on every refreshButtons beat, it builds what is missing, destroys what is
---- no longer owned, and touches nothing that already agrees.
+--- Make the ground and the ring match `owned`. Idempotent: called on every
+--- refreshButtons beat, it builds what is missing, destroys what is no longer
+--- owned, and touches nothing that already agrees.
 function Tycoon:ensureLand()
 	-- A stub plot (the spec harness's fakes) has no model and no plot CFrame;
 	-- there is no world for the ground to exist in, so there is nothing to
@@ -131,7 +131,6 @@ function Tycoon:ensureLand()
 
 	if changed then
 		self:rebuildWallRing()
-		self:refreshRoof()
 	end
 end
 

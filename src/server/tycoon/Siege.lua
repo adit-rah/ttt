@@ -48,7 +48,7 @@ local WALL_COLOR = Color3.fromRGB(150, 111, 74)
 
 -- Course prefixes that belong to a wall side. `Sill` is deliberately absent:
 -- the sill course survives a break as the stump the repair prompt stands on.
-local BREAKABLE_PREFIXES = { Pier = true, Pane = true, Head = true, Lintel = true }
+local BREAKABLE_PREFIXES = { Body = true, Head = true, Lintel = true }
 
 --- The siege level: expansions owned + 1. Derived, never stored.
 function Tycoon:siegeLevel(): number

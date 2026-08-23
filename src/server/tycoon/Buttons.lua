@@ -321,7 +321,7 @@ end
 function Tycoon:refreshButtons()
 	-- The ground reconciles before the pads: land is derived from `owned` the
 	-- same way the buttons are, and it has to exist for the beat's other
-	-- readers (the ring, the roof) to measure against. Runs on the ownerless
+	-- readers (the ring) to measure against. Runs on the ownerless
 	-- path too — release wipes `owned`, and the slabs follow it down.
 	self:ensureLand()
 	if not self.owner then

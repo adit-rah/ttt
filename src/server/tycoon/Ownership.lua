@@ -96,7 +96,6 @@ function Tycoon:release()
 	self:eachBeltSurface(function(surface)
 		surface.Color = COLORS.belt
 	end)
-	self.roofSign = nil
 	-- Dropped BEFORE updateSign runs below, not left for VaultService to clear
 	-- on the owned-changed that follows: for those few lines the plot has no
 	-- owner, and the last owner's "leaving now banks 2.4M" would be sitting on

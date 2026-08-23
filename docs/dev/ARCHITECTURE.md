@@ -96,7 +96,7 @@ that throws at load takes down whatever required it, which is how a deleted
 | Path | Responsibility | Required by | Must not |
 | --- | --- | --- | --- |
 | `Req.lua` | Module locator. Position-independent imports; caches; re-raises load failures. | *(the bootstrap line, not `Req()`)* | — |
-| `Config.lua` | **Every tunable number**, all geometry, all button/track/wave/analytics data, plus derived lookups (`ButtonById`, `Tracks`, `TrackRank`, `powerFactor`) and the shell's geometry functions (`storey`, `wallExtent`, `wallSegments`, `wallBays`, `roofUnderside`, `shellPartCount`). 3,700 lines. | 37 of 43 modules — everything except `Config` itself, `Util`, `Net`, `Req`, `Main.client` and `tycoon/Tycoon.lua` | require anything (it is the graph root); hold anything that is not data or a pure derivation — `tools/verify_config.lua` executes this file against stubs and nothing else |
+| `Config.lua` | **Every tunable number**, all geometry, all button/track/wave/analytics data, plus derived lookups (`ButtonById`, `Tracks`, `TrackRank`, `powerFactor`) and the shell's geometry functions (`storey`, `wallExtent`, `wallSegments`, `shellPartCount`). 3,700 lines. | 37 of 43 modules — everything except `Config` itself, `Util`, `Net`, `Req`, `Main.client` and `tycoon/Tycoon.lua` | require anything (it is the graph root); hold anything that is not data or a pure derivation — `tools/verify_config.lua` executes this file against stubs and nothing else |
 | `Util.lua` | Number abbreviation, welding, `platformFrom`, misc helpers. No Roblox services. | 20 modules | — |
 | `Net.lua` | Declares `Net.NAMES` and hands out RemoteEvents; server creates them eagerly, client waits. | 13 modules | require anything (it is the other graph root) |
 | `Style.lua` | The only place `Config.Style` becomes instances. Every label in the world and on screen. | `Fx`, `HUD`, `MapBuilder`, `SessionUI`, `TungModels`, `Tycoon`, `UiKit`, `UpgradeUI` | — |
@@ -159,7 +159,7 @@ identical either side of the move.
 | `Props.lua` | Claim rig, rebirth pad, cabinets and their signs, the yard, `refreshGenerator`. | 346 | `Class`, `Parts` |
 | `Buttons.lua` | Button positions, `buildButtons`, ghosts, the two label voices, `refreshButtons`, `pointAt`. | 517 | `Class`, `Parts` |
 | `Purchase.lua` | `playerFromHit`, `tryPurchase`, `install`. | 119 | `Class` |
-| `Installers.lua` | `Tycoon.INSTALLERS` (all eight kinds), the dropper machine, the drop loop, shelf displays, and **the building shell**: `buildWallRing` (the ring's courses, window bays, trim and interior strip), `gateLeafSpecs` (the leaf geometry `GateService` also reads), `buildRoofModel` / `refreshRoof`. | 790 | `Class`, `Parts` |
+| `Installers.lua` | `Tycoon.INSTALLERS` (all eight kinds), the dropper machine, the drop loop, shelf displays, and **the building shell**: `buildWallRing` (the ring's sill/body/head courses and trim), `gateLeafSpecs` (the leaf geometry `GateService` also reads), `hangGateLeaves`. | 790 | `Class`, `Parts` |
 | `Drops.lua` | `spawnDrop`, `recycleDrop`, `clearDrops`, the visual budget and the per-variant pool. | 185 | `Class` |
 | `Income.lua` | `incomePerSecond`, `startIncomeLoop` (the payer), `effectLine`, `updateSign`. | 147 | `Class` |
 | `Storage.lua` | The storage unit's state machine: `damageStorage`, `repairStorage`, `storageIntact`, `storedOverflowFraction` (#98's seam), the repair prompt and the attribute mirror. | 131 | `Class` |
@@ -342,7 +342,7 @@ asserts it. Every row needs `id`, `name`, `price`
 | `Upgrader` | placement (below) + `variant`, `multiplier` (> 1) | `INSTALLERS.Upgrader` |
 | `Belt` | `speedBonus` (> 0) | `INSTALLERS.Belt` |
 | `Power` | `factor` (> 1, **cumulative**), `variant`, and **no `slot`** — there is one generator stand and every rung upgrades the machine on it | `INSTALLERS.Power` |
-| `Structure` | `structure` ∈ `{ "walls", "gates", "windows", "roof" }` | `INSTALLERS.Structure` — a two-line dispatch; it emits what `Config.wallSegments` / `Config.wallBays` / `Config.roofUnderside` describe and decides no geometry of its own |
+| `Structure` | `structure` ∈ `{ "walls", "gates" }` | `INSTALLERS.Structure` — a two-line dispatch; it emits what `Config.wallSegments` describes and decides no geometry of its own |
 | `Gear` | `grants` → a `Config.Bats` id | `INSTALLERS.Gear` |
 | `Armor` | `grants` → a `Config.Armor` id | `INSTALLERS.Armor` |
 | `Land` | `side` ∈ `{ "left", "right" }`, `width` — one expansion strip of ground, outward from the centre | `INSTALLERS.Land` calls `ensureLand`, and the same reconciler runs on every `refreshButtons` beat |
@@ -546,7 +546,7 @@ Anything that changes cash outside `Economy.add` / `spend` / `steal` must call
 
 The ground reconciles from `owned` at the top of every `refreshButtons` call:
 slabs and edge strips per expansion, the wall ring re-emitted around whatever
-ground stands, the roof and its lights re-spanned. Purchase, release, rebirth
+ground stands. Purchase, release, rebirth
 and re-claim all reach that beat, which is why land has no service and no
 listener — the `FloorService` it replaced existed to catch exactly those four
 events. `rebuildWallRing` destroys the ring's courses and spares every
@@ -576,7 +576,7 @@ a Vault Timer upgrade, a grant arriving.
 | add a remote | `Net.NAMES` in `Net.lua` — declare it, do not create it on demand | a client resolving an undeclared remote sits in `WaitForChild` for 30s |
 | add an analytics event | `Config.Analytics`, then call `Analytics.emit` | `verify_config.lua`: three fields max, string values, `analyticsCombinations()` against the 8,000 cap; `analytics_spec.lua` |
 | graduate a prototype | **delete** the flag from `Config.Prototypes`, not set it `false` | `verify.py` pass 4: any `P.DeletedFlag` read left behind is a finding — a nil flag makes `if not P.X` fire forever, which is how `VaultService` shipped dead |
-| change the plot's shell — wall height, windows, an opening, a gate, the roof | `Config.Structure` and nothing else. `INSTALLERS.Structure` emits `Config.wallSegments`/`wallBays` verbatim, `Config.roofUnderside` is the one structural line both the walls and the roof derive from, and an opening's `face` (`"inboard"`/`"outboard"`) is which side its leaves hang and slide on — the yard door is `outboard` because the inside of the back wall is the dropper row | `verify_config.lua`'s shell family + `structure_spec.lua`: each wall tiles its extent with no gap or overlap, every opening lies inside the wall it cuts with a lintel above, a gate leaf has a solid run to slide along, glass stays at or above PopperCam's 0.25, and `shellPartCount` stays inside `Structure.PartBudget` |
+| change the plot's shell — wall height, its courses, an opening, a gate | `Config.Structure` and nothing else. `INSTALLERS.Structure` emits `Config.wallSegments` verbatim, `Config.Structure.WallHeight` is the one structural line, and an opening's `face` (`"inboard"`/`"outboard"`) is which side its leaves hang and slide on — the yard door is `outboard` because the inside of the back wall is the dropper row | `verify_config.lua`'s shell family + `structure_spec.lua`: each wall tiles its extent with no gap or overlap, every opening lies inside the wall it cuts with a lintel above, a gate leaf has a solid run to slide along, and `shellPartCount` stays inside `Structure.PartBudget` |
 | rename or move a `Config` key | `Config.lua`, then every reader | `verify.py` pass 5: a `Config.<path>` read that no longer resolves is a finding, aliases followed |
 | retune a number, anywhere | `Config.lua` — never a file-local constant | nothing else can see it; see §4.1 |
 

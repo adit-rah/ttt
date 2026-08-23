@@ -221,7 +221,7 @@ end)
 
 -- ── the shared budget ───────────────────────────────────────────────────────
 
-T.spec("the schema spends 3,120 of the experience's 8,000 combinations", function(t)
+T.spec("the schema spends 3,060 of the experience's 8,000 combinations", function(t)
 	local w = T.world()
 	local AN = w.config.Analytics
 
@@ -249,11 +249,10 @@ T.spec("the schema spends 3,120 of the experience's 8,000 combinations", functio
 	-- anyone editing Analytics.Fields — the derivation working, and exactly
 	-- why it is pinned here.
 	--
-	-- 3,120 NOW (#109): each strip's dropper and refiner joined the chain, so
-	-- `milestone` — every button on every track, plus "none" — went from 45
-	-- to 65. Six hundred combinations out of the shared 8,000, spent on the
-	-- content that stretches the build toward a week.
-	t:eq(total, 3120,
+	-- 3,120 with #109's strips, and 3,060 NOW (#162): the shell's `windows`
+	-- and `roof` rows left the game, so `milestone` — every button on every
+	-- track, plus "none" — went from 65 to 63.
+	t:eq(total, 3060,
 		"the combination cost moved; it is a shared experience-wide budget, so this is a decision and not an implementation detail")
 
 	-- THE LIMIT THAT WILL BITE FIRST, and it is not the 8,000. `milestone` is
