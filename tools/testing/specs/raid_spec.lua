@@ -128,6 +128,34 @@ T.spec("death returns each share to its source, and a player kill lifts from the
 		"the kill-steal came from somewhere other than the dead player's bank")
 end)
 
+T.spec("the thieves ledger names every carrier of your Tung, and empties with the chase", function(t)
+	-- #138: the compass mark and the victim pushes both stand on this ledger.
+	local w = T.world()
+	local Raid = w.req("RaidService")
+	local Data = w.req("DataService")
+
+	local victim = w.join("victim")
+	local vp = Data.load(victim)
+	vp.cash = 1000
+	local thief = w.join("thief")
+	Data.load(thief)
+
+	t:eq(#Raid.thievesOf(victim), 0, "an unrobbed victim has thieves")
+	Raid.onStorageBroken({ owner = victim }, thief, 0)
+	local thieves = Raid.thievesOf(victim)
+	t:eq(#thieves, 1, "the break did not register a thief")
+	t:eq(thieves[1], thief, "the wrong player is named as the thief")
+
+	Raid.bankCarry(thief)
+	t:eq(#Raid.thievesOf(victim), 0,
+		"a banked carry still names a thief — the chase mark would point at nothing worth chasing")
+
+	vp.cash = 1000
+	Raid.onStorageBroken({ owner = victim }, thief, 2000)
+	Raid.onPlayerDied(thief, nil, 2005)
+	t:eq(#Raid.thievesOf(victim), 0, "a dead thief still names the chase")
+end)
+
 T.spec("no owner, or the owner swinging, is refused without advancing the camping ledger", function(t)
 	local w = T.world()
 	local Raid = w.req("RaidService")

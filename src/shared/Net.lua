@@ -79,6 +79,10 @@ Net.NAMES = {
 	-- so a stale hand-written list is structurally impossible.
 	"RebirthReport", -- S->C { rebirths, multiplier, rank, rankChanged, keeps, motto }
 
+	-- The chase (#138): each robbed victim is told who is carrying their
+	-- Tung, and told again when the chase ends. The compass draws it.
+	"ThiefMark",     -- S->C { thiefUserId, gone? }
+
 	-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 	-- demand so a client that connects with a flag off still resolves them and
 	-- never sits in WaitForChild for 30 seconds.
