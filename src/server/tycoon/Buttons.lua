@@ -22,10 +22,9 @@
 	Studio-only assertion in buildButtons is the half of that no config check can
 	reach: whether the pad that got built is where buttonPosition said.
 
-	A gated track is HIDDEN, not previewed, and takes no ghost — nine dimmed pads
-	with ghost bats on them is the same wall of labels with the brightness turned
-	down, and the point of gating the cabinets is that half the plot is bare
-	ground until it is earned.
+	A gated track is HIDDEN, not previewed, and takes no ghost — nine dimmed
+	pads with ghost machines on them is the same wall of labels with the
+	brightness turned down.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
@@ -57,15 +56,10 @@ function Tycoon:buttonPosition(def): Vector3
 		return self:pointOnLeg(legIndex, distance, -L.ButtonOffset, pathIndex)
 	end
 	-- Dispatched on what KIND of furniture the track has, not on "is it the
-	-- factory". The old test sent everything non-factory to a cabinet column,
-	-- which is the right answer for a display case standing on the plot floor
-	-- and the wrong one for a row of generators on a slab behind it — and
-	-- Layout.Tracks has no `power` entry, so it would have indexed nil and
-	-- taken the whole plot's construction down with it.
+	-- factory". Shop tracks (#108) never reach here: buildButtons skips them,
+	-- so a shop row has no pedestal and no position to answer.
 	local furniture = def.track and Config.TrackInfo[def.track].furniture
-	if furniture == "cabinet" then
-		return Config.trackButtonPosition(def.track, def.trackOrder)
-	elseif furniture == "yard" then
+	if furniture == "yard" then
 		return Config.yardButtonPosition()
 	elseif furniture == "land" then
 		-- One pedestal per side, on the centre pad. Every rung of a side
@@ -84,7 +78,7 @@ end
 --- second storey.
 ---
 --- All the sources of a button position can answer with a height.
---- Config.trackButtonPosition and Config.landButtonPosition answer at ground
+--- Config.landButtonPosition answers at ground
 --- level; Layout.MiscButtons is all ground level; and belt buttons come
 --- through pointOnLeg, which bakes in `path.y`.
 ---
@@ -97,6 +91,10 @@ end
 
 function Tycoon:buildButtons()
 	for _, def in ipairs(Config.Buttons) do
+		-- #108: shop rows sell off the plot; no pedestal, no ghost, no entry
+		if def.track and Config.TrackInfo[def.track].furniture == "shop" then
+			continue
+		end
 		local base = self:buttonBaseCF(def)
 
 		local holder = Instance.new("Model")
@@ -456,16 +454,10 @@ function Tycoon:refreshButtons()
 	end
 
 	self:pointAt(target)
-	-- Here rather than as a second ownedChanged listener: refreshButtons
-	-- already runs on install, assign, release and rebirth — every event that
-	-- can open or close a track — and updateCabinetSigns has always lived on
-	-- the end of it. ensureCabinets is idempotent, so the periodic refresh
-	-- costs a FindFirstChild per track.
-	self:ensureCabinets()
-	self:updateCabinetSigns()
-	-- The yard and its generator are refreshed on the same beat and for the
-	-- same reason: this is the one place that runs on install, assign, release
-	-- and rebirth, and both of them have to survive all four.
+	-- The yard and its generator are refreshed on this beat because it is the
+	-- one place that runs on install, assign, release and rebirth, and both
+	-- of them have to survive all four. The cabinets used to hang here too;
+	-- they left with #108.
 	self:ensureYard()
 	self:refreshGenerator()
 end

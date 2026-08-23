@@ -30,7 +30,6 @@ local Config = Req("Config")
 local Style = Req("Style")
 local Util = Req("Util")
 local Fx = Req("Fx")
-local TungModels = Req("TungModels")
 local CombatService = Req("CombatService")
 local Tycoon = Req("Class")
 local Parts = Req("Parts")
@@ -309,49 +308,14 @@ Tycoon.INSTALLERS.Power = function(self, def, silent)
 	self:refreshGenerator()
 end
 
---- A bought tier's display, standing on its own shelf of the track's cabinet.
----
---- Parented into self.props, NOT self.machines: rebirth clears machines, and a
---- weapon you keep across a rebirth must not lose its shelf.
-function Tycoon:buildShelfDisplay(def, variant: string, label: string)
-	local model = Instance.new("Model")
-	model.Name = "Shelf_" .. def.id
-	model.Parent = self.props
 
-	local spot = Config.trackShelfPosition(def.track, def.trackOrder)
-	local shelfCF = self:at(spot.X, spot.Y, spot.Z)
-	newPart(model, "Shelf", Vector3.new(5, 0.6, 8), shelfCF, COLORS.metal, Enum.Material.Metal)
-
-	-- 0.85 rather than the 1.1 the old free-standing anvil used: the display
-	-- now stands INSIDE a 13-stud case, and the tallest variants scale up by a
-	-- further 1.5 on top of whatever is asked for here.
-	local display = TungModels.buildStatue(variant, 0.85)
-	display:PivotTo(shelfCF * CFrame.new(0, 3.2, 0))
-	display.Parent = model
-
-	local plate = newPart(model, "Plate", Vector3.new(0.4, 1.6, 7),
-		shelfCF * CFrame.new(-2.2, 1, 0), COLORS.metal, Enum.Material.Metal, false)
-	local billboard = Style.billboard(plate, {
-		name = "Plate", width = 7, height = 1.4, distance = "machine", offset = 1.6,
-	})
-	Style.text(billboard, { weight = "body", text = label, color = COLORS.gold })
-
-	return model
-end
-
+-- #108: gear and armour sell from the SHOP and build nothing on the plot.
+-- The installers survive as the replay path — assign() re-walks `owned` and
+-- these re-grant, which is idempotent because both grants are monotonic.
 Tycoon.INSTALLERS.Gear = function(self, def, silent)
 	local owner = self.owner
 	if owner then
 		CombatService.grantBat(owner, def.grants)
-	end
-
-	local batDef = Config.BatById[def.grants]
-	local model = self:buildShelfDisplay(def, batDef and batDef.variant or "classic",
-		batDef and batDef.name or def.name)
-
-	local entry = self.objects[def.id]
-	if entry then
-		entry.machine = model
 	end
 end
 
@@ -359,15 +323,6 @@ Tycoon.INSTALLERS.Armor = function(self, def, silent)
 	local owner = self.owner
 	if owner then
 		CombatService.grantArmor(owner, def.grants)
-	end
-
-	local tierDef = Config.ArmorById[def.grants]
-	local model = self:buildShelfDisplay(def, tierDef and tierDef.variant or "classic",
-		tierDef and tierDef.name or def.name)
-
-	local entry = self.objects[def.id]
-	if entry then
-		entry.machine = model
 	end
 end
 

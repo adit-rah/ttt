@@ -21,6 +21,7 @@ local PartyService = Req("PartyService")
 local RecallService = Req("RecallService")
 local TowerService = Req("TowerService")
 local DisclosureService = Req("DisclosureService")
+local ShopService = Req("ShopService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -116,6 +117,9 @@ TowerService.start()
 -- Disclosure (#96): the beat that grows each player's interface, and the
 -- gate NPCService reads before a plot's first siege.
 DisclosureService.start()
+-- The shop (#108): after PlotService, whose plotOf keeps the owned mirrors
+-- in step.
+ShopService.start()
 SocialService.start()
 
 -- 6. players

@@ -66,6 +66,11 @@ Net.NAMES = {
 	-- unlocked set; the client only renders it.
 	"Disclosure",    -- S->C { ids = { id, ... } }
 
+	-- The shop (#108). C->S { action = "buy", id }; S->C { open = true } when
+	-- a world merchant is pressed. The catalog itself is Config, which the
+	-- client already holds, and ownership rides the Stats payload.
+	"Shop",          -- C->S buy; S->C open
+
 	-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 	-- demand so a client that connects with a flag off still resolves them and
 	-- never sits in WaitForChild for 30 seconds.

@@ -88,13 +88,7 @@ function Tycoon:release()
 		end
 	end
 	self.machines:ClearAllChildren()
-	-- Cabinet bodies USED to be permanent plot furniture and only the shelves
-	-- came down. They are earned now, so they go with everything else: a fresh
-	-- plot has to read as bare ground on the right-hand side, which is the
-	-- entire point of gating them. assign() rebuilds whatever the next owner
-	-- has earned, and ensureCabinets is idempotent.
 	self.props:ClearAllChildren()
-	self.cabinetSigns = {}
 	self:clearDrops()
 	self:setFactoryVisible(false)
 

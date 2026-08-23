@@ -161,13 +161,13 @@ third value neither round had guessed.
 | Want to… | Change | What catches a mistake |
 | --- | --- | --- |
 | decide something about the game rather than the code | a sub-issue of [#72](https://github.com/adit-rah/ttt/issues/72), then its `docs/design/` mirror and a row in `DECISIONS.md` — **never a comment** | the design-reference lint refuses a `design:D-NN` with no row behind it; nothing catches intent written into a comment except a reader |
-| add a dropper / upgrader / bat tier | a row in the relevant `Config.*Buttons` table | duplicate ids, dangling `requires`, slot collisions, upstream upgraders |
+| add a dropper / upgrader / bat tier | a row in the relevant `Config.*Buttons` table — bats and armour sell from the SHOP (#108), so their rows need no pedestal slot | duplicate ids, dangling `requires`, upstream upgraders, the shop chain climbing its tiers |
 | retune the curve | `price` values | the economy simulation: build length band, per-purchase waits, the floor's position |
 | move the belt | `Config.Layout.BeltStart/BeltCorner/BeltEnd` | `inPlot`, machine spacing, trigger dwell, drop budget |
 | change the plot's walls or roof | `Config.Structure` (`WallHeight`, `Openings`, `Window`), `GateCentre/GateWidth`; the builder is `buildWallRing` in `src/server/tycoon/Installers.lua`; the PURCHASES are `Config.StructureButtons` | the doorway span, the gateway vs the belt, openings staying on the centre span, the part budget at every land state |
 | retune how walls and gates break | `Config.Structure.Health` | monotone health in level, wall out-lasts gate, no one-swing gate, a maxed gate breaks inside 90 s, repair inside the raid warning |
 | buy the plot more ground | a row pair in `Config.LandLButtons`/`LandRButtons` — widths mirror, prices interleave | the land family: shrinking widths, the 2.5× sum, the pricing margins, the simulated buy order alternating, and the per-state shell checks |
-| change what the room is lit by | `Config.Structure.Lights` | fixtures inside the ring, above the machines and the cabinet signs, `Range` under Roblox's silent 60 clamp, and a sampled coverage check per land state |
+| change what the room is lit by | `Config.Structure.Lights` | fixtures inside the ring, above the machines, `Range` under Roblox's silent 60 clamp, and a sampled coverage check per land state |
 | change the belt's guard rails | `Config.Layout.BeltGuard` | a leg's rail may not overlap another leg's running surface — set `corner` to 0 and watch the deleted rails' bug come back |
 | add a UI panel | build into `HUD.root()` — or `HUD.column()` if it belongs in the left stack — via `UiKit.dock`; geometry in `Config.UI` | one-ScreenGui, card-scale literals, the column fits at `MinScale` |
 | put anything near a screen edge | a `UiKit.dock` corner; `Config.UI.TouchReserve` if it is near the bottom | the reserve assertions — both bottom corners are the engine's thumbstick and jump button |
@@ -184,7 +184,7 @@ third value neither round had guessed.
 | reorder the factory ladder | move the ROW in `Config.FactoryButtons`; never add a `requires` | the chain-equals-table-order assertion, plus the economy simulation. The 60-minute credit cap binds before `MAX_TOTAL_MINUTES` does |
 | reorder the plot shell | move the ROW in `Config.StructureButtons` — a PARALLEL track gated on `dropper1`, not part of the factory chain | the same chain assertion, plus `roof` needs `walls` and `gates`/`windows` need `walls` |
 | gate one purchase on another ladder | `Config.ButtonUnlock` — never a cross-track `requires`, which the loader overwrites and the verifier refuses | the reachability fixpoint (it catches gate cycles the `requires` walk cannot), the gate's price order, and the roof-names-a-roof structural check |
-| add a track | a row in **each** of `TrackOrder`, `Tracks` and `TrackInfo` | `TRACK_FIELDS` completeness, `keepOnRebirth == (furniture == "cabinet")`, and `paced` — which the spine simulation and `spinePricesDescending` both read, so a track is walked or priced as a detour by that field alone. `TrackOrder` POSITION sets `TrackRank`, which is what the beacon and the HUD card rank by; nothing can assert that a beacon points somewhere useful |
+| add a track | a row in **each** of `TrackOrder`, `Tracks` and `TrackInfo` | `TRACK_FIELDS` completeness, `keepOnRebirth == (furniture == "shop" or furniture == "land")`, and `paced` — which the spine simulation and `spinePricesDescending` both read, so a track is walked or priced as a detour by that field alone. `TrackOrder` POSITION sets `TrackRank`, which is what the beacon and the HUD card rank by; nothing can assert that a beacon points somewhere useful |
 
 ---
 

@@ -466,21 +466,15 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **The generator is derived from `owned`, not built by the installer, and must not be
   written to `self.objects[id].machine`** — four button entries would share one model handle
   and `release()` destroys through one of them. `[nothing]`
-- **Nothing goes in `self.cabinetSigns` that is not a cabinet.** `updateCabinetSigns`
-  rewrites every entry with `"%s CABINET • %d/%d"`, which is why the yard's sign read
-  "POWER CABINET • 0/4". `[nothing]`
 
 ### Walls, pads and floor furniture
 
 - **Everything placed by absolute plot-local coordinate is checked inside the plot**, buy
-  buttons and empty side-track slots included — the empty slots are where the next tier
-  lands, and finding out then is finding out too late. `[assert]`
+  buttons included. `[assert]`
 - **Floor furniture is checked against every other piece, against the rebirth/claim/spawn
-  pads, and against both belt buy-button rows** — from both sources (the hand-placed
-  `Layout.MiscButtons` column and the derived side-track columns) in one list, so a cabinet
-  pedestal colliding with a misc pedestal is caught. Overlapping pedestals shipped once and
-  stayed invisible only because the unlock chain hid one before the other appeared.
-  `[assert]`
+  pads, and against both belt buy-button rows** in one list. Overlapping pedestals shipped
+  once and stayed invisible only because the unlock chain hid one before the other
+  appeared. The side-track columns left the list with the cabinets (#108). `[assert]`
 - **The front gateway opens onto the aisle the owner spawns on**, is at least 12 studs wide,
   and stays clear of the belt/vault side of the plot. `[assert]`
 - **Non-square pads need both halves.** The pad's edge strips were positioned at
@@ -859,6 +853,24 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   that never arrives, also asserted. `[assert]`, each falsified.
 - **The help card lists only what is unlocked**, so it structurally cannot become a
   manual; help lines are capped at 160 chars. `[assert]`
+
+### The shop (#108)
+
+- **The catalog is the same `Config.Buttons` rows.** Same ids, same prices, same chains —
+  the tuned week walk spends through them UNCHANGED, which is what let the storefront move
+  without touching the curve. A shop track is `furniture = "shop"`, keeps
+  `keepOnRebirth = true`, builds no pedestal and no ghost, and never takes the beacon.
+  `[assert]` the restated `keepOnRebirth == (furniture == "shop" or "land")` equivalence.
+- **Every refusal is server-side and in order**: shop wares only, the disclosure gate, the
+  plot milestone (`trackUnlocked`, dropper3), the chain, the price. `[spec]`
+  `shop_spec.lua`, the disclosure and chain guards falsified.
+- **A sale lands as the same monotonic grant a cabinet install did** — `profile.owned[id]`
+  plus `grantBat`/`grantArmor` — and the plot's `owned` mirror is kept in step so the
+  frontier arithmetic and the rejoin replay agree. The shop chain is asserted to CLIMB the
+  tier it grants. `[assert]` + `[spec]`.
+- **The measured-effect line survives the move**: every shop row prints what the pads
+  printed ("34 dmg • 14% crit", the armour's health). `[nothing]` — it is presentation;
+  the Studio list owns reading it.
 
 ## 6. Procedural animation
 

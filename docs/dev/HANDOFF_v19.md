@@ -1,7 +1,7 @@
-# HANDOFF v19 — the game reveals itself
+# HANDOFF v19 — the game reveals itself, and the shop
 
-Wave 5 opens with #96: progressive disclosure. This handoff grows with the
-wave's remaining rounds.
+Wave 5: #96 (progressive disclosure) and #108 (the shop replacing the
+cabinets). This handoff grows with the wave's remaining rounds.
 
 ## 1. What moved
 
@@ -21,6 +21,15 @@ wave's remaining rounds.
 - The help card: a "?" on the rail opens an overlay listing ONLY unlocked
   surfaces, so it structurally cannot become a manual.
 
+- **The shop (#108)**: the cabinets, their signs, their shelves, their
+  pedestal columns and their entire verifier geometry family are GONE; the
+  right-hand plot floor is bare ground again. The catalog is the same
+  Config.Buttons rows (the tuned week walk spends through them unchanged);
+  ShopService validates disclosure → milestone → chain → price and lands the
+  same monotonic grants; ShopUI is an overlay card with the pads' measured
+  effect lines, opened from the SHOP rail item or the golden merchant by the
+  spawn. The NEXT UPGRADE card says "in the SHOP" for shop rows.
+
 ## 2. What only Studio can tell you
 
 1. **The first sixty seconds, watched.** Fresh save: the screen should be the
@@ -36,3 +45,16 @@ wave's remaining rounds.
    with unlocks — check it at MinScale with everything unlocked.
 5. **The undisclosed party invite.** Have a veteran invite a fresh player:
    the card must appear for the invite alone and stay after an accept.
+6. **The reclaimed floor.** The right-hand run the cabinets held is empty
+   now; walk a maxed plot and check nothing else assumed the cases (lights,
+   wall clearances all pass the verifier, but the LOOK of the bare run is a
+   read).
+7. **The merchant.** A golden Tung near the spawn pad with a Browse prompt;
+   check the prompt fires the shop open on a client and that the statue does
+   not collide with the spawn walk.
+8. **The shop card on a phone.** Ten rows plus headers at MinScale; the
+   AFTER-x button states; a buy landing as a notify + the row flipping to
+   OWNED on the next Stats push.
+9. **The bat in hand after a shop buy.** grantBat now returns early with no
+   Backpack (the headless guard); confirm a live buy still re-equips
+   immediately, not on next spawn.

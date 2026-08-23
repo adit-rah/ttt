@@ -134,7 +134,15 @@ function CombatService.equipCurrentBat(player: Player)
 	local tier = math.clamp(profile.batTier or 1, 1, #Config.Bats)
 	local def = Config.Bats[tier]
 
-	removeBats(player:FindFirstChildOfClass("Backpack"))
+	-- No Backpack, no tool: the spec harness's players carry none (#108's
+	-- shop grants run headless), and a bat with nowhere to go is a bat the
+	-- next spawn equips anyway.
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if not backpack then
+		return
+	end
+
+	removeBats(backpack)
 	removeBats(player.Character)
 
 	local tool = TungModels.buildBatTool(def)
