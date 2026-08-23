@@ -379,25 +379,46 @@ T.spec("shellPartCount is three courses a run, and is stable", function(t)
 	local function model()
 		-- The buttress and torch counts are re-derived from the pitch
 		-- arithmetic rather than read from the position functions, so this
-		-- stays a second opinion: a postsAlong that dropped a run or doubled
-		-- one would agree with itself and disagree here.
+		-- stays a second opinion: a placement that dropped a run or doubled
+		-- a corner would agree with itself and disagree here. Buttresses are
+		-- corner-anchored per WALL (#162 tophat): count+1 posts across the
+		-- extent, minus any whose footprint lands in an opening plus jamb.
 		local B, T = Config.Structure.Buttress, Config.Structure.Torch
-		local function postCount(run, spacing, clearance)
-			local usable = run - 2 * clearance
+		local function torchCount(run)
+			local usable = run - 2 * (T.clearance + T.bracket[1] / 2)
 			if usable < 0 then
 				return 0
 			end
-			return math.floor(usable / spacing) + 1
+			return math.floor(usable / T.spacing) + 1
+		end
+		local function buttressCount(side)
+			local extent = select(2, Config.wallSegments(side))
+			local length = extent.to - extent.from
+			local count = math.max(1, math.floor(length / B.spacing + 0.5))
+			local pitch = length / count
+			local posts = 0
+			for index = 0, count do
+				local post = extent.from + index * pitch
+				local blocked = false
+				for _, opening in ipairs(Config.openingsIn(side)) do
+					local from = opening.centre - opening.width / 2 - B.clearance - B.width / 2
+					local to = opening.centre + opening.width / 2 + B.clearance + B.width / 2
+					if post > from and post < to then
+						blocked = true
+					end
+				end
+				posts += blocked and 0 or 1
+			end
+			return posts
 		end
 		local total, runs, cuts = 0, 0, 0
 		for _, side in ipairs(Config.Structure.Sides) do
 			total += 1   -- this wall's trim cap
+			total += buttressCount(side)
 			for _, segment in ipairs(Config.wallSegments(side)) do
 				if segment.kind == "solid" then
-					local run = segment.to - segment.from
 					total += 3   -- sill + body + head
-					total += postCount(run, B.spacing, B.clearance + B.width / 2)
-					total += 2 * postCount(run, T.spacing, T.clearance + T.bracket[1] / 2)
+					total += 2 * torchCount(segment.to - segment.from)
 					runs += 1
 				else
 					total += 1 + segment.opening.leaves   -- lintel + leaves
@@ -441,15 +462,26 @@ T.spec("shellPartCount answers to inputs the shipped config never has", function
 		local usable = run - 2 * clearance
 		return usable >= 0 and math.floor(usable / spacing) + 1 or 0
 	end
-	local function dressing(run)
-		return postCount(run, B.spacing, B.clearance + B.width / 2)
-			+ 2 * postCount(run, T.spacing, T.clearance + T.bracket[1] / 2)
+	local function torches(run)
+		return 2 * postCount(run, T.spacing, T.clearance + T.bracket[1] / 2)
 	end
+	-- The torches re-derive per run; the buttresses are corner-anchored per
+	-- WALL, so the door costs any post whose footprint its span (plus jamb)
+	-- swallows — on the shipped pitch, the one at the wall's centre.
 	local extent = Config.wallExtent("left")
-	local dressingDelta = dressing(-7 - extent.from) + dressing(extent.to - 7)
-		- dressing(extent.to - extent.from)
+	local length = extent.to - extent.from
+	local count = math.max(1, math.floor(length / B.spacing + 0.5))
+	local swallowed = 0
+	for index = 0, count do
+		local post = extent.from + index * (length / count)
+		if post > -7 - B.clearance - B.width / 2 and post < 7 + B.clearance + B.width / 2 then
+			swallowed += 1
+		end
+	end
+	local dressingDelta = torches(-7 - extent.from) + torches(extent.to - 7)
+		- torches(length) - swallowed
 	t:eq(withDoor, base + 5 + dressingDelta,
-		"a third opening's cost is one extra run of courses, a lintel, its leaf, and the runs' re-derived dressing")
+		"a third opening's cost is one extra run of courses, a lintel, its leaf, and the re-derived dressing")
 
 	-- ...and the count moves with the LAND, because the front and back walls
 	-- split their runs at every owned boundary.

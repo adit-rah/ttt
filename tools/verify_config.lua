@@ -3207,18 +3207,27 @@ check(SH.Course.sill + SH.Course.body + 2 <= SH.WallHeight,
 
 -- 6b. THE CASTLE DRESSING: buttress posts and torches (#162).
 --
--- Both are placed by postsAlong's arithmetic in Config, and both have the
--- same two ways to be wrong that a hand-placed list would: a post standing
--- in an opening (a buttress inside the gateway is a bollard the gate closes
--- onto) and a post off the end of its wall. So every post is asserted to
--- stand INSIDE a solid run with its clearance intact, per side, counted.
+-- The buttresses are CORNER-ANCHORED: a post at each end of every wall's
+-- extent, the span between divided at the pitch nearest `spacing`, posts in
+-- an opening dropped. The torches are placed per solid run by postsAlong.
+-- Both have the same two ways to be wrong that a hand-placed list would: a
+-- post standing in an opening (a buttress inside the gateway is a bollard
+-- the gate closes onto) and a post off the end of its wall — asserted per
+-- side, counted, and the buttresses additionally have their corner anchors
+-- asserted, because "starts at the corners" is the placement's whole look.
 do
 	local B, T = SH.Buttress, SH.Torch
 	check(B.spacing > 0 and B.width > 0 and B.proud > 0,
 		"a buttress needs a positive pitch, width and proudness, or the posts are nothing")
-	check(B.height > 0 and B.height <= SH.WallHeight,
-		("the buttress posts are %.1f tall on a %.1f wall — a post over the top reads as a tower nobody built")
+	-- OVER the wall, and only slightly: the posts breaking the parapet line
+	-- is the castle read, and `overshoot` is what keeps a retune from turning
+	-- the ring into a fence of towers.
+	check(B.height > SH.WallHeight,
+		("the buttress posts are %.1f tall on a %.1f wall — a post under the parapet reads as panelling, and the silhouette is the point")
 			:format(B.height, SH.WallHeight))
+	check(B.height <= SH.WallHeight + B.overshoot,
+		("the buttress posts are %.1f tall against a %.1f wall + %.1f overshoot — past that they are towers nobody built")
+			:format(B.height, SH.WallHeight, B.overshoot))
 	check(B.spacing > B.width,
 		("buttress pitch %.1f against width %.1f — posts closer than their own width are a second wall"):format(B.spacing, B.width))
 
@@ -3258,12 +3267,50 @@ do
 			end
 		end
 	end
-	postsStandInSolidWall("buttress", function(side)
-		return Config.buttressPositions(side)
-	end, B.width / 2, B.clearance)
 	postsStandInSolidWall("torch", function(side)
 		return Config.torchPositions(side)
 	end, T.bracket[1] / 2, T.clearance)
+
+	-- The buttresses' own contract: anchored on the wall's ends, inside the
+	-- extent, and never in an opening's span (jamb included). The corner
+	-- anchors are asserted by value — drop the end posts and this is what
+	-- names the wall.
+	for _, side in ipairs(sides) do
+		local posts = Config.buttressPositions(side.id)
+		local extent = side.extent
+		check(#posts >= 2, ("the %s wall carries %d buttresses; corner-anchored placement means at least its two corners")
+			:format(side.id, #posts))
+		-- Each corner carries its anchor post — except a corner an opening
+		-- (plus jamb) swallows, which is the yard door's: it is cut flush to
+		-- the back wall's end, so that corner is doorway, not wall.
+		local function cornerOpen(at)
+			for _, opening in ipairs(Config.openingsIn(side.id)) do
+				if at > opening.centre - opening.width / 2 - B.clearance - B.width / 2
+						and at < opening.centre + opening.width / 2 + B.clearance + B.width / 2 then
+					return true
+				end
+			end
+			return false
+		end
+		check(cornerOpen(extent.from) or math.abs(posts[1] - extent.from) < EPS,
+			("the %s wall's buttresses start at %.1f against an extent from %.1f — the row no longer starts at the corner")
+				:format(side.id, posts[1] or 0, extent.from))
+		check(cornerOpen(extent.to) or math.abs(posts[#posts] - extent.to) < EPS,
+			("the %s wall's buttresses end at %.1f against an extent to %.1f — the row no longer ends at the corner")
+				:format(side.id, posts[#posts] or 0, extent.to))
+		for _, post in ipairs(posts) do
+			check(post >= extent.from - EPS and post <= extent.to + EPS,
+				("the %s wall's buttress at %.1f is off the wall"):format(side.id, post))
+			for _, opening in ipairs(Config.openingsIn(side.id)) do
+				local from = opening.centre - opening.width / 2
+				local to = opening.centre + opening.width / 2
+				check(post + B.width / 2 <= from - B.clearance + EPS
+						or post - B.width / 2 >= to + B.clearance - EPS,
+					("the %s wall's buttress at %.1f stands in the %s opening — a bollard the gate closes onto")
+						:format(side.id, post, tostring(opening.id)))
+			end
+		end
+	end
 end
 
 -- 7. GATE LEAVES FIT, AND FIT SOMEWHERE TO SLIDE.
