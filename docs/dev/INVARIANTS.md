@@ -231,11 +231,13 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **`Lighting.Technology` is not script-writable at runtime.** It is set in the Rojo project
   file and the runtime assignment is wrapped in `pcall` so a paste-in install does not die
   on boot. `[nothing]`
-- **THE PLOT IS OPEN-AIR AND THE WORLD LIGHTS IT** (#162). The roof, the ceiling batten
-  grid and `Fx.ceilingLight` are gone with the roof purchase; nothing on a plot emits real
-  light. `Material.Neon` — the trim — illuminates nothing. What this looks like at night is
-  a Studio question; interior fixtures return with #162's torches, and Roblox's silent
-  `Range` clamp at 60 returns to the verifier with them. `[nothing]`
+- **THE PLOT IS OPEN-AIR: the world lights it, and the torches warm it** (#162). The roof,
+  the ceiling batten grid and `Fx.ceilingLight` are gone with the roof purchase; the plot's
+  own light is the wall torches — a shadowless `PointLight` per flame (`Fx.torchLight`),
+  with `Range` held under Roblox's silent clamp at 60 and `brightness` positive. A torch
+  bracket hangs ABOVE the machine line, so the plan clearances between the wall and the
+  machine rows stay the machines' own. `[assert]` all three; how it reads at night is
+  Studio's. `[nothing]` for the look.
 
 ### The belt
 
@@ -393,10 +395,23 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   line and the buy-button label ceiling all derive from it; it keeps the shipped 20.4
   verbatim from the storey system it replaced (#88). `[assert]`, `[spec]`.
 - **A solid run is three courses — sill, body, head — and the split is siege machinery,
-  not decoration** (#162). The sill survives a break as the repair stump; `Body`, `Head`
-  and `Lintel` are the breakable prefixes. `Config.Structure.Course` holds the split
-  lines, and the head course keeps at least 2 studs. `[assert]` the course fit; `[spec]`
-  `structure_spec.lua` and `siege_spec.lua`'s name-to-key table.
+  not decoration** (#162). The sill survives a break as the repair stump; `Body`, `Head`,
+  `Lintel` and `Buttress` are the breakable prefixes. `Config.Structure.Course` holds the
+  split lines, and the head course keeps at least 2 studs. `[assert]` the course fit;
+  `[spec]` `structure_spec.lua` and `siege_spec.lua`'s name-to-key table.
+- **Every buttress post and torch bracket stands INSIDE a solid run, clearance intact**
+  (#162). Both are placed by `Config.buttressPositions`/`torchPositions` walking
+  `wallSegments` per solid run, which is what keeps a post out of the gateway — a
+  buttress in an opening is a bollard the gate closes onto. `[assert]` per side, per
+  post, counted; `[spec]` the part-count model re-derives the counts from the pitch
+  arithmetic as a second opinion.
+- **A torch rides its wall down.** Torches carry no siege key — dressing, never targets —
+  so `applySiegeState` has an explicit branch parsing a torch's side from its name and
+  destroying it when `wall_<side>` is broken; repair rebuilds the ring and the torches
+  with it. `[spec]` `siege_spec.lua`. The buttresses need no branch: `Buttress` is a
+  breakable prefix, so a swing on a post lands on its wall and a break fells it.
+- **The gate-trap inequality reads the ring's NEAREST point to the arena, which is a
+  buttress face** — `WallThickness / 2 + Buttress.proud` past the plot edge. `[assert]`
 - **A gate leaf hangs on the face `opening.face` names, and that is not cosmetic.** The yard
   door is flush to the end of the back wall, so its single leaf can only slide inward along
   x — and the inside of the back wall IS the dropper row. An inboard leaf swept 0.1 studs

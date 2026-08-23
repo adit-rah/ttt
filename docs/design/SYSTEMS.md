@@ -190,9 +190,10 @@ nothing because all four of its rungs resolve to one pad.
 **The shell is a building sold in instalments.** Walls arrive solid, closed
 and opaque for life, so "Plot Walls" actually keeps a raider out; the gates
 hang on the standing ring. The plot is open to the sky (#162): plots are one
-floor, the roof and its sign are gone, and the world lights the interior. The
-masonry tiers that restyle and toughen the standing wall — the castle look —
-arrive with #162's later PRs.
+floor, the roof and its sign are gone, the world lights the interior and the
+wall's own torches warm it. The ring wears the castle silhouette — a taller
+wall with buttress posts jutting off its outer face at a wide, even pitch.
+The masonry tiers that restyle and toughen it arrive with #162's last PR.
 
 **Growth is outward now** (#88): land is bought in alternating strips, the
 walls follow it, and the centre pad stays the anchor. What stands on new

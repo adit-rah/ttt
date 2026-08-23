@@ -96,7 +96,7 @@ that throws at load takes down whatever required it, which is how a deleted
 | Path | Responsibility | Required by | Must not |
 | --- | --- | --- | --- |
 | `Req.lua` | Module locator. Position-independent imports; caches; re-raises load failures. | *(the bootstrap line, not `Req()`)* | — |
-| `Config.lua` | **Every tunable number**, all geometry, all button/track/wave/analytics data, plus derived lookups (`ButtonById`, `Tracks`, `TrackRank`, `powerFactor`) and the shell's geometry functions (`storey`, `wallExtent`, `wallSegments`, `shellPartCount`). 3,700 lines. | 37 of 43 modules — everything except `Config` itself, `Util`, `Net`, `Req`, `Main.client` and `tycoon/Tycoon.lua` | require anything (it is the graph root); hold anything that is not data or a pure derivation — `tools/verify_config.lua` executes this file against stubs and nothing else |
+| `Config.lua` | **Every tunable number**, all geometry, all button/track/wave/analytics data, plus derived lookups (`ButtonById`, `Tracks`, `TrackRank`, `powerFactor`) and the shell's geometry functions (`storey`, `wallExtent`, `wallSegments`, `buttressPositions`, `torchPositions`, `shellPartCount`). 3,700 lines. | 37 of 43 modules — everything except `Config` itself, `Util`, `Net`, `Req`, `Main.client` and `tycoon/Tycoon.lua` | require anything (it is the graph root); hold anything that is not data or a pure derivation — `tools/verify_config.lua` executes this file against stubs and nothing else |
 | `Util.lua` | Number abbreviation, welding, `platformFrom`, misc helpers. No Roblox services. | 20 modules | — |
 | `Net.lua` | Declares `Net.NAMES` and hands out RemoteEvents; server creates them eagerly, client waits. | 13 modules | require anything (it is the other graph root) |
 | `Style.lua` | The only place `Config.Style` becomes instances. Every label in the world and on screen. | `Fx`, `HUD`, `MapBuilder`, `SessionUI`, `TungModels`, `Tycoon`, `UiKit`, `UpgradeUI` | — |
@@ -159,7 +159,7 @@ identical either side of the move.
 | `Props.lua` | Claim rig, rebirth pad, cabinets and their signs, the yard, `refreshGenerator`. | 346 | `Class`, `Parts` |
 | `Buttons.lua` | Button positions, `buildButtons`, ghosts, the two label voices, `refreshButtons`, `pointAt`. | 517 | `Class`, `Parts` |
 | `Purchase.lua` | `playerFromHit`, `tryPurchase`, `install`. | 119 | `Class` |
-| `Installers.lua` | `Tycoon.INSTALLERS` (all eight kinds), the dropper machine, the drop loop, shelf displays, and **the building shell**: `buildWallRing` (the ring's sill/body/head courses and trim), `gateLeafSpecs` (the leaf geometry `GateService` also reads), `hangGateLeaves`. | 790 | `Class`, `Parts` |
+| `Installers.lua` | `Tycoon.INSTALLERS` (all eight kinds), the dropper machine, the drop loop, shelf displays, and **the building shell**: `buildWallRing` (the ring's sill/body/head courses, trim, buttress posts and torches), `gateLeafSpecs` (the leaf geometry `GateService` also reads), `hangGateLeaves`. | 790 | `Class`, `Parts` |
 | `Drops.lua` | `spawnDrop`, `recycleDrop`, `clearDrops`, the visual budget and the per-variant pool. | 185 | `Class` |
 | `Income.lua` | `incomePerSecond`, `startIncomeLoop` (the payer), `effectLine`, `updateSign`. | 147 | `Class` |
 | `Storage.lua` | The storage unit's state machine: `damageStorage`, `repairStorage`, `storageIntact`, `storedOverflowFraction` (#98's seam), the repair prompt and the attribute mirror. | 131 | `Class` |
