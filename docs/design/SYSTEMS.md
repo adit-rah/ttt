@@ -193,7 +193,9 @@ hang on the standing ring. The plot is open to the sky (#162): plots are one
 floor, the roof and its sign are gone, the world lights the interior and the
 wall's own torches warm it. The ring wears the castle silhouette — a taller
 wall with buttress posts jutting off its outer face at a wide, even pitch.
-The masonry tiers that restyle and toughen it arrive with #162's last PR.
+The masonry sells in four tiers — cobble, stone, slate, stone brick — each a
+material change on the standing ring and a step of wall and gate health, so
+the castle look and the castle promise arrive together.
 
 **Growth is outward now** (#88): land is bought in alternating strips, the
 walls follow it, and the centre pad stays the anchor. What stands on new

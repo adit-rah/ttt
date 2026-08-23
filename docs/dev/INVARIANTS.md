@@ -375,9 +375,16 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - **Dents persist as FRACTIONS of full health,** in `profile.structure`, both
   `defaultProfile()` and the save payload — so the same dent survives the max moving when
   the plot buys land. `[spec]` the round trip, falsified by dropping the payload field.
-- **The health numbers are held to their states**: monotone in level, the wall out-lasting
-  its own gate, no bat one-shotting a level-1 gate, every bat breaking a maxed gate inside
-  90 seconds, the repair hold inside `Waves.WarningTime`. `[assert]`, each falsified.
+- **The health numbers are held to their states**, on two axes now (#162): monotone in
+  land level AND in masonry tier, the wall out-lasting its own gate over the whole
+  level x tier grid, no bat one-shotting a level-1 wooden gate, every bat breaking a
+  maxed stone gate inside 90 seconds (the check that bounds `GatePerTier` at ~96), the
+  repair hold inside `Waves.WarningTime`. The siren-vs-breach model stays tier 0: the
+  wooden gate is the fastest breach, so covering it covers every tier. `[assert]`, each
+  falsified.
+- **`siegeMaxHealth` reads BOTH axes** — `siegeLevel()` from the land and
+  `masonryTiers()` from the owned tiers — and dents persist as fractions, so a standing
+  dent scales onto the new max when either axis moves. `[spec]` `siege_spec.lua`.
 - **Mob siege is live** (#89): a plot wave's slotted raiders press the gate through
   `damageStructure` and the storage through `damageStorage`, at `MobDamageScale` (half a
   player's weight — the breach floors are asserted against it). The old entry here said
@@ -556,15 +563,23 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   the restating hid a fork that made the second storey a branch you could skip entirely. Now
   `[assert]` — the chain must be exactly the table order, checked as "requires equals the row
   above" because the loader has filled the field in by the time the verifier runs.
-- **THE SHELL IS TWO PURCHASES ON A TRACK OF ITS OWN, IN ONE ORDER.**
-  `walls` -> `gates`, gated as a whole on `dropper1` (#162 took `windows` and `roof` off
-  the ladder; old saves shed the ids through `DataService.reconcile`'s prune). The ordering
-  is derived from table order and nothing else stated it. The wall arrives SOLID and stays
-  opaque for life, because a purchase called "Plot Walls" that does not keep a raider out
-  is not walls. `[assert]` the order — gates hang on the ring, so they need `walls` — and
-  that every declared gate leaf is paid for by a `gates` button. The order check scans
-  `Config.Buttons` on the GLOBAL `order` key rather than one track's `trackOrder`, so it
-  survives the shell moving again.
+- **THE SHELL IS SIX PURCHASES ON A TRACK OF ITS OWN, IN ONE ORDER.**
+  `walls` -> `gates` -> the four masonry tiers, gated as a whole on `dropper1` (#162 took
+  `windows` and `roof` off the ladder; old saves shed the ids through
+  `DataService.reconcile`'s prune). The ordering is derived from table order and nothing
+  else stated it. The wall arrives SOLID and stays opaque for life, because a purchase
+  called "Plot Walls" that does not keep a raider out is not walls. `[assert]` the order —
+  gates hang on the ring, each tier needs the one below it — and that every declared gate
+  leaf is paid for by a `gates` button. The order check scans `Config.Buttons` on the
+  GLOBAL `order` key rather than one track's `trackOrder`, so it survives the shell moving
+  again.
+- **A masonry tier is a RESTYLE of the standing ring, and the part count must not move.**
+  `applyMasonry` walks the courses, lintels and buttresses setting Material/Color from
+  `Config.Structure.Tiers` — the glazing mechanism generalised — and the trim, torches
+  and gate leaves keep their timber. The Tiers list and the tier buttons must name the
+  same structures in purchase order, because `masonryTiers` counts the list against
+  `owned`. `[assert]` both directions and the order; `[spec]` the restyle adds no parts
+  and touches only the wall's own prefixes.
 - **The shell is PARALLEL to the factory, and that is the point of the track.** Its rows
   were rungs of the factory chain, which is a strict chain — purchases that drop, refine
   and multiply nothing sat on the one ladder the player measures themselves by.
