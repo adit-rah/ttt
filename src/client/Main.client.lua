@@ -13,6 +13,7 @@ local ShopUI = Req("ShopUI")
 local ObjectivesUI = Req("ObjectivesUI")
 local RebirthUI = Req("RebirthUI")
 local CompassUI = Req("CompassUI")
+local TowerUI = Req("TowerUI")
 local UpgradeUI = Req("UpgradeUI")
 local SessionUI = Req("SessionUI")
 
@@ -26,6 +27,7 @@ ShopUI.start()
 ObjectivesUI.start()
 RebirthUI.start()
 CompassUI.start()
+TowerUI.start()
 
 -- Prototype panels. Both return immediately unless their Config.Prototypes
 -- flag is on.

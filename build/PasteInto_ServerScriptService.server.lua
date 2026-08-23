@@ -2516,6 +2516,24 @@ __MODULES["Config"] = function()
 		return deck
 	end
 
+	-- design:D-04, via #146 — THE DAILY MODIFIER. One per day, dealt by the same
+	-- seed as the deck, so "today's tower" is a sentence: the deck plus its
+	-- twist. Scales are bounded by the verifier against the lines other systems
+	-- stand on — a SWIFT raider must still lose to a sprinting player.
+	Config.TowerModifiers = {
+		{ id = "steady", name = "STEADY", blurb = "No twist today." },
+		{ id = "swift", name = "SWIFT", blurb = "They move faster.", walkScale = 1.25 },
+		{ id = "tough", name = "TOUGH", blurb = "They take more knocking down.", healthScale = 1.4 },
+		{ id = "bountiful", name = "BOUNTIFUL", blurb = "Every floor pays a minute more.", bonusMinutes = 1 },
+	}
+
+	--- The day's modifier row, dealt beside the deck.
+	function Config.towerModifier(daySeed: number)
+		local state = daySeed * 22695477 + 1013904223
+		state = (state * 1103515245 + 12345) % 2147483648
+		return Config.TowerModifiers[(state % #Config.TowerModifiers) + 1]
+	end
+
 	--- Enemy level on one floor.
 	function Config.towerLevel(floor: number): number
 		return math.floor(Config.Tower.BaseLevel + Config.Tower.LevelPerFloor * floor)
@@ -4522,6 +4540,11 @@ __MODULES["Net"] = function()
 		-- The chase (#138): each robbed victim is told who is carrying their
 		-- Tung, and told again when the chase ends. The compass draws it.
 		"ThiefMark",     -- S->C { thiefUserId, gone? }
+
+		-- The tower banner (#145): the run's state, pushed to its members on
+		-- every floor event. secondsLeft rather than a deadline — the client's
+		-- clock is not the server's.
+		"TowerState",    -- S->C { floor, total, archetype, modifier, secondsLeft?, best, over? }
 
 		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 		-- demand so a client that connects with a flag off still resolves them and
@@ -10165,7 +10188,8 @@ __MODULES["NPCService"] = function()
 		end
 	end
 
-	--- Everything below the stat arithmetic, shared by all three populations.
+	--- mechanism: everything below the stat arithmetic, shared by all three
+	--- populations.
 	--- `opts`:
 	---   level      — feeds the growth curves; the central wave passes its number
 	---   boss       — central wave only
@@ -10179,11 +10203,14 @@ __MODULES["NPCService"] = function()
 	---   band       — band index, for the roamer census
 	---   despawnAt  — absolute; roamers pass math.huge
 	---   index/count — approach-ring slot spread (defaults spread randomly)
+	---   healthScale/walkScale — the tower's daily modifier (#146); bounded by
+	---                the verifier against the sprint line
 	local function mintNPC(opts)
 		local level = opts.level
 		local boss = opts.boss == true
 		local variantName = variantForWave(level, boss)
 		local health = WV.BaseHealth * (WV.HealthGrowth ^ (level - 1)) * (boss and WV.BossHealthMultiplier or 1)
+			* (opts.healthScale or 1)
 		if boss then
 			-- Scaled to the headcount the wave was MINTED with, never to the live
 			-- one. See beginWave: re-reading it here would move a bar twelve
@@ -10200,7 +10227,7 @@ __MODULES["NPCService"] = function()
 		local npc = TungModels.buildNPC(variantName, {
 			scale = boss and WV.BossBodyScale or (0.9 + math.random() * 0.35),
 			health = health,
-			walkSpeed = WV.WalkSpeed + (boss and -2 or math.random() * 4),
+			walkSpeed = (WV.WalkSpeed + (boss and -2 or math.random() * 4)) * (opts.walkScale or 1),
 			displayName = boss and ("SAHUR BOSS  •  wave " .. level) or "Tung Tung Tung Sahur",
 			boss = boss,
 		})
@@ -13704,6 +13731,7 @@ __MODULES["TowerService"] = function()
 	local Req = __Req
 	local Config = Req("Config")
 	local Util = Req("Util")
+	local Net = Req("Net")
 	local Economy = Req("Economy")
 	local DataService = Req("DataService")
 	local SessionService = Req("SessionService")
@@ -13736,12 +13764,13 @@ __MODULES["TowerService"] = function()
 	--- One member's pay for one cleared floor: minutes of their OWN income rate,
 	--- through the capped door like every other inflow. Progress persists as
 	--- today's best.
-	function TowerService.recordClear(player: Player, floor: number, now: number): number
+	function TowerService.recordClear(player: Player, floor: number, now: number, bonusMinutes: number?): number
 		local profile = DataService.get(player)
 		if not profile then
 			return 0
 		end
-		local reward = math.floor(T.FloorRewardMinutes * 60 * SessionService.incomePerSecondFor(profile))
+		local reward = math.floor((T.FloorRewardMinutes + (bonusMinutes or 0)) * 60
+			* SessionService.incomePerSecondFor(profile))
 		local gained = Economy.add(player, reward, false)
 		profile.tower = {
 			day = TowerService.today(now),
@@ -13756,6 +13785,7 @@ __MODULES["TowerService"] = function()
 	-- ─────────────────────────────────────────────────────────────────────────────
 
 	local runs: { any } = {}   -- slot index -> run or nil
+	local deckLabel = nil      -- the spire sign's rows; painted per day
 
 	local function platformOrigin(slot: number): Vector3
 		return Vector3.new((slot - 1) * T.PlatformSize * 3, T.PlatformY, 0)
@@ -13767,6 +13797,32 @@ __MODULES["TowerService"] = function()
 			return table.clone(party)
 		end
 		return { player }
+	end
+
+	--- The banner's packet (#145): pushed to every member on floor events.
+	--- secondsLeft rather than a deadline, because the client's clock is not
+	--- this server's.
+	local function pushRun(run, over: boolean?)
+		local now = os.clock()
+		local secondsLeft = nil
+		if run.surviveUntil then
+			secondsLeft = math.max(0, math.ceil(run.surviveUntil - now))
+		elseif run.floorDeadline and run.floorDeadline ~= math.huge then
+			secondsLeft = math.max(0, math.ceil(run.floorDeadline - now))
+		end
+		for _, member in ipairs(run.members) do
+			if member.Parent then
+				Net.event("TowerState"):FireClient(member, {
+					floor = run.floor,
+					total = T.Floors,
+					archetype = run.deck[run.floor],
+					modifier = run.modifier and run.modifier.name or nil,
+					secondsLeft = secondsLeft,
+					best = TowerService.bestFloor(member, os.time()),
+					over = over or nil,
+				})
+			end
+		end
 	end
 
 	local function notifyRun(run, payload)
@@ -13804,6 +13860,7 @@ __MODULES["TowerService"] = function()
 
 	local function endRun(run, cleared: boolean)
 		runs[run.slot] = nil
+		pushRun(run, true)
 		for npc, entry in pairs(NPCService.activeEntries()) do
 			if entry.tower == run then
 				local humanoid = npc:FindFirstChildOfClass("Humanoid")
@@ -13840,6 +13897,7 @@ __MODULES["TowerService"] = function()
 		if archetype == "survival" then
 			count = math.max(2, math.floor(count / 2))
 		end
+		local modifier = run.modifier or {}
 		for i = 1, count do
 			local angle = (i / count) * math.pi * 2
 			local radius = T.PlatformSize / 2 - 8
@@ -13854,6 +13912,8 @@ __MODULES["TowerService"] = function()
 				index = i,
 				count = count,
 				despawnAt = os.clock() + 600,
+				healthScale = modifier.healthScale,
+				walkScale = modifier.walkScale,
 			})
 			entry.tower = run
 		end
@@ -13865,6 +13925,7 @@ __MODULES["TowerService"] = function()
 			survival = ("floor %d — survive %ds"):format(run.floor, T.SurvivalSeconds),
 		})[archetype]
 		notifyRun(run, { kind = "wave", title = "THE TOWER", body = what })
+		pushRun(run)
 	end
 
 	local function stepRun(run)
@@ -13872,6 +13933,10 @@ __MODULES["TowerService"] = function()
 		if livingMembers(run) == 0 then
 			endRun(run, false)
 			return
+		end
+		-- the banner's countdown rides the step beat; only clocked floors repush
+		if run.surviveUntil or (run.floorDeadline and run.floorDeadline ~= math.huge) then
+			pushRun(run)
 		end
 		local archetype = run.deck[run.floor]
 		local clearedFloor = false
@@ -13895,11 +13960,12 @@ __MODULES["TowerService"] = function()
 					end
 				end
 			end
+			local bonus = (run.modifier and run.modifier.bonusMinutes) or 0
 			for _, member in ipairs(run.members) do
 				if member.Parent then
-					local gained = TowerService.recordClear(member, run.floor, os.time())
+					local gained = TowerService.recordClear(member, run.floor, os.time(), bonus)
 					Economy.notify(member, { kind = "claim", title = "Floor cleared",
-						body = ("+%s — your %d minutes of income."):format(Util.abbreviate(gained), T.FloorRewardMinutes) })
+						body = ("+%s — your %d minutes of income."):format(Util.abbreviate(gained), T.FloorRewardMinutes + bonus) })
 				end
 			end
 			if run.floor >= T.Floors then
@@ -13952,10 +14018,12 @@ __MODULES["TowerService"] = function()
 			end
 		end
 
+		local day = TowerService.today(os.time())
 		local run = {
 			slot = slot,
 			members = members,
-			deck = Config.towerFloors(TowerService.today(os.time())),
+			deck = Config.towerFloors(day),
+			modifier = Config.towerModifier(day),
 			floor = 1,
 			origin = platformOrigin(slot),
 		}
@@ -14002,12 +14070,41 @@ __MODULES["TowerService"] = function()
 		prompt.Parent = door
 		prompt.Triggered:Connect(beginRun)
 
+		-- #145: today's deck, previewed at the door — a party can talk about the
+		-- climb before taking it. Repainted when the day turns.
+		local Style = Req("Style")
+		local billboard = Style.billboard(door, {
+			name = "Deck", width = 24, height = 8, distance = "prop", offset = 8,
+		})
+		deckLabel = Style.text(billboard, {
+			name = "Rows", text = "",
+			color = Color3.fromRGB(235, 200, 255),
+		})
+
 		model.Parent = workspace
+	end
+
+	--- The sign's copy for one day: the deck in climb order, and the twist.
+	local function paintDeck()
+		if not deckLabel then
+			return
+		end
+		local day = TowerService.today(os.time())
+		local deck = Config.towerFloors(day)
+		local names = {}
+		for _, archetype in ipairs(deck) do
+			table.insert(names, archetype:upper():sub(1, 4))
+		end
+		local modifier = Config.towerModifier(day)
+		deckLabel.Text = ("THE TOWER  •  today: %s\n%s — %s\na new tower every day")
+			:format(table.concat(names, " "), modifier.name, modifier.blurb)
 	end
 
 	function TowerService.start()
 		NPCService = Req("NPCService")
 		buildEntrance()
+		paintDeck()
+		local paintedDay = TowerService.today(os.time())
 		task.spawn(function()
 			while true do
 				task.wait(1)
@@ -14016,6 +14113,11 @@ __MODULES["TowerService"] = function()
 					if not ok then
 						warn("[Tung] tower step error: " .. tostring(err))
 					end
+				end
+				local day = TowerService.today(os.time())
+				if day ~= paintedDay then
+					paintedDay = day
+					pcall(paintDeck)
 				end
 			end
 		end)

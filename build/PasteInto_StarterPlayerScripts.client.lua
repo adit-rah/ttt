@@ -2516,6 +2516,24 @@ __MODULES["Config"] = function()
 		return deck
 	end
 
+	-- design:D-04, via #146 — THE DAILY MODIFIER. One per day, dealt by the same
+	-- seed as the deck, so "today's tower" is a sentence: the deck plus its
+	-- twist. Scales are bounded by the verifier against the lines other systems
+	-- stand on — a SWIFT raider must still lose to a sprinting player.
+	Config.TowerModifiers = {
+		{ id = "steady", name = "STEADY", blurb = "No twist today." },
+		{ id = "swift", name = "SWIFT", blurb = "They move faster.", walkScale = 1.25 },
+		{ id = "tough", name = "TOUGH", blurb = "They take more knocking down.", healthScale = 1.4 },
+		{ id = "bountiful", name = "BOUNTIFUL", blurb = "Every floor pays a minute more.", bonusMinutes = 1 },
+	}
+
+	--- The day's modifier row, dealt beside the deck.
+	function Config.towerModifier(daySeed: number)
+		local state = daySeed * 22695477 + 1013904223
+		state = (state * 1103515245 + 12345) % 2147483648
+		return Config.TowerModifiers[(state % #Config.TowerModifiers) + 1]
+	end
+
 	--- Enemy level on one floor.
 	function Config.towerLevel(floor: number): number
 		return math.floor(Config.Tower.BaseLevel + Config.Tower.LevelPerFloor * floor)
@@ -4522,6 +4540,11 @@ __MODULES["Net"] = function()
 		-- The chase (#138): each robbed victim is told who is carrying their
 		-- Tung, and told again when the chase ends. The compass draws it.
 		"ThiefMark",     -- S->C { thiefUserId, gone? }
+
+		-- The tower banner (#145): the run's state, pushed to its members on
+		-- every floor event. secondsLeft rather than a deadline — the client's
+		-- clock is not the server's.
+		"TowerState",    -- S->C { floor, total, archetype, modifier, secondsLeft?, best, over? }
 
 		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 		-- demand so a client that connects with a flag off still resolves them and
@@ -9494,6 +9517,105 @@ __MODULES["ShopUI"] = function()
 end
 
 
+__MODULES["TowerUI"] = function()
+	--[[
+		TowerUI.lua — the climb's banner (#145).
+
+		A strip under the compass, alive only mid-run: floor and total, the
+		archetype's instruction, the day's modifier, a countdown for clocked
+		floors, and your best today. The server pushes whole state on TowerState
+		(secondsLeft, never a deadline — the clocks differ); this file renders,
+		counts the seconds down locally between pushes, and sends nothing.
+	]]
+
+	local Req = __Req
+	local Net = Req("Net")
+	local UiKit = Req("UiKit")
+	local HUD = Req("HUD")
+	local Style = Req("Style")
+
+	local TowerUI = {}
+
+	local WIDTH, HEIGHT = 300, 22
+
+	local strip, label
+	local state = nil          -- the last packet, or nil when no run
+	local countdownAt = 0      -- os.clock() when the packet landed
+
+	local WORDS = {
+		wave = "clear the pack",
+		boss = "the boss",
+		timed = "beat the clock",
+		survival = "stay alive",
+	}
+
+	local function render()
+		if not state or state.over then
+			strip.Visible = false
+			return
+		end
+		local parts = {
+			("FLOOR %d/%d"):format(state.floor or 0, state.total or 0),
+			WORDS[state.archetype] or state.archetype or "",
+		}
+		if state.secondsLeft then
+			local left = math.max(0, state.secondsLeft - math.floor(os.clock() - countdownAt))
+			table.insert(parts, ("%ds"):format(left))
+		end
+		if state.modifier and state.modifier ~= "STEADY" then
+			table.insert(parts, state.modifier)
+		end
+		if (state.best or 0) > 0 then
+			table.insert(parts, ("best %d"):format(state.best))
+		end
+		label.Text = table.concat(parts, "  •  ")
+		strip.Visible = true
+	end
+
+	function TowerUI.start()
+		strip = UiKit.dock(HUD.root(), {
+			name = "TowerBanner", corner = "topLeft",
+			width = WIDTH, height = HEIGHT,
+		})
+		strip.AnchorPoint = Vector2.new(0.5, 0)
+		strip.Position = UDim2.new(0.5, 0, 0, 30)
+		strip.BackgroundColor3 = Color3.fromRGB(26, 14, 40)
+		strip.BackgroundTransparency = 0.35
+		UiKit.corner(strip, 10)
+		strip.Visible = false
+		label = UiKit.text(strip, {
+			Size = UDim2.new(1, -12, 1, 0),
+			Position = UDim2.fromOffset(6, 0),
+			Font = Style.Font.body,
+			Text = "",
+			TextSize = 13,
+			TextColor3 = Color3.fromRGB(220, 190, 255),
+		})
+
+		Net.event("TowerState").OnClientEvent:Connect(function(payload)
+			if type(payload) ~= "table" then
+				return
+			end
+			state = payload
+			countdownAt = os.clock()
+			render()
+		end)
+
+		-- the local countdown between pushes; cheap, and only while visible
+		task.spawn(function()
+			while true do
+				task.wait(0.5)
+				if state and state.secondsLeft and not state.over then
+					render()
+				end
+			end
+		end)
+	end
+
+	return TowerUI
+end
+
+
 __MODULES["UiKit"] = function()
 	--[[
 		UiKit.lua — the vocabulary every on-screen panel is built out of, plus the
@@ -10454,6 +10576,7 @@ local ShopUI = Req("ShopUI")
 local ObjectivesUI = Req("ObjectivesUI")
 local RebirthUI = Req("RebirthUI")
 local CompassUI = Req("CompassUI")
+local TowerUI = Req("TowerUI")
 local UpgradeUI = Req("UpgradeUI")
 local SessionUI = Req("SessionUI")
 
@@ -10467,6 +10590,7 @@ ShopUI.start()
 ObjectivesUI.start()
 RebirthUI.start()
 CompassUI.start()
+TowerUI.start()
 
 -- Prototype panels. Both return immediately unless their Config.Prototypes
 -- flag is on.

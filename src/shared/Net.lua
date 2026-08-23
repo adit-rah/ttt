@@ -83,6 +83,11 @@ Net.NAMES = {
 	-- Tung, and told again when the chase ends. The compass draws it.
 	"ThiefMark",     -- S->C { thiefUserId, gone? }
 
+	-- The tower banner (#145): the run's state, pushed to its members on
+	-- every floor event. secondsLeft rather than a deadline — the client's
+	-- clock is not the server's.
+	"TowerState",    -- S->C { floor, total, archetype, modifier, secondsLeft?, best, over? }
+
 	-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 	-- demand so a client that connects with a flag off still resolves them and
 	-- never sits in WaitForChild for 30 seconds.

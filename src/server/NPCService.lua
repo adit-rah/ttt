@@ -404,7 +404,8 @@ local function onRaiderDied(npc: Model, entry)
 	end
 end
 
---- Everything below the stat arithmetic, shared by all three populations.
+--- mechanism: everything below the stat arithmetic, shared by all three
+--- populations.
 --- `opts`:
 ---   level      — feeds the growth curves; the central wave passes its number
 ---   boss       — central wave only
@@ -418,11 +419,14 @@ end
 ---   band       — band index, for the roamer census
 ---   despawnAt  — absolute; roamers pass math.huge
 ---   index/count — approach-ring slot spread (defaults spread randomly)
+---   healthScale/walkScale — the tower's daily modifier (#146); bounded by
+---                the verifier against the sprint line
 local function mintNPC(opts)
 	local level = opts.level
 	local boss = opts.boss == true
 	local variantName = variantForWave(level, boss)
 	local health = WV.BaseHealth * (WV.HealthGrowth ^ (level - 1)) * (boss and WV.BossHealthMultiplier or 1)
+		* (opts.healthScale or 1)
 	if boss then
 		-- Scaled to the headcount the wave was MINTED with, never to the live
 		-- one. See beginWave: re-reading it here would move a bar twelve
@@ -439,7 +443,7 @@ local function mintNPC(opts)
 	local npc = TungModels.buildNPC(variantName, {
 		scale = boss and WV.BossBodyScale or (0.9 + math.random() * 0.35),
 		health = health,
-		walkSpeed = WV.WalkSpeed + (boss and -2 or math.random() * 4),
+		walkSpeed = (WV.WalkSpeed + (boss and -2 or math.random() * 4)) * (opts.walkScale or 1),
 		displayName = boss and ("SAHUR BOSS  •  wave " .. level) or "Tung Tung Tung Sahur",
 		boss = boss,
 	})
