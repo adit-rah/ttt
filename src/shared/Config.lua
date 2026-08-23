@@ -2872,6 +2872,33 @@ Config.Structure = {
 		travelTime = 0.45,       -- tween seconds, each direction
 	},
 
+	-- design:D-02, via #162 — the castle silhouette: posts jutting off the
+	-- wall's OUTER face at a wide, even pitch. One box per post, walked per
+	-- solid run so none lands in an opening; `clearance` is the solid wall
+	-- kept between a post and a run's edge.
+	Buttress = {
+		spacing = 35,
+		width = 3,
+		proud = 1.8,    -- how far the post stands off the wall's outer face
+		height = 18,
+		clearance = 2,
+	},
+
+	-- design:D-02, via #162 — torches along the INNER face: a bracket and a
+	-- neon flame carrying a PointLight, above the machine line so the plan
+	-- clearances below stay the machines' own.
+	Torch = {
+		spacing = 45,
+		height = 15,             -- bracket centre above the floor
+		bracket = { 0.8, 0.8, 1.4 },   -- along the wall, tall, reach off the face
+		flame = { 1, 1.6, 1 },
+		brightness = 1.6,
+		-- Roblox CLAMPS a light's Range at 60 and says nothing about it, so a
+		-- number above that reads as set and is not. Asserted.
+		range = 26,
+		clearance = 2,
+	},
+
 	-- invariant: A BUDGET. Config.shellPartCount() models the shell's part
 	-- count from this spec and the verifier asserts the result at every land
 	-- state. Whether it holds at full scale in a real server is open —
@@ -2928,11 +2955,12 @@ function Config.gateMaxHealth(level: number): number
 	return H.GateBase + H.GatePerLevel * (level - 1)
 end
 
--- The one structural line: floor top to the wall's top. It was
--- Storeys[1].clear, derived from the mezzanine deck's underside; the storey
--- system retired with #88 and the shipped number stays, verbatim, so the
--- trim line and every label assertion hold still.
-Config.Structure.WallHeight = 20.4
+-- The one structural line: floor top to the wall's top.
+-- design:D-02, via #162 — raised from the storey system's inherited 20.4 for
+-- the castle silhouette. Every reader is an inequality that relaxes upward
+-- (labels under it, machines under it, openings inside it), so the trim line
+-- moves and nothing else does.
+Config.Structure.WallHeight = 24
 
 --- One wall of the ring: the axis it runs along, its fixed coordinate on the
 --- other axis, and its extent — for a plot owning `left`/`right` expansions a
@@ -3048,11 +3076,48 @@ function Config.wallSegments(side: string, left: number?, right: number?)
 	return segments, extent
 end
 
+--- Post centres along one wall at an even pitch: walked per SOLID run so no
+--- post lands in an opening, `clearance` of solid wall kept at every run
+--- edge, and the leftover split evenly so the row reads centred in its run.
+--- A run too short for the pitch still carries one centred post.
+local function postsAlong(side: string, left: number?, right: number?,
+	spacing: number, clearance: number)
+	local posts = {}
+	for _, segment in ipairs(Config.wallSegments(side, left, right)) do
+		if segment.kind == "solid" then
+			local usable = (segment.to - segment.from) - 2 * clearance
+			if usable >= 0 then
+				local count = math.floor(usable / spacing) + 1
+				local start = segment.from + clearance
+					+ (usable - (count - 1) * spacing) / 2
+				for index = 1, count do
+					table.insert(posts, start + (index - 1) * spacing)
+				end
+			end
+		end
+	end
+	return posts
+end
+
+--- Where one wall's buttress posts stand, along the wall's own axis.
+function Config.buttressPositions(side: string, left: number?, right: number?)
+	local b = Config.Structure.Buttress
+	return postsAlong(side, left, right, b.spacing, b.clearance + b.width / 2)
+end
+
+--- Where one wall's torch brackets hang, along the wall's own axis.
+function Config.torchPositions(side: string, left: number?, right: number?)
+	local torch = Config.Structure.Torch
+	return postsAlong(side, left, right, torch.spacing,
+		torch.clearance + torch.bracket[1] / 2)
+end
+
 --- invariant: how many parts one plot's shell costs, modelled from the spec
 --- above so the verifier can hold it to Config.Structure.PartBudget.
 ---
 --- Per solid run: a sill, body and head course. Per opening: a lintel course
---- over it, plus its leaves. Per side: a trim cap.
+--- over it, plus its leaves. Per side: a trim cap, the buttress posts, and
+--- two parts per torch (bracket + flame; the PointLight is not a Part).
 ---
 --- IT MUST COUNT WHAT THE BUILDER EMITS, not what the wall spec implies. Its
 --- first version left out the trim, the light strip and the sign anchor, so it
@@ -3064,6 +3129,8 @@ function Config.shellPartCount(left: number?, right: number?): number
 	for _, side in ipairs(Config.Structure.Sides) do
 		-- the trim cap along this wall's top
 		total += 1
+		total += #Config.buttressPositions(side, left, right)
+		total += 2 * #Config.torchPositions(side, left, right)
 		for _, segment in ipairs(Config.wallSegments(side, left, right)) do
 			if segment.kind == "solid" then
 				total += 3   -- sill, body and head course
