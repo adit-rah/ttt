@@ -30,6 +30,8 @@
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
 local Util = Req("Util")
+local Net = Req("Net")
+local Style = Req("Style")
 local Economy = Req("Economy")
 local HelpService = Req("HelpService")
 local PartyService = Req("PartyService")
@@ -49,13 +51,61 @@ local carried: { [Player]: { total: number, sources: { [number]: number } } } = 
 -- the first break always pays full.
 local recent: { [Player]: { [number]: { count: number, expires: number } } } = {}
 
---- The character wears the number so other players can see a thief worth
---- chasing. The handoff owns making it legible; the attribute is the seam.
+--- The character wears the theft (#138): the attribute for anything that
+--- reads state, and a gold sack billboard over the head so every player on
+--- the server can SEE a thief worth chasing — the chase only happens if the
+--- server can see who to chase.
 local function mirrorCarry(player: Player)
 	local character = player.Character
-	if character and character.SetAttribute then
-		local carry = carried[player]
-		character:SetAttribute("CarryingTung", carry and carry.total or 0)
+	if not character or not character.SetAttribute then
+		return
+	end
+	local carry = carried[player]
+	local total = carry and carry.total or 0
+	character:SetAttribute("CarryingTung", total)
+
+	local head = character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
+	local existing = head and head:FindFirstChild("CarryMark")
+	if total > 0 and head then
+		if not existing then
+			local billboard = Style.billboard(head, {
+				name = "CarryMark", width = 12, height = 2.4,
+				distance = "world", offset = 3.4, alwaysOnTop = true,
+			})
+			Style.text(billboard, {
+				name = "Loot", text = "",
+				color = Color3.fromRGB(255, 205, 90),
+			})
+			existing = billboard
+		end
+		local label = existing:FindFirstChild("Loot")
+		if label then
+			label.Text = ("CARRYING %s"):format(Util.abbreviate(total))
+		end
+	elseif existing then
+		existing:Destroy()
+	end
+end
+
+--- Every player currently carrying THIS victim's Tung — the compass mark's
+--- ledger, and the spec's window onto the pushes.
+function RaidService.thievesOf(victim: Player): { Player }
+	local thieves = {}
+	for carrier, carry in pairs(carried) do
+		if carry.sources[victim.UserId] then
+			table.insert(thieves, carrier)
+		end
+	end
+	return thieves
+end
+
+--- Tell a robbed victim who to chase, or that the chase is over.
+local function markThief(victim: Player?, carrier: Player, gone: boolean?)
+	if victim and victim.Parent then
+		Net.event("ThiefMark"):FireClient(victim, {
+			thiefUserId = carrier.UserId,
+			gone = gone or nil,
+		})
 	end
 end
 
@@ -108,6 +158,7 @@ local function addCarry(carrier: Player, victimUserId: number, amount: number)
 	carry.total += amount
 	carry.sources[victimUserId] = (carry.sources[victimUserId] or 0) + amount
 	mirrorCarry(carrier)
+	markThief(Players:GetPlayerByUserId(victimUserId), carrier)
 end
 
 --- The storage unit broke with an attacker on the bat. Called through
@@ -156,6 +207,9 @@ function RaidService.bankCarry(player: Player): number
 	end
 	carried[player] = nil
 	mirrorCarry(player)
+	for userId in pairs(carry.sources) do
+		markThief(Players:GetPlayerByUserId(userId), player, true)
+	end
 	local banked = Economy.add(player, carry.total, false)
 	Economy.notify(player, { kind = "claim", title = "Banked",
 		body = banked < carry.total
@@ -174,6 +228,9 @@ function RaidService.onPlayerDied(victim: Player, killer: Player?, now: number)
 	if carry then
 		carried[victim] = nil
 		mirrorCarry(victim)
+		for userId in pairs(carry.sources) do
+			markThief(Players:GetPlayerByUserId(userId), victim, true)
+		end
 		for userId, amount in pairs(carry.sources) do
 			local source = Players:GetPlayerByUserId(userId)
 			if source then

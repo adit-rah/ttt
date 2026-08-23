@@ -4519,6 +4519,10 @@ __MODULES["Net"] = function()
 		-- so a stale hand-written list is structurally impossible.
 		"RebirthReport", -- S->C { rebirths, multiplier, rank, rankChanged, keeps, motto }
 
+		-- The chase (#138): each robbed victim is told who is carrying their
+		-- Tung, and told again when the chase ends. The compass draws it.
+		"ThiefMark",     -- S->C { thiefUserId, gone? }
+
 		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 		-- demand so a client that connects with a flag off still resolves them and
 		-- never sits in WaitForChild for 30 seconds.
@@ -6631,6 +6635,9 @@ __MODULES["CompassUI"] = function()
 	local markers = {}
 	local plotIndex = nil
 	local partyIds = {}
+	-- #138: players currently carrying MY Tung, by userId. The mark outranks
+	-- disclosure — being robbed is itself the event, like a party invite.
+	local thiefIds = {}
 
 	local function markerFor(id: string, text: string, color: Color3)
 		local label = markers[id]
@@ -6672,6 +6679,17 @@ __MODULES["CompassUI"] = function()
 			if root and mate ~= Players.LocalPlayer then
 				table.insert(list, { id = "mate" .. userId, text = mate.DisplayName:sub(1, 1),
 					color = PALETTE.good, position = root.Position })
+			end
+		end
+		for userId in pairs(thiefIds) do
+			local thief = Players:GetPlayerByUserId(userId)
+			local root = thief and thief.Character and thief.Character:FindFirstChild("HumanoidRootPart")
+			if root then
+				table.insert(list, { id = "thief" .. userId, text = "!",
+					color = Color3.fromRGB(255, 90, 70), position = root.Position })
+			else
+				-- the thief left or died unseen; the mark dies with the body
+				thiefIds[userId] = nil
 			end
 		end
 		return list
@@ -6716,7 +6734,9 @@ __MODULES["CompassUI"] = function()
 	end
 
 	local function refreshVisible()
-		strip.Visible = HUD.disclosed("world")
+		-- the thief mark outranks disclosure: if someone is carrying your Tung,
+		-- the strip shows whatever else you have earned
+		strip.Visible = HUD.disclosed("world") or next(thiefIds) ~= nil
 	end
 
 	function CompassUI.start()
@@ -6743,6 +6763,13 @@ __MODULES["CompassUI"] = function()
 			for _, member in ipairs((payload and payload.members) or {}) do
 				partyIds[member.userId] = true
 			end
+		end)
+		Net.event("ThiefMark").OnClientEvent:Connect(function(payload)
+			if type(payload) ~= "table" or type(payload.thiefUserId) ~= "number" then
+				return
+			end
+			thiefIds[payload.thiefUserId] = (not payload.gone) and true or nil
+			refreshVisible()
 		end)
 		HUD.onDisclosure(refreshVisible)
 		refreshVisible()

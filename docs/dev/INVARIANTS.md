@@ -974,6 +974,19 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   data, economy and plots stay unwrapped — if those fail, the server is correctly dead.
   `[nothing]` beyond the wrapper's shape.
 
+### The carrier mark (#138)
+
+- **The thieves ledger is derived, never maintained**: `RaidService.thievesOf(victim)`
+  walks the live carries' sources, so it cannot drift from the money — a banked or
+  dropped carry empties it by construction. The compass mark and the victim pushes both
+  stand on it. `[spec]`, falsified by keeping the carry record on bank.
+- **The carrier is marked server-side** — a billboard every player can see, because the
+  chase only happens if the server can see who to chase. The attribute stays the machine
+  seam; the billboard is the eyes. `[nothing]` for the look; Studio owns it.
+- **The thief mark outranks disclosure** on the victim's compass — being robbed is itself
+  the event, the party-invite exception's shape. `[nothing]` — the record that the
+  exception is deliberate.
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch

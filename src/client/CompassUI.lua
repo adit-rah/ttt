@@ -47,6 +47,9 @@ local strip
 local markers = {}
 local plotIndex = nil
 local partyIds = {}
+-- #138: players currently carrying MY Tung, by userId. The mark outranks
+-- disclosure — being robbed is itself the event, like a party invite.
+local thiefIds = {}
 
 local function markerFor(id: string, text: string, color: Color3)
 	local label = markers[id]
@@ -88,6 +91,17 @@ local function targets()
 		if root and mate ~= Players.LocalPlayer then
 			table.insert(list, { id = "mate" .. userId, text = mate.DisplayName:sub(1, 1),
 				color = PALETTE.good, position = root.Position })
+		end
+	end
+	for userId in pairs(thiefIds) do
+		local thief = Players:GetPlayerByUserId(userId)
+		local root = thief and thief.Character and thief.Character:FindFirstChild("HumanoidRootPart")
+		if root then
+			table.insert(list, { id = "thief" .. userId, text = "!",
+				color = Color3.fromRGB(255, 90, 70), position = root.Position })
+		else
+			-- the thief left or died unseen; the mark dies with the body
+			thiefIds[userId] = nil
 		end
 	end
 	return list
@@ -132,7 +146,9 @@ local function beat()
 end
 
 local function refreshVisible()
-	strip.Visible = HUD.disclosed("world")
+	-- the thief mark outranks disclosure: if someone is carrying your Tung,
+	-- the strip shows whatever else you have earned
+	strip.Visible = HUD.disclosed("world") or next(thiefIds) ~= nil
 end
 
 function CompassUI.start()
@@ -159,6 +175,13 @@ function CompassUI.start()
 		for _, member in ipairs((payload and payload.members) or {}) do
 			partyIds[member.userId] = true
 		end
+	end)
+	Net.event("ThiefMark").OnClientEvent:Connect(function(payload)
+		if type(payload) ~= "table" or type(payload.thiefUserId) ~= "number" then
+			return
+		end
+		thiefIds[payload.thiefUserId] = (not payload.gone) and true or nil
+		refreshVisible()
 	end)
 	HUD.onDisclosure(refreshVisible)
 	refreshVisible()
