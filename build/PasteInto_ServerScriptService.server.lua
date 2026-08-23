@@ -3637,7 +3637,10 @@ __MODULES["Config"] = function()
 		-- The conveyor outranks everything by TrackOrder POSITION, which is what
 		-- "the conveyor's label sits highest" already means to the card and the
 		-- beacon: both rank by (TrackRank, price).
-		factory = { label = "CONVEYOR", category = "conveyor", preview = 3, keepOnRebirth = false, paced = "spine", furniture = "misc" },
+		-- preview = 2 across the pad tracks (#162 tophat): the buyable rung and
+		-- ONE ghost beyond it. At 3 the conveyor carried a second ghost and the
+		-- plot read as a wall of pads before the second dropper.
+		factory = { label = "CONVEYOR", category = "conveyor", preview = 2, keepOnRebirth = false, paced = "spine", furniture = "misc" },
 		-- invariant: THE SHELL. Most of its facts are FORCED rather than chosen;
 		-- preview is design:D-03.
 		--
@@ -3698,8 +3701,8 @@ __MODULES["Config"] = function()
 		Config.TrackLabel[track] = Config.TrackInfo[track] and Config.TrackInfo[track].label or track:upper()
 	end
 
-	-- design:D-03 — WHAT A WHOLE LADDER WAITS ON, why the cabinets arrive on a gate
-	-- rather than on claim, and why `structure` opens on the very first rung.
+	-- design:D-03 — WHAT A WHOLE LADDER WAITS ON, and why the cabinets and the
+	-- shell all arrive on a gate rather than on claim.
 	--
 	-- invariant: DELIBERATELY NOT A `requires` ON EACH TRACK'S FIRST RUNG. The
 	-- loader derives requirements within a track and the verifier asserts none ever
@@ -3711,11 +3714,13 @@ __MODULES["Config"] = function()
 	-- side track can deadlock. The gate is STICKY, so a rebirth that wipes
 	-- `dropper3` does not take both cabinets with it.
 	--
-	-- `structure` opening on the first rung is also what keeps the "no side track's
-	-- first rung is affordable at spawn" check meaningful for it — you cannot buy
-	-- walls at minute zero at any price.
+	-- `structure` waits for `dropper3` (#162 tophat): it opened on `dropper1`
+	-- and the walls pad stood unaffordable for the first minutes of every
+	-- session — a pad that appears is a pad that should be close to buyable,
+	-- and by dropper3 the 1,500 is nearly banked. The greedy curve already
+	-- bought `walls` after dropper3, so the pacing simulation does not move.
 	Config.TrackUnlock = {
-		weapons = "dropper3", armor = "dropper3", structure = "dropper1",
+		weapons = "dropper3", armor = "dropper3", structure = "dropper3",
 		-- Land opens once the centre pad is earning properly: mid-build, when the
 		-- line is established and the next thing to want is room.
 		landL = "dropper5", landR = "dropper5",

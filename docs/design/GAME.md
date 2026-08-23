@@ -256,7 +256,7 @@ point; showing only the next one hides the shape of the build.
 | state | what you see |
 | --- | --- |
 | **available** | lit, full colour, touchable. Track and step ("WEAPONS 2/5"), the name, the measured effect ("+28/sec", "34 dmg • 14% crit"), and the price — or "NEED 4.2K MORE" |
-| **preview** | the next two or three rungs: a dimmed, inert pad with a **translucent ghost of the machine** standing where it will go, and the reason it is locked |
+| **preview** | the next rung out: a dimmed, inert pad with a **translucent ghost of the machine** standing where it will go, and the reason it is locked |
 | **hidden** | everything further out, everything owned, and every rung of an unopened ladder |
 
 Exactly one **beacon** per plot — a gold highlight and a column of light — points
