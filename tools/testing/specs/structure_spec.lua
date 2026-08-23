@@ -546,14 +546,17 @@ T.spec("the shell is walls, gates, then the masonry, on a track of its own", fun
 			("Structure.Tiers[%d] disagrees with the track's rung %d"):format(index, index + 2))
 	end
 
-	-- The whole ladder waits on the first dropper, so the shell can never be
-	-- somebody's opening purchase.
-	t:eq(Config.TrackUnlock.structure, "dropper1",
-		"the structure track is meant to open one purchase in, not on claim")
+	-- The whole ladder waits on the third dropper (#162 tophat): a pad that
+	-- appears should be close to buyable, and by dropper3 the walls nearly
+	-- are. It must stay a factory gate, and never open on claim.
+	t:eq(Config.TrackUnlock.structure, "dropper3",
+		"the structure track is meant to open when the walls are nearly affordable, and never on claim")
 	t:isFalse(Config.trackUnlocked("structure", {}),
 		"a plot that has bought nothing must not be offered Plot Walls")
-	t:isTrue(Config.trackUnlocked("structure", { dropper1 = true }),
-		"one dropper in, the building becomes something you can want")
+	t:isFalse(Config.trackUnlocked("structure", { dropper1 = true }),
+		"one dropper in, the walls pad would stand unaffordable for minutes")
+	t:isTrue(Config.trackUnlocked("structure", { dropper3 = true }),
+		"three droppers in, the building becomes something you can buy")
 end)
 
 T.spec("a plot owns the leaves only while it owns the wall they hang on", function(t)
