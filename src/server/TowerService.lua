@@ -26,6 +26,7 @@
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
 local Util = Req("Util")
+local Net = Req("Net")
 local Economy = Req("Economy")
 local DataService = Req("DataService")
 local SessionService = Req("SessionService")
@@ -58,12 +59,13 @@ end
 --- One member's pay for one cleared floor: minutes of their OWN income rate,
 --- through the capped door like every other inflow. Progress persists as
 --- today's best.
-function TowerService.recordClear(player: Player, floor: number, now: number): number
+function TowerService.recordClear(player: Player, floor: number, now: number, bonusMinutes: number?): number
 	local profile = DataService.get(player)
 	if not profile then
 		return 0
 	end
-	local reward = math.floor(T.FloorRewardMinutes * 60 * SessionService.incomePerSecondFor(profile))
+	local reward = math.floor((T.FloorRewardMinutes + (bonusMinutes or 0)) * 60
+		* SessionService.incomePerSecondFor(profile))
 	local gained = Economy.add(player, reward, false)
 	profile.tower = {
 		day = TowerService.today(now),
@@ -78,6 +80,7 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 
 local runs: { any } = {}   -- slot index -> run or nil
+local deckLabel = nil      -- the spire sign's rows; painted per day
 
 local function platformOrigin(slot: number): Vector3
 	return Vector3.new((slot - 1) * T.PlatformSize * 3, T.PlatformY, 0)
@@ -89,6 +92,32 @@ local function membersOf(player: Player): { Player }
 		return table.clone(party)
 	end
 	return { player }
+end
+
+--- The banner's packet (#145): pushed to every member on floor events.
+--- secondsLeft rather than a deadline, because the client's clock is not
+--- this server's.
+local function pushRun(run, over: boolean?)
+	local now = os.clock()
+	local secondsLeft = nil
+	if run.surviveUntil then
+		secondsLeft = math.max(0, math.ceil(run.surviveUntil - now))
+	elseif run.floorDeadline and run.floorDeadline ~= math.huge then
+		secondsLeft = math.max(0, math.ceil(run.floorDeadline - now))
+	end
+	for _, member in ipairs(run.members) do
+		if member.Parent then
+			Net.event("TowerState"):FireClient(member, {
+				floor = run.floor,
+				total = T.Floors,
+				archetype = run.deck[run.floor],
+				modifier = run.modifier and run.modifier.name or nil,
+				secondsLeft = secondsLeft,
+				best = TowerService.bestFloor(member, os.time()),
+				over = over or nil,
+			})
+		end
+	end
 end
 
 local function notifyRun(run, payload)
@@ -126,6 +155,7 @@ end
 
 local function endRun(run, cleared: boolean)
 	runs[run.slot] = nil
+	pushRun(run, true)
 	for npc, entry in pairs(NPCService.activeEntries()) do
 		if entry.tower == run then
 			local humanoid = npc:FindFirstChildOfClass("Humanoid")
@@ -162,6 +192,7 @@ local function spawnFloor(run)
 	if archetype == "survival" then
 		count = math.max(2, math.floor(count / 2))
 	end
+	local modifier = run.modifier or {}
 	for i = 1, count do
 		local angle = (i / count) * math.pi * 2
 		local radius = T.PlatformSize / 2 - 8
@@ -176,6 +207,8 @@ local function spawnFloor(run)
 			index = i,
 			count = count,
 			despawnAt = os.clock() + 600,
+			healthScale = modifier.healthScale,
+			walkScale = modifier.walkScale,
 		})
 		entry.tower = run
 	end
@@ -187,6 +220,7 @@ local function spawnFloor(run)
 		survival = ("floor %d — survive %ds"):format(run.floor, T.SurvivalSeconds),
 	})[archetype]
 	notifyRun(run, { kind = "wave", title = "THE TOWER", body = what })
+	pushRun(run)
 end
 
 local function stepRun(run)
@@ -194,6 +228,10 @@ local function stepRun(run)
 	if livingMembers(run) == 0 then
 		endRun(run, false)
 		return
+	end
+	-- the banner's countdown rides the step beat; only clocked floors repush
+	if run.surviveUntil or (run.floorDeadline and run.floorDeadline ~= math.huge) then
+		pushRun(run)
 	end
 	local archetype = run.deck[run.floor]
 	local clearedFloor = false
@@ -217,11 +255,12 @@ local function stepRun(run)
 				end
 			end
 		end
+		local bonus = (run.modifier and run.modifier.bonusMinutes) or 0
 		for _, member in ipairs(run.members) do
 			if member.Parent then
-				local gained = TowerService.recordClear(member, run.floor, os.time())
+				local gained = TowerService.recordClear(member, run.floor, os.time(), bonus)
 				Economy.notify(member, { kind = "claim", title = "Floor cleared",
-					body = ("+%s — your %d minutes of income."):format(Util.abbreviate(gained), T.FloorRewardMinutes) })
+					body = ("+%s — your %d minutes of income."):format(Util.abbreviate(gained), T.FloorRewardMinutes + bonus) })
 			end
 		end
 		if run.floor >= T.Floors then
@@ -274,10 +313,12 @@ local function beginRun(presser: Player)
 		end
 	end
 
+	local day = TowerService.today(os.time())
 	local run = {
 		slot = slot,
 		members = members,
-		deck = Config.towerFloors(TowerService.today(os.time())),
+		deck = Config.towerFloors(day),
+		modifier = Config.towerModifier(day),
 		floor = 1,
 		origin = platformOrigin(slot),
 	}
@@ -324,12 +365,41 @@ local function buildEntrance()
 	prompt.Parent = door
 	prompt.Triggered:Connect(beginRun)
 
+	-- #145: today's deck, previewed at the door — a party can talk about the
+	-- climb before taking it. Repainted when the day turns.
+	local Style = Req("Style")
+	local billboard = Style.billboard(door, {
+		name = "Deck", width = 24, height = 8, distance = "prop", offset = 8,
+	})
+	deckLabel = Style.text(billboard, {
+		name = "Rows", text = "",
+		color = Color3.fromRGB(235, 200, 255),
+	})
+
 	model.Parent = workspace
+end
+
+--- The sign's copy for one day: the deck in climb order, and the twist.
+local function paintDeck()
+	if not deckLabel then
+		return
+	end
+	local day = TowerService.today(os.time())
+	local deck = Config.towerFloors(day)
+	local names = {}
+	for _, archetype in ipairs(deck) do
+		table.insert(names, archetype:upper():sub(1, 4))
+	end
+	local modifier = Config.towerModifier(day)
+	deckLabel.Text = ("THE TOWER  •  today: %s\n%s — %s\na new tower every day")
+		:format(table.concat(names, " "), modifier.name, modifier.blurb)
 end
 
 function TowerService.start()
 	NPCService = Req("NPCService")
 	buildEntrance()
+	paintDeck()
+	local paintedDay = TowerService.today(os.time())
 	task.spawn(function()
 		while true do
 			task.wait(1)
@@ -338,6 +408,11 @@ function TowerService.start()
 				if not ok then
 					warn("[Tung] tower step error: " .. tostring(err))
 				end
+			end
+			local day = TowerService.today(os.time())
+			if day ~= paintedDay then
+				paintedDay = day
+				pcall(paintDeck)
 			end
 		end
 	end)

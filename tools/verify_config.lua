@@ -1272,6 +1272,32 @@ do
 	check(Config.towerLevel(TW.Floors) <= 20,
 		("the top floor is level %d; past 20 the health curve outruns any party the cap allows")
 			:format(Config.towerLevel(TW.Floors)))
+	-- the daily modifier (#146): dealt like the deck, bounded like everything
+	-- else. SWIFT must lose to a sprinting player, TOUGH must stay killable,
+	-- BOUNTIFUL must not out-pay the fighting-beats-waiting margin twice over.
+	local modifierIds = {}
+	for i, modifier in ipairs(Config.TowerModifiers) do
+		check(type(modifier.id) == "string" and not modifierIds[modifier.id],
+			("TowerModifiers[%d] has no id or repeats one"):format(i))
+		modifierIds[modifier.id] = true
+		check(type(modifier.name) == "string" and type(modifier.blurb) == "string",
+			("modifier %s has no name or blurb — the spire sign prints both"):format(tostring(modifier.id)))
+		local walkScale = modifier.walkScale or 1
+		check(walkScale * (Config.Waves.WalkSpeed + 4) + 4 < Config.Movement.SprintSpeed,
+			("modifier %s makes raiders %.1f studs/s; a sprinting player at %d must still disengage")
+				:format(modifier.id, walkScale * (Config.Waves.WalkSpeed + 4), Config.Movement.SprintSpeed))
+		check((modifier.healthScale or 1) <= 1.6,
+			("modifier %s scales health x%.1f; past 1.6 a floor outlives its nominal clock")
+				:format(modifier.id, modifier.healthScale or 1))
+		check((modifier.bonusMinutes or 0) <= TW.FloorRewardMinutes,
+			("modifier %s adds %d minutes; past the base reward the modifier IS the reward")
+				:format(modifier.id, modifier.bonusMinutes or 0))
+	end
+	for seed = 1, 15 do
+		local a = Config.towerModifier(seed)
+		local b = Config.towerModifier(seed)
+		check(a == b, ("seed %d dealt two different modifiers"):format(seed))
+	end
 	-- the entrance stands in the world, short of the belt
 	check(TW.EntranceRadius < Config.beltRadius() - Config.World.PlotSize.Z / 2,
 		"the tower entrance stands on the plot belt")

@@ -35,6 +35,29 @@ T.spec("a day's deck is deterministic, covers every archetype, and ends on the b
 		"two different days dealt the same tower — the shuffle is dead")
 end)
 
+T.spec("the day deals one modifier, deterministically, and BOUNTIFUL pays through recordClear", function(t)
+	local w = T.world()
+	local Tower = w.req("TowerService")
+	local Session = w.req("SessionService")
+	local Data = w.req("DataService")
+	local Config = w.config
+
+	for seed = 1, 20 do
+		t:eq(Config.towerModifier(seed).id, Config.towerModifier(seed).id,
+			"the same day dealt two different modifiers")
+	end
+
+	local climber = w.join("climber")
+	local profile = Data.load(climber)
+	profile.owned.dropper1 = true
+	profile.owned.dropper5 = true
+	local base = math.floor(Config.Tower.FloorRewardMinutes * 60 * Session.incomePerSecondFor(profile))
+	local boosted = math.floor((Config.Tower.FloorRewardMinutes + 1) * 60 * Session.incomePerSecondFor(profile))
+	t:eq(Tower.recordClear(climber, 1, 0, 0), base, "a zero bonus changed the base pay")
+	t:eq(Tower.recordClear(climber, 2, 60, 1), boosted,
+		"a bountiful floor did not pay its extra minute")
+end)
+
 T.spec("a cleared floor pays minutes of the climber's own income", function(t)
 	local w = T.world()
 	local Tower = w.req("TowerService")

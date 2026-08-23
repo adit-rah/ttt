@@ -987,6 +987,21 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   the event, the party-invite exception's shape. `[nothing]` — the record that the
   exception is deliberate.
 
+### Tower surfaces and the daily modifier (#145, #146)
+
+- **"Today's tower" is a sentence: the deck plus its twist.** One modifier per UTC day,
+  dealt by the same seed machinery as the deck, deterministic by spec. The spire sign
+  prints both, repainted when the day turns. `[spec]` + `[assert]` on the deal.
+- **Modifier scales are bounded against the lines other systems stand on**: a SWIFT
+  raider still loses to a sprinting player, TOUGH stays under ×1.6, BOUNTIFUL's bonus
+  stays under the base floor reward — past that the modifier IS the reward. `[assert]`,
+  falsified at ×1.8 walk.
+- **The banner's countdown is `secondsLeft`, never a deadline** — the client's clock is
+  not the server's, and a deadline would drift by exactly their skew. The client counts
+  down locally between pushes. `[nothing]` beyond the packet shape.
+- The scales enter through `mintNPC`'s options — the one minting site grew two numbers,
+  never a second AI. `[nothing]` structural.
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch

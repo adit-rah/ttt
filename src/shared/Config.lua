@@ -2484,6 +2484,24 @@ function Config.towerFloors(daySeed: number): { string }
 	return deck
 end
 
+-- design:D-04, via #146 — THE DAILY MODIFIER. One per day, dealt by the same
+-- seed as the deck, so "today's tower" is a sentence: the deck plus its
+-- twist. Scales are bounded by the verifier against the lines other systems
+-- stand on — a SWIFT raider must still lose to a sprinting player.
+Config.TowerModifiers = {
+	{ id = "steady", name = "STEADY", blurb = "No twist today." },
+	{ id = "swift", name = "SWIFT", blurb = "They move faster.", walkScale = 1.25 },
+	{ id = "tough", name = "TOUGH", blurb = "They take more knocking down.", healthScale = 1.4 },
+	{ id = "bountiful", name = "BOUNTIFUL", blurb = "Every floor pays a minute more.", bonusMinutes = 1 },
+}
+
+--- The day's modifier row, dealt beside the deck.
+function Config.towerModifier(daySeed: number)
+	local state = daySeed * 22695477 + 1013904223
+	state = (state * 1103515245 + 12345) % 2147483648
+	return Config.TowerModifiers[(state % #Config.TowerModifiers) + 1]
+end
+
 --- Enemy level on one floor.
 function Config.towerLevel(floor: number): number
 	return math.floor(Config.Tower.BaseLevel + Config.Tower.LevelPerFloor * floor)
