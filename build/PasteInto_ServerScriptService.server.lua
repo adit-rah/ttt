@@ -343,17 +343,18 @@ __MODULES["Config"] = function()
 		--
 		-- THE COLUMN IS BOUNDED AT BOTH ENDS. Belt leg 1's buy-button row occupies
 		-- z -47.5..-42.5 at every x from -46.5 to 48.5, so nothing can go behind
-		-- z = -38; the 14-stud pitch then walks toward the gate. x = 0 keeps every
-		-- pedestal clear of OwnerSpawnAt (14, 44); at x = 8 the far one lands 10
-		-- studs away and you respawn standing on a buy button.
+		-- z = -38; the 12-stud pitch then walks toward the gate. The column stands
+		-- EAST of the centred gateway's aisle (design:D-02, via #162 — the plot
+		-- reads symmetric from the gate), mirroring the rebirth pad west of it,
+		-- and x = 24 keeps every pedestal clear of OwnerSpawnAt (0, 44).
 		MiscButtons = {
-			walls      = Vector3.new(0, 0, -34),
-			gates      = Vector3.new(0, 0, -22),
-			cobble     = Vector3.new(0, 0, -10),
-			belt1      = Vector3.new(0, 0,   2),
-			stone      = Vector3.new(0, 0,  14),
-			slate      = Vector3.new(0, 0,  26),
-			stonebrick = Vector3.new(0, 0,  38),
+			walls      = Vector3.new(24, 0, -34),
+			gates      = Vector3.new(24, 0, -22),
+			cobble     = Vector3.new(24, 0, -10),
+			belt1      = Vector3.new(24, 0,   2),
+			stone      = Vector3.new(24, 0,  14),
+			slate      = Vector3.new(24, 0,  26),
+			stonebrick = Vector3.new(24, 0,  38),
 			-- The column runs in purchase order with the later steps nearer the
 			-- gate; belt1 (96,300) sits between cobble and stone by price. Every
 			-- key here must name a button id, and every button on a misc-furniture
@@ -362,33 +363,30 @@ __MODULES["Config"] = function()
 			-- belt.
 		},
 		-- Asserted minimum gap between two MiscButtons. 12, tightened from 14
-		-- when the masonry made the column seven pedestals deep: the far end has
-		-- to stay clear of OwnerSpawnAt (15.2 studs at z = 38) and nothing can go
-		-- behind z = -38.
+		-- when the masonry made the column seven pedestals deep, and nothing can
+		-- go behind z = -38.
 		MiscButtonSpacing = 12,
 
 
-		-- MOVED OFF THE RIGHT-HAND WALL, so the armoury can be one straight file.
-		--
-		-- It was (42, 40): front-right, chosen when the right wall was empty floor.
-		-- It is now the open middle of the plot, which is the one large clear area
-		-- left once the line has the left half and the cases have the right — and it
-		-- is on the walk from the gateway to both, rather than tucked behind one of
-		-- them. Still clear of the vault, which is the constraint the old comment
-		-- named and the only one that was ever about the pad itself.
-		RebirthPadAt = Vector3.new(24, 0, 0),
-		ClaimPadAt   = Vector3.new(14, 0, 52),   -- front-centre-right, on the aisle
+		-- WEST OF THE AISLE, mirroring the buy-pad column east of it: the centred
+		-- gateway made the middle of the plot the walk, so the two pieces of floor
+		-- furniture flank it. Still clear of the vault, which is the constraint
+		-- the old comment named and the only one that was ever about the pad
+		-- itself.
+		RebirthPadAt = Vector3.new(-24, 0, 0),
+		ClaimPadAt   = Vector3.new(0, 0, 52),   -- front-centre, on the aisle
 		-- Where the owner lands on claim and on every respawn: just inside the
 		-- gateway, on the aisle, looking down plot-local -Z at the machines.
-		OwnerSpawnAt = Vector3.new(14, 5, 44),
+		OwnerSpawnAt = Vector3.new(0, 5, 44),
 		-- The guide (#100): a small Tung standing beside the owner's spawn aisle,
 		-- inside the gateway, where every session walks past it.
-		GuideAt = Vector3.new(24, 0, 40),
+		GuideAt = Vector3.new(10, 0, 40),
 
-		-- The front wall's gateway. It sits over the open aisle on the right, NOT
-		-- at x = 0: the belt and the vault occupy the left half of the plot, and a
-		-- centred gate would open onto machinery.
-		GateCentre = 14,
+		-- The front wall's gateway, CENTRED (design:D-02, via #162). The old
+		-- x = 14 dodged the belt and the vault while they owned the left half of
+		-- the plot; the walk from the gate runs down the plot's own midline now,
+		-- with the rebirth pad and the buy-pad column flanking it.
+		GateCentre = 0,
 		GateWidth = 22,
 	}
 
@@ -2947,11 +2945,16 @@ __MODULES["Config"] = function()
 		-- solid run so none lands in an opening; `clearance` is the solid wall
 		-- kept between a post and a run's edge.
 		Buttress = {
-			spacing = 35,
+			spacing = 35,   -- target pitch; the actual pitch divides the wall evenly
 			width = 3,
 			proud = 1.8,    -- how far the post stands off the wall's outer face
-			height = 18,
-			clearance = 2,
+			-- OVER the wall's top, deliberately: the posts breaking the parapet
+			-- line is what reads castle from a distance, at one part per post
+			-- (design:D-02, via #162). Asserted taller than the wall and within
+			-- `overshoot` of it, so "slightly" stays slight.
+			height = 27,
+			overshoot = 4,  -- ceiling on height - WallHeight
+			clearance = 2,  -- solid wall kept between a post and an opening's jamb
 		},
 
 		-- design:D-02, via #162 — torches along the INNER face: a bracket and a
@@ -2962,7 +2965,10 @@ __MODULES["Config"] = function()
 			height = 15,             -- bracket centre above the floor
 			bracket = { 0.8, 0.8, 1.4 },   -- along the wall, tall, reach off the face
 			flame = { 1, 1.6, 1 },
-			brightness = 1.6,
+			-- Dim on purpose (#162 tophat): at 1.6 a ring of torches read as
+			-- floodlights; a torch is warmth at the wall, and the world lights
+			-- the plot.
+			brightness = 0.6,
 			-- Roblox CLAMPS a light's Range at 60 and says nothing about it, so a
 			-- number above that reads as set and is not. Asserted.
 			range = 26,
@@ -3194,10 +3200,35 @@ __MODULES["Config"] = function()
 		return posts
 	end
 
-	--- Where one wall's buttress posts stand, along the wall's own axis.
+	--- Where one wall's buttress posts stand, along the wall's own axis:
+	--- CORNER-ANCHORED (design:D-02, via #162). A post stands at each end of the
+	--- wall's extent — the ring's corners — and the span between divides at the
+	--- pitch nearest `spacing`, so the row reads centred on the wall whatever
+	--- its length. A post whose footprint would land in an opening (plus the
+	--- jamb clearance) is dropped, which is what flanks the gateway with the
+	--- nearest surviving pair.
 	function Config.buttressPositions(side: string, left: number?, right: number?)
 		local b = Config.Structure.Buttress
-		return postsAlong(side, left, right, b.spacing, b.clearance + b.width / 2)
+		local extent = Config.wallExtent(side, left, right)
+		local length = extent.to - extent.from
+		local count = math.max(1, math.floor(length / b.spacing + 0.5))
+		local pitch = length / count
+		local posts = {}
+		for index = 0, count do
+			local post = extent.from + index * pitch
+			local blocked = false
+			for _, opening in ipairs(Config.openingsIn(side)) do
+				local from = opening.centre - opening.width / 2 - b.clearance - b.width / 2
+				local to = opening.centre + opening.width / 2 + b.clearance + b.width / 2
+				if post > from and post < to then
+					blocked = true
+				end
+			end
+			if not blocked then
+				table.insert(posts, post)
+			end
+		end
+		return posts
 	end
 
 	--- Where one wall's torch brackets hang, along the wall's own axis.

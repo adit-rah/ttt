@@ -406,12 +406,18 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   `Lintel` and `Buttress` are the breakable prefixes. `Config.Structure.Course` holds the
   split lines, and the head course keeps at least 2 studs. `[assert]` the course fit;
   `[spec]` `structure_spec.lua` and `siege_spec.lua`'s name-to-key table.
-- **Every buttress post and torch bracket stands INSIDE a solid run, clearance intact**
-  (#162). Both are placed by `Config.buttressPositions`/`torchPositions` walking
-  `wallSegments` per solid run, which is what keeps a post out of the gateway — a
-  buttress in an opening is a bollard the gate closes onto. `[assert]` per side, per
-  post, counted; `[spec]` the part-count model re-derives the counts from the pitch
-  arithmetic as a second opinion.
+- **The buttresses are CORNER-ANCHORED and break the parapet line** (#162). A post at
+  each end of every wall's extent — the ring's corners — with the span between divided
+  at the pitch nearest `Buttress.spacing`, and any post landing in an opening (plus
+  jamb) dropped: the gateway gets flanked, and the yard door, cut flush to the back
+  wall's end, swallows that corner's post. Height sits in
+  `(WallHeight, WallHeight + overshoot]` — over the wall is the castle read, and the
+  band is what keeps "slightly taller" slight. `[assert]` the anchors by value, every
+  post in-extent and out of openings, the height band; `[spec]` the part-count model
+  re-derives the counts from the same arithmetic as a second opinion.
+- **Every torch bracket stands INSIDE a solid run, clearance intact** (#162), placed
+  by `torchPositions` walking `wallSegments` per solid run. `[assert]` per side, per
+  post, counted.
 - **A torch rides its wall down.** Torches carry no siege key — dressing, never targets —
   so `applySiegeState` has an explicit branch parsing a torch's side from its name and
   destroying it when `wall_<side>` is broken; repair rebuilds the ring and the torches
