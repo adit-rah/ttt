@@ -941,6 +941,20 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - Behind-you markers pin to the edges and DIM rather than vanish — a marker that
   disappears reads as a target that despawned. `[nothing]`; Studio owns the feel.
 
+### The leaderboard and the frontier (#105)
+
+- **The frontier means ALL of it**: every `Config.Buttons` id owned, at the rebirth cap.
+  Anything looser tells a player they finished a game they did not. `[spec]`
+  `frontier_spec.lua`.
+- **The moment fires once per account** and the stamp survives the save — the stamp IS
+  the telemetry, because the players who run out of game are the ones worth talking to.
+  `[spec]`, falsified by dropping the once-guard.
+- **Rank only.** No currency, no sink, no permanent boost on the frontier surface —
+  decisions for after watching who arrives. `[nothing]` — the record that the absence is
+  deliberate.
+- **The board is a world object** by the spawn, repainted on a slow beat; frontier
+  players wear a ★ on it. `[nothing]`; Studio owns the read.
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch

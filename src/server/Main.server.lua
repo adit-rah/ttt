@@ -23,6 +23,7 @@ local TowerService = Req("TowerService")
 local DisclosureService = Req("DisclosureService")
 local ShopService = Req("ShopService")
 local ObjectiveService = Req("ObjectiveService")
+local LeaderboardService = Req("LeaderboardService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -123,6 +124,8 @@ DisclosureService.start()
 ShopService.start()
 -- Objectives (#97): reads persisted stats on a beat; no ordering needs.
 ObjectiveService.start()
+-- The board and the frontier (#105): a world object on its own beat.
+LeaderboardService.start()
 -- The guide (#100): its mouth is the hint machinery, one arrow, one line.
 -- It answers ANY player who talks to it — a visitor gets the owner's guide's
 -- flavour, which is a kindness surface, not a leak.
