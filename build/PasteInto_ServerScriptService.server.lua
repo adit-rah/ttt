@@ -2312,6 +2312,32 @@ __MODULES["Config"] = function()
 		PairCooldownSeconds = 300,
 	}
 
+	-- design:D-03, via #106 — THE TIER IS PUBLIC. A player's overall progress is
+	-- readable off their plot the way a Town Hall reads: the totem tag carries a
+	-- rank name derived from rebirths, legible from reasonably close (the sign's
+	-- existing "plot" draw distance) and deliberately NOT across the map — a
+	-- world-legible tag lets raiders shop for targets from a distance they never
+	-- have to travel, and reads as noise besides.
+	Config.Tiers = {
+		{ atLeast = 0, name = "TUNG" },
+		{ atLeast = 1, name = "TUNG TUNG" },
+		{ atLeast = 2, name = "TUNG TUNG TUNG" },
+		{ atLeast = 3, name = "SAHUR" },
+		{ atLeast = 5, name = "GRAND SAHUR" },
+	}
+
+	--- The rank a rebirth count wears. Walks the ladder; the last row it clears
+	--- is the answer.
+	function Config.tierName(rebirths: number): string
+		local name = Config.Tiers[1].name
+		for _, tier in ipairs(Config.Tiers) do
+			if rebirths >= tier.atLeast then
+				name = tier.name
+			end
+		end
+		return name
+	end
+
 	-- design:D-01, via #97 — DAILY OBJECTIVES AND THE HINT LINE. A short list of
 	-- things to do today, paid in MINUTES OF YOUR OWN INCOME on completion (the
 	-- tower's denomination — it scales with the player and structurally cannot
@@ -16248,6 +16274,7 @@ __MODULES["Income"] = function()
 	local Config = Req("Config")
 	local Util = Req("Util")
 	local Economy = Req("Economy")
+	local DataService = Req("DataService")
 	local Tycoon = Req("Class")
 
 	-- ── income readout ───────────────────────────────────────────────────────────
@@ -16336,7 +16363,14 @@ __MODULES["Income"] = function()
 		local label = billboard and billboard:FindFirstChild("Owner", true)
 		if label then
 			if ownerName then
-				label.Text = ("%s's TUNG FACTORY\n%s Tung/sec"):format(ownerName, Util.abbreviate(self:incomePerSecond()))
+				-- design:D-03, via #106 — the tier is public: the tag names the
+				-- owner's rank beside their name, at the sign's existing close
+				-- draw distance. The profile can lag a beat behind a rebirth; the
+				-- 3-second repaint catches it up.
+				local profile = DataService.get(self.owner)
+				local rank = Config.tierName(profile and profile.rebirths or 0)
+				label.Text = ("%s's TUNG FACTORY  •  %s\n%s Tung/sec")
+					:format(ownerName, rank, Util.abbreviate(self:incomePerSecond()))
 			else
 				label.Text = ("UNCLAIMED PLOT %d\nstep on the pad to claim"):format(self.index)
 			end

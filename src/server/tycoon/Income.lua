@@ -26,6 +26,7 @@ local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShare
 local Config = Req("Config")
 local Util = Req("Util")
 local Economy = Req("Economy")
+local DataService = Req("DataService")
 local Tycoon = Req("Class")
 
 -- ── income readout ───────────────────────────────────────────────────────────
@@ -114,7 +115,14 @@ function Tycoon:updateSign()
 	local label = billboard and billboard:FindFirstChild("Owner", true)
 	if label then
 		if ownerName then
-			label.Text = ("%s's TUNG FACTORY\n%s Tung/sec"):format(ownerName, Util.abbreviate(self:incomePerSecond()))
+			-- design:D-03, via #106 — the tier is public: the tag names the
+			-- owner's rank beside their name, at the sign's existing close
+			-- draw distance. The profile can lag a beat behind a rebirth; the
+			-- 3-second repaint catches it up.
+			local profile = DataService.get(self.owner)
+			local rank = Config.tierName(profile and profile.rebirths or 0)
+			label.Text = ("%s's TUNG FACTORY  •  %s\n%s Tung/sec")
+				:format(ownerName, rank, Util.abbreviate(self:incomePerSecond()))
 		else
 			label.Text = ("UNCLAIMED PLOT %d\nstep on the pad to claim"):format(self.index)
 		end

@@ -1095,6 +1095,29 @@ do
 			:format(PT.InviteTimeoutSeconds))
 end
 
+-- ── the tier ladder (#106) ─────────────────────────────────────────────────
+--
+-- The public rank on every plot's tag. Strictly climbing thresholds from
+-- zero, or a rank either never appears or two answer at once.
+do
+	local previous = nil
+	local names = {}
+	for i, tier in ipairs(Config.Tiers) do
+		check(type(tier.name) == "string" and #tier.name > 0 and not names[tier.name],
+			("Tiers[%d] has no name or repeats one"):format(i))
+		names[tier.name] = true
+		if previous == nil then
+			check(tier.atLeast == 0, "the first tier must start at zero rebirths — a fresh player has a rank too")
+		else
+			check(tier.atLeast > previous,
+				("Tiers[%d] at %d rebirths does not climb past %d"):format(i, tier.atLeast, previous))
+		end
+		previous = tier.atLeast
+	end
+	check(Config.tierName(0) == Config.Tiers[1].name, "tierName(0) does not answer the first rank")
+	check(Config.tierName(99) == Config.Tiers[#Config.Tiers].name, "a huge rebirth count does not wear the top rank")
+end
+
 -- ── objectives and hints (#97) ─────────────────────────────────────────────
 --
 -- The one number that matters: a day's objectives are a nudge, and the worst

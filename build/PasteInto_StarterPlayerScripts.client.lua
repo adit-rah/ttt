@@ -2312,6 +2312,32 @@ __MODULES["Config"] = function()
 		PairCooldownSeconds = 300,
 	}
 
+	-- design:D-03, via #106 — THE TIER IS PUBLIC. A player's overall progress is
+	-- readable off their plot the way a Town Hall reads: the totem tag carries a
+	-- rank name derived from rebirths, legible from reasonably close (the sign's
+	-- existing "plot" draw distance) and deliberately NOT across the map — a
+	-- world-legible tag lets raiders shop for targets from a distance they never
+	-- have to travel, and reads as noise besides.
+	Config.Tiers = {
+		{ atLeast = 0, name = "TUNG" },
+		{ atLeast = 1, name = "TUNG TUNG" },
+		{ atLeast = 2, name = "TUNG TUNG TUNG" },
+		{ atLeast = 3, name = "SAHUR" },
+		{ atLeast = 5, name = "GRAND SAHUR" },
+	}
+
+	--- The rank a rebirth count wears. Walks the ladder; the last row it clears
+	--- is the answer.
+	function Config.tierName(rebirths: number): string
+		local name = Config.Tiers[1].name
+		for _, tier in ipairs(Config.Tiers) do
+			if rebirths >= tier.atLeast then
+				name = tier.name
+			end
+		end
+		return name
+	end
+
 	-- design:D-01, via #97 — DAILY OBJECTIVES AND THE HINT LINE. A short list of
 	-- things to do today, paid in MINUTES OF YOUR OWN INCOME on completion (the
 	-- tower's denomination — it scales with the player and structurally cannot

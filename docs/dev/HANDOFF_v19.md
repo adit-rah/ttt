@@ -1,8 +1,8 @@
 # HANDOFF v19 — the game reveals itself, the shop, and today's three
 
 Wave 5: #96 (progressive disclosure), #108 (the shop replacing the cabinets)
-#97 (daily objectives + the hint line) and #100 (the guide). This handoff
-grows with the wave's remaining rounds.
+#97 (daily objectives + the hint line), #100 (the guide) and #106 (the
+public tier tag). This handoff grows with the wave's remaining rounds.
 
 ## 1. What moved
 
@@ -77,3 +77,6 @@ grows with the wave's remaining rounds.
     toast. A visitor talking to it should hear THEIR hint.
 13. **The guide vs the totem.** Both stand near the plot's front; check they
     read as two different things at a glance.
+14. **The tag, read from outside.** Walk the belt past three plots: the rank
+    should read beside the name from the grass, and NOT from across the map.
+    A rebirth should repaint it within a beat of the pad firing.
