@@ -2,8 +2,8 @@
 
 Wave 5: #96 (progressive disclosure), #108 (the shop replacing the cabinets)
 #97 (daily objectives + the hint line), #100 (the guide), #106 (the public
-tier tag) and #107 (the rebirth moment). This handoff grows with the wave's
-remaining rounds.
+tier tag), #107 (the rebirth moment) and #104 (the compass strip). This
+handoff grows with the wave's remaining rounds.
 
 ## 1. What moved
 
@@ -81,7 +81,12 @@ remaining rounds.
 14. **The tag, read from outside.** Walk the belt past three plots: the rank
     should read beside the name from the grass, and NOT from across the map.
     A rebirth should repaint it within a beat of the pad firing.
-15. **The rebirth card, felt.** Rebirth on a live plot: the card should land
+15. **The compass, walked.** From the belt: home behind you should pin and
+    dim at an edge; the core and tower marks should cross the strip as you
+    turn; a partymate's initial should track them moving. Check the strip
+    clears the topbar inset on a phone and does not fight the wave banner's
+    billboard reads.
+16. **The rebirth card, felt.** Rebirth on a live plot: the card should land
     with the purple burst, read in under ten seconds, and be gone by
     fourteen; a rank-up rebirth (1st, 2nd, 3rd, 5th) should feel louder than
     a plain one. Check it does not fight the welcome-back modal for the

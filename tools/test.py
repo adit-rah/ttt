@@ -87,7 +87,7 @@ SERVER_MODULES = ["DataService", "Analytics", "Economy", "SessionService", "Soci
 # bundle can hand it a Req like any other module -- and requiring it is what makes
 # the client's BOOT ORDER covered rather than transcribed into a spec that would
 # not notice a reordering.
-CLIENT_MODULES = ["UiKit", "HUD", "CombatClient", "MovementClient", "PartyUI", "ShopUI", "ObjectivesUI", "RebirthUI", "UpgradeUI", "SessionUI", "Main.client"]
+CLIENT_MODULES = ["UiKit", "HUD", "CombatClient", "MovementClient", "PartyUI", "ShopUI", "ObjectivesUI", "RebirthUI", "CompassUI", "UpgradeUI", "SessionUI", "Main.client"]
 CLIENT_ENTRY = "Main.client"
 
 # Mocks load in dependency order: the clock underpins everything, and the
