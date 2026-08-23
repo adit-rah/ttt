@@ -16611,6 +16611,21 @@ __MODULES["Drops"] = function()
 
 		drop.Parent = self.drops
 
+		-- SERVER-OWNED, EXPLICITLY (#162 tophat). Automatic network ownership
+		-- hands a drop near a player to that player's client, and every retarget
+		-- the server writes — the corner snap, the plane axes, the collect — then
+		-- reaches the real simulation a round trip late. At the shipped 28
+		-- studs/s that latency hid inside the corner square; at power3's 74 the
+		-- drop crossed the bend and landed on the floor before its pivot arrived.
+		-- The belt is constraint-driven precisely so drops cost no per-frame
+		-- script, so keeping them on the server is cheap and keeps every corner
+		-- exact. After Parent: ownership can only be set on a part in workspace.
+		-- pcall because a drop spawned into a plot being torn down has no
+		-- workspace to be owned in, and that ride is already over.
+		pcall(function()
+			body:SetNetworkOwner(nil)
+		end)
+
 		Fx.tung(body, 1.6 + math.random() * 0.3, 0.08)
 
 		task.delay(Config.Economy.DropLifetime, function()
