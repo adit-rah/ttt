@@ -2368,6 +2368,41 @@ __MODULES["Config"] = function()
 		PairCooldownSeconds = 300,
 	}
 
+	-- design:D-05, via #96 — PROGRESSIVE DISCLOSURE. The game starts small and
+	-- grows its own interface: a surface takes up space only once the player can
+	-- use it, every arrival is earned by something they just did, and nothing
+	-- ever disappears once shown. The high-water lives in profile.disclosed, so
+	-- a returning player sees what they earned and is never re-onboarded.
+	--
+	-- `after` is a Config.Buttons id; owning it (or the rebirth count, for the
+	-- rebirths form) is the earn. A row with no `after` is on from the first
+	-- second — that set IS the sixty-second screen, and the verifier prints it.
+	-- `gate = true` rows gate GAMEPLAY as well as pixels: the plot siege waits
+	-- for its row, because a raid siren in your first minute is the overload
+	-- this whole system exists to prevent.
+	Config.Disclosure = {
+		{ id = "hud", name = "Your factory", help = "Buy droppers, follow the gold beacon. The vault banks what the machines earn." },
+		{ id = "movement", name = "Sprint and dash", help = "Hold Shift to sprint, Q to dash. On touch: RUN and DASH, bottom left." },
+		{ id = "terms", after = "dropper2", name = "Multipliers", help = "The line under your cash names every bonus you hold." },
+		{ id = "session", after = "dropper3", name = "Streaks and boosts", help = "The session panel: daily streak, playtime ladder, the boost button." },
+		{ id = "social", after = "dropper4", name = "Friends pay", help = "Every friend in the server is +10% income. Invite from the status card." },
+		{ id = "world", after = "dropper5", name = "The world outside", help = "Sahur roam the grass — weakest near the plots, strongest in the middle. Kills pay." },
+		{ id = "siege", after = "walls", gate = true, name = "Raids on your plot", help = "Sahur press your gate now and then. The siren gives you time to run home; repair what breaks." },
+		{ id = "party", after = "walls", name = "Parties", help = "Party up from the left card: no friendly fire, shared gates, +5% income each." },
+		{ id = "recall", after = "walls", name = "Recall", help = "H (or HOME on touch) walks you home after six still seconds. Never with stolen Tung." },
+		{ id = "raiding", after = "gates", name = "Raiding", help = "Break a storage unit, carry the spill home. Half their cap is always safe; camping pays half each repeat." },
+		{ id = "tower", after = "power1", name = "The tower", help = "The spire at the core's edge. A new deck of floors every day; each floor pays minutes of your income." },
+	}
+
+	--- Whether one disclosure row is earned. `has` answers ownership, the same
+	--- shape incomeRate reads.
+	function Config.disclosureEarned(row, has: (string) -> boolean): boolean
+		if not row.after then
+			return true
+		end
+		return has(row.after)
+	end
+
 	-- design:D-04, via #95 — THE TOWER. Combat with a shape: floors of waves,
 	-- bosses, timed kills and survival, composed fresh each UTC day from the day
 	-- seed so a run cannot be memorised, climbed by a party (#102) or alone.
@@ -4434,6 +4469,10 @@ __MODULES["Net"] = function()
 		-- Recall (#103). The intent has no payload; the server owns the cast, the
 		-- cancel rules and the cooldown.
 		"RequestRecall", -- C->S (no payload)
+
+		-- Disclosure (#96): the server owns the high-water and pushes the whole
+		-- unlocked set; the client only renders it.
+		"Disclosure",    -- S->C { ids = { id, ... } }
 
 		-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 		-- demand so a client that connects with a flag off still resolves them and
@@ -7864,6 +7903,10 @@ __MODULES["DataService"] = function()
 			-- from profile.rebirths on every read, so it could only ever go stale;
 			-- it is gone, and a save that still carries one is simply ignored.
 			lastSeen = 0,
+			-- #96: the disclosure high-water — { [surfaceId] = true }. Written
+			-- once per surface, never cleared: nothing disappears once shown, and
+			-- a returning player is never re-onboarded.
+			disclosed = {},
 			-- #95: the tower — the UTC day last climbed and the best floor
 			-- reached that day. Compared against today's day number on read, so
 			-- yesterday's best resets by arithmetic instead of by a job.
@@ -7999,6 +8042,7 @@ __MODULES["DataService"] = function()
 			kills = profile.kills,
 			playtime = profile.playtime,
 			lastSeen = profile.lastSeen,
+			disclosed = profile.disclosed,
 			tower = profile.tower,
 			reputation = profile.reputation,
 			structure = profile.structure,
@@ -8271,6 +8315,108 @@ __MODULES["DataService"] = function()
 	end
 
 	return DataService
+end
+
+
+__MODULES["DisclosureService"] = function()
+	--[[
+		DisclosureService.lua — the game reveals itself as you can take it (#96).
+
+		design:D-05. One beat computes, per player, which Config.Disclosure rows
+		their ownership has earned; a newly earned row is written into
+		profile.disclosed (the persisted HIGH-WATER — nothing ever disappears once
+		shown, and a returning player is never re-onboarded), announced with one
+		toast, and the whole set is pushed down the Disclosure remote for the
+		client to render. The client never decides anything.
+
+		GAMEPLAY GATES READ THE SAME TABLE. A row with `gate = true` holds a
+		SYSTEM back, not just its pixels: NPCService asks unlocked() before it
+		sieges a plot, because a raid siren in the first minute is the overload
+		this file exists to prevent. unlocked() answers from the profile, so the
+		gate and the interface can never disagree.
+
+		The beat is a 3-second poll over present players — the refreshButtons
+		cadence, and the same argument: ownership changes arrive from several
+		writers (purchase, admin grant, rebirth wipe) and one reconciler beat is
+		simpler than chasing them all. A rebirth wipes `owned` and NOT
+		`disclosed`; the high-water is the point.
+	]]
+
+	local Req = __Req
+	local Config = Req("Config")
+	local Net = Req("Net")
+	local Economy = Req("Economy")
+	local DataService = Req("DataService")
+
+	local Players = game:GetService("Players")
+
+	local DisclosureService = {}
+
+	local remote = Net.event("Disclosure")
+
+	--- The one question: has this player ever earned this surface?
+	function DisclosureService.unlocked(player: Player, id: string): boolean
+		local profile = DataService.get(player)
+		return profile ~= nil and profile.disclosed ~= nil and profile.disclosed[id] == true
+	end
+
+	local function push(player: Player)
+		local profile = DataService.get(player)
+		if not profile then
+			return
+		end
+		local ids = {}
+		for id in pairs(profile.disclosed or {}) do
+			table.insert(ids, id)
+		end
+		remote:FireClient(player, { ids = ids })
+	end
+
+	--- One pass for one player: write every newly earned row into the high-water.
+	--- Returns how many arrived, so the beat knows whether to push.
+	function DisclosureService.reconcile(player: Player): number
+		local profile = DataService.get(player)
+		if not profile then
+			return 0
+		end
+		profile.disclosed = profile.disclosed or {}
+		local has = function(id)
+			return profile.owned[id] == true
+		end
+		local arrived = 0
+		for _, row in ipairs(Config.Disclosure) do
+			if not profile.disclosed[row.id] and Config.disclosureEarned(row, has) then
+				profile.disclosed[row.id] = true
+				arrived += 1
+				if row.after then
+					-- the always-on rows announce nothing; an arrival is earned
+					Economy.notify(player, { kind = "claim", title = "NEW: " .. row.name, body = row.help })
+				end
+			end
+		end
+		return arrived
+	end
+
+	function DisclosureService.start()
+		Players.PlayerAdded:Connect(function(player)
+			task.defer(push, player)
+		end)
+		task.spawn(function()
+			while true do
+				task.wait(3)
+				for _, player in ipairs(Players:GetPlayers()) do
+					local ok, arrived = pcall(DisclosureService.reconcile, player)
+					if ok and arrived > 0 then
+						push(player)
+					elseif not ok then
+						warn("[Tung] disclosure error: " .. tostring(arrived))
+					end
+				end
+			end
+		end)
+	end
+
+	return DisclosureService
 end
 
 
@@ -10083,10 +10229,15 @@ __MODULES["NPCService"] = function()
 				end
 
 				if state.phase == "resting" then
-					if now >= state.phaseUntil and concurrent < PW.MaxConcurrent then
+					-- #96: the siege is a GATED disclosure — a raid siren in the
+					-- first minute is the overload the system exists to prevent.
+					-- The high-water lives on the profile, so the gate and the
+					-- interface cannot disagree.
+					local profile = DataService.get(owner)
+					local disclosed = profile and profile.disclosed and profile.disclosed.siege == true
+					if disclosed and now >= state.phaseUntil and concurrent < PW.MaxConcurrent then
 						concurrent += 1
 						local counts = tycoon:landState()
-						local profile = DataService.get(owner)
 						state.level = Config.plotWaveLevel(counts.left + counts.right,
 							profile and profile.rebirths or 0)
 						state.count = math.min(PW.BaseCount + math.floor(state.level / 3), PW.MaxCount)
@@ -18545,6 +18696,7 @@ local HelpService = Req("HelpService")
 local PartyService = Req("PartyService")
 local RecallService = Req("RecallService")
 local TowerService = Req("TowerService")
+local DisclosureService = Req("DisclosureService")
 local PlotService = Req("PlotService")
 local NPCService = Req("NPCService")
 local AdminService = Req("AdminService")
@@ -18637,6 +18789,9 @@ RecallService.start()
 -- The tower (#95): after NPCService (it spawns through the minting site) and
 -- PartyService (a climb brings the presser's whole party).
 TowerService.start()
+-- Disclosure (#96): the beat that grows each player's interface, and the
+-- gate NPCService reads before a plot's first siege.
+DisclosureService.start()
 SocialService.start()
 
 -- 6. players

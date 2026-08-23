@@ -62,6 +62,10 @@ Net.NAMES = {
 	-- cancel rules and the cooldown.
 	"RequestRecall", -- C->S (no payload)
 
+	-- Disclosure (#96): the server owns the high-water and pushes the whole
+	-- unlocked set; the client only renders it.
+	"Disclosure",    -- S->C { ids = { id, ... } }
+
 	-- PROTOTYPES (see Config.Prototypes). Declared here rather than created on
 	-- demand so a client that connects with a flag off still resolves them and
 	-- never sits in WaitForChild for 30 seconds.

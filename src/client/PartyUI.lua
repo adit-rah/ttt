@@ -148,7 +148,10 @@ local function render()
 	end
 
 	panel.Size = UDim2.fromOffset(WIDTH, P.HeaderHeight + 6 + rows * P.RowHeight)
-	panel.Visible = rows > 0 or state.invite ~= nil
+	-- #96: the card waits for its row — except an incoming invite, which is
+	-- itself the disclosure (someone chose you; hiding that is worse)
+	panel.Visible = (rows > 0 or state.invite ~= nil)
+		and (HUD.disclosed("party") or state.invite ~= nil or #state.members > 1)
 end
 
 function PartyUI.start()
@@ -156,6 +159,7 @@ function PartyUI.start()
 	panel.Name = "Party"
 	panel.LayoutOrder = P.LayoutOrder
 
+	HUD.onDisclosure(render)
 	remote().OnClientEvent:Connect(function(payload)
 		state.members = payload.members or {}
 		state.invite = payload.invite

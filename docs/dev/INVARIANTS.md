@@ -841,6 +841,25 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
 - The run driver (platforms, wipes, timers) is a workspace concern. `[nothing]` beyond
   the ledger split; HANDOFF_v18 carries the Studio list.
 
+### Disclosure (#96)
+
+- **The high-water only rises.** `profile.disclosed` is written once per surface and
+  nothing drains it: a rebirth wipes `owned` and forgives no disclosure, and a returning
+  player is never re-onboarded. Both profile homes, round-trip specced. `[spec]`, falsified
+  by making reconcile clear un-earned rows — the rebirth spec fired.
+- **The client decides nothing.** The server pushes the whole set; every gated panel asks
+  `HUD.disclosed(id)` at render and re-renders on push. The undisclosed state is pinned in
+  hud_spec (an invitable account with no `social` row shows nothing). `[spec]`
+- **Gameplay gates read the same field as the pixels.** The plot siege waits for
+  `profile.disclosed.siege`, so the gate and the interface cannot disagree — a raid siren
+  in the first minute is the overload the system exists to prevent. `[spec]` on the water;
+  the NPCService read is a Studio item.
+- **The sixty-second screen is the always-on set, and it is held to three rows** —
+  the verifier prints it on every run and fails a fourth. A dangling `after` is a surface
+  that never arrives, also asserted. `[assert]`, each falsified.
+- **The help card lists only what is unlocked**, so it structurally cannot become a
+  manual; help lines are capped at 160 chars. `[assert]`
+
 ## 6. Procedural animation
 
 `HANDOFF_v3.md` §2 is the long form and is still worth reading before you touch
