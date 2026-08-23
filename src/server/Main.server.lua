@@ -63,25 +63,38 @@ MovementService.start()
 PlotService.build(world)
 PlotService.start()
 
+-- One optional service must not take claiming and the player wiring down
+-- with it: everything below this line is gameplay on TOP of the plot loop,
+-- so a throw is contained and shouted rather than fatal. The method-resolution
+-- lint is the real fix for the class of bug that motivated this; the blast
+-- door is for whatever a lint cannot see. Everything ABOVE (world, data,
+-- economy, plots) stays unwrapped — if those fail the server is correctly dead.
+local function boot(name: string, fn)
+	local ok, err = pcall(fn)
+	if not ok then
+		warn(("[Tung] %s failed to start: %s"):format(name, tostring(err)))
+	end
+end
+
 -- 4. raids
-NPCService.start()
+boot("NPCService", NPCService.start)
 
 -- 4b. admin chat commands. Self-gating on Config.Admin and on WHO is asking, so
 -- this is a no-op for an ordinary player on a live server. After NPCService,
 -- because !wave and !clear drive its schedule.
-AdminService.start()
+boot("AdminService", AdminService.start)
 
 -- 5. sessions and the one remaining prototype
-UpgradeService.start()
-SessionService.start()
+boot("UpgradeService", UpgradeService.start)
+boot("SessionService", SessionService.start)
 -- after SessionService: it registers listeners on plots that are already built
 -- and reads the projection SessionService owns
-VaultService.start()
+boot("VaultService", VaultService.start)
 -- The gates in the shell's two openings. Anywhere after PlotService.build: it
 -- walks Tycoon.all() on its own fixed beat and finds the leaves inside the walls
 -- model, so the plots have to exist, but it registers no listener and reacts to
 -- no purchase — a gate is a distance test, not an event.
-GateService.start()
+boot("GateService", GateService.start)
 -- The siege hook (#124): a swing that boxed wall or gate parts lands here.
 -- Wired from this file rather than inside CombatService, because Tycoon
 -- requires CombatService and the observer shape exists to keep that arrow
@@ -99,33 +112,33 @@ end)
 Tycoon.storageBreakObserver = function(tycoon, attacker)
 	RaidService.onStorageBroken(tycoon, attacker, os.clock())
 end
-RaidService.start()
+boot("RaidService", RaidService.start)
 -- Helping pays (#123): the boost hook registers, and repairing someone
 -- else's plot lands as a kindness credit.
 Tycoon.repairObserver = function(tycoon, player)
 	HelpService.credit(player, tycoon.owner, "repairs", os.clock())
 end
-HelpService.start()
+boot("HelpService", HelpService.start)
 -- The party (#102): the trust boundary reaches combat and the plot through
 -- the same observer shape as everything above.
 CombatService.setAllyCheck(PartyService.sameParty)
 Tycoon.allyCheck = PartyService.sameParty
-PartyService.start()
+boot("PartyService", PartyService.start)
 -- Recall (#103): after PlotService, whose teleportToPlot is the arrival.
-RecallService.start()
+boot("RecallService", RecallService.start)
 -- The tower (#95): after NPCService (it spawns through the minting site) and
 -- PartyService (a climb brings the presser's whole party).
-TowerService.start()
+boot("TowerService", TowerService.start)
 -- Disclosure (#96): the beat that grows each player's interface, and the
 -- gate NPCService reads before a plot's first siege.
-DisclosureService.start()
+boot("DisclosureService", DisclosureService.start)
 -- The shop (#108): after PlotService, whose plotOf keeps the owned mirrors
 -- in step.
-ShopService.start()
+boot("ShopService", ShopService.start)
 -- Objectives (#97): reads persisted stats on a beat; no ordering needs.
-ObjectiveService.start()
+boot("ObjectiveService", ObjectiveService.start)
 -- The board and the frontier (#105): a world object on its own beat.
-LeaderboardService.start()
+boot("LeaderboardService", LeaderboardService.start)
 -- The guide (#100): its mouth is the hint machinery, one arrow, one line.
 -- It answers ANY player who talks to it — a visitor gets the owner's guide's
 -- flavour, which is a kindness surface, not a leak.
@@ -135,7 +148,7 @@ Tycoon.guideSpeaker = function(tycoon, player)
 	Economy.notify(player, { kind = "info", title = "Your Tung says",
 		body = hint or "Tung tung. The middle pays best. Come back when something new unlocks." })
 end
-SocialService.start()
+boot("SocialService", SocialService.start)
 
 -- 6. players
 local function onCharacterAdded(player: Player, character: Model)

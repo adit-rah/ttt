@@ -1008,13 +1008,31 @@ do
 		("a leashed roamer can swing %.0f studs out but the nearest plot edge is at %.0f — roamers could be dragged onto someone's factory")
 			:format(roamerReach, beltEdge))
 
-	-- the spawn pad: outside every band's notice, inside the belt
+	-- the spawn pad: outside every band's notice, and BEYOND the belt — the
+	-- rebalance closed the quiet strip inside the ring, so the spawn stands
+	-- in the grass past the plots, at a mid-gap bearing MapBuilder derives
 	local spawn = Config.World.SpawnRadius
 	check(spawn > outermost.outer + Config.Waves.AggroRadius + Config.Waves.WanderRadius,
 		("the spawn at %.0f is inside the outermost band's notice (%.0f) — fresh players would spawn aggroed")
 			:format(spawn, outermost.outer + Config.Waves.AggroRadius + Config.Waves.WanderRadius))
-	check(spawn + 20 < beltEdge,
-		("the spawn at %.0f sits on the plot belt (edge %.0f)"):format(spawn, beltEdge))
+	check(spawn >= belt + Config.World.PlotSize.Z / 2 + 16,
+		("the spawn at %.0f stands inside the plot ring (outer edge %.0f)")
+			:format(spawn, belt + Config.World.PlotSize.Z / 2))
+	-- ...and laterally clear of every plot at every player count: the mid-gap
+	-- bearing must keep real distance from the nearest plot centre, or the
+	-- pad lands in somebody's generator yard
+	for count = Config.World.MinPlots, Config.World.MaxPlots do
+		local bearing = math.pi / count
+		local spawnX, spawnZ = math.sin(bearing) * spawn, math.cos(bearing) * spawn
+		for _, placement in ipairs(Config.plotPlacements(count)) do
+			local px = math.sin(placement.angle) * placement.radius
+			local pz = math.cos(placement.angle) * placement.radius
+			local d = math.sqrt((spawnX - px) ^ 2 + (spawnZ - pz) ^ 2)
+			check(d >= 220,
+				("%d plots: the spawn is %.0f studs from a plot centre (need 220 — the maxed footprint plus its yard)")
+					:format(count, d))
+		end
+	end
 
 	-- the world part ceiling: the central wave's worst case, every band and
 	-- every concurrent siege, all standing at once

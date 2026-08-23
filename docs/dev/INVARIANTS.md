@@ -219,8 +219,11 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   count** (#89): the full server's chord (`2r·sin(π/MaxPlots)`, not the arc) fits the maxed
   footprint plus the gap, and a smaller server spreads on the same circle instead of
   contracting inward — the mob bands, the spawn and every plot-safety line are static
-  distances that a shrinking belt would walk homes into. `[assert]` every placement equals
-  the belt, plus the pairwise spacing at every supported count.
+  distances that a shrinking belt would walk homes into. `MaxPlots` is the radius's
+  dominant term: 8 seats puts the belt at ~585, and every seat past that costs every
+  player a longer world. The spawn stands BEYOND the belt at a mid-gap bearing, laterally
+  clear of every plot at every count. `[assert]` every placement equals the belt, the
+  pairwise spacing, and the spawn's ring and lateral clearances.
 - **`Players.MaxPlayers` is not scriptable.** The plot count follows it and nothing in code
   can set it — it is a Studio setting and it is on you. `[assert]` covers the derivation
   (`plotCountFor` clamps to `MinPlots`/`MaxPlots` and tracks `MaxPlayers` in range), not the
@@ -954,6 +957,22 @@ twelve minutes, because `upgrader6` and `dropper10` multiply income ~17× betwee
   deliberate.
 - **The board is a world object** by the spawn, repainted on a slow beat; frontier
   players wear a ★ on it. `[nothing]`; Studio owns the read.
+
+### Method resolution (the ensureCabinets lesson)
+
+- **A method call on the class table is a dynamic lookup, and deleting the method does
+  not break the build** — it breaks the first runtime that reaches the call. #108 deleted
+  `ensureCabinets`; the constructor kept calling it; `Tycoon.new` threw; everything after
+  `PlotService.build` in the boot — claim hooks, PlayerAdded, autoAssign — was dead on
+  main with a green build. The harness never runs the real constructor and the
+  undeclared-global pass cannot see a method name. `[lint]` the tycoon method-resolution
+  pass in verify.py: every `self:name(` in the mixin folder and every `tycoon:name(` in
+  src/server must resolve to a `function Tycoon:name` definition. Falsified with the
+  actual bug.
+- **The boot has a blast door**: every service start below the plot loop is pcall'd with
+  a loud warn, so one optional service's throw can never again kill claiming. The world,
+  data, economy and plots stay unwrapped — if those fail, the server is correctly dead.
+  `[nothing]` beyond the wrapper's shape.
 
 ## 6. Procedural animation
 
