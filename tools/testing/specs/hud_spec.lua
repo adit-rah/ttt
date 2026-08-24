@@ -699,4 +699,126 @@ T.spec("the gate and the price tie-break agree too, where the shipped build cann
 end)
 
 
+
+-- ── every control says what it is ───────────────────────────────────────────
+--
+-- Three sweeps over the built tree, each one a defect that shipped. They are
+-- here rather than in verify_config because Config holds numbers and cannot see
+-- a TextButton, and here rather than in a lint because what is wrong is the
+-- INSTANCE, not the source text: an empty caption is a caption that was set to
+-- "" somewhere, not a missing line.
+
+--- Every widget under the HUD, whatever built it.
+local function widgets(world)
+	local out = {}
+	for _, gui in ipairs(descend(world.playerGui(), {})) do
+		table.insert(out, gui)
+	end
+	return out
+end
+
+--- Is this widget actually on the screen — itself visible, and every ancestor
+--- up to the ScreenGui visible too?
+---
+--- The shop's rows are built with an empty label and filled by the first Stats
+--- push, so a closed shop legitimately holds controls that say nothing yet.
+--- What the sweep below is looking for is a control that is blank while a
+--- player is looking at it.
+local function onScreen(gui): boolean
+	local node = gui
+	while node and node.ClassName ~= "PlayerGui" do
+		if node.Visible == false then
+			return false
+		end
+		node = node.Parent
+	end
+	return true
+end
+
+--- Boots the client the way Main.client.lua does, far enough to have a rail.
+---
+--- `touch` flips UserInputService.TouchEnabled BEFORE MovementClient loads,
+--- which is the only way to reach the bottom-left pad: it returns immediately
+--- without it, and four out of five real sessions have it. That module's start
+--- function had never run in this harness at all — the mock was missing
+--- InputEnded, which MovementClient connects to on every platform.
+local function bootedWorld(touch: boolean?)
+	local world = clientWorld()
+	world.services.UserInputService.TouchEnabled = touch == true
+	local HUD = world.req("HUD")
+	HUD.start()
+	world.req("CombatClient").start()
+	world.req("MovementClient").start()
+	world.req("PartyUI").start()
+	world.req("ShopUI").start()
+	world.req("ObjectivesUI").start()
+	world.req("RebirthUI").start()
+	world.req("TowerUI").start()
+	world.req("CompassUI").start()
+	return world
+end
+
+T.spec("no control on screen is blank, on either platform", function(t)
+  for _, touch in ipairs({ false, true }) do
+	local world = bootedWorld(touch)
+	local checked = 0
+	for _, gui in ipairs(widgets(world)) do
+		if gui.ClassName == "TextButton" and onScreen(gui) then
+			checked += 1
+			local glyph = gui:FindFirstChild("Glyph")
+			local label = gui:FindFirstChild("Label")
+			local caption = gui:FindFirstChild("Caption")
+			local says = (gui.Text ~= nil and gui.Text ~= "")
+				or (glyph ~= nil and #glyph:GetChildren() > 0)
+				or (label ~= nil and label.Text ~= "")
+				or (caption ~= nil and caption.Text ~= "")
+			t:isTrue(says,
+				("the control %q says nothing: no text, no glyph, no caption. Two rail items shipped exactly like this, because railItem returned a glyph slot and its callers took only the button")
+					:format(gui.Name))
+		end
+	end
+	t:gt(checked, 0, "no controls were built — the boot changed shape and this spec went blind")
+  end
+end)
+
+T.spec("every tile carries a caption, because an icon alone is a guess", function(t)
+  for _, touch in ipairs({ false, true }) do
+	local world = bootedWorld(touch)
+	local tiles = 0
+	for _, gui in ipairs(widgets(world)) do
+		if gui.ClassName == "TextButton" and gui:FindFirstChild("Caption") and onScreen(gui) then
+			tiles += 1
+			local caption = gui:FindFirstChild("Caption")
+			t:ne(caption.Text, "",
+				("the %q tile has an empty caption — an icon on its own is a button a child has to press to find out what it does")
+					:format(gui.Name))
+			t:notNil(gui:FindFirstChild("Glyph"),
+				("the %q tile has a caption and no glyph"):format(gui.Name))
+		end
+	end
+	t:gt(tiles, 0, "no tiles were built — the rail changed shape and this spec went blind")
+  end
+end)
+
+T.spec("everything that prints text names a face, including the touch pad", function(t)
+  for _, touch in ipairs({ false, true }) do
+	local world = bootedWorld(touch)
+	local printed = 0
+	for _, gui in ipairs(widgets(world)) do
+		if gui.ClassName == "TextLabel" or gui.ClassName == "TextButton" then
+			printed += 1
+			-- MovementClient built three TextButtons and set no Font at all, so
+			-- the three most-pressed controls on a phone drew in the engine's
+			-- default face. The style lint greps for Enum.Font and a font that
+			-- is never assigned is not a font literal.
+			t:notNil(gui.Font,
+				("%q prints text and names no face, so it draws in whatever the engine defaults to")
+					:format(gui.Name))
+		end
+	end
+	t:gt(printed, 0, "nothing printed text — the boot changed shape and this spec went blind")
+  end
+end)
+
+
 end

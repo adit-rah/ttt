@@ -174,7 +174,7 @@ function ShopUI.start()
 		end
 	end)
 	-- door two: the rail item, earned like every surface
-	HUD.addRailItem("Shop", "SHOP", function()
+	HUD.addRailItem("Shop", "shop", "SHOP", function()
 		return HUD.disclosed("shop")
 	end, open)
 	-- ownership rides Stats; re-dress on every push while open

@@ -4,7 +4,7 @@ verify.py — full pre-flight check for Tung Tung Tycoon.
 
     python3 tools/verify.py [--luau /path/to/luau] [--analyze /path/to/luau-analyze]
 
-Runs SIXTEEN passes, in order. Keep this list and main() in step -- it has said
+Runs SEVENTEEN passes, in order. Keep this list and main() in step -- it has said
 five, seven, eight and thirteen while main() ran nine, then fourteen, and a pass
 count nobody can trust is a pass somebody can quietly delete. It was wrong again
 when `ui colour` was added: the list had never carried `tycoon method
@@ -21,12 +21,13 @@ resolution` at all.
   8. method res    a tycoon mixin does not shadow a method another mixin defines
   9. ui geometry   no card-scale literal in src/client; it comes from Config.UI
  10. ui colour     no Color3 literal in src/client; it comes from Config.UI.Role
- 11. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
- 12. design refs   every design:D-NN cited in source names a row in DECISIONS.md
- 13. comment triage a long comment block declares which of the four homes it is
- 14. config        the integrity suite in tools/verify_config.lua
- 15. specs         the runtime specs in tools/testing, via tools/test.py
- 16. packed build  regenerates build/ and syntax-checks the output
+ 11. control own   no TextButton built outside UiKit; no font named outside Style
+ 12. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
+ 13. design refs   every design:D-NN cited in source names a row in DECISIONS.md
+ 14. comment triage a long comment block declares which of the four homes it is
+ 15. config        the integrity suite in tools/verify_config.lua
+ 16. specs         the runtime specs in tools/testing, via tools/test.py
+ 17. packed build  regenerates build/ and syntax-checks the output
 
 Exit code is non-zero if anything fails, so it drops straight into CI.
 """
@@ -379,6 +380,59 @@ def check_module_fields(files):
         return False
     total = sum(len(v) for v in known.values())
     print(f"  {GREEN}ok{RESET}  every field read off {'/'.join(FIELD_OWNERS)} is one of the {total} they define")
+    return True
+
+# A CONTROL IS BUILT BY UiKit, AND A FONT IS NAMED BY Style.
+#
+# Two greps, and each one is a shipped defect.
+#
+# MovementClient.lua built three TextButtons by hand: 64x64, three raw Color3
+# calls, no UICorner -- the only square buttons in the game -- and NO Font
+# assignment at all, so the three most-pressed controls a phone player has
+# rendered in the engine's default face while everything else was FredokaOne.
+# The style pass could not see it: it greps for `Enum.Font.`, and a font that is
+# never assigned is not a font literal.
+#
+# The Font rule is the inverse of the same problem. `Font = Style.Font.title` is
+# fine and `Font = someLocal` is not, because the second is a face chosen
+# somewhere this pass cannot follow. Style.lua owns the two faces and UiKit is
+# the only file allowed to spend them, since every control and every label in
+# the game now comes out of it.
+CONTROL_OWNER = "src/client/UiKit.lua"
+# UpgradeUI is a PROTOTYPE, behind Config.Prototypes.PlayerUpgrades and
+# .Utilities, both of which the prototype pass requires to ship false -- so its
+# rows are never drawn. Its pattern is a full-width strip that IS the hit target,
+# with a title, a blurb and a pill composed on top, and no shipped surface needs
+# one, so there is no variant for it and inventing one to serve a screen nobody
+# can see is worse than this line. Features graduate here by DELETING the flag;
+# this exemption goes in the same commit as the flag does.
+CONTROL_EXEMPT = ("src/client/UpgradeUI.lua",)
+CONTROL_CLASSES = re.compile(r'Instance\.new\(\s*"(TextButton|ImageButton|ImageLabel)"\s*\)')
+FONT_OWNERS = ("src/client/UiKit.lua", "src/shared/Style.lua")
+FONT_ASSIGN = re.compile(r"\.?\bFont\s*=")
+
+
+def check_control_ownership(files):
+    step("control ownership")
+    findings = []
+    for path in client_sources(files):
+        rel = path.relative_to(ROOT).as_posix()
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("--"):
+                continue
+            match = CONTROL_CLASSES.search(line)
+            if match and rel != CONTROL_OWNER and rel not in CONTROL_EXEMPT:
+                findings.append((rel, number, f'builds a {match.group(1)} by hand',
+                                 f"UiKit.control or UiKit.tile", line.strip()))
+            if FONT_ASSIGN.search(line) and rel not in FONT_OWNERS and "Style.Font" not in line:
+                findings.append((rel, number, "names a font", "Style.Font", line.strip()))
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for rel, number, what, owner, text in findings:
+            print(f"    {rel}:{number} {what} — go through {owner}")
+            print(f"      {DIM}{text}{RESET}")
+        return False
+    print(f"  {GREEN}ok{RESET}  every control comes from {CONTROL_OWNER}, and every font from Style.Font")
     return True
 
 # ONE ScreenGui MEANS ONE UIScale.
@@ -1037,6 +1091,7 @@ def main():
         check_method_resolution(files),
         check_ui_geometry(files),
         check_ui_colour(files),
+        check_control_ownership(files),
         check_single_screengui(files),
         check_design_refs(files),
         check_comment_triage(files),

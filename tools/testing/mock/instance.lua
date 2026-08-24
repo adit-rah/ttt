@@ -233,9 +233,17 @@ function Instance.new(className: string, parent)
 			table.insert(sent, { args = table.pack(...) })
 		end
 	elseif className == "TextButton" or className == "ImageButton" then
-		-- Activated, not MouseButton1Click: every button in src/client connects
-		-- Activated, which is the one that also fires for a tap and a gamepad A.
+		-- Activated is the one that fires for a click, a tap and a gamepad A, and
+		-- it is what every button in src/client connects. That sentence used to
+		-- be here as a statement of fact and it was WRONG: MovementClient's three
+		-- touch buttons connected MouseButton1Click, and because TouchEnabled was
+		-- false in this mock and there was no InputEnded either, that module's
+		-- start function had never run here to say so.
 		inst._props.Activated = Signal.new()
+		-- The two halves of a HOLD, which Activated cannot express: the sprint
+		-- button is on while it is held and off when it is let go.
+		inst._props.MouseButton1Down = Signal.new()
+		inst._props.MouseButton1Up = Signal.new()
 	elseif className == "IntValue" or className == "NumberValue" then
 		inst._props.Value = 0
 	elseif className == "StringValue" or className == "ObjectValue" then

@@ -1072,7 +1072,7 @@ __MODULES["Config"] = function()
 			OptionalRows = 2,
 		},
 
-		-- THE TOP-RIGHT UTILITY RAIL. One item wide today and built to hold more:
+		-- invariant: THE TOP-RIGHT UTILITY RAIL. Built to hold more than one item:
 		-- an icon over a caption, docked to the top-right corner, with the toast
 		-- column derived to start below it rather than on top of it.
 		--
@@ -1087,14 +1087,36 @@ __MODULES["Config"] = function()
 		-- offer — and that argument survives the move: the badge under the glyph
 		-- reads what you would gain when you have nobody here, and what you are
 		-- getting once you do.
-		Rail = {
-			ItemWidth = 56,
-			ItemHeight = 72,
+		-- invariant: A TILE IS A GLYPH OVER A CAPTION, and two surfaces are made of
+		-- them: the top-right utility rail and the bottom-left touch pad. They were
+		-- two different shapes for no reason — the rail 56x72 through UiKit, the
+		-- pad 64x64 built by hand with its own colours, no corner radius and NO FONT
+		-- AT ALL, so the three most-pressed controls on a phone rendered in the
+		-- engine's default face while the rest of the game was FredokaOne.
+		--
+		-- THE CAPTION IS NOT DECORATION. An icon on its own is a button a child has
+		-- to press to find out what it does, and on the invite it carries the number
+		-- the ask is worth.
+		Tile = {
+			Width = 56,
+			Height = 72,
 			Pad = 6,
 			GlyphSize = 40,
 			GlyphGap = 2,
-			BadgeHeight = 16, BadgeTextPx = 13,
+			CaptionHeight = 16, CaptionTextPx = 13,
 		},
+
+		-- The rail is a row of tiles, so its shape IS Tile's; only what it does with
+		-- them is its own. The keys below are derived, not typed.
+		Rail = {},
+
+		-- The touch pad is a column of them, and it is UI.TouchPad rather than
+		-- UI.Movement because Config.Movement is the gameplay table that these three
+		-- buttons drive. Count is what the stack's height is
+		-- derived FROM: it shipped as a 208-tall frame laying out 212 (three 64-px
+		-- buttons plus two UI.Gap), so it drew four pixels out of its own bottom,
+		-- and 208 was a literal in a builder that nothing could read.
+		TouchPad = { Count = 3 },
 
 		-- THE UPGRADE SHOP IS A SECOND COLUMN, not the bottom of the first. It is
 		-- bottom-anchored and proportionally tall, so on a short screen it grows
@@ -1255,10 +1277,24 @@ __MODULES["Config"] = function()
 		ui.PartyPanel.PairX = ui.PartyPanel.ActionX + ui.PartyPanel.CloseX
 		ui.PartyPanel.TextWidth = ui.ColumnWidth - ui.PartyPanel.PairX - ui.PartyPanel.Pad * 2
 
+		-- The stack holds exactly what it lays out: UiKit.dock puts UI.Gap between
+		-- children, and a frame that does not account for the gaps draws its last
+		-- tile past its own edge.
+		ui.TouchPad.Width = ui.Tile.Width
+		ui.TouchPad.Height = ui.TouchPad.Count * ui.Tile.Height
+			+ (ui.TouchPad.Count - 1) * ui.Gap
+
 		ui.Icon.RatioSmall  = ui.Icon.StrokeSmall  / ui.Icon.Small
 		ui.Icon.RatioMedium = ui.Icon.StrokeMedium / ui.Icon.Medium
 		ui.Icon.RatioLarge  = ui.Icon.StrokeLarge  / ui.Icon.Large
 
+		ui.Rail.ItemWidth = ui.Tile.Width
+		ui.Rail.ItemHeight = ui.Tile.Height
+		ui.Rail.Pad = ui.Tile.Pad
+		ui.Rail.GlyphSize = ui.Tile.GlyphSize
+		ui.Rail.BadgeHeight = ui.Tile.CaptionHeight
+		ui.Rail.BadgeTextPx = ui.Tile.CaptionTextPx
+		ui.Rail.GlyphGap = ui.Tile.GlyphGap
 		ui.Rail.GlyphX = math.floor((rail.ItemWidth - rail.GlyphSize) / 2)
 		ui.Rail.GlyphY = rail.Pad
 		ui.Rail.BadgeY = rail.Pad + rail.GlyphSize + rail.GlyphGap

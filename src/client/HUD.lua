@@ -90,7 +90,7 @@ local state = {
 
 local gui, root, overlay, rootScale, overlayScale, rootPadding
 local column, cashLabel, multLabel, termsLabel
-local inviteButton, inviteCaption
+local inviteButton
 local waveFrame, waveLabel, toastList, rebirthButton
 -- the next-purchase half of the status card: name, bar fill, "N to go". The bar's
 -- TRACK is not kept — it is drawn once and never written to again, and a module
@@ -349,10 +349,10 @@ local function buildUtilityRail(parent: Instance)
 		direction = "Horizontal",
 	})
 
-	local slot
-	inviteButton, slot, inviteCaption = UiKit.railItem(railFrame, "Invite", ROLE.affirm)
+	inviteButton = UiKit.tile(railFrame, {
+		name = "Invite", variant = "pill", icon = "personPlus", caption = "+0%",
+	})
 	buildHelp(railFrame)
-	UiKit.icon(slot, "personPlus", RAIL.GlyphSize, ROLE.onAffirm, ROLE.affirm)
 	-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 	-- control does not exist. See refreshInvite.
 	inviteButton.Visible = false
@@ -591,8 +591,12 @@ local function renderHelp()
 end
 
 function buildHelp(rail)
-	local button = UiKit.railItem(rail, "Help", ROLE.notice)
-	button.Text = "?"
+	-- The `?` was text in a tile whose glyph slot sat empty. A question mark is
+	-- a smooth open curve and is not drawable from the four primitives, so this
+	-- is the substitution #183 asks about.
+	local button = UiKit.tile(rail, {
+		name = "Help", variant = "ghost", icon = "info", caption = "HELP",
+	})
 	helpPanel = UiKit.panel(overlay, UDim2.fromOffset(320, 60), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 	helpPanel.Name = "Help"
 	helpPanel.Visible = false
@@ -618,13 +622,11 @@ local function refreshInvite()
 	inviteButton.Visible = state.canInvite and state.friends < state.friendCap
 		and HUD.disclosed("social")
 	if state.friends > 0 then
-		inviteCaption.Text = ("+%d%%"):format(friendPercent(state.friends))
-		inviteCaption.TextColor3 = ROLE.onAffirm
+		UiKit.setTileCaption(inviteButton, ("+%d%%"):format(friendPercent(state.friends)))
 	else
 		-- One friend's worth, not zero: zero is what you have, and what you have
 		-- is not what a button is offering you.
-		inviteCaption.Text = ("+%d%%"):format(friendPercent(1))
-		inviteCaption.TextColor3 = ROLE.onAffirm
+		UiKit.setTileCaption(inviteButton, ("+%d%%"):format(friendPercent(1)))
 	end
 end
 
@@ -693,12 +695,13 @@ function HUD.onStats(fn: () -> ())
 end
 
 --- A rail item owned by another module: label, a visibility rule, a press.
-function HUD.addRailItem(name: string, label: string, visible: () -> boolean, onPress: () -> ())
+function HUD.addRailItem(name: string, icon: string, label: string, visible: () -> boolean, onPress: () -> ())
 	if not railFrame then
 		return
 	end
-	local button = UiKit.railItem(railFrame, name, ROLE.currency)
-	button.Text = label
+	local button = UiKit.tile(railFrame, {
+		name = name, variant = "primary", icon = icon, caption = label,
+	})
 	button.Visible = visible()
 	button.Activated:Connect(onPress)
 	table.insert(dynamicRail, { button = button, visible = visible })
