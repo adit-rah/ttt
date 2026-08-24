@@ -1118,6 +1118,39 @@ __MODULES["Config"] = function()
 		-- and 208 was a literal in a builder that nothing could read.
 		TouchPad = { Count = 3 },
 
+		-- invariant: THE LIVE SHOP (#108) — an overlay card, a scrolling list of
+		-- rows, one control per row whose LABEL IS THE STATE.
+		--
+		-- THIS IS NOT UI.ShopPanel. That table belongs to the PROTOTYPE second column
+		-- in UpgradeUI.lua, behind two Config.Prototypes flags the verifier requires
+		-- to ship false — so nine assertions on it, including the shop-versus-column
+		-- overlap check this whole table was written for, guard a surface nobody can
+		-- see. The live shop had no geometry of its own at all: it typed 340, 34, 26
+		-- and 22 into src/client, where nothing can read them.
+		--
+		-- IT SCROLLS BECAUSE IT HAS TO. Five bats and four armour tiers at a
+		-- thumb-sized row height is well past Modal.MaxHeight, and the card grew from
+		-- an accumulated y with nothing checking it against the viewport — so it got
+		-- taller every time somebody added a Config row.
+		--
+		-- design:D-05 — the screen is drawn in one system.
+		Shop = {
+			Width = 420,
+			Pad = 16,
+			RowGap = 6,
+			RowPad = 10,
+			HeadTextPx = 20, BalanceTextPx = 17,
+			SectionHeight = 24, SectionTextPx = 13,
+			NameHeight = 20, NameTextPx = 15,
+			StatHeight = 16, StatTextPx = 13,
+			BuyWidth = 132,
+			MinNameWidth = 140,
+			-- The tier pips: a row of rungs filled to this row's place in its ladder.
+			-- Derived from table POSITION rather than from any per-item colour, so it
+			-- survives the placeholder art being replaced.
+			PipSize = 5, PipGap = 3,
+		},
+
 		-- THE UPGRADE SHOP IS A SECOND COLUMN, not the bottom of the first. It is
 		-- bottom-anchored and proportionally tall, so on a short screen it grows
 		-- upwards into whatever is above it; when it shared the left column that
@@ -1280,6 +1313,23 @@ __MODULES["Config"] = function()
 		-- The stack holds exactly what it lays out: UiKit.dock puts UI.Gap between
 		-- children, and a frame that does not account for the gaps draws its last
 		-- tile past its own edge.
+		-- The shop's row is a well, a two-line text column and a control, and its
+		-- height is the touch floor plus the padding around it.
+		ui.Shop.WellSize = ui.Button.IconOnly
+		-- Padding on BOTH sides, not one. At pill + RowPad the row was 54 and the
+		-- two text lines plus their padding needed 56, so the stat line hung out
+		-- the bottom — which the verifier caught the first time it ran.
+		ui.Shop.RowHeight = ui.Button.pill + ui.Shop.RowPad * 2
+		ui.Shop.HeadHeight = ui.Button.IconOnly + ui.Shop.RowGap
+		ui.Shop.ContentWidth = ui.Shop.Width - ui.Shop.Pad * 2
+		ui.Shop.TextX = ui.Shop.RowPad + ui.Shop.WellSize + ui.Shop.RowPad
+		ui.Shop.TextWidth = ui.Shop.ContentWidth - ui.Shop.TextX
+			- ui.Shop.BuyWidth - ui.Shop.RowPad * 2
+		-- What the scroller can show at once, and therefore whether the card is a
+		-- list or a keyhole.
+		ui.Shop.ViewportHeight = ui.Modal.MaxHeight - ui.Shop.HeadHeight - ui.Shop.Pad * 2
+		ui.Shop.RowsVisible = math.floor(ui.Shop.ViewportHeight / (ui.Shop.RowHeight + ui.Shop.RowGap))
+
 		ui.TouchPad.Width = ui.Tile.Width
 		ui.TouchPad.Height = ui.TouchPad.Count * ui.Tile.Height
 			+ (ui.TouchPad.Count - 1) * ui.Gap

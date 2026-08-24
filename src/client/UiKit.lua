@@ -434,8 +434,11 @@ local function dot(cx, cy, d)
 	return { kind = "rect", x = cx - d / 2, y = cy - d / 2, w = d, h = d, radius = d / 2 }
 end
 
---- `opts` may carry `thick`, a MULTIPLE of the glyph's weight for a part that
---- is meant to read as heavier than a line — a bat's barrel against its handle.
+--- `opts` may carry `thick`, a WHOLE multiple of the glyph's weight for a part
+--- meant to read as heavier than a line — a bat's barrel against its handle.
+--- Whole, because a fraction rounds to a thickness that is not a multiple of
+--- anything, which is the drift the shared weight exists to prevent: the barrel
+--- was declared at 2.2 and drew at 7 against a glyph weight of 3.
 --- It may also carry `cut = true`, which draws the part in the colour behind
 --- the glyph so it reads as a hole punched through what is under it.
 local function bar(x1, y1, x2, y2, opts)
@@ -471,6 +474,15 @@ UiKit.ICONS = {
 	dash = { bar(5, 6, 12, 12), bar(12, 12, 5, 18), bar(12, 6, 19, 12), bar(19, 12, 12, 18) },
 	-- The shop rail: an awning over a box with a door in it.
 	shop = { bar(3, 6.5, 21, 6.5, { thick = 2 }), rect(5, 10, 14, 11, 1), rect(10, 15, 4, 6, 0.5) },
+	-- What the shop sells. The bat runs knob to barrel on the diagonal and is
+	-- the one glyph with a deliberately heavier part — `thick` on the barrel,
+	-- which is still a multiple of the drawing's own weight.
+	bat = { dot(5.5, 18.5, 5), bar(6.5, 17.5, 12, 12),
+		bar(12.5, 11.5, 18.5, 5.5, { thick = 2 }) },
+	armour = { rect(5, 3, 14, 10, 2), bar(5, 13, 12, 20), bar(12, 20, 19, 13) },
+	-- The shackle is a RING DRAWN FIRST and the body an opaque rect over it,
+	-- so only the top half of the ring survives. Nothing here can draw an arc.
+	lock = { ring(12, 9.5, 11), rect(5, 12, 14, 9, 2) },
 
 	-- the compass set, replacing ◆ ▲ ⌂ ! and a partymate's first initial
 	core  = { rect(7, 7, 10, 10, 1, 45) },

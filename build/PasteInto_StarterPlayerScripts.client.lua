@@ -1118,6 +1118,39 @@ __MODULES["Config"] = function()
 		-- and 208 was a literal in a builder that nothing could read.
 		TouchPad = { Count = 3 },
 
+		-- invariant: THE LIVE SHOP (#108) — an overlay card, a scrolling list of
+		-- rows, one control per row whose LABEL IS THE STATE.
+		--
+		-- THIS IS NOT UI.ShopPanel. That table belongs to the PROTOTYPE second column
+		-- in UpgradeUI.lua, behind two Config.Prototypes flags the verifier requires
+		-- to ship false — so nine assertions on it, including the shop-versus-column
+		-- overlap check this whole table was written for, guard a surface nobody can
+		-- see. The live shop had no geometry of its own at all: it typed 340, 34, 26
+		-- and 22 into src/client, where nothing can read them.
+		--
+		-- IT SCROLLS BECAUSE IT HAS TO. Five bats and four armour tiers at a
+		-- thumb-sized row height is well past Modal.MaxHeight, and the card grew from
+		-- an accumulated y with nothing checking it against the viewport — so it got
+		-- taller every time somebody added a Config row.
+		--
+		-- design:D-05 — the screen is drawn in one system.
+		Shop = {
+			Width = 420,
+			Pad = 16,
+			RowGap = 6,
+			RowPad = 10,
+			HeadTextPx = 20, BalanceTextPx = 17,
+			SectionHeight = 24, SectionTextPx = 13,
+			NameHeight = 20, NameTextPx = 15,
+			StatHeight = 16, StatTextPx = 13,
+			BuyWidth = 132,
+			MinNameWidth = 140,
+			-- The tier pips: a row of rungs filled to this row's place in its ladder.
+			-- Derived from table POSITION rather than from any per-item colour, so it
+			-- survives the placeholder art being replaced.
+			PipSize = 5, PipGap = 3,
+		},
+
 		-- THE UPGRADE SHOP IS A SECOND COLUMN, not the bottom of the first. It is
 		-- bottom-anchored and proportionally tall, so on a short screen it grows
 		-- upwards into whatever is above it; when it shared the left column that
@@ -1280,6 +1313,23 @@ __MODULES["Config"] = function()
 		-- The stack holds exactly what it lays out: UiKit.dock puts UI.Gap between
 		-- children, and a frame that does not account for the gaps draws its last
 		-- tile past its own edge.
+		-- The shop's row is a well, a two-line text column and a control, and its
+		-- height is the touch floor plus the padding around it.
+		ui.Shop.WellSize = ui.Button.IconOnly
+		-- Padding on BOTH sides, not one. At pill + RowPad the row was 54 and the
+		-- two text lines plus their padding needed 56, so the stat line hung out
+		-- the bottom — which the verifier caught the first time it ran.
+		ui.Shop.RowHeight = ui.Button.pill + ui.Shop.RowPad * 2
+		ui.Shop.HeadHeight = ui.Button.IconOnly + ui.Shop.RowGap
+		ui.Shop.ContentWidth = ui.Shop.Width - ui.Shop.Pad * 2
+		ui.Shop.TextX = ui.Shop.RowPad + ui.Shop.WellSize + ui.Shop.RowPad
+		ui.Shop.TextWidth = ui.Shop.ContentWidth - ui.Shop.TextX
+			- ui.Shop.BuyWidth - ui.Shop.RowPad * 2
+		-- What the scroller can show at once, and therefore whether the card is a
+		-- list or a keyhole.
+		ui.Shop.ViewportHeight = ui.Modal.MaxHeight - ui.Shop.HeadHeight - ui.Shop.Pad * 2
+		ui.Shop.RowsVisible = math.floor(ui.Shop.ViewportHeight / (ui.Shop.RowHeight + ui.Shop.RowGap))
+
 		ui.TouchPad.Width = ui.Tile.Width
 		ui.TouchPad.Height = ui.TouchPad.Count * ui.Tile.Height
 			+ (ui.TouchPad.Count - 1) * ui.Gap
@@ -7828,6 +7878,16 @@ __MODULES["HUD"] = function()
 		return state.owned or {}
 	end
 
+	--- The balance the last Stats push carried.
+	---
+	--- state.cash and NOT displayedCash. The lerped one exists so the status card
+	--- cannot contradict itself while the number is still climbing; a shop deciding
+	--- whether you can afford something has to answer with what you actually have,
+	--- or a row reads as locked for the second the animation is catching up.
+	function HUD.cash(): number
+		return state.cash or 0
+	end
+
 	-- fired at the end of every applyStats; ShopUI re-dresses through it
 	local statsListeners: { () -> () } = {}
 
@@ -9685,9 +9745,23 @@ __MODULES["ShopUI"] = function()
 		One overlay card, two sections: BATS and ARMOUR. Every row prints the
 		measured effect the buy pads used to print — "34 dmg • 14% crit", the
 		armour's health — because that legibility was the pads' best feature and
-		it had to survive the move. Rows come straight from Config; ownership
-		comes off the Stats payload the HUD already holds, so the shop needs no
-		state push of its own.
+		it had to survive the move. Rows come straight from Config.
+
+		FIVE SLOTS TO A ROW AND NEVER A SIXTH: a well with the item's glyph in it,
+		the name, the stat line under it, the tier pips, and one control on the
+		right whose LABEL IS THE STATE. A column of wells is what makes a list
+		scannable; a column of text is a wall.
+
+		IT SCROLLS. Nine rows at a thumb-sized height is well past Modal.MaxHeight,
+		and the card used to grow from an accumulated `y` with nothing checking it
+		against the viewport — so it got taller every time somebody added a row to
+		Config, and the first time anyone would have found out is on a phone.
+
+		AFFORDABILITY IS READ, NOT GUESSED. This panel did not look at the player's
+		balance at all: an unaffordable buy fired the remote, failed server-side and
+		came back as a toast. It reads HUD.cash() now, and the price control is
+		pressable only when it can be paid. The server still validates everything;
+		this is only what the button looks like.
 
 		Two doors in: the SHOP rail item (disclosure-gated, like every earned
 		surface) and the merchant's prompt, which arrives as { open = true } on
@@ -9706,13 +9780,12 @@ __MODULES["ShopUI"] = function()
 	local ShopUI = {}
 
 	local ROLE = UiKit.ROLE
-	local UI = Config.UI
-	local BUY_WIDTH = 132
-	local ROW_HEIGHT = UI.Button.pill + 8
+	local SHOP = Config.UI.Shop
 
-	local panel
+	local panel, scroll, balanceLabel
 	local rows = {}
 
+	--- The measured effect, which is the best thing on this screen.
 	local function statLine(def): string
 		if def.track == "weapons" then
 			local bat = Config.BatById[def.grants]
@@ -9729,68 +9802,141 @@ __MODULES["ShopUI"] = function()
 		return ""
 	end
 
-	--- One section of catalog rows; returns the next free y.
-	local function buildSection(title: string, defs, y: number): number
-		UiKit.text(panel, {
-			Size = UDim2.new(1, -24, 0, 18),
-			Position = UDim2.fromOffset(12, y),
+	--- The rungs, filled to this row's place in its own ladder.
+	---
+	--- Derived from table POSITION, so it survives the tiers being redrawn — which
+	--- is the whole reason it is not the item's own colour. Fill-versus-empty is a
+	--- SHAPE, so it works before colour does on a bright sky, which is what
+	--- SYSTEMS.md §8 asks of every state on this screen.
+	local function buildPips(parent: Instance, index: number, count: number, y: number)
+		for rung = 1, count do
+			local pip = Instance.new("Frame")
+			pip.Name = ("Pip%d"):format(rung)
+			pip.Size = UDim2.fromOffset(SHOP.PipSize, SHOP.PipSize)
+			pip.Position = UDim2.fromOffset((rung - 1) * (SHOP.PipSize + SHOP.PipGap), y)
+			pip.BackgroundColor3 = rung <= index and ROLE.currency or ROLE.line
+			pip.BackgroundTransparency = rung <= index and 0 or 0.4
+			pip.BorderSizePixel = 0
+			pip.Parent = parent
+			UiKit.corner(pip, math.floor(SHOP.PipSize / 2))
+		end
+	end
+
+	--- One row. Returns the y after it.
+	local function buildRow(def, icon: string, index: number, count: number, y: number): number
+		local row = Instance.new("Frame")
+		row.Name = def.id
+		row.Size = UDim2.fromOffset(SHOP.ContentWidth, SHOP.RowHeight)
+		row.Position = UDim2.fromOffset(0, y)
+		row.BackgroundColor3 = ROLE.surfaceRaised
+		row.BackgroundTransparency = 0.35
+		row.BorderSizePixel = 0
+		row.Parent = scroll
+		UiKit.corner(row, 8)
+
+		local well = Instance.new("Frame")
+		well.Name = "Well"
+		well.Size = UDim2.fromOffset(SHOP.WellSize, SHOP.WellSize)
+		well.Position = UDim2.fromOffset(SHOP.RowPad, math.round((SHOP.RowHeight - SHOP.WellSize) / 2))
+		well.BackgroundColor3 = ROLE.surface
+		well.BackgroundTransparency = 0.25
+		well.BorderSizePixel = 0
+		well.Parent = row
+		UiKit.corner(well, 8)
+
+		local glyph = UiKit.icon(well, icon,
+			Config.UI.Icon.Medium, ROLE.onSurface, ROLE.surface)
+		glyph.Position = UDim2.fromOffset(
+			math.floor((SHOP.WellSize - Config.UI.Icon.Medium) / 2),
+			math.floor((SHOP.WellSize - Config.UI.Icon.Medium) / 2))
+
+		local name = UiKit.text(row, {
+			Name = "Name",
+			Size = UDim2.fromOffset(SHOP.TextWidth, SHOP.NameHeight),
+			Position = UDim2.fromOffset(SHOP.TextX, SHOP.RowPad),
+			Font = Style.Font.title,
+			Text = def.name,
+			TextSize = SHOP.NameTextPx,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = ROLE.emphasis,
+		})
+		UiKit.text(row, {
+			Name = "Stat",
+			Size = UDim2.fromOffset(SHOP.TextWidth, SHOP.StatHeight),
+			Position = UDim2.fromOffset(SHOP.TextX, SHOP.RowPad + SHOP.NameHeight),
+			Font = Style.Font.body,
+			Text = statLine(def),
+			TextSize = SHOP.StatTextPx,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = ROLE.onSurfaceMuted,
+		})
+
+		local pips = Instance.new("Frame")
+		pips.Name = "Pips"
+		pips.Size = UDim2.fromOffset(count * (SHOP.PipSize + SHOP.PipGap), SHOP.PipSize)
+		pips.Position = UDim2.fromOffset(SHOP.TextX, SHOP.RowHeight - SHOP.RowPad - SHOP.PipSize)
+		pips.BackgroundTransparency = 1
+		pips.BorderSizePixel = 0
+		pips.Parent = row
+		buildPips(pips, index, count, 0)
+
+		local button = UiKit.control(row, {
+			variant = "pill", text = "", name = "Buy", width = SHOP.BuyWidth,
+			position = UDim2.fromOffset(
+				SHOP.ContentWidth - SHOP.RowPad - SHOP.BuyWidth,
+				math.round((SHOP.RowHeight - Config.UI.Button.pill) / 2)),
+		})
+		button.Activated:Connect(function()
+			Net.event("Shop"):FireServer({ action = "buy", id = def.id })
+		end)
+
+		rows[def.id] = { def = def, nameLabel = name, button = button, glyph = glyph, pips = pips }
+		return y + SHOP.RowHeight + SHOP.RowGap
+	end
+
+	--- A section heading over a hairline. Not a second card: a stack of cards reads
+	--- as a stack of things, and this is one thing with two parts.
+	local function buildSection(title: string, defs, icon: string, y: number): number
+		UiKit.text(scroll, {
+			Size = UDim2.fromOffset(SHOP.ContentWidth, SHOP.SectionHeight),
+			Position = UDim2.fromOffset(0, y),
 			Font = Style.Font.title,
 			Text = title,
-			TextSize = 14,
+			TextSize = SHOP.SectionTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.heading,
 		})
-		y += 22
-		for _, def in ipairs(defs) do
-			local row = Instance.new("Frame")
-			row.Size = UDim2.new(1, -16, 0, ROW_HEIGHT)
-			row.Position = UDim2.fromOffset(8, y)
-			row.BackgroundColor3 = ROLE.surface
-			row.BackgroundTransparency = 0.35
-			row.BorderSizePixel = 0
-			row.Parent = panel
-			UiKit.corner(row, 6)
+		local rule = Instance.new("Frame")
+		rule.Name = title .. "Rule"
+		rule.Size = UDim2.fromOffset(SHOP.ContentWidth, 1)
+		rule.Position = UDim2.fromOffset(0, y + SHOP.SectionHeight - 2)
+		rule.BackgroundColor3 = ROLE.line
+		rule.BackgroundTransparency = 0.5
+		rule.BorderSizePixel = 0
+		rule.Parent = scroll
+		y += SHOP.SectionHeight + SHOP.RowGap
 
-			local name = UiKit.text(row, {
-				Size = UDim2.new(1, -160, 0, 16),
-				Position = UDim2.fromOffset(8, 2),
-				Font = Style.Font.body,
-				Text = def.name,
-				TextSize = 13,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = ROLE.emphasis,
-			})
-			UiKit.text(row, {
-				Size = UDim2.new(1, -160, 0, 13),
-				Position = UDim2.fromOffset(8, 18),
-				Font = Style.Font.body,
-				Text = statLine(def),
-				TextSize = 11,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = ROLE.onSurfaceMuted,
-			})
-			-- 130x26 was an 81x16 physical target at MinScale, on the buy button of
-			-- the game's only storefront. The row grows to hold a real one; the rest
-			-- of this card's layout is #183's next step.
-			local button = UiKit.control(row, {
-				variant = "pill", text = "", width = BUY_WIDTH,
-				position = UDim2.new(1, -(BUY_WIDTH + 8), 0, math.round((ROW_HEIGHT - UI.Button.pill) / 2)),
-			})
-			button.Activated:Connect(function()
-				Net.event("Shop"):FireServer({ action = "buy", id = def.id })
-			end)
-			rows[def.id] = { def = def, nameLabel = name, button = button }
-			y += ROW_HEIGHT + 4
+		for index, def in ipairs(defs) do
+			y = buildRow(def, icon, index, #defs, y)
 		end
-		return y + 6
+		return y + SHOP.RowGap
 	end
 
-	--- Re-reads ownership off the HUD's Stats mirror and dresses every row.
+	--- Re-dresses every row against ownership and the balance.
+	---
+	--- Three states, and each differs from the others in MORE THAN COLOUR: the
+	--- control's label says which one it is, the glyph dims when the row is locked,
+	--- and the pips outline rather than fill. SYSTEMS.md §8 requires that, because
+	--- colour is the first thing a bright sky takes away.
 	local function refresh()
 		if not panel or not panel.Visible then
 			return
 		end
 		local owned = HUD.ownedSet()
+		local cash = HUD.cash()
+		balanceLabel.Text = Util.abbreviate(cash)
+
 		for id, row in pairs(rows) do
 			local isOwned = owned[id] == true
 			local blocked
@@ -9800,18 +9946,21 @@ __MODULES["ShopUI"] = function()
 					break
 				end
 			end
-			-- A state, not a colour. The inline version set a fill and Active and
-			-- left AutoButtonColor on, so a dead button still flashed under a thumb,
-			-- and left the ink at the live variant's, so OWNED printed unreadably.
+
 			if isOwned then
 				row.button.Text = "OWNED"
-				UiKit.setControlState(row.button, "disabled")
+				UiKit.setControlState(row.button, "on")
+				UiKit.fadeIcon(row.glyph, 0)
 			elseif blocked then
 				row.button.Text = "AFTER " .. blocked.name:upper():sub(1, 12)
 				UiKit.setControlState(row.button, "disabled")
+				UiKit.fadeIcon(row.glyph, 0.6)
 			else
 				row.button.Text = "$" .. Util.abbreviate(row.def.price)
-				UiKit.setControlState(row.button, "idle")
+				-- Pressable only when it can be paid. The server still validates;
+				-- this stops the round trip that came back as a toast saying no.
+				UiKit.setControlState(row.button, cash >= row.def.price and "idle" or "disabled")
+				UiKit.fadeIcon(row.glyph, 0)
 			end
 		end
 	end
@@ -9822,31 +9971,69 @@ __MODULES["ShopUI"] = function()
 	end
 
 	function ShopUI.start()
-		panel = UiKit.panel(HUD.overlay(), UDim2.fromOffset(340, 60), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+		panel = UiKit.panel(HUD.overlay(),
+			UDim2.fromOffset(Config.UI.Shop.Width, Config.UI.Modal.MaxHeight),
+			UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		panel.Name = "Shop"
 		panel.Visible = false
 
-		local y = 10
 		UiKit.text(panel, {
-			Size = UDim2.new(1, -24, 0, 20),
-			Position = UDim2.fromOffset(12, y),
+			Name = "Title",
+			Size = UDim2.fromOffset(SHOP.ContentWidth, SHOP.HeadHeight),
+			Position = UDim2.fromOffset(SHOP.Pad, SHOP.Pad),
 			Font = Style.Font.title,
 			Text = "THE SHOP",
-			TextSize = 17,
+			TextSize = SHOP.HeadTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Center,
 			TextColor3 = ROLE.heading,
 		})
+
+		-- The balance, in the header. A shop you have to close to check your money
+		-- is a shop you close.
+		local coin = UiKit.icon(panel, "coin", Config.UI.Icon.Small, ROLE.currency, ROLE.surface)
+		coin.Name = "HeaderCoin"
+		coin.Position = UDim2.fromOffset(
+			SHOP.Pad + SHOP.ContentWidth - Config.UI.Button.IconOnly - SHOP.RowPad
+				- SHOP.BuyWidth,
+			SHOP.Pad + math.floor((SHOP.HeadHeight - Config.UI.Icon.Small) / 2))
+		balanceLabel = UiKit.text(panel, {
+			Name = "Balance",
+			Size = UDim2.fromOffset(SHOP.BuyWidth - SHOP.RowPad, SHOP.HeadHeight),
+			Position = UDim2.fromOffset(
+				SHOP.Pad + SHOP.ContentWidth - Config.UI.Button.IconOnly - SHOP.BuyWidth
+					+ Config.UI.Icon.Small - SHOP.RowPad,
+				SHOP.Pad),
+			Font = Style.Font.title,
+			Text = "0",
+			TextSize = SHOP.BalanceTextPx,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			TextColor3 = ROLE.currency,
+		})
+
 		local close = UiKit.control(panel, {
 			variant = "ghost", name = "Close", icon = "close", iconOnly = true,
-			position = UDim2.new(1, -(UI.Button.IconOnly + 8), 0, 8),
+			position = UDim2.fromOffset(
+				SHOP.Pad + SHOP.ContentWidth - Config.UI.Button.IconOnly, SHOP.Pad),
 		})
 		close.Activated:Connect(function()
 			panel.Visible = false
 		end)
-		y += 30
-		y = buildSection("BATS", Config.WeaponButtons, y)
-		y = buildSection("ARMOUR", Config.ArmorButtons, y)
-		panel.Size = UDim2.fromOffset(340, y)
+
+		scroll = Instance.new("ScrollingFrame")
+		scroll.Name = "Rows"
+		scroll.Size = UDim2.fromOffset(SHOP.ContentWidth, SHOP.ViewportHeight)
+		scroll.Position = UDim2.fromOffset(SHOP.Pad, SHOP.Pad + SHOP.HeadHeight)
+		scroll.BackgroundTransparency = 1
+		scroll.BorderSizePixel = 0
+		scroll.ScrollBarThickness = 4
+		scroll.ScrollBarImageColor3 = ROLE.line
+		scroll.Parent = panel
+
+		local y = buildSection("BATS", Config.WeaponButtons, "bat", 0)
+		y = buildSection("ARMOUR", Config.ArmorButtons, "armour", y)
+		scroll.CanvasSize = UDim2.fromOffset(0, y)
 
 		-- door one: the merchant's prompt answers { open = true }
 		Net.event("Shop").OnClientEvent:Connect(function(payload)
@@ -9858,7 +10045,7 @@ __MODULES["ShopUI"] = function()
 		HUD.addRailItem("Shop", "shop", "SHOP", function()
 			return HUD.disclosed("shop")
 		end, open)
-		-- ownership rides Stats; re-dress on every push while open
+		-- ownership and the balance both ride Stats; re-dress on every push
 		HUD.onStats(refresh)
 	end
 
@@ -10402,8 +10589,11 @@ __MODULES["UiKit"] = function()
 		return { kind = "rect", x = cx - d / 2, y = cy - d / 2, w = d, h = d, radius = d / 2 }
 	end
 
-	--- `opts` may carry `thick`, a MULTIPLE of the glyph's weight for a part that
-	--- is meant to read as heavier than a line — a bat's barrel against its handle.
+	--- `opts` may carry `thick`, a WHOLE multiple of the glyph's weight for a part
+	--- meant to read as heavier than a line — a bat's barrel against its handle.
+	--- Whole, because a fraction rounds to a thickness that is not a multiple of
+	--- anything, which is the drift the shared weight exists to prevent: the barrel
+	--- was declared at 2.2 and drew at 7 against a glyph weight of 3.
 	--- It may also carry `cut = true`, which draws the part in the colour behind
 	--- the glyph so it reads as a hole punched through what is under it.
 	local function bar(x1, y1, x2, y2, opts)
@@ -10439,6 +10629,15 @@ __MODULES["UiKit"] = function()
 		dash = { bar(5, 6, 12, 12), bar(12, 12, 5, 18), bar(12, 6, 19, 12), bar(19, 12, 12, 18) },
 		-- The shop rail: an awning over a box with a door in it.
 		shop = { bar(3, 6.5, 21, 6.5, { thick = 2 }), rect(5, 10, 14, 11, 1), rect(10, 15, 4, 6, 0.5) },
+		-- What the shop sells. The bat runs knob to barrel on the diagonal and is
+		-- the one glyph with a deliberately heavier part — `thick` on the barrel,
+		-- which is still a multiple of the drawing's own weight.
+		bat = { dot(5.5, 18.5, 5), bar(6.5, 17.5, 12, 12),
+			bar(12.5, 11.5, 18.5, 5.5, { thick = 2 }) },
+		armour = { rect(5, 3, 14, 10, 2), bar(5, 13, 12, 20), bar(12, 20, 19, 13) },
+		-- The shackle is a RING DRAWN FIRST and the body an opaque rect over it,
+		-- so only the top half of the ring survives. Nothing here can draw an arc.
+		lock = { ring(12, 9.5, 11), rect(5, 12, 14, 9, 2) },
 
 		-- the compass set, replacing ◆ ▲ ⌂ ! and a partymate's first initial
 		core  = { rect(7, 7, 10, 10, 1, 45) },

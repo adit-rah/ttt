@@ -70,4 +70,147 @@ T.spec("a sale charges, owns, and grants monotonically", function(t)
 	t:eq(profile.batTier, 3, "the second bat must climb the tier")
 end)
 
+
+-- ── the storefront's face ───────────────────────────────────────────────────
+--
+-- The two specs above are the SERVER's refusals. These are what the card shows
+-- before you press anything, which used to be nothing at all: ShopUI did not
+-- read the balance, so an unaffordable buy fired the remote, failed server-side
+-- and came back as a toast saying no.
+--
+-- Layout is not here and cannot be — the mock stores a UDim2 and never resolves
+-- it. Every size in Config.UI.Shop is held by verify_config instead. What these
+-- read is state: which control is pressable, and what its label says.
+
+local function shopWorld()
+	local world = T.world()
+	world.client()
+	world.services.UserInputService.TouchEnabled = false
+	world.req("HUD").start()
+	world.req("ShopUI").start()
+	world.cfg = world.req("Config")
+	world.util = world.req("Util")
+	return world
+end
+
+local function shopPanel(world)
+	local function find(node)
+		for _, child in ipairs(node:GetChildren()) do
+			if child.Name == "Shop" and child.ClassName == "Frame" then
+				return child
+			end
+			local found = find(child)
+			if found then
+				return found
+			end
+		end
+		return nil
+	end
+	return find(world.playerGui())
+end
+
+local function rowNamed(panel, id: string)
+	local scroll = panel:FindFirstChild("Rows")
+	return scroll and scroll:FindFirstChild(id)
+end
+
+--- Push a Stats payload the way the server would, so the card re-dresses.
+local function stats(world, cash: number, owned)
+	local folder = world.replicatedStorage:FindFirstChild("TungNet")
+	folder:FindFirstChild("Stats").OnClientEvent:Fire({ cash = cash, owned = owned or {} })
+end
+
+T.spec("a row a player cannot pay for is not pressable", function(t)
+	local world = shopWorld()
+	local panel = shopPanel(world)
+	t:notNil(panel, "the shop card was not built")
+	panel.Visible = true
+
+	local first = world.cfg.WeaponButtons[1]
+	stats(world, 0, {})
+	local row = rowNamed(panel, first.id)
+	t:notNil(row, ("no row was built for %q"):format(first.id))
+	if row then
+		local buy = row:FindFirstChild("Buy")
+		t:isFalse(buy.Active,
+			"a row nobody can pay for is pressable — this is the round trip that came back as a toast saying no")
+
+		stats(world, first.price, {})
+		t:isTrue(buy.Active, "a row the player can now afford stayed dead")
+		t:eq(buy.Text, "$" .. world.util.abbreviate(first.price), "an affordable row does not print its price")
+	end
+end)
+
+T.spec("owned reads as owned, and locked names what it waits for", function(t)
+	local world = shopWorld()
+	local panel = shopPanel(world)
+	panel.Visible = true
+
+	local first = world.cfg.WeaponButtons[1]
+	stats(world, 0, { [first.id] = true })
+	local buy = rowNamed(panel, first.id):FindFirstChild("Buy")
+	t:eq(buy.Text, "OWNED", "an owned row does not say so")
+	t:isFalse(buy.Active, "an owned row is still pressable")
+
+	-- Something further up the ladder whose rung below is NOT owned. Owning the
+	-- first bat unlocks the second, so "has requirements" is not the same
+	-- question as "is locked" — the first draft of this spec asked the wrong one
+	-- and picked a row that was merely expensive.
+	local owned = { [first.id] = true }
+	for _, def in ipairs(world.cfg.WeaponButtons) do
+		local blocked = false
+		for _, req in ipairs(world.cfg.requirementsOf(def)) do
+			blocked = blocked or not owned[req]
+		end
+		if blocked then
+			local locked = rowNamed(panel, def.id):FindFirstChild("Buy")
+			t:eq(locked.Text:sub(1, 5), "AFTER",
+				("a locked row says %q rather than naming what it waits for"):format(locked.Text))
+			t:isFalse(locked.Active, "a locked row is pressable")
+			break
+		end
+	end
+end)
+
+T.spec("the balance is on the card, so nobody closes it to check", function(t)
+	local world = shopWorld()
+	local panel = shopPanel(world)
+	panel.Visible = true
+
+	stats(world, 12345, {})
+	local balance = panel:FindFirstChild("Balance")
+	t:notNil(balance, "the shop header has no balance on it")
+	if balance then
+		t:eq(balance.Text, world.util.abbreviate(12345), "the shop's balance does not follow the Stats push")
+	end
+end)
+
+T.spec("every row carries a well, a stat line and its rung", function(t)
+	local world = shopWorld()
+	local panel = shopPanel(world)
+	panel.Visible = true
+	stats(world, 0, {})
+
+	for index, def in ipairs(world.cfg.WeaponButtons) do
+		local row = rowNamed(panel, def.id)
+		t:notNil(row:FindFirstChild("Well"), ("%q has no icon well"):format(def.id))
+		t:ne(row:FindFirstChild("Stat").Text, "",
+			("%q prints no stat line — the measured effect was the buy pads' best feature and it had to survive the move")
+				:format(def.id))
+		-- The pips are the tier, read off table position rather than off any
+		-- per-item colour, so they survive the art being replaced.
+		local pips = row:FindFirstChild("Pips")
+		t:eq(#pips:GetChildren(), #world.cfg.WeaponButtons,
+			("%q draws %d rungs for a ladder of %d"):format(def.id, #pips:GetChildren(), #world.cfg.WeaponButtons))
+		local filled = 0
+		for _, pip in ipairs(pips:GetChildren()) do
+			if pip.BackgroundTransparency == 0 then
+				filled += 1
+			end
+		end
+		t:eq(filled, index, ("%q is rung %d and fills %d pips"):format(def.id, index, filled))
+	end
+end)
+
+
 end

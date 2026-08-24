@@ -687,6 +687,16 @@ function HUD.ownedSet()
 	return state.owned or {}
 end
 
+--- The balance the last Stats push carried.
+---
+--- state.cash and NOT displayedCash. The lerped one exists so the status card
+--- cannot contradict itself while the number is still climbing; a shop deciding
+--- whether you can afford something has to answer with what you actually have,
+--- or a row reads as locked for the second the animation is catching up.
+function HUD.cash(): number
+	return state.cash or 0
+end
+
 -- fired at the end of every applyStats; ShopUI re-dresses through it
 local statsListeners: { () -> () } = {}
 
