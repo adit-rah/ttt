@@ -4313,6 +4313,45 @@ check(UI.Objectives.TextWidth >= 120,
 	("the objectives card leaves %d px for an objective's name beside its marker")
 		:format(UI.Objectives.TextWidth))
 
+-- ── folding a column card ───────────────────────────────────────────────────
+--
+-- A CARD'S HEADER IS THE CONTROL THAT FOLDS IT, so it is a touch target like
+-- any other — and the whole strip, because a 44-px square in the corner of a
+-- card whose header was sixteen pixels tall overlaps the first row.
+check(UI.CardHeader.Height >= UI.MinTouchPx,
+	("a card header is %d design px tall and it is the control that folds the card, against a touch floor of %d")
+		:format(UI.CardHeader.Height, UI.MinTouchPx))
+check(UI.CardHeader.TitleTextPx >= UI.MinTextPx,
+	("a card header prints at %d design px, %.1f physical at MinScale — under the %d-px floor this file declares")
+		:format(UI.CardHeader.TitleTextPx, UI.CardHeader.TitleTextPx * UI.MinScale, UI.MinTextPx))
+-- The caret has to fit beside the title with the header's own padding.
+check(UI.Icon.Small + UI.CardHeader.Pad * 2 <= UI.CardHeader.Height + UI.CardHeader.Pad,
+	("a %d-px caret plus %d of padding does not sit in a %d-px header")
+		:format(UI.Icon.Small, UI.CardHeader.Pad * 2, UI.CardHeader.Height))
+
+-- A FOLDED CARD IS ITS HEADER AND NOTHING ELSE, and it must still be pressable
+-- — a card folded away that cannot be unfolded is a card a player has lost.
+for _, card in ipairs({
+	{ "session panel", UI.SessionPanel.CollapsedHeight, UI.SessionPanel.Height },
+	{ "objectives card", UI.Objectives.CollapsedHeight, UI.Objectives.MaxHeight },
+}) do
+	check(card[2] >= UI.CardHeader.Height,
+		("the folded %s is %d design px and its header is %d; the control that unfolds it is off the bottom")
+			:format(card[1], card[2], UI.CardHeader.Height))
+	check(card[2] < card[3],
+		("the folded %s is %d and its open height is %d; a fold that saves nothing is a control that does nothing")
+			:format(card[1], card[2], card[3]))
+end
+
+-- The session panel's rows start UNDER the header. DailyY was typed at 28
+-- against a 16-px heading, and the header is a touch target now.
+check(UI.SessionPanel.DailyY >= UI.CardHeader.Height,
+	("the session panel's first row starts at y=%d and its header is %d tall; the row is under the control that folds it")
+		:format(UI.SessionPanel.DailyY, UI.CardHeader.Height))
+check(UI.Objectives.HeaderHeight == UI.CardHeader.Height,
+	("the objectives card's header is %d and a card header is %d; two headers of two heights is two designs")
+		:format(UI.Objectives.HeaderHeight, UI.CardHeader.Height))
+
 -- ── the NEW card (#183) ─────────────────────────────────────────────────────
 --
 -- IT HAS TO HOLD THE BIGGEST BATCH Config.Disclosure CAN PRODUCE. Rows sharing

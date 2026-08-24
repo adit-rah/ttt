@@ -1166,6 +1166,28 @@ defects in the same file.
 - **Every text size on the help card and the objectives card clears `MinTextPx`.** They shipped at
   11 and 12 — 6.8 to 7.4 physical px at `MinScale` — as literals in `src/client`, which is the same
   defect the NEXT UPGRADE heading had and for the same reason: nothing could read them. `[assert]`
+- **A column card's header is the control that folds it, and it is a touch target.** The whole
+  strip, because a 44-px square in the corner of a card whose header was sixteen pixels tall
+  overlaps the first row — and the header is the biggest target a card can offer. `[assert]`
+  `CardHeader.Height` off the `UI.Button` ladder, its text against `MinTextPx`, and the caret
+  fitting beside the title.
+- **A folded card is its header and nothing else, and it is NOT hidden.** A card a player folded
+  away has to stay where they folded it, or the only way back is to guess. `[assert]` the folded
+  height covers the header and is smaller than the open one — a fold that saves nothing is a
+  control that does nothing. `[spec]` `hud_spec.lua`, both cards, folded and back.
+- **The session panel folds by hiding ONE container, not a list of parts.** Every row below its
+  header owns its own `Visible` — the vault row comes and goes with the vault, the boost button
+  with disclosure — so folding by walking them would have to remember what each one wanted and
+  would get it wrong the first time a row grew a fourth state. `layoutTail` still owns the
+  panel's height, folded included; a second write elsewhere would be invisible because that one
+  lands last.
+- **Folding is session-only and deliberately not saved.** A persisted field means BOTH
+  `defaultProfile()` and the explicit `save()` payload, which §10 lists in the backlog precisely
+  because getting one of the two means it works all session and is gone at next login.
+- **A card rebuilt on every push destroys everything it built, not just the labels.**
+  `ObjectivesUI` cleared only `TextLabel`s, which was true when a done row printed its tick as
+  text — a drawn tick is a `Frame`, so one was left behind per push: invisible on the first two
+  and a stack by the tenth. `[spec]` six identical pushes leave the same child count as one.
 - **Every card that opens over the game is a `UiKit.overlayCard`, and they share one position.**
   The help card, the shop and the rebirth report each chose their own vertical centre — 0.5, 0.5
   and 0.42 — so three surfaces that open the same way opened in three places. `UI.OverlayY` is

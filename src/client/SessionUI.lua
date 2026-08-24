@@ -53,6 +53,11 @@ local state = {
 }
 
 local column, overlay, panel, dailyRow, playtimeRow, boostButton, vaultRow, offlineRow, weekendBadge
+local header, body
+-- Forward-declared: the header's Activated handler is wired in start(), which
+-- is above layoutTail, and folding is a height layoutTail owns.
+local layoutTail
+local collapsed = false
 local playtimeFill, modalOpen = nil, false
 -- The optional rows, in the order layoutTail() stacks them, and the list
 -- Config.UI.SessionPanel.OptionalRows counts. Filled by buildPanel; see
@@ -315,19 +320,31 @@ local function buildPanel()
 	panel.LayoutOrder = 2
 	panel.Visible = false
 
-	text(panel, {
-		Size = UDim2.fromOffset(PANEL.ActionTextWidth, PANEL.HeadHeight),
-		Position = UDim2.fromOffset(PANEL.Pad, PANEL.HeadPad),
-		Font = Style.Font.body,
-		Text = "SESSION",
-		TextSize = PANEL.HeadTextPx,
-		TextColor3 = ROLE.onSurfaceMuted,
+	-- The header is the fold control. Built once, unlike the objectives card's,
+	-- because this panel is not rebuilt on a push — layoutTail moves its rows.
+	header = UiKit.cardHeader(panel, {
+		name = "Header", title = "SESSION",
+		width = PANEL.Width, collapsed = collapsed,
 	})
+	body = Instance.new("Frame")
+	body.Name = "Body"
+	body.Size = UDim2.fromScale(1, 1)
+	body.BackgroundTransparency = 1
+	body.BorderSizePixel = 0
+	body.Parent = panel
 
-	-- the weekend bonus is server-wide and invisible unless something says so
-	weekendBadge = text(panel, {
-		Size = UDim2.fromOffset(PANEL.BadgeWidth, PANEL.HeadHeight),
-		Position = UDim2.fromOffset(PANEL.BadgeX, PANEL.HeadPad),
+	header.Activated:Connect(function()
+		collapsed = not collapsed
+		UiKit.setHeaderCollapsed(header, collapsed)
+		layoutTail()
+	end)
+
+	-- the weekend bonus is server-wide and invisible unless something says so.
+	-- Inside the header, so it stays readable when the card is folded — a
+	-- weekend is exactly the thing a folded card should still be able to say.
+	weekendBadge = text(header, {
+		Size = UDim2.fromOffset(PANEL.BadgeWidth, Config.UI.CardHeader.Height),
+		Position = UDim2.fromOffset(PANEL.BadgeX - Config.UI.Icon.Small, 0),
 		Font = Style.Font.body,
 		Text = "",
 		TextSize = PANEL.HeadTextPx,
@@ -335,8 +352,8 @@ local function buildPanel()
 		TextColor3 = ROLE.heading,
 	})
 
-	dailyRow = buildRow(panel, PANEL.DailyY, PANEL.DailyHeight, "DAILY STREAK")
-	playtimeRow = buildRow(panel, PANEL.PlaytimeY, PANEL.PlaytimeHeight, "PLAYTIME")
+	dailyRow = buildRow(body, PANEL.DailyY, PANEL.DailyHeight, "DAILY STREAK")
+	playtimeRow = buildRow(body, PANEL.PlaytimeY, PANEL.PlaytimeHeight, "PLAYTIME")
 
 	-- a thin progress bar along the bottom of the playtime row: the ladder is
 	-- the only part of this panel with a "how far to go" answer
@@ -357,7 +374,7 @@ local function buildPanel()
 
 	-- Gold, at the row height the panel can afford. BOOST means what REBIRTH
 	-- means and cannot have REBIRTH's 56 px.
-	boostButton = UiKit.control(panel, {
+	boostButton = UiKit.control(body, {
 		variant = "primary", height = "secondary", text = "BOOST",
 		width = PANEL.RowWidth,
 		position = UDim2.fromOffset(PANEL.Pad, PANEL.BoostY),
@@ -365,10 +382,10 @@ local function buildPanel()
 
 	-- Both of these are positioned by layoutTail() rather than here: they come
 	-- and go independently and a fixed y for each leaves a hole in the panel.
-	vaultRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "VAULT TIMER")
+	vaultRow = buildRow(body, PANEL.StackTop, PANEL.RowHeight, "VAULT TIMER")
 	vaultRow.row.Visible = false
 
-	offlineRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "OFFLINE TUNG")
+	offlineRow = buildRow(body, PANEL.StackTop, PANEL.RowHeight, "OFFLINE TUNG")
 	TAIL_ROWS = { vaultRow, offlineRow }
 	offlineRow.row.Visible = false
 	offlineRow.action.Text = "OPEN"
@@ -549,7 +566,22 @@ end
 --- OptionalRows counts: adding a third row here without adding it there is a
 --- panel that grows past the budget again, and tools/testing/specs/hud_spec.lua
 --- is what says so.
-local function layoutTail()
+function layoutTail()
+	-- FOLDED IS A HEIGHT THIS FUNCTION OWNS TOO. The panel's height has exactly
+	-- one owner and a second write elsewhere would be invisible, because this
+	-- one lands after it — which is the note above, and the fold is no
+	-- exception to it.
+	-- ONE CONTAINER, not a list of parts to hide and restore. Every row below
+	-- the header owns its own Visible — the vault row comes and goes with the
+	-- vault, the boost button with disclosure — and folding by walking them
+	-- would have to remember what each one wanted, then get it wrong the first
+	-- time a row grew a fourth state.
+	body.Visible = not collapsed
+	if collapsed then
+		panel.Size = UDim2.fromOffset(PANEL.Width, PANEL.CollapsedHeight)
+		return
+	end
+
 	local y = PANEL.StackTop
 	local shown = 0
 	for _, row in ipairs(TAIL_ROWS) do

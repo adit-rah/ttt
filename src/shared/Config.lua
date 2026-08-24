@@ -1036,7 +1036,7 @@ Config.UI = {
 		-- literal in a builder and nothing could read it to say so.
 
 		-- the fixed stack, top to bottom
-		DailyY = 28, DailyHeight = 50,
+		DailyHeight = 50,
 		PlaytimeHeight = 56,
 		BarHeight = 4, BarY = 44,   -- the playtime gauge, inside the playtime row
 
@@ -1105,6 +1105,20 @@ Config.UI = {
 	-- so there is nothing behind it to sit clear of.
 	OverlayY = 0.44,
 
+	-- invariant: A COLUMN CARD'S HEADER IS THE CONTROL THAT FOLDS IT, and it is a
+	-- touch target like any other. The whole strip, because a 44-px square in the
+	-- corner of a card whose header is sixteen pixels tall overlaps the first row.
+	--
+	-- FOLDING IS SESSION-ONLY AND DELIBERATELY NOT SAVED. A persisted field means
+	-- both defaultProfile() and the explicit save() payload, and INVARIANTS §10
+	-- lists that pair in the backlog precisely because getting one of the two
+	-- means it works all session and is gone at next login. If folding should
+	-- survive a rejoin, that is the field to add and both halves to write.
+	CardHeader = {
+		Pad = 12,
+		TitleTextPx = 13,
+	},
+
 	-- invariant: THE NEW CARD (#183) — what arrives when a surface unlocks.
 	--
 	-- Disclosure used to announce an arrival as a toast, in the same side column
@@ -1133,7 +1147,6 @@ Config.UI = {
 		-- Every one of these shipped as a literal in ObjectivesUI.lua at 11 or 12,
 		-- which is 6.8 to 7.4 PHYSICAL px at MinScale — the same defect the NEXT
 		-- UPGRADE heading had, in the one place nothing could read it.
-		HeaderHeight = 18, HeaderTextPx = 13,
 		RowGap = 2,
 		RowTextPx = 13, CountTextPx = 13,
 		HintHeight = 28, HintTextPx = 13,
@@ -1313,6 +1326,10 @@ do
 	ui.StatusCard.ContentHeight = sc.DetailY + sc.DetailHeight + sc.Pad
 
 	-- ── THE SESSION PANEL, ROW BY ROW, and both of its heights ───────────────
+	-- A card header is a touch target, so its height is the ladder's rather
+	-- than a number. Derived FIRST: the session panel's rows start under it.
+	ui.CardHeader.Height = ui.Button.pill
+
 	local sp = ui.SessionPanel
 	ui.SessionPanel.RowWidth = sp.Width - sp.Pad * 2
 	-- a row's insides
@@ -1323,6 +1340,10 @@ do
 	-- the heading and the badge opposite it
 	ui.SessionPanel.BadgeX = sp.Width - sp.Pad - sp.BadgeWidth
 	-- the fixed stack
+	-- The rows start under the header, which is the fold control and is a
+	-- touch target. DailyY was typed at 28 against a 16-px heading.
+	ui.SessionPanel.DailyY = ui.CardHeader.Height + sp.RowGap
+	ui.SessionPanel.CollapsedHeight = ui.CardHeader.Height + sp.TailPad
 	ui.SessionPanel.PlaytimeY = sp.DailyY + sp.DailyHeight + sp.RowGap
 	ui.SessionPanel.BoostY = sp.PlaytimeY + sp.PlaytimeHeight + sp.RowGap
 	-- WHERE THE OPTIONAL TAIL STARTS, which SessionUI used to type as 200.
@@ -1371,6 +1392,9 @@ do
 	-- become rather than what it happens to be showing.
 	ui.PartyPanel.MaxHeight = ui.PartyPanel.HeaderHeight + ui.PartyPanel.HeadGap
 		+ ui.PartyPanel.MaxRows * ui.PartyPanel.RowHeight
+	-- The header IS the fold control, so its height is the ladder's.
+	ui.Objectives.HeaderHeight = ui.CardHeader.Height
+	ui.Objectives.CollapsedHeight = ui.CardHeader.Height + ui.Objectives.Pad
 	ui.Objectives.RowHeight = ui.Icon.Small
 	ui.Objectives.TextX = ui.Objectives.Gutter + ui.Icon.Small + ui.Objectives.GlyphGap
 	ui.Objectives.TextWidth = ui.ColumnWidth - ui.Objectives.TextX - ui.Objectives.Gutter

@@ -46,6 +46,7 @@ local UI = Config.UI
 local ICON = Config.UI.Icon
 local TILE = Config.UI.Tile
 local BTN = Config.UI.Button
+local HEADER = Config.UI.CardHeader
 
 local UiKit = {}
 
@@ -480,6 +481,10 @@ UiKit.ICONS = {
 	-- done. Replaces the ✓ that ObjectivesUI printed as text.
 	tick = { bar(5, 12.5, 10, 17.5), bar(10, 17.5, 19, 6.5) },
 	close = { bar(6.5, 6.5, 17.5, 17.5), bar(17.5, 6.5, 6.5, 17.5) },
+	-- The two halves of a fold. A caret points at what pressing it does: down
+	-- to open a folded card, up to fold an open one.
+	caretDown = { bar(6, 9.5, 12, 15.5), bar(12, 15.5, 18, 9.5) },
+	caretUp   = { bar(6, 15.5, 12, 9.5), bar(12, 9.5, 18, 15.5) },
 	-- The help rail. A question mark is a smooth open curve and is not
 	-- drawable from these four primitives; the substitution is #183's open
 	-- question, and this is what it substitutes.
@@ -702,6 +707,63 @@ function UiKit.tile(parent: Instance, opts): TextButton
 	})
 
 	return b
+end
+
+--- invariant: A CARD'S HEADER IS THE CONTROL THAT FOLDS IT.
+---
+--- The whole strip, because a 44-px square in the corner of a card whose header
+--- is sixteen pixels tall overlaps the first row — and the accordion this is
+--- imitating has always used the header, which is also the biggest target a
+--- card can offer. Transparent, so it reads as a heading rather than as a
+--- button sitting on one; the caret is what says it presses.
+---
+--- opts: { name, title, width, collapsed }
+--- Returns the button. Its title is a child called "Title", so a caller with
+--- something else to put in the strip — the weekend badge — parents it here.
+function UiKit.cardHeader(parent: Instance, opts): TextButton
+	local b = Instance.new("TextButton")
+	b.Name = opts.name or "Header"
+	b.Size = UDim2.fromOffset(opts.width, HEADER.Height)
+	b.Position = UDim2.fromOffset(0, 0)
+	b.BackgroundTransparency = 1
+	b.BorderSizePixel = 0
+	b.AutoButtonColor = false
+	b.Active = true
+	b.Selectable = true
+	b.Font = Style.Font.title
+	b.Text = ""
+	b.Parent = parent
+
+	UiKit.text(b, {
+		Name = "Title",
+		Size = UDim2.fromOffset(opts.width - HEADER.Pad * 2 - ICON.Small, HEADER.Height),
+		Position = UDim2.fromOffset(HEADER.Pad, 0),
+		Font = Style.Font.title,
+		Text = opts.title,
+		TextSize = HEADER.TitleTextPx,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = ROLE.onSurfaceMuted,
+	})
+
+	local caret = UiKit.icon(b, opts.collapsed and "caretDown" or "caretUp",
+		ICON.Small, ROLE.onSurfaceMuted, ROLE.surface)
+	caret.Position = UDim2.fromOffset(
+		opts.width - HEADER.Pad - ICON.Small,
+		math.floor((HEADER.Height - ICON.Small) / 2))
+	return b
+end
+
+--- Points the header's caret at what pressing it will do.
+function UiKit.setHeaderCollapsed(header: TextButton, collapsed: boolean)
+	local caret = header:FindFirstChild("Glyph")
+	if not caret then
+		return
+	end
+	local position = caret.Position
+	caret:Destroy()
+	local fresh = UiKit.icon(header, collapsed and "caretDown" or "caretUp",
+		ICON.Small, ROLE.onSurfaceMuted, ROLE.surface)
+	fresh.Position = position
 end
 
 --- Rewrites a tile's caption. The invite's is a live number, so the label has
