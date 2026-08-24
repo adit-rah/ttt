@@ -1141,6 +1141,33 @@ defects in the same file.
   thrown on the invite rail, on a device, after shipping. Pass 2 names undeclared globals and
   this is a key on a table; pass 5 walks `Config.<path>` and stops there. `[lint]` `verify.py`
   "module fields". A field assigned dynamically is still invisible to it — see §10.
+- **Every icon is drawn from four primitives on one 24-unit grid, and the stroke weight is
+  resolved ONCE per drawing.** `rect`, `dot`, `bar` and `ring`, because a Frame with a `UICorner`
+  is the only thing this game can draw. `bar` takes two POINTS and derives its own length and
+  angle, so no glyph author writes a `Rotation` and none writes a thickness at all — a weight
+  chosen per part, from that part's own length, is what makes a bat and a coin look like two
+  people drew them. Before this the screen had three visual languages: one drawn glyph, six
+  letters and Unicode characters at the text face's weight, and a scattering of bare Frames.
+  `[assert]` the size and weight ladders, the three stroke:size ratios inside 0.07–0.11, the
+  smallest tier against 12 physical px at `MinScale`, the two keylines, and `Rail.GlyphSize`
+  landing exactly on a declared tier. `[spec]` `icon_spec.lua` — every glyph draws at all three
+  sizes, every bar in one glyph is a whole multiple of that glyph's lightest, every ring strokes
+  at the tier weight Config declares, and every declared coordinate is inside the grid.
+- **An unknown glyph name is an error, never an empty frame.** The rail shipped two items whose
+  glyph slot was silently empty because `railItem` returned a slot and two of its three callers
+  took only the button. A drawing that fails quietly is how that happens again. `[spec]`
+- **The glyph coordinates are NOT in `Config`, and the sizes are.** The coordinates are the shape
+  of a drawing: nothing else on screen is measured against them and the verifier has nothing to
+  compare them to. The grid, the three sizes and the three weights are layout, and they are held
+  against `MinScale`, against each other and against the rail. This is `UiKit.personPlus`'s own
+  argument for its fractions, generalised — the part of it that stopped being true is that there
+  is now something to compare the sizes to.
+- **A person on the compass is a letter, and a landmark is a glyph.** The four landmarks are each
+  one thing, so a glyph names them completely; a partymate's mark has to answer WHICH partymate,
+  and no glyph carries that. `[nothing]` — nothing stops the next person iconifying it and losing
+  the information.
+- **Whether a glyph reads as the thing it names is not checked and cannot be.** Only Studio and a
+  person can say. `[nothing]`, and it lives in the round's handoff rather than here.
 - **Colour in `src/client` is a role, and roles live in `Config.UI.Role`.** A builder names
   `surface` or `onAction`; it never names `panel` and never writes a `Color3`. Two tables —
   `Palette` for what the colours are, `Role` for what each is for — so retheming is an edit to
