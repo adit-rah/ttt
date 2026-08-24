@@ -1141,6 +1141,31 @@ defects in the same file.
   thrown on the invite rail, on a device, after shipping. Pass 2 names undeclared globals and
   this is a key on a table; pass 5 walks `Config.<path>` and stops there. `[lint]` `verify.py`
   "module fields". A field assigned dynamically is still invisible to it — see §10.
+- **Every card in `src/client` declares its size in `Config.UI`, including the ones that grow.**
+  The card-scale lint matched a literal pair at ≥300×200, and five cards size themselves from an
+  accumulated `y` — `UDim2.fromOffset(320, y + 8)` — so the help card, the rebirth report, the
+  party card, the objectives card and the shop were all invisible to it. Two rules replace it:
+  `UiKit.panel(` is the card constructor and its size argument must name `Config.UI`, and any
+  `.Size =` in `src/client` carrying an integer ≥200 must too. Negative terms are stripped first,
+  so the `UDim2.new(1, -160, 0, 16)` inset form does not false-positive — a false positive is what
+  turns a pass into a pass somebody deletes. `[lint]` `verify.py` "ui geometry".
+- **THE LEFT COLUMN SCROLLS, AND THE BUDGET IS THE VIEWPORT.** `ColumnBottom` summed the status
+  card and the session panel and stopped; party (`LayoutOrder` 3) and objectives (4) build into the
+  same list layout and were in the budget nowhere. Made honest, the four cards at their tallest
+  come to **934 design px in a 720 canvas** — so the stack cannot fit, and what has to be true
+  instead is that **no single card is taller than the viewport**, because a card taller than the
+  region can never be fully seen however far you scroll. `[assert]` each of the four against
+  `ColumnHeight`, and `ColumnStack` against the sum of all four plus their gaps, so adding a
+  fifth card without adding it to the budget is a diff a reader can see. Whether the party card
+  belongs in the column at all is design:D-05's — see #183.
+- **Both column cards declare their own width, and it is the column's.** Party and objectives
+  both read `SessionPanel.Width`, so two of the column's four panels took their width from a
+  third — and the width loop iterated the two that declared one. `[assert]` all four now.
+- **The party card's row count matches `Config.Party`.** Typed in `Config.UI` because `Config.Party`
+  is declared below it, so the two are held equal where both exist. `[assert]`
+- **Every text size on the help card and the objectives card clears `MinTextPx`.** They shipped at
+  11 and 12 — 6.8 to 7.4 physical px at `MinScale` — as literals in `src/client`, which is the same
+  defect the NEXT UPGRADE heading had and for the same reason: nothing could read them. `[assert]`
 - **The live shop has its own geometry, `Config.UI.Shop`, and it is not `Config.UI.ShopPanel`.**
   `ShopPanel`'s only reader is `UpgradeUI.lua`, behind two `Config.Prototypes` flags the verifier
   requires to ship false — so nine assertions on it, **including the shop-versus-column overlap

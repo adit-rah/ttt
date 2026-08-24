@@ -1028,8 +1028,9 @@ __MODULES["Config"] = function()
 		-- returning player who has not maxed the vault. A hand-typed TallHeight
 		-- describes the one-optional-row case and is short by a row.
 		PartyPanel = {
-			-- Row heights only; HUD.column() places the panel and sets its width.
+			-- HUD.column() places the panel; the width is the column's.
 			HeaderHeight = 22,
+			HeadGap = 6,
 			-- RowHeight is DERIVED from the touch ladder below, not typed. At 24 it
 			-- gave every control on this card a height of RowHeight - 4 = 20, so the
 			-- decline button was 16 by 12 PHYSICAL pixels at MinScale — the smallest
@@ -1038,6 +1039,10 @@ __MODULES["Config"] = function()
 			RowGap = 4,
 			ActionWidth = 88,
 			LayoutOrder = 3,
+			-- The most rows this card can hold: one per partymate plus the invite.
+			-- Typed rather than read off Config.Party, which is declared BELOW this
+			-- table — so the verifier asserts the two agree instead.
+			MaxRows = 5,
 		},
 
 		SessionPanel = {
@@ -1117,6 +1122,47 @@ __MODULES["Config"] = function()
 		-- buttons plus two UI.Gap), so it drew four pixels out of its own bottom,
 		-- and 208 was a literal in a builder that nothing could read.
 		TouchPad = { Count = 3 },
+
+		-- invariant: THE TWO COLUMN CARDS THAT HAD NO GEOMETRY AT ALL. Party and
+		-- objectives build into HUD.column() beside the status card and the session
+		-- panel, and both sized themselves from an accumulated y in src/client — so
+		-- the column's budget could not count them, and did not.
+		Objectives = {
+			-- Every one of these shipped as a literal in ObjectivesUI.lua at 11 or 12,
+			-- which is 6.8 to 7.4 PHYSICAL px at MinScale — the same defect the NEXT
+			-- UPGRADE heading had, in the one place nothing could read it.
+			HeaderHeight = 18, HeaderTextPx = 13,
+			RowGap = 2,
+			RowTextPx = 13, CountTextPx = 13,
+			HintHeight = 28, HintTextPx = 13,
+			Pad = 4, Gutter = 8, GlyphGap = 6,
+			-- What ObjectiveService can send. The card is sized for the most it can
+			-- ever hold, because a card that fits until the third objective arrives is
+			-- a card that does not fit.
+			MaxRows = 3,
+		},
+
+		-- invariant: THE TWO OVERLAY CARDS THAT GREW FROM AN ACCUMULATED y. Both set
+		-- their height from a running total with nothing holding it against the
+		-- screen, and both were invisible to the card-scale lint because that lint
+		-- matched a literal pair and these pass a variable.
+		HelpCard = {
+			Width = 320, Pad = 12, TopPad = 10,
+			TitleHeight = 20, TitleTextPx = 17,
+			RowHeight = 16, RowTextPx = 14,
+			BodyHeight = 28, BodyTextPx = 13,
+			RowGap = 1, Indent = 12,
+			-- Config.Disclosure is the list it prints, so the most it can hold is
+			-- however many surfaces exist.
+			MaxRows = 12,
+		},
+		RebirthCard = {
+			Width = 320, Pad = 12, TopPad = 10,
+			TitleHeight = 22, TitleTextPx = 18,
+			LineHeight = 18, LineTextPx = 13,
+			RowGap = 2,
+			MaxLines = 10,
+		},
 
 		-- invariant: THE LIVE SHOP (#108) — an overlay card, a scrolling list of
 		-- rows, one control per row whose LABEL IS THE STATE.
@@ -1291,15 +1337,6 @@ __MODULES["Config"] = function()
 		-- past the bottom of the screen just as happily as two hand-typed Ys would,
 		-- so the budget stays, measured at the session panel's TALLEST. "It fits
 		-- unless you have offline earnings waiting" is not a layout that fits.
-		ui.ColumnBottom = ui.Margin + ui.StatusCard.Height + ui.Gap
-			+ ui.SessionPanel.TallHeight
-
-		-- ── THE TOP-RIGHT RAIL, and the notification column under it ─────────────
-		local rail = ui.Rail
-		-- The three stroke:size ratios, so "one optical weight across the set" is a
-		-- number the verifier can hold rather than a claim in a comment.
-		-- Where a labelled control's text starts when it carries a glyph, so the
-		-- label width left over is a number the verifier can hold against zero.
 		ui.Button.LabelInset = ui.Button.Pad + ui.Icon.Medium + ui.Button.IconGap
 
 		-- A party row is a touch target plus the breathing room either side of it,
@@ -1309,6 +1346,58 @@ __MODULES["Config"] = function()
 		ui.PartyPanel.CloseX = ui.Button.IconOnly + ui.PartyPanel.Pad
 		ui.PartyPanel.PairX = ui.PartyPanel.ActionX + ui.PartyPanel.CloseX
 		ui.PartyPanel.TextWidth = ui.ColumnWidth - ui.PartyPanel.PairX - ui.PartyPanel.Pad * 2
+
+		-- Both column cards took their width from SessionPanel's, so two of the
+		-- column's four panels borrowed a third's — and verify_config's width loop
+		-- iterated only the two that declared one. They declare their own now, and
+		-- it is the column's.
+		ui.PartyPanel.Width = ui.ColumnWidth
+		ui.Objectives.Width = ui.ColumnWidth
+
+		-- Each card's TALLEST, so a budget is measured against what a card can
+		-- become rather than what it happens to be showing.
+		ui.PartyPanel.MaxHeight = ui.PartyPanel.HeaderHeight + ui.PartyPanel.HeadGap
+			+ ui.PartyPanel.MaxRows * ui.PartyPanel.RowHeight
+		ui.Objectives.RowHeight = ui.Icon.Small
+		ui.Objectives.TextX = ui.Objectives.Gutter + ui.Icon.Small + ui.Objectives.GlyphGap
+		ui.Objectives.TextWidth = ui.ColumnWidth - ui.Objectives.TextX - ui.Objectives.Gutter
+		ui.Objectives.MaxHeight = ui.Objectives.Pad + ui.Objectives.HeaderHeight
+			+ ui.Objectives.MaxRows * (ui.Objectives.RowHeight + ui.Objectives.RowGap)
+			+ ui.Objectives.HintHeight + ui.Objectives.Pad
+
+		ui.HelpCard.MaxHeight = ui.HelpCard.TopPad + ui.HelpCard.TitleHeight
+			+ ui.HelpCard.MaxRows * (ui.HelpCard.RowHeight + ui.HelpCard.BodyHeight + ui.HelpCard.RowGap)
+			+ ui.HelpCard.Pad
+		ui.RebirthCard.MaxHeight = ui.RebirthCard.TopPad + ui.RebirthCard.TitleHeight
+			+ ui.RebirthCard.MaxLines * (ui.RebirthCard.LineHeight + ui.RebirthCard.RowGap)
+			+ ui.Button.primary + ui.RebirthCard.Pad * 2
+
+		-- invariant: THE COLUMN SCROLLS, AND THE BUDGET IS THE VIEWPORT.
+		--
+		-- ColumnBottom summed the status card and the session panel and stopped
+		-- there, while party (LayoutOrder 3) and objectives (4) went into the same
+		-- list layout and appeared in it nowhere. Making it honest is the easy part;
+		-- what it reveals is that four cards do not fit at all — 544 of budget
+		-- leaves 158 of headroom, and the party card alone can reach 268.
+		--
+		-- So the region scrolls, and the thing that has to be true is different: not
+		-- that the stack fits, which it cannot, but that NO SINGLE CARD IS TALLER
+		-- THAN THE VIEWPORT, because a card taller than the region can never be
+		-- fully seen however far you scroll. Whether the party card belongs in the
+		-- column at all is a product call and it is #183's open question.
+		ui.ColumnHeight = ui.ReferenceHeight - ui.Margin * 2
+		ui.ColumnBottom = ui.Margin + ui.ColumnHeight
+		ui.ColumnStack = ui.StatusCard.Height + ui.Gap
+			+ ui.SessionPanel.TallHeight + ui.Gap
+			+ ui.PartyPanel.MaxHeight + ui.Gap
+			+ ui.Objectives.MaxHeight
+
+		-- ── THE TOP-RIGHT RAIL, and the notification column under it ─────────────
+		local rail = ui.Rail
+		-- The three stroke:size ratios, so "one optical weight across the set" is a
+		-- number the verifier can hold rather than a claim in a comment.
+		-- Where a labelled control's text starts when it carries a glyph, so the
+		-- label width left over is a number the verifier can hold against zero.
 
 		-- The stack holds exactly what it lays out: UiKit.dock puts UI.Gap between
 		-- children, and a frame that does not account for the gaps draws its last
@@ -7243,6 +7332,7 @@ __MODULES["HUD"] = function()
 	-- has no way to follow. Every number on the status card is read through here.
 	local CARD = Config.UI.StatusCard
 	local RAIL = Config.UI.Rail
+	local HELP = Config.UI.HelpCard
 	local TOAST = Config.UI.Toast
 	local REBIRTH = Config.UI.Modal.Rebirth
 	local ROLE = UiKit.ROLE
@@ -7506,7 +7596,7 @@ __MODULES["HUD"] = function()
 		corner(bossFill, 3)
 	end
 
-	--- THE LEFT COLUMN, as one region rather than as two panels that agree.
+	--- invariant: THE LEFT COLUMN, as one region rather than as panels that agree.
 	---
 	--- The status card and the session panel are one width stacked from the top
 	--- margin down, and they used to say so twice: this file positioned the first
@@ -7518,14 +7608,49 @@ __MODULES["HUD"] = function()
 	--- HEIGHT IS THE COLUMN'S BUDGET, NOT ITS CONTENT. The frame is sized to
 	--- ColumnBottom so a panel laid out past it is visibly past it; the layout does
 	--- not clip, and the verifier holds ColumnBottom to the reference height.
+	--- THE LEFT COLUMN, WHICH SCROLLS.
+	---
+	--- Four cards build into it — status, session, party, objectives — and they do
+	--- not fit. The budget that was supposed to catch that summed the first two and
+	--- stopped, because the other two were added to the list later and to the
+	--- budget never. Made honest, it says the stack can reach roughly 900 design px
+	--- inside a 720 canvas.
+	---
+	--- A ScrollingFrame is the mechanical answer: every card keeps the home it has,
+	--- nothing is demoted, and the stack runs past the bottom into somewhere a
+	--- player can reach. What it does NOT answer is whether a card that asks a
+	--- stranger to join a party belongs in the same column as the balance, and that
+	--- one is design:D-05's — see #183.
+	---
+	--- AutomaticCanvasSize rather than a canvas this file computes, because the
+	--- panels size themselves at render time from row counts, and a canvas set here
+	--- would be a second opinion about a height four other files own.
 	local function buildColumn(parent: Instance)
-		column = UiKit.dock(parent, {
+		local region = UiKit.dock(parent, {
 			name = "Column",
 			corner = "topLeft",
 			width = UI.ColumnWidth,
-			height = UI.ColumnBottom - UI.Margin,
-			direction = "Vertical",
+			height = UI.ColumnHeight,
 		})
+
+		column = Instance.new("ScrollingFrame")
+		column.Name = "Cards"
+		column.Size = UDim2.fromScale(1, 1)
+		column.BackgroundTransparency = 1
+		column.BorderSizePixel = 0
+		column.ScrollBarThickness = 3
+		column.ScrollBarImageColor3 = ROLE.line
+		column.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		column.CanvasSize = UDim2.fromOffset(0, 0)
+		column.Parent = region
+
+		local layout = Instance.new("UIListLayout")
+		layout.FillDirection = Enum.FillDirection.Vertical
+		layout.Padding = UDim.new(0, UI.Gap)
+		layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+		layout.VerticalAlignment = Enum.VerticalAlignment.Top
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Parent = column
 	end
 
 	--- THE TOP-RIGHT RAIL. One item today, and the reason it is a region rather than
@@ -7742,43 +7867,43 @@ __MODULES["HUD"] = function()
 				child:Destroy()
 			end
 		end
-		local y = 12
+		local y = HELP.TopPad
 		UiKit.text(helpPanel, {
-			Size = UDim2.new(1, -24, 0, 22),
-			Position = UDim2.fromOffset(12, y),
+			Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2, HELP.TitleHeight),
+			Position = UDim2.fromOffset(HELP.Pad, y),
 			Font = Style.Font.title,
 			Text = "WHAT YOU HAVE SO FAR",
-			TextSize = 16,
+			TextSize = HELP.TitleTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.heading,
 		})
-		y += 30
+		y += HELP.TitleHeight + HELP.RowGap
 		for _, row in ipairs(Config.Disclosure) do
 			if HUD.disclosed(row.id) then
 				UiKit.text(helpPanel, {
-					Size = UDim2.new(1, -24, 0, 16),
-					Position = UDim2.fromOffset(12, y),
+					Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2, HELP.RowHeight),
+					Position = UDim2.fromOffset(HELP.Pad, y),
 					Font = Style.Font.body,
 					Text = row.name,
-					TextSize = 14,
+					TextSize = HELP.RowTextPx,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					TextColor3 = ROLE.emphasis,
 				})
-				y += 17
+				y += HELP.RowHeight + HELP.RowGap
 				local body = UiKit.text(helpPanel, {
-					Size = UDim2.new(1, -36, 0, 28),
-					Position = UDim2.fromOffset(24, y),
+					Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2 - HELP.Indent, HELP.BodyHeight),
+					Position = UDim2.fromOffset(HELP.Pad + HELP.Indent, y),
 					Font = Style.Font.body,
 					Text = row.help,
-					TextSize = 12,
+					TextSize = HELP.BodyTextPx,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					TextColor3 = ROLE.onSurfaceMuted,
 				})
 				body.TextWrapped = true
-				y += 34
+				y += HELP.BodyHeight + HELP.RowGap
 			end
 		end
-		helpPanel.Size = UDim2.fromOffset(320, y + 8)
+		helpPanel.Size = UDim2.fromOffset(HELP.Width, y + HELP.Pad)
 	end
 
 	function buildHelp(rail)
@@ -7788,7 +7913,9 @@ __MODULES["HUD"] = function()
 		local button = UiKit.tile(rail, {
 			name = "Help", variant = "ghost", icon = "info", caption = "HELP",
 		})
-		helpPanel = UiKit.panel(overlay, UDim2.fromOffset(320, 60), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+		helpPanel = UiKit.panel(overlay,
+			UDim2.fromOffset(Config.UI.HelpCard.Width, Config.UI.HelpCard.TitleHeight),
+			UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		helpPanel.Name = "Help"
 		helpPanel.Visible = false
 		button.Activated:Connect(function()
@@ -8627,10 +8754,9 @@ __MODULES["ObjectivesUI"] = function()
 	local ObjectivesUI = {}
 
 	local ROLE = UiKit.ROLE
-	-- A row is exactly one small glyph tall, so the tick fills its column.
+	local O = Config.UI.Objectives
 	local GLYPH = Config.UI.Icon.Small
-	local ROW_HEIGHT = GLYPH
-	local WIDTH = Config.UI.SessionPanel.Width
+	local WIDTH = Config.UI.ColumnWidth
 
 	local panel
 	local state = { rows = {}, hint = nil }
@@ -8649,17 +8775,17 @@ __MODULES["ObjectivesUI"] = function()
 			end
 		end
 
-		local y = 4
+		local y = O.Pad
 		UiKit.text(panel, {
-			Size = UDim2.new(1, -16, 0, 16),
-			Position = UDim2.fromOffset(8, y),
-			Font = Style.Font.body,
+			Size = UDim2.fromOffset(O.TextWidth + O.TextX - O.Gutter, O.HeaderHeight),
+			Position = UDim2.fromOffset(O.Gutter, y),
+			Font = Style.Font.title,
 			Text = "TODAY",
-			TextSize = 12,
+			TextSize = O.HeaderTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.onSurfaceMuted,
 		})
-		y += 18
+		y += O.HeaderHeight
 
 		-- A marker column, then the name. The state used to be the first character
 		-- of the same string — a drawn tick when done and "2/5" when not — which
@@ -8668,50 +8794,52 @@ __MODULES["ObjectivesUI"] = function()
 			local colour = row.done and ROLE.affirm or ROLE.emphasis
 			if row.done then
 				local tick = UiKit.icon(panel, "tick", GLYPH, colour, ROLE.surface)
-				tick.Position = UDim2.fromOffset(8, y)
+				tick.Position = UDim2.fromOffset(O.Gutter, y)
 			else
 				UiKit.text(panel, {
-					Size = UDim2.fromOffset(GLYPH, ROW_HEIGHT),
-					Position = UDim2.fromOffset(8, y),
+					Size = UDim2.fromOffset(GLYPH, O.RowHeight),
+					Position = UDim2.fromOffset(O.Gutter, y),
 					Font = Style.Font.body,
 					Text = ("%d/%d"):format(row.progress, row.count),
-					TextSize = 11,
+					TextSize = O.CountTextPx,
 					TextXAlignment = Enum.TextXAlignment.Center,
 					TextColor3 = colour,
 				})
 			end
 			UiKit.text(panel, {
-				Size = UDim2.new(1, -(16 + GLYPH + 6), 0, ROW_HEIGHT),
-				Position = UDim2.fromOffset(8 + GLYPH + 6, y),
+				Size = UDim2.fromOffset(O.TextWidth, O.RowHeight),
+				Position = UDim2.fromOffset(O.TextX, y),
 				Font = Style.Font.body,
 				Text = row.name,
-				TextSize = 12,
+				TextSize = O.RowTextPx,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextColor3 = colour,
 			})
-			y += ROW_HEIGHT + 2
+			y += O.RowHeight + O.RowGap
 		end
 
 		if state.hint then
 			local hint = UiKit.text(panel, {
-				Size = UDim2.new(1, -16, 0, 26),
-				Position = UDim2.fromOffset(8, y + 2),
+				Size = UDim2.fromOffset(O.TextWidth + O.TextX - O.Gutter, O.HintHeight),
+				Position = UDim2.fromOffset(O.Gutter, y),
 				Font = Style.Font.body,
 				Text = state.hint,
-				TextSize = 11,
+				TextSize = O.HintTextPx,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextColor3 = ROLE.onSurfaceMuted,
 			})
 			hint.TextWrapped = true
-			y += 30
+			y += O.HintHeight
 		end
 
-		panel.Size = UDim2.fromOffset(WIDTH, y + 6)
+		panel.Size = UDim2.fromOffset(WIDTH, y + O.Pad)
 		panel.Visible = #state.rows > 0 or state.hint ~= nil
 	end
 
 	function ObjectivesUI.start()
-		panel = UiKit.panel(HUD.column(), UDim2.fromOffset(WIDTH, 20), UDim2.fromOffset(0, 0))
+		panel = UiKit.panel(HUD.column(),
+			UDim2.fromOffset(Config.UI.ColumnWidth, Config.UI.Objectives.HeaderHeight),
+			UDim2.fromOffset(0, 0))
 		panel.Name = "Objectives"
 		panel.LayoutOrder = 4
 		panel.Visible = false
@@ -8758,7 +8886,11 @@ __MODULES["PartyUI"] = function()
 	local ROLE = UiKit.ROLE
 	local P = Config.UI.PartyPanel
 	local UI = Config.UI
-	local WIDTH = Config.UI.SessionPanel.Width   -- one column, one width
+	-- The COLUMN's width, not the session panel's. Both this card and the
+	-- objectives card read SessionPanel.Width, so two of the column's four panels
+	-- took their width from a third — and verify_config's column loop iterated
+	-- the two that declared one.
+	local WIDTH = Config.UI.ColumnWidth
 
 	local panel
 	local state = { members = {}, invite = nil }
@@ -8889,7 +9021,7 @@ __MODULES["PartyUI"] = function()
 			end
 		end
 
-		panel.Size = UDim2.fromOffset(WIDTH, P.HeaderHeight + 6 + rows * P.RowHeight)
+		panel.Size = UDim2.fromOffset(WIDTH, P.HeaderHeight + P.HeadGap + rows * P.RowHeight)
 		-- #96: the card waits for its row — except an incoming invite, which is
 		-- itself the disclosure (someone chose you; hiding that is worse)
 		panel.Visible = (rows > 0 or state.invite ~= nil)
@@ -8897,7 +9029,8 @@ __MODULES["PartyUI"] = function()
 	end
 
 	function PartyUI.start()
-		panel = UiKit.panel(HUD.column(), UDim2.fromOffset(WIDTH, P.HeaderHeight), UDim2.fromOffset(0, 0))
+		panel = UiKit.panel(HUD.column(),
+			UDim2.fromOffset(Config.UI.ColumnWidth, P.HeaderHeight), UDim2.fromOffset(0, 0))
 		panel.Name = "Party"
 		panel.LayoutOrder = P.LayoutOrder
 
@@ -8951,6 +9084,7 @@ __MODULES["RebirthUI"] = function()
 	local RebirthUI = {}
 
 	local ROLE = UiKit.ROLE
+	local CARD = Config.UI.RebirthCard
 	local ONWARD_WIDTH = 140
 	local SHOW_SECONDS = 14
 
@@ -8965,83 +9099,83 @@ __MODULES["RebirthUI"] = function()
 		end
 		local y = 14
 		UiKit.text(panel, {
-			Size = UDim2.new(1, -24, 0, 22),
-			Position = UDim2.fromOffset(12, y),
+			Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2, CARD.TitleHeight),
+			Position = UDim2.fromOffset(CARD.Pad, y),
 			Font = Style.Font.title,
 			Text = ("SAHUR REBIRTH #%d"):format(payload.rebirths or 0),
-			TextSize = 18,
+			TextSize = CARD.TitleTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.emphasis,
 		})
-		y += 28
+		y += CARD.TitleHeight + CARD.RowGap
 		if payload.rankChanged then
 			UiKit.text(panel, {
-				Size = UDim2.new(1, -24, 0, 24),
-				Position = UDim2.fromOffset(12, y),
+				Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2, CARD.TitleHeight),
+				Position = UDim2.fromOffset(CARD.Pad, y),
 				Font = Style.Font.title,
 				Text = ("RANK UP  •  %s"):format(payload.rank or ""),
-				TextSize = 20,
+				TextSize = CARD.TitleTextPx,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextColor3 = ROLE.heading,
 			})
-			y += 26
+			y += CARD.TitleHeight + CARD.RowGap
 		end
 		if payload.motto then
 			UiKit.text(panel, {
-				Size = UDim2.new(1, -24, 0, 16),
-				Position = UDim2.fromOffset(12, y),
+				Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2, CARD.LineHeight),
+				Position = UDim2.fromOffset(CARD.Pad, y),
 				Font = Style.Font.body,
 				Text = payload.motto,
-				TextSize = 12,
+				TextSize = CARD.LineTextPx,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextColor3 = ROLE.onSurfaceMuted,
 			})
-			y += 22
+			y += CARD.LineHeight + CARD.RowGap
 		end
 		UiKit.text(panel, {
-			Size = UDim2.new(1, -24, 0, 18),
-			Position = UDim2.fromOffset(12, y),
+			Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2, CARD.LineHeight),
+			Position = UDim2.fromOffset(CARD.Pad, y),
 			Font = Style.Font.body,
 			Text = ("Every payout is now x%.2f."):format(payload.multiplier or 1),
-			TextSize = 14,
+			TextSize = CARD.LineTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.affirm,
 		})
-		y += 24
+		y += CARD.LineHeight + CARD.RowGap
 		UiKit.text(panel, {
-			Size = UDim2.new(1, -24, 0, 14),
-			Position = UDim2.fromOffset(12, y),
+			Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2, CARD.LineHeight),
+			Position = UDim2.fromOffset(CARD.Pad, y),
 			Font = Style.Font.body,
 			Text = "YOU KEEP",
-			TextSize = 11,
+			TextSize = CARD.LineTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.onSurfaceMuted,
 		})
-		y += 16
+		y += CARD.LineHeight - CARD.RowGap
 		for _, line in ipairs(payload.keeps or {}) do
 			UiKit.text(panel, {
-				Size = UDim2.new(1, -32, 0, 15),
-				Position = UDim2.fromOffset(20, y),
+				Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2 - 8, CARD.LineHeight),
+				Position = UDim2.fromOffset(CARD.Pad + 8, y),
 				Font = Style.Font.body,
 				Text = "• " .. line,
-				TextSize = 12,
+				TextSize = CARD.LineTextPx,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextColor3 = ROLE.emphasis,
 			})
-			y += 16
+			y += CARD.LineHeight - CARD.RowGap
 		end
-		y += 6
+		y += CARD.RowGap
 		-- the honest line: what a promotion costs
 		UiKit.text(panel, {
-			Size = UDim2.new(1, -24, 0, 15),
-			Position = UDim2.fromOffset(12, y),
+			Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2, CARD.LineHeight),
+			Position = UDim2.fromOffset(CARD.Pad, y),
 			Font = Style.Font.body,
 			Text = "The factory resets. The climb back is faster than it was.",
-			TextSize = 11,
+			TextSize = CARD.LineTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.onSurfaceMuted,
 		})
-		y += 22
+		y += CARD.LineHeight + CARD.RowGap
 
 		-- 96x26 was a 60x16 physical target at MinScale, on the one button that
 		-- dismisses the report.
@@ -9053,11 +9187,13 @@ __MODULES["RebirthUI"] = function()
 			panel.Visible = false
 		end)
 		y += Config.UI.Button.primary + 8
-		panel.Size = UDim2.fromOffset(320, y)
+		panel.Size = UDim2.fromOffset(Config.UI.RebirthCard.Width, y)
 	end
 
 	function RebirthUI.start()
-		panel = UiKit.panel(HUD.overlay(), UDim2.fromOffset(320, 100), UDim2.fromScale(0.5, 0.42), Vector2.new(0.5, 0.5))
+		panel = UiKit.panel(HUD.overlay(),
+			UDim2.fromOffset(Config.UI.RebirthCard.Width, Config.UI.RebirthCard.TitleHeight),
+			UDim2.fromScale(0.5, 0.42), Vector2.new(0.5, 0.5))
 		panel.Name = "Rebirth"
 		panel.Visible = false
 

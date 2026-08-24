@@ -19,6 +19,7 @@ local Style = Req("Style")
 local RebirthUI = {}
 
 local ROLE = UiKit.ROLE
+local CARD = Config.UI.RebirthCard
 local ONWARD_WIDTH = 140
 local SHOW_SECONDS = 14
 
@@ -33,83 +34,83 @@ local function render(payload)
 	end
 	local y = 14
 	UiKit.text(panel, {
-		Size = UDim2.new(1, -24, 0, 22),
-		Position = UDim2.fromOffset(12, y),
+		Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2, CARD.TitleHeight),
+		Position = UDim2.fromOffset(CARD.Pad, y),
 		Font = Style.Font.title,
 		Text = ("SAHUR REBIRTH #%d"):format(payload.rebirths or 0),
-		TextSize = 18,
+		TextSize = CARD.TitleTextPx,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = ROLE.emphasis,
 	})
-	y += 28
+	y += CARD.TitleHeight + CARD.RowGap
 	if payload.rankChanged then
 		UiKit.text(panel, {
-			Size = UDim2.new(1, -24, 0, 24),
-			Position = UDim2.fromOffset(12, y),
+			Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2, CARD.TitleHeight),
+			Position = UDim2.fromOffset(CARD.Pad, y),
 			Font = Style.Font.title,
 			Text = ("RANK UP  •  %s"):format(payload.rank or ""),
-			TextSize = 20,
+			TextSize = CARD.TitleTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.heading,
 		})
-		y += 26
+		y += CARD.TitleHeight + CARD.RowGap
 	end
 	if payload.motto then
 		UiKit.text(panel, {
-			Size = UDim2.new(1, -24, 0, 16),
-			Position = UDim2.fromOffset(12, y),
+			Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2, CARD.LineHeight),
+			Position = UDim2.fromOffset(CARD.Pad, y),
 			Font = Style.Font.body,
 			Text = payload.motto,
-			TextSize = 12,
+			TextSize = CARD.LineTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.onSurfaceMuted,
 		})
-		y += 22
+		y += CARD.LineHeight + CARD.RowGap
 	end
 	UiKit.text(panel, {
-		Size = UDim2.new(1, -24, 0, 18),
-		Position = UDim2.fromOffset(12, y),
+		Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2, CARD.LineHeight),
+		Position = UDim2.fromOffset(CARD.Pad, y),
 		Font = Style.Font.body,
 		Text = ("Every payout is now x%.2f."):format(payload.multiplier or 1),
-		TextSize = 14,
+		TextSize = CARD.LineTextPx,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = ROLE.affirm,
 	})
-	y += 24
+	y += CARD.LineHeight + CARD.RowGap
 	UiKit.text(panel, {
-		Size = UDim2.new(1, -24, 0, 14),
-		Position = UDim2.fromOffset(12, y),
+		Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2, CARD.LineHeight),
+		Position = UDim2.fromOffset(CARD.Pad, y),
 		Font = Style.Font.body,
 		Text = "YOU KEEP",
-		TextSize = 11,
+		TextSize = CARD.LineTextPx,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = ROLE.onSurfaceMuted,
 	})
-	y += 16
+	y += CARD.LineHeight - CARD.RowGap
 	for _, line in ipairs(payload.keeps or {}) do
 		UiKit.text(panel, {
-			Size = UDim2.new(1, -32, 0, 15),
-			Position = UDim2.fromOffset(20, y),
+			Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2 - 8, CARD.LineHeight),
+			Position = UDim2.fromOffset(CARD.Pad + 8, y),
 			Font = Style.Font.body,
 			Text = "• " .. line,
-			TextSize = 12,
+			TextSize = CARD.LineTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.emphasis,
 		})
-		y += 16
+		y += CARD.LineHeight - CARD.RowGap
 	end
-	y += 6
+	y += CARD.RowGap
 	-- the honest line: what a promotion costs
 	UiKit.text(panel, {
-		Size = UDim2.new(1, -24, 0, 15),
-		Position = UDim2.fromOffset(12, y),
+		Size = UDim2.fromOffset(CARD.Width - CARD.Pad * 2, CARD.LineHeight),
+		Position = UDim2.fromOffset(CARD.Pad, y),
 		Font = Style.Font.body,
 		Text = "The factory resets. The climb back is faster than it was.",
-		TextSize = 11,
+		TextSize = CARD.LineTextPx,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = ROLE.onSurfaceMuted,
 	})
-	y += 22
+	y += CARD.LineHeight + CARD.RowGap
 
 	-- 96x26 was a 60x16 physical target at MinScale, on the one button that
 	-- dismisses the report.
@@ -121,11 +122,13 @@ local function render(payload)
 		panel.Visible = false
 	end)
 	y += Config.UI.Button.primary + 8
-	panel.Size = UDim2.fromOffset(320, y)
+	panel.Size = UDim2.fromOffset(Config.UI.RebirthCard.Width, y)
 end
 
 function RebirthUI.start()
-	panel = UiKit.panel(HUD.overlay(), UDim2.fromOffset(320, 100), UDim2.fromScale(0.5, 0.42), Vector2.new(0.5, 0.5))
+	panel = UiKit.panel(HUD.overlay(),
+		UDim2.fromOffset(Config.UI.RebirthCard.Width, Config.UI.RebirthCard.TitleHeight),
+		UDim2.fromScale(0.5, 0.42), Vector2.new(0.5, 0.5))
 	panel.Name = "Rebirth"
 	panel.Visible = false
 

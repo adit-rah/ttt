@@ -52,6 +52,7 @@ local UI = Config.UI
 -- has no way to follow. Every number on the status card is read through here.
 local CARD = Config.UI.StatusCard
 local RAIL = Config.UI.Rail
+local HELP = Config.UI.HelpCard
 local TOAST = Config.UI.Toast
 local REBIRTH = Config.UI.Modal.Rebirth
 local ROLE = UiKit.ROLE
@@ -315,7 +316,7 @@ local function buildWaveBanner()
 	corner(bossFill, 3)
 end
 
---- THE LEFT COLUMN, as one region rather than as two panels that agree.
+--- invariant: THE LEFT COLUMN, as one region rather than as panels that agree.
 ---
 --- The status card and the session panel are one width stacked from the top
 --- margin down, and they used to say so twice: this file positioned the first
@@ -327,14 +328,49 @@ end
 --- HEIGHT IS THE COLUMN'S BUDGET, NOT ITS CONTENT. The frame is sized to
 --- ColumnBottom so a panel laid out past it is visibly past it; the layout does
 --- not clip, and the verifier holds ColumnBottom to the reference height.
+--- THE LEFT COLUMN, WHICH SCROLLS.
+---
+--- Four cards build into it — status, session, party, objectives — and they do
+--- not fit. The budget that was supposed to catch that summed the first two and
+--- stopped, because the other two were added to the list later and to the
+--- budget never. Made honest, it says the stack can reach roughly 900 design px
+--- inside a 720 canvas.
+---
+--- A ScrollingFrame is the mechanical answer: every card keeps the home it has,
+--- nothing is demoted, and the stack runs past the bottom into somewhere a
+--- player can reach. What it does NOT answer is whether a card that asks a
+--- stranger to join a party belongs in the same column as the balance, and that
+--- one is design:D-05's — see #183.
+---
+--- AutomaticCanvasSize rather than a canvas this file computes, because the
+--- panels size themselves at render time from row counts, and a canvas set here
+--- would be a second opinion about a height four other files own.
 local function buildColumn(parent: Instance)
-	column = UiKit.dock(parent, {
+	local region = UiKit.dock(parent, {
 		name = "Column",
 		corner = "topLeft",
 		width = UI.ColumnWidth,
-		height = UI.ColumnBottom - UI.Margin,
-		direction = "Vertical",
+		height = UI.ColumnHeight,
 	})
+
+	column = Instance.new("ScrollingFrame")
+	column.Name = "Cards"
+	column.Size = UDim2.fromScale(1, 1)
+	column.BackgroundTransparency = 1
+	column.BorderSizePixel = 0
+	column.ScrollBarThickness = 3
+	column.ScrollBarImageColor3 = ROLE.line
+	column.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	column.CanvasSize = UDim2.fromOffset(0, 0)
+	column.Parent = region
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Vertical
+	layout.Padding = UDim.new(0, UI.Gap)
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	layout.VerticalAlignment = Enum.VerticalAlignment.Top
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = column
 end
 
 --- THE TOP-RIGHT RAIL. One item today, and the reason it is a region rather than
@@ -551,43 +587,43 @@ local function renderHelp()
 			child:Destroy()
 		end
 	end
-	local y = 12
+	local y = HELP.TopPad
 	UiKit.text(helpPanel, {
-		Size = UDim2.new(1, -24, 0, 22),
-		Position = UDim2.fromOffset(12, y),
+		Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2, HELP.TitleHeight),
+		Position = UDim2.fromOffset(HELP.Pad, y),
 		Font = Style.Font.title,
 		Text = "WHAT YOU HAVE SO FAR",
-		TextSize = 16,
+		TextSize = HELP.TitleTextPx,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = ROLE.heading,
 	})
-	y += 30
+	y += HELP.TitleHeight + HELP.RowGap
 	for _, row in ipairs(Config.Disclosure) do
 		if HUD.disclosed(row.id) then
 			UiKit.text(helpPanel, {
-				Size = UDim2.new(1, -24, 0, 16),
-				Position = UDim2.fromOffset(12, y),
+				Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2, HELP.RowHeight),
+				Position = UDim2.fromOffset(HELP.Pad, y),
 				Font = Style.Font.body,
 				Text = row.name,
-				TextSize = 14,
+				TextSize = HELP.RowTextPx,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextColor3 = ROLE.emphasis,
 			})
-			y += 17
+			y += HELP.RowHeight + HELP.RowGap
 			local body = UiKit.text(helpPanel, {
-				Size = UDim2.new(1, -36, 0, 28),
-				Position = UDim2.fromOffset(24, y),
+				Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2 - HELP.Indent, HELP.BodyHeight),
+				Position = UDim2.fromOffset(HELP.Pad + HELP.Indent, y),
 				Font = Style.Font.body,
 				Text = row.help,
-				TextSize = 12,
+				TextSize = HELP.BodyTextPx,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextColor3 = ROLE.onSurfaceMuted,
 			})
 			body.TextWrapped = true
-			y += 34
+			y += HELP.BodyHeight + HELP.RowGap
 		end
 	end
-	helpPanel.Size = UDim2.fromOffset(320, y + 8)
+	helpPanel.Size = UDim2.fromOffset(HELP.Width, y + HELP.Pad)
 end
 
 function buildHelp(rail)
@@ -597,7 +633,9 @@ function buildHelp(rail)
 	local button = UiKit.tile(rail, {
 		name = "Help", variant = "ghost", icon = "info", caption = "HELP",
 	})
-	helpPanel = UiKit.panel(overlay, UDim2.fromOffset(320, 60), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	helpPanel = UiKit.panel(overlay,
+		UDim2.fromOffset(Config.UI.HelpCard.Width, Config.UI.HelpCard.TitleHeight),
+		UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 	helpPanel.Name = "Help"
 	helpPanel.Visible = false
 	button.Activated:Connect(function()
