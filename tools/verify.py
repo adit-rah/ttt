@@ -221,18 +221,54 @@ def client_sources(files):
     return [p for p in files if p.relative_to(ROOT).as_posix().startswith("src/client/")]
 
 
+# TWO MORE RULES, BECAUSE THE ONE ABOVE WAS BLIND TO EVERY CARD THAT GROWS.
+#
+# It matches a LITERAL PAIR at >= 300x200, and five cards in this game size
+# themselves from an accumulated `y` -- `UDim2.fromOffset(320, y + 8)`. Every one
+# of them was invisible: the help card, the rebirth report, the party card, the
+# objectives card and the shop, which is to say every card in src/client that is
+# not the status panel.
+#
+#   1. UiKit.panel( IS the card constructor. Everything that is a card goes
+#      through it, so its size argument must name Config.UI whatever shape that
+#      argument takes.
+#   2. Any `.Size =` in src/client carrying an integer >= 200 must name
+#      Config.UI. Negative terms are stripped first, so the `UDim2.new(1, -160,
+#      0, 16)` inset form -- a width relative to a parent, which is not a card
+#      size -- does not false-positive. A false positive is what turns a pass
+#      into a pass somebody deletes.
+UI_PANEL_CALL = re.compile(r"UiKit\.panel\(")
+UI_SIZE_ASSIGN = re.compile(r"\.Size\s*=")
+UI_SIZE_NUMBER = re.compile(r"(?<![\w.-])(\d{3,})(?![\w.])")
+
+
 def check_ui_geometry(files):
     step("ui geometry")
     findings = []
     for path in client_sources(files):
         rel = path.relative_to(ROOT).as_posix()
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for number, line in enumerate(lines, 1):
             if line.lstrip().startswith("--"):
                 continue
             # `UDim2.fromOffset(UI.Modal.MaxWidth, 330)` is the sanctioned form:
             # the number still comes from the one place that can be asserted.
             if UI_GEOMETRY_OWNER in line:
                 continue
+            # A card constructor's arguments may wrap onto the next line, so the
+            # call and the two lines after it are read as one.
+            if UI_PANEL_CALL.search(line) and rel != "src/client/UiKit.lua":
+                window = " ".join(lines[number - 1:number + 2])
+                if UI_GEOMETRY_OWNER not in window:
+                    findings.append((rel, number, "a card whose size names no Config.UI key",
+                                     line.strip()))
+            if UI_SIZE_ASSIGN.search(line):
+                stripped = re.sub(r"-\s*\d+", "", line)
+                for match in UI_SIZE_NUMBER.finditer(stripped):
+                    if int(match.group(1)) >= UI_CARD_HEIGHT:
+                        findings.append((rel, number, f"a card-scale {match.group(1)}",
+                                         line.strip()))
+                        break
             for match in UI_GEOMETRY.finditer(line):
                 width, height = float(match.group(2)), float(match.group(3))
                 if width >= UI_CARD_WIDTH and height >= UI_CARD_HEIGHT:
@@ -240,7 +276,7 @@ def check_ui_geometry(files):
     if findings:
         print(f"  {RED}{len(findings)} finding(s){RESET}")
         for rel, number, size, text in findings:
-            print(f"    {rel}:{number} builds a {size} card from literals — name it in {UI_GEOMETRY_OWNER}")
+            print(f"    {rel}:{number} builds {size} — name it in {UI_GEOMETRY_OWNER}")
             print(f"      {DIM}{text}{RESET}")
         return False
     print(f"  {GREEN}ok{RESET}  every card-scale size in src/client comes from {UI_GEOMETRY_OWNER}")

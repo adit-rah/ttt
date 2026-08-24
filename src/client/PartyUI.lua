@@ -27,7 +27,11 @@ local PartyUI = {}
 local ROLE = UiKit.ROLE
 local P = Config.UI.PartyPanel
 local UI = Config.UI
-local WIDTH = Config.UI.SessionPanel.Width   -- one column, one width
+-- The COLUMN's width, not the session panel's. Both this card and the
+-- objectives card read SessionPanel.Width, so two of the column's four panels
+-- took their width from a third — and verify_config's column loop iterated
+-- the two that declared one.
+local WIDTH = Config.UI.ColumnWidth
 
 local panel
 local state = { members = {}, invite = nil }
@@ -158,7 +162,7 @@ local function render()
 		end
 	end
 
-	panel.Size = UDim2.fromOffset(WIDTH, P.HeaderHeight + 6 + rows * P.RowHeight)
+	panel.Size = UDim2.fromOffset(WIDTH, P.HeaderHeight + P.HeadGap + rows * P.RowHeight)
 	-- #96: the card waits for its row — except an incoming invite, which is
 	-- itself the disclosure (someone chose you; hiding that is worse)
 	panel.Visible = (rows > 0 or state.invite ~= nil)
@@ -166,7 +170,8 @@ local function render()
 end
 
 function PartyUI.start()
-	panel = UiKit.panel(HUD.column(), UDim2.fromOffset(WIDTH, P.HeaderHeight), UDim2.fromOffset(0, 0))
+	panel = UiKit.panel(HUD.column(),
+		UDim2.fromOffset(Config.UI.ColumnWidth, P.HeaderHeight), UDim2.fromOffset(0, 0))
 	panel.Name = "Party"
 	panel.LayoutOrder = P.LayoutOrder
 

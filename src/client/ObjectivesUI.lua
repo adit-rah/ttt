@@ -18,10 +18,9 @@ local Style = Req("Style")
 local ObjectivesUI = {}
 
 local ROLE = UiKit.ROLE
--- A row is exactly one small glyph tall, so the tick fills its column.
+local O = Config.UI.Objectives
 local GLYPH = Config.UI.Icon.Small
-local ROW_HEIGHT = GLYPH
-local WIDTH = Config.UI.SessionPanel.Width
+local WIDTH = Config.UI.ColumnWidth
 
 local panel
 local state = { rows = {}, hint = nil }
@@ -40,17 +39,17 @@ local function render()
 		end
 	end
 
-	local y = 4
+	local y = O.Pad
 	UiKit.text(panel, {
-		Size = UDim2.new(1, -16, 0, 16),
-		Position = UDim2.fromOffset(8, y),
-		Font = Style.Font.body,
+		Size = UDim2.fromOffset(O.TextWidth + O.TextX - O.Gutter, O.HeaderHeight),
+		Position = UDim2.fromOffset(O.Gutter, y),
+		Font = Style.Font.title,
 		Text = "TODAY",
-		TextSize = 12,
+		TextSize = O.HeaderTextPx,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = ROLE.onSurfaceMuted,
 	})
-	y += 18
+	y += O.HeaderHeight
 
 	-- A marker column, then the name. The state used to be the first character
 	-- of the same string — a drawn tick when done and "2/5" when not — which
@@ -59,50 +58,52 @@ local function render()
 		local colour = row.done and ROLE.affirm or ROLE.emphasis
 		if row.done then
 			local tick = UiKit.icon(panel, "tick", GLYPH, colour, ROLE.surface)
-			tick.Position = UDim2.fromOffset(8, y)
+			tick.Position = UDim2.fromOffset(O.Gutter, y)
 		else
 			UiKit.text(panel, {
-				Size = UDim2.fromOffset(GLYPH, ROW_HEIGHT),
-				Position = UDim2.fromOffset(8, y),
+				Size = UDim2.fromOffset(GLYPH, O.RowHeight),
+				Position = UDim2.fromOffset(O.Gutter, y),
 				Font = Style.Font.body,
 				Text = ("%d/%d"):format(row.progress, row.count),
-				TextSize = 11,
+				TextSize = O.CountTextPx,
 				TextXAlignment = Enum.TextXAlignment.Center,
 				TextColor3 = colour,
 			})
 		end
 		UiKit.text(panel, {
-			Size = UDim2.new(1, -(16 + GLYPH + 6), 0, ROW_HEIGHT),
-			Position = UDim2.fromOffset(8 + GLYPH + 6, y),
+			Size = UDim2.fromOffset(O.TextWidth, O.RowHeight),
+			Position = UDim2.fromOffset(O.TextX, y),
 			Font = Style.Font.body,
 			Text = row.name,
-			TextSize = 12,
+			TextSize = O.RowTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = colour,
 		})
-		y += ROW_HEIGHT + 2
+		y += O.RowHeight + O.RowGap
 	end
 
 	if state.hint then
 		local hint = UiKit.text(panel, {
-			Size = UDim2.new(1, -16, 0, 26),
-			Position = UDim2.fromOffset(8, y + 2),
+			Size = UDim2.fromOffset(O.TextWidth + O.TextX - O.Gutter, O.HintHeight),
+			Position = UDim2.fromOffset(O.Gutter, y),
 			Font = Style.Font.body,
 			Text = state.hint,
-			TextSize = 11,
+			TextSize = O.HintTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.onSurfaceMuted,
 		})
 		hint.TextWrapped = true
-		y += 30
+		y += O.HintHeight
 	end
 
-	panel.Size = UDim2.fromOffset(WIDTH, y + 6)
+	panel.Size = UDim2.fromOffset(WIDTH, y + O.Pad)
 	panel.Visible = #state.rows > 0 or state.hint ~= nil
 end
 
 function ObjectivesUI.start()
-	panel = UiKit.panel(HUD.column(), UDim2.fromOffset(WIDTH, 20), UDim2.fromOffset(0, 0))
+	panel = UiKit.panel(HUD.column(),
+		UDim2.fromOffset(Config.UI.ColumnWidth, Config.UI.Objectives.HeaderHeight),
+		UDim2.fromOffset(0, 0))
 	panel.Name = "Objectives"
 	panel.LayoutOrder = 4
 	panel.Visible = false

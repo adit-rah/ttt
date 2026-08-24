@@ -1028,8 +1028,9 @@ __MODULES["Config"] = function()
 		-- returning player who has not maxed the vault. A hand-typed TallHeight
 		-- describes the one-optional-row case and is short by a row.
 		PartyPanel = {
-			-- Row heights only; HUD.column() places the panel and sets its width.
+			-- HUD.column() places the panel; the width is the column's.
 			HeaderHeight = 22,
+			HeadGap = 6,
 			-- RowHeight is DERIVED from the touch ladder below, not typed. At 24 it
 			-- gave every control on this card a height of RowHeight - 4 = 20, so the
 			-- decline button was 16 by 12 PHYSICAL pixels at MinScale — the smallest
@@ -1038,6 +1039,10 @@ __MODULES["Config"] = function()
 			RowGap = 4,
 			ActionWidth = 88,
 			LayoutOrder = 3,
+			-- The most rows this card can hold: one per partymate plus the invite.
+			-- Typed rather than read off Config.Party, which is declared BELOW this
+			-- table — so the verifier asserts the two agree instead.
+			MaxRows = 5,
 		},
 
 		SessionPanel = {
@@ -1117,6 +1122,47 @@ __MODULES["Config"] = function()
 		-- buttons plus two UI.Gap), so it drew four pixels out of its own bottom,
 		-- and 208 was a literal in a builder that nothing could read.
 		TouchPad = { Count = 3 },
+
+		-- invariant: THE TWO COLUMN CARDS THAT HAD NO GEOMETRY AT ALL. Party and
+		-- objectives build into HUD.column() beside the status card and the session
+		-- panel, and both sized themselves from an accumulated y in src/client — so
+		-- the column's budget could not count them, and did not.
+		Objectives = {
+			-- Every one of these shipped as a literal in ObjectivesUI.lua at 11 or 12,
+			-- which is 6.8 to 7.4 PHYSICAL px at MinScale — the same defect the NEXT
+			-- UPGRADE heading had, in the one place nothing could read it.
+			HeaderHeight = 18, HeaderTextPx = 13,
+			RowGap = 2,
+			RowTextPx = 13, CountTextPx = 13,
+			HintHeight = 28, HintTextPx = 13,
+			Pad = 4, Gutter = 8, GlyphGap = 6,
+			-- What ObjectiveService can send. The card is sized for the most it can
+			-- ever hold, because a card that fits until the third objective arrives is
+			-- a card that does not fit.
+			MaxRows = 3,
+		},
+
+		-- invariant: THE TWO OVERLAY CARDS THAT GREW FROM AN ACCUMULATED y. Both set
+		-- their height from a running total with nothing holding it against the
+		-- screen, and both were invisible to the card-scale lint because that lint
+		-- matched a literal pair and these pass a variable.
+		HelpCard = {
+			Width = 320, Pad = 12, TopPad = 10,
+			TitleHeight = 20, TitleTextPx = 17,
+			RowHeight = 16, RowTextPx = 14,
+			BodyHeight = 28, BodyTextPx = 13,
+			RowGap = 1, Indent = 12,
+			-- Config.Disclosure is the list it prints, so the most it can hold is
+			-- however many surfaces exist.
+			MaxRows = 12,
+		},
+		RebirthCard = {
+			Width = 320, Pad = 12, TopPad = 10,
+			TitleHeight = 22, TitleTextPx = 18,
+			LineHeight = 18, LineTextPx = 13,
+			RowGap = 2,
+			MaxLines = 10,
+		},
 
 		-- invariant: THE LIVE SHOP (#108) — an overlay card, a scrolling list of
 		-- rows, one control per row whose LABEL IS THE STATE.
@@ -1291,15 +1337,6 @@ __MODULES["Config"] = function()
 		-- past the bottom of the screen just as happily as two hand-typed Ys would,
 		-- so the budget stays, measured at the session panel's TALLEST. "It fits
 		-- unless you have offline earnings waiting" is not a layout that fits.
-		ui.ColumnBottom = ui.Margin + ui.StatusCard.Height + ui.Gap
-			+ ui.SessionPanel.TallHeight
-
-		-- ── THE TOP-RIGHT RAIL, and the notification column under it ─────────────
-		local rail = ui.Rail
-		-- The three stroke:size ratios, so "one optical weight across the set" is a
-		-- number the verifier can hold rather than a claim in a comment.
-		-- Where a labelled control's text starts when it carries a glyph, so the
-		-- label width left over is a number the verifier can hold against zero.
 		ui.Button.LabelInset = ui.Button.Pad + ui.Icon.Medium + ui.Button.IconGap
 
 		-- A party row is a touch target plus the breathing room either side of it,
@@ -1309,6 +1346,58 @@ __MODULES["Config"] = function()
 		ui.PartyPanel.CloseX = ui.Button.IconOnly + ui.PartyPanel.Pad
 		ui.PartyPanel.PairX = ui.PartyPanel.ActionX + ui.PartyPanel.CloseX
 		ui.PartyPanel.TextWidth = ui.ColumnWidth - ui.PartyPanel.PairX - ui.PartyPanel.Pad * 2
+
+		-- Both column cards took their width from SessionPanel's, so two of the
+		-- column's four panels borrowed a third's — and verify_config's width loop
+		-- iterated only the two that declared one. They declare their own now, and
+		-- it is the column's.
+		ui.PartyPanel.Width = ui.ColumnWidth
+		ui.Objectives.Width = ui.ColumnWidth
+
+		-- Each card's TALLEST, so a budget is measured against what a card can
+		-- become rather than what it happens to be showing.
+		ui.PartyPanel.MaxHeight = ui.PartyPanel.HeaderHeight + ui.PartyPanel.HeadGap
+			+ ui.PartyPanel.MaxRows * ui.PartyPanel.RowHeight
+		ui.Objectives.RowHeight = ui.Icon.Small
+		ui.Objectives.TextX = ui.Objectives.Gutter + ui.Icon.Small + ui.Objectives.GlyphGap
+		ui.Objectives.TextWidth = ui.ColumnWidth - ui.Objectives.TextX - ui.Objectives.Gutter
+		ui.Objectives.MaxHeight = ui.Objectives.Pad + ui.Objectives.HeaderHeight
+			+ ui.Objectives.MaxRows * (ui.Objectives.RowHeight + ui.Objectives.RowGap)
+			+ ui.Objectives.HintHeight + ui.Objectives.Pad
+
+		ui.HelpCard.MaxHeight = ui.HelpCard.TopPad + ui.HelpCard.TitleHeight
+			+ ui.HelpCard.MaxRows * (ui.HelpCard.RowHeight + ui.HelpCard.BodyHeight + ui.HelpCard.RowGap)
+			+ ui.HelpCard.Pad
+		ui.RebirthCard.MaxHeight = ui.RebirthCard.TopPad + ui.RebirthCard.TitleHeight
+			+ ui.RebirthCard.MaxLines * (ui.RebirthCard.LineHeight + ui.RebirthCard.RowGap)
+			+ ui.Button.primary + ui.RebirthCard.Pad * 2
+
+		-- invariant: THE COLUMN SCROLLS, AND THE BUDGET IS THE VIEWPORT.
+		--
+		-- ColumnBottom summed the status card and the session panel and stopped
+		-- there, while party (LayoutOrder 3) and objectives (4) went into the same
+		-- list layout and appeared in it nowhere. Making it honest is the easy part;
+		-- what it reveals is that four cards do not fit at all — 544 of budget
+		-- leaves 158 of headroom, and the party card alone can reach 268.
+		--
+		-- So the region scrolls, and the thing that has to be true is different: not
+		-- that the stack fits, which it cannot, but that NO SINGLE CARD IS TALLER
+		-- THAN THE VIEWPORT, because a card taller than the region can never be
+		-- fully seen however far you scroll. Whether the party card belongs in the
+		-- column at all is a product call and it is #183's open question.
+		ui.ColumnHeight = ui.ReferenceHeight - ui.Margin * 2
+		ui.ColumnBottom = ui.Margin + ui.ColumnHeight
+		ui.ColumnStack = ui.StatusCard.Height + ui.Gap
+			+ ui.SessionPanel.TallHeight + ui.Gap
+			+ ui.PartyPanel.MaxHeight + ui.Gap
+			+ ui.Objectives.MaxHeight
+
+		-- ── THE TOP-RIGHT RAIL, and the notification column under it ─────────────
+		local rail = ui.Rail
+		-- The three stroke:size ratios, so "one optical weight across the set" is a
+		-- number the verifier can hold rather than a claim in a comment.
+		-- Where a labelled control's text starts when it carries a glyph, so the
+		-- label width left over is a number the verifier can hold against zero.
 
 		-- The stack holds exactly what it lays out: UiKit.dock puts UI.Gap between
 		-- children, and a frame that does not account for the gaps draws its last

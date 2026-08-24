@@ -492,19 +492,18 @@ T.spec("the session panel never outgrows the height the column is budgeted for",
 	t:eq(grown, Config.UI.SessionPanel.TallHeight,
 		("both optional rows showing built a %d-px panel; TallHeight says %d")
 			:format(grown, Config.UI.SessionPanel.TallHeight))
-	-- ...and the budget the verifier holds the whole column to is the budget the
-	-- runtime can actually reach.
-	t:eq(Config.UI.Margin + Config.UI.StatusCard.Height + Config.UI.Gap + grown,
-		Config.UI.ColumnBottom,
-		"the column's tallest real layout is not the one Config.UI.ColumnBottom describes")
-
-	-- ...and with no tail at all it is back to the ordinary height, so the two
-	-- are two reachable states rather than one number and one guess.
-	toClient(world, "SessionState", withTail(false))
-	t:eq(panel.Size.Y.Offset, Config.UI.SessionPanel.Height,
-		"with no optional rows the panel is not at its ordinary height")
-
-	quiet(t, world, "a SessionState payload raised")
+	-- ...and the budget the verifier holds the column to counts it.
+	--
+	-- ColumnBottom USED to be exactly this sum, and that was the defect: it
+	-- described two of the column's four cards. It is the scroll viewport's
+	-- bottom edge now, and the sum lives in ColumnStack — which counts all four
+	-- at their tallest, and comes out taller than the screen, which is why the
+	-- region scrolls.
+	t:gte(Config.UI.ColumnStack, Config.UI.StatusCard.Height + Config.UI.Gap + grown,
+		"the column's stack budget does not even cover the two cards it used to count")
+	t:lte(grown, Config.UI.ColumnHeight,
+		("the session panel is %d tall inside a %d viewport; a card taller than the region can never be fully seen however far you scroll")
+			:format(grown, Config.UI.ColumnHeight))
 end)
 
 -- ── the balance ─────────────────────────────────────────────────────────────

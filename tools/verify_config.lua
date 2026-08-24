@@ -4195,7 +4195,7 @@ print(("status card:       %dx%d (rows need %d), bar %dx%d at y=%d, left column 
 -- the layout would need if the shop stayed in the column; horizontal clearance
 -- is what it does instead, and is the stronger property — it holds at EVERY
 -- viewport height rather than at heights above some threshold.
-local column = { UI.StatusCard, UI.SessionPanel }
+local column = { UI.StatusCard, UI.SessionPanel, UI.PartyPanel, UI.Objectives }
 for index, entry in ipairs(column) do
 	check(entry.Width == UI.ColumnWidth,
 		("panel %d of the left column is %d wide but the column is %d; a column of two widths is two panels")
@@ -4260,8 +4260,75 @@ for _, row in ipairs(panelText) do
 end
 
 check(UI.ColumnBottom + UI.Margin <= UI.ReferenceHeight,
-	("the left column ends at y=%d, past the bottom of a %d-tall reference screen")
+	("the left column's region ends at y=%d, past the bottom of a %d-tall reference screen")
 		:format(UI.ColumnBottom, UI.ReferenceHeight))
+
+-- THE COLUMN'S BUDGET COUNTS EVERY CARD IN IT, and the honest number is what
+-- forced the region to scroll. ColumnBottom summed the status card and the
+-- session panel and stopped; party (LayoutOrder 3) and objectives (4) build
+-- into the same list layout and were in it nowhere. At their tallest the four
+-- come to ColumnStack, which is larger than the screen — so the thing that has
+-- to be true is not that the stack fits, but that NO SINGLE CARD IS TALLER THAN
+-- THE VIEWPORT, because a card taller than the region can never be fully seen
+-- however far you scroll.
+local columnCards = {
+	{ "status card", UI.StatusCard.Height },
+	{ "session panel", UI.SessionPanel.TallHeight },
+	{ "party card", UI.PartyPanel.MaxHeight },
+	{ "objectives card", UI.Objectives.MaxHeight },
+}
+for _, card in ipairs(columnCards) do
+	check(card[2] <= UI.ColumnHeight,
+		("the %s can reach %d design px inside a %d-px column viewport; a card taller than the region it scrolls in can never be fully seen")
+			:format(card[1], card[2], UI.ColumnHeight))
+end
+-- ...and the budget names all four. Written as a sum rather than a constant so
+-- adding a fifth card to HUD.column() without adding it here is a diff a reader
+-- can see, which is precisely what did not happen the last two times.
+local counted = 0
+for _, card in ipairs(columnCards) do
+	counted += card[2]
+end
+check(UI.ColumnStack == counted + UI.Gap * (#columnCards - 1),
+	("the column's stack budget is %d and its four cards plus their gaps come to %d — a card was added to HUD.column() and not to the budget, which is how the party and objectives cards went uncounted")
+		:format(UI.ColumnStack, counted + UI.Gap * (#columnCards - 1)))
+
+-- The party card holds one row per mate plus the invite. Typed in the table
+-- because Config.Party is declared after Config.UI; asserted here, where both
+-- exist, so the two cannot drift.
+check(UI.PartyPanel.MaxRows == Config.Party.MaxSize + 1,
+	("the party card is sized for %d rows and a party is %d people plus an invite")
+		:format(UI.PartyPanel.MaxRows, Config.Party.MaxSize))
+-- The objectives card holds what the service can send it.
+check(UI.Objectives.MaxRows >= Config.Objectives.PerDay,
+	("the objectives card is sized for %d rows and the service draws %d a day")
+		:format(UI.Objectives.MaxRows, Config.Objectives.PerDay))
+for label, size in pairs({ header = UI.Objectives.HeaderTextPx, row = UI.Objectives.RowTextPx,
+	count = UI.Objectives.CountTextPx, hint = UI.Objectives.HintTextPx }) do
+	check(size >= UI.MinTextPx,
+		("the objectives card's %s text is %d design px, %.1f physical at MinScale — under the %d-px floor this file declares")
+			:format(label, size, size * UI.MinScale, UI.MinTextPx))
+end
+check(UI.Objectives.TextWidth >= 120,
+	("the objectives card leaves %d px for an objective's name beside its marker")
+		:format(UI.Objectives.TextWidth))
+
+-- The two overlay cards, which grew from an accumulated y with nothing holding
+-- them against the screen.
+for _, card in ipairs({ { "help", UI.HelpCard }, { "rebirth report", UI.RebirthCard } }) do
+	check(card[2].MaxHeight <= UI.ReferenceHeight - UI.Margin * 2,
+		("the %s card can reach %d design px on a %d-tall screen")
+			:format(card[1], card[2].MaxHeight, UI.ReferenceHeight))
+	check(card[2].Width + UI.Margin * 2 <= UI.ReferenceWidth,
+		("the %s card is %d wide on a %d screen"):format(card[1], card[2].Width, UI.ReferenceWidth))
+end
+for label, size in pairs({ ["help title"] = UI.HelpCard.TitleTextPx, ["help row"] = UI.HelpCard.RowTextPx,
+	["help body"] = UI.HelpCard.BodyTextPx, ["rebirth title"] = UI.RebirthCard.TitleTextPx,
+	["rebirth line"] = UI.RebirthCard.LineTextPx }) do
+	check(size >= UI.MinTextPx,
+		("the %s text is %d design px, %.1f physical at MinScale — under the %d-px floor this file declares")
+			:format(label, size, size * UI.MinScale, UI.MinTextPx))
+end
 
 -- EVERY UI.ShopPanel CHECK BELOW GUARDS A SCREEN NOBODY CAN SEE, and that is
 -- worth saying once rather than nine times. The table's only reader is
