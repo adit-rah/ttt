@@ -1427,6 +1427,12 @@ defects in the same file.
   `MinScale`, under half the floor this file declares, on the one control whose job is to be
   pressed by a child. A rail item is a square rather than a row, so it is not on the ladder and
   is checked directly: a 56-wide button 20 tall is as unhittable as a 20-wide one. `[assert]`
+- **The action stack is parked, and `Config.UI.Action` is not.** REBIRTH and LEAVE PLOT were the
+  only two things docked bottom-right, and both are plot actions living on the screen rather than
+  on the plot; they move to the plot's post under #199. The builder is commented rather than
+  removed **because the geometry has to keep holding while the corner is empty** — the
+  bottom-right is still reserved against the engine's jump button, and the toast column is still
+  derived to stop above the stack. `HUD.showRebirthModal` stays public for whatever calls it next.
 - **Both bottom corners belong to the engine.** On touch, Roblox draws the movement thumbstick
   bottom-left and the jump button bottom-right, on a layer above ours, and no API returns
   either rectangle. The action stack was anchored `(1,1)` at the margin — 200×112 in exactly

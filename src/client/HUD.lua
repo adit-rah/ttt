@@ -96,7 +96,8 @@ local inviteButton
 local helpScroll
 local newPanel
 local newRows = {}
-local waveFrame, waveLabel, toastList, rebirthButton
+local waveFrame, waveLabel, toastList
+-- #199: rebirthButton, parked with the action stack.
 -- the next-purchase half of the status card: name, bar fill, "N to go". The bar's
 -- TRACK is not kept — it is drawn once and never written to again, and a module
 -- local nothing reads is a local that outlives the reason it was added.
@@ -423,7 +424,8 @@ local function buildToasts(parent: Instance)
 	})
 end
 
---- REBIRTH over LEAVE PLOT, on the right edge and RAISED OFF THE BOTTOM.
+--- invariant: REBIRTH over LEAVE PLOT, on the right edge and RAISED OFF THE
+--- BOTTOM.
 ---
 --- It was anchored (1,1) at (1,-Margin),(1,-Margin) — 200x112 in the corner the
 --- engine draws the touch jump button in, with the movement thumbstick in the
@@ -431,32 +433,45 @@ end
 --- five players REBIRTH and JUMP were the same pixels. There is no API that
 --- returns either control's rectangle, so the clearance is a declared number:
 --- Config.UI.TouchReserve.Bottom, which is what insetY is measured from.
-local function buildActions(parent: Instance)
-	local holder = UiKit.dock(parent, {
-		name = "Actions",
-		corner = "bottomRight",
-		width = UI.Action.Width,
-		height = UI.Action.Height,
-		insetY = UI.Action.BottomGap,
-		direction = "Vertical",
-	})
-
-	rebirthButton = UiKit.control(holder, {
-		variant = "primary", text = "REBIRTH",
-		width = UI.Action.Width, layoutOrder = 1,
-	})
-	local leave = UiKit.control(holder, {
-		variant = "secondary", text = "LEAVE PLOT",
-		width = UI.Action.Width, layoutOrder = 2,
-	})
-
-	rebirthButton.Activated:Connect(function()
-		HUD.showRebirthModal(state.rebirthCost)
-	end)
-	leave.Activated:Connect(function()
-		Net.event("RequestReset"):FireServer()
-	end)
-end
+-- design:D-05, via #199 — THE ACTION STACK IS PARKED, NOT DELETED.
+--
+-- REBIRTH and LEAVE PLOT were the only two things docked bottom-right, and both
+-- are plot actions sitting on the screen rather than on the plot. They are
+-- moving to the plot's own post, where LEAVE PLOT becomes a hold-to-interact
+-- prompt on the thing it acts on — see #199.
+--
+-- Commented rather than removed because Config.UI.Action and its assertions
+-- stay: the bottom-right corner is still reserved against the engine's jump
+-- button, the toast column is still derived to stop above it, and both of those
+-- have to keep holding while the corner is empty. HUD.showRebirthModal stays a
+-- public function for the post to call.
+--
+-- local function buildActions(parent: Instance)
+-- 	local holder = UiKit.dock(parent, {
+-- 		name = "Actions",
+-- 		corner = "bottomRight",
+-- 		width = UI.Action.Width,
+-- 		height = UI.Action.Height,
+-- 		insetY = UI.Action.BottomGap,
+-- 		direction = "Vertical",
+-- 	})
+--
+-- 	rebirthButton = UiKit.control(holder, {
+-- 		variant = "primary", text = "REBIRTH",
+-- 		width = UI.Action.Width, layoutOrder = 1,
+-- 	})
+-- 	local leave = UiKit.control(holder, {
+-- 		variant = "secondary", text = "LEAVE PLOT",
+-- 		width = UI.Action.Width, layoutOrder = 2,
+-- 	})
+--
+-- 	rebirthButton.Activated:Connect(function()
+-- 		HUD.showRebirthModal(state.rebirthCost)
+-- 	end)
+-- 	leave.Activated:Connect(function()
+-- 		Net.event("RequestReset"):FireServer()
+-- 	end)
+-- end
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- behaviour
@@ -1125,8 +1140,9 @@ function HUD.applyStats(payload)
 	-- or throttled RenderStepped is not blank while it waits for one.
 	renderNext()
 
-	rebirthButton.Text = ("REBIRTH  %s"):format(Util.abbreviate(state.rebirthCost))
-	UiKit.setControlState(rebirthButton, state.cash >= state.rebirthCost and "idle" or "disabled")
+	-- #199: the two lines that dressed the parked REBIRTH button.
+	-- rebirthButton.Text = ("REBIRTH  %s"):format(Util.abbreviate(state.rebirthCost))
+	-- UiKit.setControlState(rebirthButton, state.cash >= state.rebirthCost and "idle" or "disabled")
 	for _, fn in ipairs(statsListeners) do
 		fn()
 	end
@@ -1334,7 +1350,8 @@ function HUD.start()
 	buildStatusCard(column)
 	buildUtilityRail(root)
 	buildToasts(root)
-	buildActions(root)
+	-- #199: parked with the builder above.
+	-- buildActions(root)
 	-- no layer: this one hangs in the world, not on the screen
 	buildWaveBanner()
 
