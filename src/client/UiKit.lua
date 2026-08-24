@@ -24,12 +24,12 @@
 	asks for a corner now and gets the anchor, the inset and the list alignment
 	that agree with it.
 
-	ONE DIVERGENCE SURVIVED THE MERGE, and it is the only interesting thing in
-	this file. HUD and UpgradeUI build TextScaled buttons with no TextSize;
-	SessionUI's are sized text (TextScaled = false, TextSize = 15). `button` here
-	is the TextScaled one, and SessionUI keeps a small shim that pre-seeds the
-	other two properties before forwarding. Rewriting that panel's call sites to
-	remove a shim is how a refactor turns into a redesign.
+	THE ONE DIVERGENCE IS RESOLVED, and SessionUI won it. HUD and UpgradeUI built
+	TextScaled buttons with no TextSize while SessionUI's were sized text behind a
+	shim, and the shim's argument — TextScaled sizes a label from its own box, so
+	two buttons of different widths print at two sizes and neither is a number the
+	verifier can read — was true of the whole game. `control` is sized text at the
+	variant's textPx, and there is no `button` any more.
 ]]
 
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
@@ -44,6 +44,8 @@ local UI = Config.UI
 -- verify.py's config-path pass can resolve it: it follows ONE alias hop, and a
 -- `local RAIL = UI.Rail` would be a name it has no way to check reads against.
 local RAIL = Config.UI.Rail
+local ICON = Config.UI.Icon
+local BTN = Config.UI.Button
 
 local UiKit = {}
 
@@ -129,25 +131,181 @@ function UiKit.text(parent: Instance, props): TextLabel
 	return l
 end
 
---- TextScaled by default — see the header. A caller that wants sized text
---- passes TextScaled = false and a TextSize in `props`, which land after these
---- defaults do.
-function UiKit.button(parent: Instance, label: string, color: Color3, props): TextButton
+-- ─────────────────────────────────────────────────────────────────────────────
+-- controls
+-- ─────────────────────────────────────────────────────────────────────────────
+
+--- invariant: ONE CONTROL, and the variant decides everything about how it
+--- looks. The caller decides what it says, how wide it is and where it goes.
+---
+--- opts:
+---   variant     "primary" | "secondary" | "pill" | "ghost" | "danger"  (required)
+---   text        the label
+---   icon        a UiKit.ICONS name drawn ahead of the label            (optional)
+---   width       design px. Ignored when iconOnly
+---   height      "primary" | "secondary" | "pill", overriding the variant's own
+---   iconOnly    a square control at UI.Button.IconOnly, carrying only a glyph
+---   name, layoutOrder, position, anchor, zIndex
+---
+--- HOVER AND PRESS ARE THE ENGINE'S. AutoButtonColor darkens on press and
+--- lightens on hover, on every platform, for free; a second system on top of it
+--- is two things to keep in step where one already works. What is ours is the
+--- part the engine has no opinion about — see setControlState.
+function UiKit.control(parent: Instance, opts): TextButton
+	local variant = BTN.Variant[opts.variant]
+	if not variant then
+		error(("[Tung] unknown control variant %q; Config.UI.Button.Variant has no such row")
+			:format(tostring(opts.variant)), 2)
+	end
+	local heightName = opts.height or variant.height
+	local height = BTN[heightName]
+	if not height then
+		error(("[Tung] control height %q is not a rung of Config.UI.Button")
+			:format(tostring(heightName)), 2)
+	end
+	local width = opts.iconOnly and BTN.IconOnly or (opts.width or BTN.MinWidth)
+
 	local b = Instance.new("TextButton")
-	b.BackgroundColor3 = color
+	b.Name = opts.name or opts.text or opts.variant
+	b.Size = UDim2.fromOffset(width, opts.iconOnly and BTN.IconOnly or height)
+	b.BackgroundColor3 = ROLE[variant.fill]
 	b.BackgroundTransparency = 0.1
 	b.BorderSizePixel = 0
+	-- All three declared rather than left to the engine's defaults, because
+	-- setControlState turns all three off and `idle` has to have something
+	-- exact to turn them back to.
 	b.AutoButtonColor = true
+	b.Active = true
+	b.Selectable = true
 	b.Font = Style.Font.title
-	b.Text = label
-	b.TextColor3 = ROLE.onAction
-	b.TextScaled = true
-	for k, v in pairs(props or {}) do
-		(b :: any)[k] = v
+	b.TextColor3 = ROLE[variant.ink]
+	b.TextSize = variant.textPx
+	b.TextScaled = false
+	b.TextTruncate = Enum.TextTruncate.AtEnd
+	b.Text = (opts.icon or opts.iconOnly) and "" or (opts.text or "")
+	if opts.position then
+		b.Position = opts.position
+	end
+	if opts.anchor then
+		b.AnchorPoint = opts.anchor
+	end
+	if opts.layoutOrder then
+		b.LayoutOrder = opts.layoutOrder
+	end
+	if opts.zIndex then
+		b.ZIndex = opts.zIndex
 	end
 	b.Parent = parent
-	UiKit.corner(b, 10)
+	UiKit.corner(b, BTN.Radius)
+	if variant.stroke then
+		UiKit.stroke(b, ROLE[variant.stroke], 1.5)
+	end
+	-- The variant is remembered ON the instance rather than in a closure, so
+	-- setControlState needs no capture and a spec can read which variant a live
+	-- button is without being handed it.
+	b:SetAttribute("Variant", opts.variant)
+
+	if opts.icon then
+		local glyph = UiKit.icon(b, opts.icon, ICON.Medium, ROLE[variant.ink], ROLE[variant.fill])
+		if opts.iconOnly then
+			glyph.Position = UDim2.fromOffset(
+				math.floor((BTN.IconOnly - ICON.Medium) / 2),
+				math.floor((BTN.IconOnly - ICON.Medium) / 2))
+		else
+			glyph.Position = UDim2.fromOffset(BTN.Pad, math.floor((height - ICON.Medium) / 2))
+			-- A TextButton with Text set runs it UNDER the glyph, so a labelled
+			-- icon control carries its label as a child laid out beside the
+			-- drawing rather than as the button's own text.
+			UiKit.text(b, {
+				Name = "Label",
+				Size = UDim2.fromOffset(width - BTN.LabelInset - BTN.Pad, height),
+				Position = UDim2.fromOffset(BTN.LabelInset, 0),
+				Font = Style.Font.title,
+				Text = opts.text or "",
+				TextSize = variant.textPx,
+				TextColor3 = ROLE[variant.ink],
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				TextYAlignment = Enum.TextYAlignment.Center,
+			})
+		end
+	end
+
 	return b
+end
+
+--- invariant: idle | on | disabled | busy, and each one sets ALL SIX properties.
+---
+--- Four call sites wrote "disabled" by hand and every one of them forgot the
+--- same three: AutoButtonColor stayed on so a dead control still flashed under
+--- a thumb, the ink stayed at the live variant's so the label went unreadable
+--- on the dark fill, and Selectable stayed on so a gamepad still landed there.
+--- `busy` is disabled plus a label, for the beat between a press and the
+--- server's answer. `on` is unpressable and looks it least: a running boost and
+--- a held sprint are both live effects, and greying one reads as it having
+--- stopped.
+local CONTROL_STATES = { idle = true, on = true, disabled = true, busy = true }
+
+function UiKit.setControlState(button: TextButton, state: string, label: string?)
+	local variant = BTN.Variant[button:GetAttribute("Variant")]
+	if not variant then
+		error(("[Tung] the control %q carries no Variant attribute; it was not built by UiKit.control")
+			:format(button.Name), 2)
+	end
+	if not CONTROL_STATES[state] then
+		error(("[Tung] unknown control state %q; expected idle/on/disabled/busy")
+			:format(tostring(state)), 2)
+	end
+	local live = state == "idle"
+	local look = (state == "on" and BTN.On) or (not live and BTN.Disabled) or variant
+	local fill, ink = look.fill, look.ink
+
+	button.BackgroundColor3 = ROLE[fill]
+	button.TextColor3 = ROLE[ink]
+	button.AutoButtonColor = live
+	button.Active = live
+	button.Selectable = live
+	if label then
+		button.Text = button.Text ~= "" and label or button.Text
+	end
+
+	local text = button:FindFirstChild("Label")
+	if text and text:IsA("TextLabel") then
+		text.TextColor3 = ROLE[ink]
+		if label then
+			text.Text = label
+		end
+	end
+	local glyph = button:FindFirstChild("Glyph")
+	if glyph then
+		for _, part in ipairs(glyph:GetChildren()) do
+			if part:IsA("Frame") then
+				local stroke = part:FindFirstChildOfClass("UIStroke")
+				if stroke then
+					stroke.Color = ROLE[ink]
+				elseif part.BackgroundColor3 ~= ROLE[variant.fill] then
+					part.BackgroundColor3 = ROLE[ink]
+				end
+			end
+		end
+	end
+end
+
+--- The full-bleed dim behind a modal.
+---
+--- Built twice by hand before this, in HUD.lua and SessionUI.lua, each then
+--- walking its own descendants to force a ZIndex. It goes on the OVERLAY layer,
+--- which is the one without safe-area padding, so the dim covers the notch and
+--- the home indicator rather than stopping politely short of them.
+function UiKit.shade(parent: Instance, name: string, zIndex: number): Frame
+	local shade = Instance.new("Frame")
+	shade.Name = name
+	shade.Size = UDim2.fromScale(1, 1)
+	shade.BackgroundColor3 = ROLE.scrim
+	shade.BackgroundTransparency = 0.45
+	shade.BorderSizePixel = 0
+	shade.ZIndex = zIndex
+	shade.Parent = parent
+	return shade
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -241,7 +399,6 @@ end
 --- the three weights ARE layout, and they are in Config where they are held
 --- against MinScale and against the rail. That split is UiKit.personPlus's own
 --- argument, generalised — its numbers were already fractions of `size`.
-local ICON = UI.Icon
 local G = ICON.Grid
 
 local function rect(x, y, w, h, radius, rotation)
@@ -278,6 +435,7 @@ UiKit.ICONS = {
 
 	-- done. Replaces the ✓ that ObjectivesUI printed as text.
 	tick = { bar(5, 12.5, 10, 17.5), bar(10, 17.5, 19, 6.5) },
+	close = { bar(6.5, 6.5, 17.5, 17.5), bar(17.5, 6.5, 6.5, 17.5) },
 
 	-- the compass set, replacing ◆ ▲ ⌂ ! and a partymate's first initial
 	core  = { rect(7, 7, 10, 10, 1, 45) },

@@ -68,22 +68,17 @@ local corner, frame, text = UiKit.corner, UiKit.panel, UiKit.text
 --- THE ONE PLACE THIS PANEL DISAGREES WITH THE REST OF THE UI, and the reason
 --- the merge into UiKit was not a straight deletion. Every button in HUD and
 --- UpgradeUI is TextScaled; every button in here is sized text at 15, because
---- these labels are long ("BOOST READY IN 12:04") in boxes that are not, and
---- TextScaled would set each of them at a different size. Two properties
---- pre-seeded into `props` before forwarding buys that back without touching
---- the three call sites below — and it is deliberately NOT tidied away in the
---- same change that moved the helpers, so that if sized text turns out to be
---- the wrong call on a phone there is one function to look at.
-local function button(parent: Instance, label: string, color: Color3, props): TextButton
-	props = props or {}
-	if props.TextScaled == nil then
-		props.TextScaled = false
-	end
-	if props.TextSize == nil then
-		props.TextSize = 15
-	end
-	return UiKit.button(parent, label, color, props)
-end
+--- THE SHIM THAT WAS HERE WAS RIGHT, AND IS NOW THE RULE.
+---
+--- It forced TextScaled = false and TextSize = 15 before forwarding to
+--- UiKit.button, and its argument was that TextScaled sizes a label from its own
+--- box, so two buttons of different widths in one panel print at two sizes and
+--- neither is a number the verifier can read. That argument was true of the
+--- whole game: REBIRTH and NOT ENOUGH TUNG came out at different sizes in the
+--- same modal. Config.UI.Button.Variant owns every button's text size now, the
+--- 15 this shim chose is the `pill` variant's, and the escape hatch it kept —
+--- one function to look at if sized text turns out wrong on a phone — is three
+--- numbers in Config, which is a better place to look.
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- formatting
@@ -143,14 +138,7 @@ function SessionUI.showOfflineModal(offline)
 
 	-- HUD.overlay(), not HUD.root(): the shade has to dim the safe area it is
 	-- covering, and the root layer is padded clear of exactly that strip.
-	local shade = Instance.new("Frame")
-	shade.Name = "OfflineModal"
-	shade.Size = UDim2.fromScale(1, 1)
-	shade.BackgroundColor3 = ROLE.scrim
-	shade.BackgroundTransparency = 0.45
-	shade.BorderSizePixel = 0
-	shade.ZIndex = 30
-	shade.Parent = overlay
+	local shade = UiKit.shade(overlay, "OfflineModal", 30)
 
 	local card = frame(shade,
 		UDim2.fromOffset(OFFLINE.Width, OFFLINE.Height),
@@ -236,11 +224,11 @@ function SessionUI.showOfflineModal(offline)
 		ZIndex = 32,
 	})
 
-	local collect = button(card, ("COLLECT %s"):format(Util.abbreviate(offline.earned)), ROLE.affirm, {
-		Size = UDim2.fromOffset(OFFLINE.ContentWidth, UI.Button.primary),
-		Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.ButtonY),
-		TextSize = OFFLINE.ButtonTextPx,
-		ZIndex = 32,
+	local collect = UiKit.control(card, {
+		variant = "pill", height = "primary",
+		text = ("COLLECT %s"):format(Util.abbreviate(offline.earned)),
+		width = OFFLINE.ContentWidth, zIndex = 32,
+		position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.ButtonY),
 	})
 
 	-- count-up: the number arriving instantly is a fact, the number climbing is
@@ -307,12 +295,11 @@ local function buildRow(parent: Instance, y: number, height: number, title: stri
 	-- A 66x30 pill was a 41x19 physical target at MinScale, which is a coin
 	-- flip with a thumb. Full touch height, vertically centred in whatever row
 	-- it lands in — the rows are 46, 50 and 56 tall.
-	local action = button(row, "CLAIM", ROLE.affirm, {
-		Size = UDim2.fromOffset(PANEL.ActionWidth, UI.Button.pill),
-		Position = UDim2.fromOffset(PANEL.ActionX, math.round((height - UI.Button.pill) / 2)),
-		TextSize = PANEL.ActionTextPx,
-		Visible = false,
+	local action = UiKit.control(row, {
+		variant = "pill", text = "CLAIM", width = PANEL.ActionWidth,
+		position = UDim2.fromOffset(PANEL.ActionX, math.round((height - UI.Button.pill) / 2)),
 	})
+	action.Visible = false
 
 	return { row = row, title = titleLabel, sub = subLabel, action = action }
 end
@@ -368,23 +355,23 @@ local function buildPanel()
 	playtimeFill.Parent = track
 	corner(playtimeFill, 2)
 
-	boostButton = button(panel, "BOOST", ROLE.currency, {
-		Size = UDim2.fromOffset(PANEL.RowWidth, UI.Button.secondary),
-		Position = UDim2.fromOffset(PANEL.Pad, PANEL.BoostY),
-		TextSize = PANEL.BoostTextPx,
+	-- Gold, at the row height the panel can afford. BOOST means what REBIRTH
+	-- means and cannot have REBIRTH's 56 px.
+	boostButton = UiKit.control(panel, {
+		variant = "primary", height = "secondary", text = "BOOST",
+		width = PANEL.RowWidth,
+		position = UDim2.fromOffset(PANEL.Pad, PANEL.BoostY),
 	})
 
 	-- Both of these are positioned by layoutTail() rather than here: they come
 	-- and go independently and a fixed y for each leaves a hole in the panel.
 	vaultRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "VAULT TIMER")
 	vaultRow.row.Visible = false
-	vaultRow.action.BackgroundColor3 = ROLE.currency
 
 	offlineRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "OFFLINE TUNG")
 	TAIL_ROWS = { vaultRow, offlineRow }
 	offlineRow.row.Visible = false
 	offlineRow.action.Text = "OPEN"
-	offlineRow.action.BackgroundColor3 = ROLE.currency
 
 	dailyRow.action.Activated:Connect(function()
 		click()
@@ -537,13 +524,13 @@ local function renderBoost(boost)
 	local since = elapsed()
 	if boost.active then
 		boostButton.Text = ("x%g BOOST  •  %s"):format(boost.multiplier, clockText(boost.secondsLeft - since))
-		boostButton.BackgroundColor3 = ROLE.affirm
+		UiKit.setControlState(boostButton, "on")
 	elseif boost.cooldownLeft - since > 0 then
 		boostButton.Text = ("BOOST READY IN %s"):format(clockText(boost.cooldownLeft - since))
-		boostButton.BackgroundColor3 = ROLE.disabled
+		UiKit.setControlState(boostButton, "disabled")
 	else
 		boostButton.Text = ("CLAIM x%g BOOST  •  %d MIN"):format(boost.multiplier, boost.duration // 60)
-		boostButton.BackgroundColor3 = ROLE.currency
+		UiKit.setControlState(boostButton, "idle")
 	end
 
 	weekendBadge.Text = boost.weekend and ("WEEKEND x%g"):format(boost.weekendMultiplier) or ""

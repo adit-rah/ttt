@@ -106,8 +106,8 @@ local railFrame
 -- The panel vocabulary, aliased so every call site below reads exactly as it
 -- did when these were five local functions in this file. They are UiKit's now;
 -- see src/client/UiKit.lua for what the merge of the three copies cost.
-local corner, stroke, panel, text, button =
-	UiKit.corner, UiKit.stroke, UiKit.panel, UiKit.text, UiKit.button
+local corner, stroke, panel, text =
+	UiKit.corner, UiKit.stroke, UiKit.panel, UiKit.text
 
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -391,16 +391,13 @@ local function buildActions(parent: Instance)
 		direction = "Vertical",
 	})
 
-	rebirthButton = button(holder, "REBIRTH", ROLE.action, {
-		Size = UDim2.fromOffset(UI.Action.Width, UI.Button.primary),
-		LayoutOrder = 1,
+	rebirthButton = UiKit.control(holder, {
+		variant = "primary", text = "REBIRTH",
+		width = UI.Action.Width, layoutOrder = 1,
 	})
-	-- No TextSize: UiKit.button is TextScaled, which overrides one. There was a
-	-- `TextSize = 16` here doing nothing, which is worse than no number at all —
-	-- it reads as the size this label is drawn at and it never was.
-	local leave = button(holder, "LEAVE PLOT", ROLE.neutral, {
-		Size = UDim2.fromOffset(UI.Action.Width, UI.Button.secondary),
-		LayoutOrder = 2,
+	local leave = UiKit.control(holder, {
+		variant = "secondary", text = "LEAVE PLOT",
+		width = UI.Action.Width, layoutOrder = 2,
 	})
 
 	rebirthButton.Activated:Connect(function()
@@ -605,9 +602,9 @@ function buildHelp(rail)
 			renderHelp()
 		end
 	end)
-	local close = UiKit.button(helpPanel, "CLOSE", ROLE.danger, {
-		Size = UDim2.fromOffset(64, 22),
-		Position = UDim2.new(1, -72, 0, 8),
+	local close = UiKit.control(helpPanel, {
+		variant = "ghost", name = "Close", icon = "close", iconOnly = true,
+		position = UDim2.new(1, -(UI.Button.IconOnly + 8), 0, 8),
 	})
 	close.Activated:Connect(function()
 		helpPanel.Visible = false
@@ -751,14 +748,7 @@ function HUD.showRebirthModal(cost: number)
 	-- On the OVERLAY layer, not the root one: the shade is supposed to dim the
 	-- notch and the home indicator along with everything else, and the root
 	-- layer is padded clear of both.
-	local shade = Instance.new("Frame")
-	shade.Name = "RebirthModal"
-	shade.Size = UDim2.fromScale(1, 1)
-	shade.BackgroundColor3 = ROLE.scrim
-	shade.BackgroundTransparency = 0.45
-	shade.BorderSizePixel = 0
-	shade.ZIndex = 20
-	shade.Parent = overlay
+	local shade = UiKit.shade(overlay, "RebirthModal", 20)
 
 	local card = panel(shade,
 		UDim2.fromOffset(REBIRTH.Width, REBIRTH.Height),
@@ -793,18 +783,19 @@ function HUD.showRebirthModal(cost: number)
 		ZIndex = 22,
 	})
 
-	local confirm = button(card, affordable and "DO IT" or "NOT ENOUGH TUNG",
-		affordable and ROLE.action or ROLE.disabled, {
-			Size = UDim2.fromOffset(REBIRTH.ButtonWidth, UI.Button.primary),
-			Position = UDim2.fromOffset(REBIRTH.Pad, REBIRTH.ButtonY),
-			ZIndex = 22,
-			TextSize = REBIRTH.ButtonTextPx,
-		})
-	local cancel = button(card, "CANCEL", ROLE.neutral, {
-		Size = UDim2.fromOffset(REBIRTH.ButtonWidth, UI.Button.primary),
-		Position = UDim2.fromOffset(REBIRTH.CancelX, REBIRTH.ButtonY),
-		ZIndex = 22,
-		TextSize = REBIRTH.ButtonTextPx,
+	local confirm = UiKit.control(card, {
+		variant = "primary", text = affordable and "DO IT" or "NOT ENOUGH TUNG",
+		width = REBIRTH.ButtonWidth, zIndex = 22,
+		position = UDim2.fromOffset(REBIRTH.Pad, REBIRTH.ButtonY),
+	})
+	-- The unaffordable branch is a STATE, not a second colour: the state setter
+	-- is what also kills AutoButtonColor, Active and Selectable, which the
+	-- inline version left on every time.
+	UiKit.setControlState(confirm, affordable and "idle" or "disabled")
+	local cancel = UiKit.control(card, {
+		variant = "secondary", text = "CANCEL",
+		width = REBIRTH.ButtonWidth, zIndex = 22,
+		position = UDim2.fromOffset(REBIRTH.CancelX, REBIRTH.ButtonY),
 	})
 
 	confirm.Activated:Connect(function()
@@ -954,7 +945,7 @@ function HUD.applyStats(payload)
 	renderNext()
 
 	rebirthButton.Text = ("REBIRTH  %s"):format(Util.abbreviate(state.rebirthCost))
-	rebirthButton.BackgroundColor3 = state.cash >= state.rebirthCost and ROLE.action or ROLE.disabled
+	UiKit.setControlState(rebirthButton, state.cash >= state.rebirthCost and "idle" or "disabled")
 	for _, fn in ipairs(statsListeners) do
 		fn()
 	end

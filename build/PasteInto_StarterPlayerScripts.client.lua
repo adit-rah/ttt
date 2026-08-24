@@ -878,6 +878,56 @@ __MODULES["Config"] = function()
 			primary = 56,
 			secondary = 46,
 			pill = 44,
+
+			-- invariant: FIVE VARIANTS AND NO SIXTH. A variant is what a control MEANS
+			-- — a fill role, the ink role that prints on it, the size it sets its
+			-- label at, and the height it takes unless told otherwise. UiKit.control
+			-- is a pure reader of this table, so a control's look is a row here
+			-- rather than four properties a call site assigns and three it forgets.
+			--
+			-- HEIGHT IS THE ONE THING A CALLER MAY OVERRIDE, and only with another
+			-- name off the ladder. BOOST means the same as REBIRTH and sits in a row
+			-- that cannot afford 56 px; without the override that is a sixth variant
+			-- whose only difference from the fifth is a number, which is how a table
+			-- of five becomes a table of nine.
+			--
+			-- WHAT THIS REPLACES: every panel expressing "disabled" inline. ShopUI set
+			-- a background and Active = false and left AutoButtonColor on (so a dead
+			-- button still flashed), left the label at ink on a dark fill (so nobody
+			-- could read it) and left Selectable on (so a gamepad still landed on it).
+			--
+			-- TEXTSCALED IS GONE. It set every label at a size derived from its own
+			-- box, so REBIRTH and NOT ENOUGH TUNG came out at two different sizes in
+			-- the same modal — and not one of those sizes was a number the verifier
+			-- could hold against MinTextPx. SessionUI carried a shim forcing sized
+			-- text at 15 for exactly this reason; the shim was right and is now the
+			-- rule.
+			Pad = 12,
+			IconGap = 8,
+			Radius = 10,
+			MinWidth = 88,
+			-- A square control carrying a glyph and no label. Both CLOSE buttons and
+			-- the party decline shipped under the touch floor because they were sized
+			-- to their text; a glyph-only control is sized to a thumb instead.
+			IconOnly = 44,
+
+			Variant = {
+				primary   = { height = "primary",   fill = "action",   ink = "onAction",   textPx = 20 },
+				secondary = { height = "secondary", fill = "neutral",  ink = "onNeutral",  textPx = 17, stroke = "line" },
+				pill      = { height = "pill",      fill = "affirm",   ink = "onAffirm",   textPx = 15 },
+				ghost     = { height = "pill",      fill = "surface",  ink = "onSurface",  textPx = 15, stroke = "line" },
+				danger    = { height = "secondary", fill = "danger",   ink = "onDanger",   textPx = 17 },
+			},
+			-- What a control of ANY variant becomes in each state that is not idle.
+			-- One row each, so the four properties that were forgotten inline cannot
+			-- be forgotten one at a time.
+			--
+			-- `On` is the state a disabled fill cannot express: a control whose effect
+			-- is RUNNING. A live boost and a held sprint are both unpressable and both
+			-- need to read as on rather than as dead, and greying them is how you tell
+			-- a player their boost stopped.
+			Disabled = { fill = "disabled", ink = "onDisabled" },
+			On       = { fill = "affirm",   ink = "onAffirm" },
 		},
 
 		-- invariant: WHAT IS RESERVED FOR ROBLOX'S OWN CONTROLS, and the one number
@@ -980,7 +1030,13 @@ __MODULES["Config"] = function()
 		PartyPanel = {
 			-- Row heights only; HUD.column() places the panel and sets its width.
 			HeaderHeight = 22,
-			RowHeight = 24,
+			-- RowHeight is DERIVED from the touch ladder below, not typed. At 24 it
+			-- gave every control on this card a height of RowHeight - 4 = 20, so the
+			-- decline button was 16 by 12 PHYSICAL pixels at MinScale — the smallest
+			-- target in the game, on the card that asks a stranger to join you.
+			Pad = 8,
+			RowGap = 4,
+			ActionWidth = 88,
 			LayoutOrder = 3,
 		},
 
@@ -1000,7 +1056,7 @@ __MODULES["Config"] = function()
 			RowTitleHeight = 18, RowTitleTextPx = 15,
 			RowSubHeight   = 16, RowSubTextPx   = 13,
 			RowPadY = 8,
-			ActionWidth = 66, ActionTextPx = 14,
+			ActionWidth = 66,
 			-- 12 shipped on the heading, the sub-lines and the badge — 7.4 physical
 			-- pixels at MinScale, under both floors this file declares. It is the
 			-- same defect the NEXT UPGRADE heading had, for the same reason: it was a
@@ -1010,7 +1066,6 @@ __MODULES["Config"] = function()
 			DailyY = 28, DailyHeight = 50,
 			PlaytimeHeight = 56,
 			BarHeight = 4, BarY = 44,   -- the playtime gauge, inside the playtime row
-			BoostTextPx = 18,
 
 			-- the optional tail
 			RowHeight = 46,
@@ -1100,14 +1155,12 @@ __MODULES["Config"] = function()
 				AmountHeight = 60, AmountTextPx = 46,
 				RateHeight   = 20, RateTextPx   = 13,
 				CapHeight    = 50, CapTextPx    = 13,
-				ButtonTextPx = 22,
 			},
 			Rebirth = {
 				Width = 430, Height = 250,
 				Pad = 20, TopPad = 18, RowGap = 6,
 				TitleHeight = 34, TitleTextPx = 28,
 				BodyHeight  = 96, BodyTextPx  = 15,
-				ButtonTextPx = 20,
 			},
 		},
 	}
@@ -1190,6 +1243,18 @@ __MODULES["Config"] = function()
 		local rail = ui.Rail
 		-- The three stroke:size ratios, so "one optical weight across the set" is a
 		-- number the verifier can hold rather than a claim in a comment.
+		-- Where a labelled control's text starts when it carries a glyph, so the
+		-- label width left over is a number the verifier can hold against zero.
+		ui.Button.LabelInset = ui.Button.Pad + ui.Icon.Medium + ui.Button.IconGap
+
+		-- A party row is a touch target plus the breathing room either side of it,
+		-- and the text column is whatever the two controls leave.
+		ui.PartyPanel.RowHeight = ui.Button.pill + ui.PartyPanel.RowGap
+		ui.PartyPanel.ActionX = ui.PartyPanel.ActionWidth + ui.PartyPanel.Pad
+		ui.PartyPanel.CloseX = ui.Button.IconOnly + ui.PartyPanel.Pad
+		ui.PartyPanel.PairX = ui.PartyPanel.ActionX + ui.PartyPanel.CloseX
+		ui.PartyPanel.TextWidth = ui.ColumnWidth - ui.PartyPanel.PairX - ui.PartyPanel.Pad * 2
+
 		ui.Icon.RatioSmall  = ui.Icon.StrokeSmall  / ui.Icon.Small
 		ui.Icon.RatioMedium = ui.Icon.StrokeMedium / ui.Icon.Medium
 		ui.Icon.RatioLarge  = ui.Icon.StrokeLarge  / ui.Icon.Large
@@ -7150,8 +7215,8 @@ __MODULES["HUD"] = function()
 	-- The panel vocabulary, aliased so every call site below reads exactly as it
 	-- did when these were five local functions in this file. They are UiKit's now;
 	-- see src/client/UiKit.lua for what the merge of the three copies cost.
-	local corner, stroke, panel, text, button =
-		UiKit.corner, UiKit.stroke, UiKit.panel, UiKit.text, UiKit.button
+	local corner, stroke, panel, text =
+		UiKit.corner, UiKit.stroke, UiKit.panel, UiKit.text
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 
@@ -7435,16 +7500,13 @@ __MODULES["HUD"] = function()
 			direction = "Vertical",
 		})
 
-		rebirthButton = button(holder, "REBIRTH", ROLE.action, {
-			Size = UDim2.fromOffset(UI.Action.Width, UI.Button.primary),
-			LayoutOrder = 1,
+		rebirthButton = UiKit.control(holder, {
+			variant = "primary", text = "REBIRTH",
+			width = UI.Action.Width, layoutOrder = 1,
 		})
-		-- No TextSize: UiKit.button is TextScaled, which overrides one. There was a
-		-- `TextSize = 16` here doing nothing, which is worse than no number at all —
-		-- it reads as the size this label is drawn at and it never was.
-		local leave = button(holder, "LEAVE PLOT", ROLE.neutral, {
-			Size = UDim2.fromOffset(UI.Action.Width, UI.Button.secondary),
-			LayoutOrder = 2,
+		local leave = UiKit.control(holder, {
+			variant = "secondary", text = "LEAVE PLOT",
+			width = UI.Action.Width, layoutOrder = 2,
 		})
 
 		rebirthButton.Activated:Connect(function()
@@ -7649,9 +7711,9 @@ __MODULES["HUD"] = function()
 				renderHelp()
 			end
 		end)
-		local close = UiKit.button(helpPanel, "CLOSE", ROLE.danger, {
-			Size = UDim2.fromOffset(64, 22),
-			Position = UDim2.new(1, -72, 0, 8),
+		local close = UiKit.control(helpPanel, {
+			variant = "ghost", name = "Close", icon = "close", iconOnly = true,
+			position = UDim2.new(1, -(UI.Button.IconOnly + 8), 0, 8),
 		})
 		close.Activated:Connect(function()
 			helpPanel.Visible = false
@@ -7795,14 +7857,7 @@ __MODULES["HUD"] = function()
 		-- On the OVERLAY layer, not the root one: the shade is supposed to dim the
 		-- notch and the home indicator along with everything else, and the root
 		-- layer is padded clear of both.
-		local shade = Instance.new("Frame")
-		shade.Name = "RebirthModal"
-		shade.Size = UDim2.fromScale(1, 1)
-		shade.BackgroundColor3 = ROLE.scrim
-		shade.BackgroundTransparency = 0.45
-		shade.BorderSizePixel = 0
-		shade.ZIndex = 20
-		shade.Parent = overlay
+		local shade = UiKit.shade(overlay, "RebirthModal", 20)
 
 		local card = panel(shade,
 			UDim2.fromOffset(REBIRTH.Width, REBIRTH.Height),
@@ -7837,18 +7892,19 @@ __MODULES["HUD"] = function()
 			ZIndex = 22,
 		})
 
-		local confirm = button(card, affordable and "DO IT" or "NOT ENOUGH TUNG",
-			affordable and ROLE.action or ROLE.disabled, {
-				Size = UDim2.fromOffset(REBIRTH.ButtonWidth, UI.Button.primary),
-				Position = UDim2.fromOffset(REBIRTH.Pad, REBIRTH.ButtonY),
-				ZIndex = 22,
-				TextSize = REBIRTH.ButtonTextPx,
-			})
-		local cancel = button(card, "CANCEL", ROLE.neutral, {
-			Size = UDim2.fromOffset(REBIRTH.ButtonWidth, UI.Button.primary),
-			Position = UDim2.fromOffset(REBIRTH.CancelX, REBIRTH.ButtonY),
-			ZIndex = 22,
-			TextSize = REBIRTH.ButtonTextPx,
+		local confirm = UiKit.control(card, {
+			variant = "primary", text = affordable and "DO IT" or "NOT ENOUGH TUNG",
+			width = REBIRTH.ButtonWidth, zIndex = 22,
+			position = UDim2.fromOffset(REBIRTH.Pad, REBIRTH.ButtonY),
+		})
+		-- The unaffordable branch is a STATE, not a second colour: the state setter
+		-- is what also kills AutoButtonColor, Active and Selectable, which the
+		-- inline version left on every time.
+		UiKit.setControlState(confirm, affordable and "idle" or "disabled")
+		local cancel = UiKit.control(card, {
+			variant = "secondary", text = "CANCEL",
+			width = REBIRTH.ButtonWidth, zIndex = 22,
+			position = UDim2.fromOffset(REBIRTH.CancelX, REBIRTH.ButtonY),
 		})
 
 		confirm.Activated:Connect(function()
@@ -7998,7 +8054,7 @@ __MODULES["HUD"] = function()
 		renderNext()
 
 		rebirthButton.Text = ("REBIRTH  %s"):format(Util.abbreviate(state.rebirthCost))
-		rebirthButton.BackgroundColor3 = state.cash >= state.rebirthCost and ROLE.action or ROLE.disabled
+		UiKit.setControlState(rebirthButton, state.cash >= state.rebirthCost and "idle" or "disabled")
 		for _, fn in ipairs(statsListeners) do
 			fn()
 		end
@@ -8603,6 +8659,7 @@ __MODULES["PartyUI"] = function()
 
 	local ROLE = UiKit.ROLE
 	local P = Config.UI.PartyPanel
+	local UI = Config.UI
 	local WIDTH = Config.UI.SessionPanel.Width   -- one column, one width
 
 	local panel
@@ -8638,8 +8695,8 @@ __MODULES["PartyUI"] = function()
 
 	local function rowText(parent: Frame, textValue: string, color: Color3)
 		return UiKit.text(parent, {
-			Size = UDim2.new(1, -74, 1, 0),
-			Position = UDim2.fromOffset(8, 0),
+			Size = UDim2.fromOffset(P.TextWidth, P.RowHeight),
+			Position = UDim2.fromOffset(P.Pad, 0),
 			Font = Style.Font.body,
 			Text = textValue,
 			TextSize = 14,
@@ -8648,12 +8705,22 @@ __MODULES["PartyUI"] = function()
 		})
 	end
 
-	local function rowButton(parent: Frame, label: string, color: Color3, x: number, width: number)
-		local b = UiKit.button(parent, label, color, {
-			Size = UDim2.fromOffset(width, P.RowHeight - 4),
-			Position = UDim2.new(1, -x, 0, 2),
+	--- A row's control, right-aligned. Every one is a full touch target now: the
+	--- height comes off the ladder through P.RowHeight rather than from the row.
+	local function rowButton(parent: Frame, label: string, variant: string, x: number)
+		return UiKit.control(parent, {
+			variant = variant, text = label, width = P.ActionWidth,
+			position = UDim2.new(1, -x, 0, math.round((P.RowHeight - UI.Button.pill) / 2)),
 		})
-		return b
+	end
+
+	--- The decline. A glyph rather than an "X" typed into a 26-px box, which is how
+	--- it came to be the smallest control in the game.
+	local function rowClose(parent: Frame, x: number)
+		return UiKit.control(parent, {
+			variant = "danger", name = "Decline", icon = "close", iconOnly = true,
+			position = UDim2.new(1, -x, 0, math.round((P.RowHeight - UI.Button.IconOnly) / 2)),
+		})
 	end
 
 	--- The whole card, rebuilt from state. Cheap: at most MaxSize + a header of
@@ -8686,10 +8753,10 @@ __MODULES["PartyUI"] = function()
 			local r = row(1)
 			rows += 1
 			rowText(r, ("%s invited you"):format(state.invite.fromName), ROLE.heading)
-			rowButton(r, "JOIN", ROLE.affirm, 74, 40).Activated:Connect(function()
+			rowButton(r, "JOIN", "pill", P.PairX).Activated:Connect(function()
 				send("accept")
 			end)
-			rowButton(r, "X", ROLE.danger, 30, 26).Activated:Connect(function()
+			rowClose(r, P.CloseX).Activated:Connect(function()
 				send("decline")
 			end)
 		end
@@ -8704,7 +8771,7 @@ __MODULES["PartyUI"] = function()
 			end
 			local r = row(99)
 			rows += 1
-			rowButton(r, "LEAVE", ROLE.danger, 74, 66).Activated:Connect(function()
+			rowButton(r, "LEAVE", "danger", P.ActionX).Activated:Connect(function()
 				send("leave")
 			end)
 		else
@@ -8717,7 +8784,7 @@ __MODULES["PartyUI"] = function()
 					local r = row(1 + shown)
 					rows += 1
 					rowText(r, other.DisplayName, ROLE.emphasis)
-					rowButton(r, "INVITE", ROLE.affirm, 74, 66).Activated:Connect(function()
+					rowButton(r, "INVITE", "pill", P.ActionX).Activated:Connect(function()
 						send("invite", other.UserId)
 					end)
 				end
@@ -8779,12 +8846,14 @@ __MODULES["RebirthUI"] = function()
 	local Req = __Req
 	local Net = Req("Net")
 	local UiKit = Req("UiKit")
+	local Config = Req("Config")
 	local HUD = Req("HUD")
 	local Style = Req("Style")
 
 	local RebirthUI = {}
 
 	local ROLE = UiKit.ROLE
+	local ONWARD_WIDTH = 140
 	local SHOW_SECONDS = 14
 
 	local panel
@@ -8876,14 +8945,16 @@ __MODULES["RebirthUI"] = function()
 		})
 		y += 22
 
-		local close = UiKit.button(panel, "ONWARD", ROLE.action, {
-			Size = UDim2.fromOffset(96, 26),
-			Position = UDim2.new(0.5, -48, 0, y),
+		-- 96x26 was a 60x16 physical target at MinScale, on the one button that
+		-- dismisses the report.
+		local close = UiKit.control(panel, {
+			variant = "primary", text = "ONWARD", width = ONWARD_WIDTH,
+			position = UDim2.new(0.5, -math.floor(ONWARD_WIDTH / 2), 0, y),
 		})
 		close.Activated:Connect(function()
 			panel.Visible = false
 		end)
-		y += 34
+		y += Config.UI.Button.primary + 8
 		panel.Size = UDim2.fromOffset(320, y)
 	end
 
@@ -8984,22 +9055,17 @@ __MODULES["SessionUI"] = function()
 	--- THE ONE PLACE THIS PANEL DISAGREES WITH THE REST OF THE UI, and the reason
 	--- the merge into UiKit was not a straight deletion. Every button in HUD and
 	--- UpgradeUI is TextScaled; every button in here is sized text at 15, because
-	--- these labels are long ("BOOST READY IN 12:04") in boxes that are not, and
-	--- TextScaled would set each of them at a different size. Two properties
-	--- pre-seeded into `props` before forwarding buys that back without touching
-	--- the three call sites below — and it is deliberately NOT tidied away in the
-	--- same change that moved the helpers, so that if sized text turns out to be
-	--- the wrong call on a phone there is one function to look at.
-	local function button(parent: Instance, label: string, color: Color3, props): TextButton
-		props = props or {}
-		if props.TextScaled == nil then
-			props.TextScaled = false
-		end
-		if props.TextSize == nil then
-			props.TextSize = 15
-		end
-		return UiKit.button(parent, label, color, props)
-	end
+	--- THE SHIM THAT WAS HERE WAS RIGHT, AND IS NOW THE RULE.
+	---
+	--- It forced TextScaled = false and TextSize = 15 before forwarding to
+	--- UiKit.button, and its argument was that TextScaled sizes a label from its own
+	--- box, so two buttons of different widths in one panel print at two sizes and
+	--- neither is a number the verifier can read. That argument was true of the
+	--- whole game: REBIRTH and NOT ENOUGH TUNG came out at different sizes in the
+	--- same modal. Config.UI.Button.Variant owns every button's text size now, the
+	--- 15 this shim chose is the `pill` variant's, and the escape hatch it kept —
+	--- one function to look at if sized text turns out wrong on a phone — is three
+	--- numbers in Config, which is a better place to look.
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- formatting
@@ -9059,14 +9125,7 @@ __MODULES["SessionUI"] = function()
 
 		-- HUD.overlay(), not HUD.root(): the shade has to dim the safe area it is
 		-- covering, and the root layer is padded clear of exactly that strip.
-		local shade = Instance.new("Frame")
-		shade.Name = "OfflineModal"
-		shade.Size = UDim2.fromScale(1, 1)
-		shade.BackgroundColor3 = ROLE.scrim
-		shade.BackgroundTransparency = 0.45
-		shade.BorderSizePixel = 0
-		shade.ZIndex = 30
-		shade.Parent = overlay
+		local shade = UiKit.shade(overlay, "OfflineModal", 30)
 
 		local card = frame(shade,
 			UDim2.fromOffset(OFFLINE.Width, OFFLINE.Height),
@@ -9152,11 +9211,11 @@ __MODULES["SessionUI"] = function()
 			ZIndex = 32,
 		})
 
-		local collect = button(card, ("COLLECT %s"):format(Util.abbreviate(offline.earned)), ROLE.affirm, {
-			Size = UDim2.fromOffset(OFFLINE.ContentWidth, UI.Button.primary),
-			Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.ButtonY),
-			TextSize = OFFLINE.ButtonTextPx,
-			ZIndex = 32,
+		local collect = UiKit.control(card, {
+			variant = "pill", height = "primary",
+			text = ("COLLECT %s"):format(Util.abbreviate(offline.earned)),
+			width = OFFLINE.ContentWidth, zIndex = 32,
+			position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.ButtonY),
 		})
 
 		-- count-up: the number arriving instantly is a fact, the number climbing is
@@ -9223,12 +9282,11 @@ __MODULES["SessionUI"] = function()
 		-- A 66x30 pill was a 41x19 physical target at MinScale, which is a coin
 		-- flip with a thumb. Full touch height, vertically centred in whatever row
 		-- it lands in — the rows are 46, 50 and 56 tall.
-		local action = button(row, "CLAIM", ROLE.affirm, {
-			Size = UDim2.fromOffset(PANEL.ActionWidth, UI.Button.pill),
-			Position = UDim2.fromOffset(PANEL.ActionX, math.round((height - UI.Button.pill) / 2)),
-			TextSize = PANEL.ActionTextPx,
-			Visible = false,
+		local action = UiKit.control(row, {
+			variant = "pill", text = "CLAIM", width = PANEL.ActionWidth,
+			position = UDim2.fromOffset(PANEL.ActionX, math.round((height - UI.Button.pill) / 2)),
 		})
+		action.Visible = false
 
 		return { row = row, title = titleLabel, sub = subLabel, action = action }
 	end
@@ -9284,23 +9342,23 @@ __MODULES["SessionUI"] = function()
 		playtimeFill.Parent = track
 		corner(playtimeFill, 2)
 
-		boostButton = button(panel, "BOOST", ROLE.currency, {
-			Size = UDim2.fromOffset(PANEL.RowWidth, UI.Button.secondary),
-			Position = UDim2.fromOffset(PANEL.Pad, PANEL.BoostY),
-			TextSize = PANEL.BoostTextPx,
+		-- Gold, at the row height the panel can afford. BOOST means what REBIRTH
+		-- means and cannot have REBIRTH's 56 px.
+		boostButton = UiKit.control(panel, {
+			variant = "primary", height = "secondary", text = "BOOST",
+			width = PANEL.RowWidth,
+			position = UDim2.fromOffset(PANEL.Pad, PANEL.BoostY),
 		})
 
 		-- Both of these are positioned by layoutTail() rather than here: they come
 		-- and go independently and a fixed y for each leaves a hole in the panel.
 		vaultRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "VAULT TIMER")
 		vaultRow.row.Visible = false
-		vaultRow.action.BackgroundColor3 = ROLE.currency
 
 		offlineRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "OFFLINE TUNG")
 		TAIL_ROWS = { vaultRow, offlineRow }
 		offlineRow.row.Visible = false
 		offlineRow.action.Text = "OPEN"
-		offlineRow.action.BackgroundColor3 = ROLE.currency
 
 		dailyRow.action.Activated:Connect(function()
 			click()
@@ -9453,13 +9511,13 @@ __MODULES["SessionUI"] = function()
 		local since = elapsed()
 		if boost.active then
 			boostButton.Text = ("x%g BOOST  •  %s"):format(boost.multiplier, clockText(boost.secondsLeft - since))
-			boostButton.BackgroundColor3 = ROLE.affirm
+			UiKit.setControlState(boostButton, "on")
 		elseif boost.cooldownLeft - since > 0 then
 			boostButton.Text = ("BOOST READY IN %s"):format(clockText(boost.cooldownLeft - since))
-			boostButton.BackgroundColor3 = ROLE.disabled
+			UiKit.setControlState(boostButton, "disabled")
 		else
 			boostButton.Text = ("CLAIM x%g BOOST  •  %d MIN"):format(boost.multiplier, boost.duration // 60)
-			boostButton.BackgroundColor3 = ROLE.currency
+			UiKit.setControlState(boostButton, "idle")
 		end
 
 		weekendBadge.Text = boost.weekend and ("WEEKEND x%g"):format(boost.weekendMultiplier) or ""
@@ -9610,6 +9668,9 @@ __MODULES["ShopUI"] = function()
 	local ShopUI = {}
 
 	local ROLE = UiKit.ROLE
+	local UI = Config.UI
+	local BUY_WIDTH = 132
+	local ROW_HEIGHT = UI.Button.pill + 8
 
 	local panel
 	local rows = {}
@@ -9644,7 +9705,7 @@ __MODULES["ShopUI"] = function()
 		y += 22
 		for _, def in ipairs(defs) do
 			local row = Instance.new("Frame")
-			row.Size = UDim2.new(1, -16, 0, 34)
+			row.Size = UDim2.new(1, -16, 0, ROW_HEIGHT)
 			row.Position = UDim2.fromOffset(8, y)
 			row.BackgroundColor3 = ROLE.surface
 			row.BackgroundTransparency = 0.35
@@ -9670,15 +9731,18 @@ __MODULES["ShopUI"] = function()
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextColor3 = ROLE.onSurfaceMuted,
 			})
-			local button = UiKit.button(row, "", ROLE.affirm, {
-				Size = UDim2.fromOffset(130, 26),
-				Position = UDim2.new(1, -138, 0, 4),
+			-- 130x26 was an 81x16 physical target at MinScale, on the buy button of
+			-- the game's only storefront. The row grows to hold a real one; the rest
+			-- of this card's layout is #183's next step.
+			local button = UiKit.control(row, {
+				variant = "pill", text = "", width = BUY_WIDTH,
+				position = UDim2.new(1, -(BUY_WIDTH + 8), 0, math.round((ROW_HEIGHT - UI.Button.pill) / 2)),
 			})
 			button.Activated:Connect(function()
 				Net.event("Shop"):FireServer({ action = "buy", id = def.id })
 			end)
 			rows[def.id] = { def = def, nameLabel = name, button = button }
-			y += 38
+			y += ROW_HEIGHT + 4
 		end
 		return y + 6
 	end
@@ -9698,18 +9762,18 @@ __MODULES["ShopUI"] = function()
 					break
 				end
 			end
+			-- A state, not a colour. The inline version set a fill and Active and
+			-- left AutoButtonColor on, so a dead button still flashed under a thumb,
+			-- and left the ink at the live variant's, so OWNED printed unreadably.
 			if isOwned then
 				row.button.Text = "OWNED"
-				row.button.BackgroundColor3 = ROLE.surface
-				row.button.Active = false
+				UiKit.setControlState(row.button, "disabled")
 			elseif blocked then
 				row.button.Text = "AFTER " .. blocked.name:upper():sub(1, 12)
-				row.button.BackgroundColor3 = ROLE.surface
-				row.button.Active = false
+				UiKit.setControlState(row.button, "disabled")
 			else
 				row.button.Text = "$" .. Util.abbreviate(row.def.price)
-				row.button.BackgroundColor3 = ROLE.affirm
-				row.button.Active = true
+				UiKit.setControlState(row.button, "idle")
 			end
 		end
 	end
@@ -9734,9 +9798,9 @@ __MODULES["ShopUI"] = function()
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.heading,
 		})
-		local close = UiKit.button(panel, "CLOSE", ROLE.danger, {
-			Size = UDim2.fromOffset(64, 22),
-			Position = UDim2.new(1, -72, 0, 10),
+		local close = UiKit.control(panel, {
+			variant = "ghost", name = "Close", icon = "close", iconOnly = true,
+			position = UDim2.new(1, -(UI.Button.IconOnly + 8), 0, 8),
 		})
 		close.Activated:Connect(function()
 			panel.Visible = false
@@ -9892,12 +9956,12 @@ __MODULES["UiKit"] = function()
 		asks for a corner now and gets the anchor, the inset and the list alignment
 		that agree with it.
 
-		ONE DIVERGENCE SURVIVED THE MERGE, and it is the only interesting thing in
-		this file. HUD and UpgradeUI build TextScaled buttons with no TextSize;
-		SessionUI's are sized text (TextScaled = false, TextSize = 15). `button` here
-		is the TextScaled one, and SessionUI keeps a small shim that pre-seeds the
-		other two properties before forwarding. Rewriting that panel's call sites to
-		remove a shim is how a refactor turns into a redesign.
+		THE ONE DIVERGENCE IS RESOLVED, and SessionUI won it. HUD and UpgradeUI built
+		TextScaled buttons with no TextSize while SessionUI's were sized text behind a
+		shim, and the shim's argument — TextScaled sizes a label from its own box, so
+		two buttons of different widths print at two sizes and neither is a number the
+		verifier can read — was true of the whole game. `control` is sized text at the
+		variant's textPx, and there is no `button` any more.
 	]]
 
 	local Req = __Req
@@ -9912,6 +9976,8 @@ __MODULES["UiKit"] = function()
 	-- verify.py's config-path pass can resolve it: it follows ONE alias hop, and a
 	-- `local RAIL = UI.Rail` would be a name it has no way to check reads against.
 	local RAIL = Config.UI.Rail
+	local ICON = Config.UI.Icon
+	local BTN = Config.UI.Button
 
 	local UiKit = {}
 
@@ -9997,25 +10063,181 @@ __MODULES["UiKit"] = function()
 		return l
 	end
 
-	--- TextScaled by default — see the header. A caller that wants sized text
-	--- passes TextScaled = false and a TextSize in `props`, which land after these
-	--- defaults do.
-	function UiKit.button(parent: Instance, label: string, color: Color3, props): TextButton
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- controls
+	-- ─────────────────────────────────────────────────────────────────────────────
+
+	--- invariant: ONE CONTROL, and the variant decides everything about how it
+	--- looks. The caller decides what it says, how wide it is and where it goes.
+	---
+	--- opts:
+	---   variant     "primary" | "secondary" | "pill" | "ghost" | "danger"  (required)
+	---   text        the label
+	---   icon        a UiKit.ICONS name drawn ahead of the label            (optional)
+	---   width       design px. Ignored when iconOnly
+	---   height      "primary" | "secondary" | "pill", overriding the variant's own
+	---   iconOnly    a square control at UI.Button.IconOnly, carrying only a glyph
+	---   name, layoutOrder, position, anchor, zIndex
+	---
+	--- HOVER AND PRESS ARE THE ENGINE'S. AutoButtonColor darkens on press and
+	--- lightens on hover, on every platform, for free; a second system on top of it
+	--- is two things to keep in step where one already works. What is ours is the
+	--- part the engine has no opinion about — see setControlState.
+	function UiKit.control(parent: Instance, opts): TextButton
+		local variant = BTN.Variant[opts.variant]
+		if not variant then
+			error(("[Tung] unknown control variant %q; Config.UI.Button.Variant has no such row")
+				:format(tostring(opts.variant)), 2)
+		end
+		local heightName = opts.height or variant.height
+		local height = BTN[heightName]
+		if not height then
+			error(("[Tung] control height %q is not a rung of Config.UI.Button")
+				:format(tostring(heightName)), 2)
+		end
+		local width = opts.iconOnly and BTN.IconOnly or (opts.width or BTN.MinWidth)
+
 		local b = Instance.new("TextButton")
-		b.BackgroundColor3 = color
+		b.Name = opts.name or opts.text or opts.variant
+		b.Size = UDim2.fromOffset(width, opts.iconOnly and BTN.IconOnly or height)
+		b.BackgroundColor3 = ROLE[variant.fill]
 		b.BackgroundTransparency = 0.1
 		b.BorderSizePixel = 0
+		-- All three declared rather than left to the engine's defaults, because
+		-- setControlState turns all three off and `idle` has to have something
+		-- exact to turn them back to.
 		b.AutoButtonColor = true
+		b.Active = true
+		b.Selectable = true
 		b.Font = Style.Font.title
-		b.Text = label
-		b.TextColor3 = ROLE.onAction
-		b.TextScaled = true
-		for k, v in pairs(props or {}) do
-			(b :: any)[k] = v
+		b.TextColor3 = ROLE[variant.ink]
+		b.TextSize = variant.textPx
+		b.TextScaled = false
+		b.TextTruncate = Enum.TextTruncate.AtEnd
+		b.Text = (opts.icon or opts.iconOnly) and "" or (opts.text or "")
+		if opts.position then
+			b.Position = opts.position
+		end
+		if opts.anchor then
+			b.AnchorPoint = opts.anchor
+		end
+		if opts.layoutOrder then
+			b.LayoutOrder = opts.layoutOrder
+		end
+		if opts.zIndex then
+			b.ZIndex = opts.zIndex
 		end
 		b.Parent = parent
-		UiKit.corner(b, 10)
+		UiKit.corner(b, BTN.Radius)
+		if variant.stroke then
+			UiKit.stroke(b, ROLE[variant.stroke], 1.5)
+		end
+		-- The variant is remembered ON the instance rather than in a closure, so
+		-- setControlState needs no capture and a spec can read which variant a live
+		-- button is without being handed it.
+		b:SetAttribute("Variant", opts.variant)
+
+		if opts.icon then
+			local glyph = UiKit.icon(b, opts.icon, ICON.Medium, ROLE[variant.ink], ROLE[variant.fill])
+			if opts.iconOnly then
+				glyph.Position = UDim2.fromOffset(
+					math.floor((BTN.IconOnly - ICON.Medium) / 2),
+					math.floor((BTN.IconOnly - ICON.Medium) / 2))
+			else
+				glyph.Position = UDim2.fromOffset(BTN.Pad, math.floor((height - ICON.Medium) / 2))
+				-- A TextButton with Text set runs it UNDER the glyph, so a labelled
+				-- icon control carries its label as a child laid out beside the
+				-- drawing rather than as the button's own text.
+				UiKit.text(b, {
+					Name = "Label",
+					Size = UDim2.fromOffset(width - BTN.LabelInset - BTN.Pad, height),
+					Position = UDim2.fromOffset(BTN.LabelInset, 0),
+					Font = Style.Font.title,
+					Text = opts.text or "",
+					TextSize = variant.textPx,
+					TextColor3 = ROLE[variant.ink],
+					TextTruncate = Enum.TextTruncate.AtEnd,
+					TextYAlignment = Enum.TextYAlignment.Center,
+				})
+			end
+		end
+
 		return b
+	end
+
+	--- invariant: idle | on | disabled | busy, and each one sets ALL SIX properties.
+	---
+	--- Four call sites wrote "disabled" by hand and every one of them forgot the
+	--- same three: AutoButtonColor stayed on so a dead control still flashed under
+	--- a thumb, the ink stayed at the live variant's so the label went unreadable
+	--- on the dark fill, and Selectable stayed on so a gamepad still landed there.
+	--- `busy` is disabled plus a label, for the beat between a press and the
+	--- server's answer. `on` is unpressable and looks it least: a running boost and
+	--- a held sprint are both live effects, and greying one reads as it having
+	--- stopped.
+	local CONTROL_STATES = { idle = true, on = true, disabled = true, busy = true }
+
+	function UiKit.setControlState(button: TextButton, state: string, label: string?)
+		local variant = BTN.Variant[button:GetAttribute("Variant")]
+		if not variant then
+			error(("[Tung] the control %q carries no Variant attribute; it was not built by UiKit.control")
+				:format(button.Name), 2)
+		end
+		if not CONTROL_STATES[state] then
+			error(("[Tung] unknown control state %q; expected idle/on/disabled/busy")
+				:format(tostring(state)), 2)
+		end
+		local live = state == "idle"
+		local look = (state == "on" and BTN.On) or (not live and BTN.Disabled) or variant
+		local fill, ink = look.fill, look.ink
+
+		button.BackgroundColor3 = ROLE[fill]
+		button.TextColor3 = ROLE[ink]
+		button.AutoButtonColor = live
+		button.Active = live
+		button.Selectable = live
+		if label then
+			button.Text = button.Text ~= "" and label or button.Text
+		end
+
+		local text = button:FindFirstChild("Label")
+		if text and text:IsA("TextLabel") then
+			text.TextColor3 = ROLE[ink]
+			if label then
+				text.Text = label
+			end
+		end
+		local glyph = button:FindFirstChild("Glyph")
+		if glyph then
+			for _, part in ipairs(glyph:GetChildren()) do
+				if part:IsA("Frame") then
+					local stroke = part:FindFirstChildOfClass("UIStroke")
+					if stroke then
+						stroke.Color = ROLE[ink]
+					elseif part.BackgroundColor3 ~= ROLE[variant.fill] then
+						part.BackgroundColor3 = ROLE[ink]
+					end
+				end
+			end
+		end
+	end
+
+	--- The full-bleed dim behind a modal.
+	---
+	--- Built twice by hand before this, in HUD.lua and SessionUI.lua, each then
+	--- walking its own descendants to force a ZIndex. It goes on the OVERLAY layer,
+	--- which is the one without safe-area padding, so the dim covers the notch and
+	--- the home indicator rather than stopping politely short of them.
+	function UiKit.shade(parent: Instance, name: string, zIndex: number): Frame
+		local shade = Instance.new("Frame")
+		shade.Name = name
+		shade.Size = UDim2.fromScale(1, 1)
+		shade.BackgroundColor3 = ROLE.scrim
+		shade.BackgroundTransparency = 0.45
+		shade.BorderSizePixel = 0
+		shade.ZIndex = zIndex
+		shade.Parent = parent
+		return shade
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
@@ -10109,7 +10331,6 @@ __MODULES["UiKit"] = function()
 	--- the three weights ARE layout, and they are in Config where they are held
 	--- against MinScale and against the rail. That split is UiKit.personPlus's own
 	--- argument, generalised — its numbers were already fractions of `size`.
-	local ICON = UI.Icon
 	local G = ICON.Grid
 
 	local function rect(x, y, w, h, radius, rotation)
@@ -10146,6 +10367,7 @@ __MODULES["UiKit"] = function()
 
 		-- done. Replaces the ✓ that ObjectivesUI printed as text.
 		tick = { bar(5, 12.5, 10, 17.5), bar(10, 17.5, 19, 6.5) },
+		close = { bar(6.5, 6.5, 17.5, 17.5), bar(17.5, 6.5, 6.5, 17.5) },
 
 		-- the compass set, replacing ◆ ▲ ⌂ ! and a partymate's first initial
 		core  = { rect(7, 7, 10, 10, 1, 45) },
@@ -10504,8 +10726,8 @@ __MODULES["UpgradeUI"] = function()
 	-- builders (UiKit's — see the header)
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	local corner, stroke, panel, text, button =
-		UiKit.corner, UiKit.stroke, UiKit.panel, UiKit.text, UiKit.button
+	local corner, stroke, panel, text =
+		UiKit.corner, UiKit.stroke, UiKit.panel, UiKit.text
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- rows
@@ -10816,12 +11038,11 @@ __MODULES["UpgradeUI"] = function()
 	end
 
 	local function buildToggle(parent: Instance)
-		toggleButton = button(parent, "UPGRADES", ROLE.action, {
-			Name = "UpgradeToggle",
-			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.Margin),
-			Size = UDim2.fromOffset(UI.Action.Width, UI.Button.pill),
-			TextSize = 18,
+		toggleButton = UiKit.control(parent, {
+			variant = "primary", height = "pill", text = "UPGRADES",
+			name = "UpgradeToggle", width = UI.Action.Width,
+			anchor = Vector2.new(0, 1),
+			position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.Margin),
 		})
 		toggleButton.Activated:Connect(function()
 			panelFrame.Visible = not panelFrame.Visible
@@ -10832,13 +11053,13 @@ __MODULES["UpgradeUI"] = function()
 	end
 
 	local function buildChip(parent: Instance)
-		chipButton = button(parent, "", ROLE.action, {
-			Name = "UtilityChip",
-			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.ShopPanel.BottomGapNoUtility),
-			Size = UDim2.fromOffset(UI.Action.Width, UI.Button.pill),
-			Visible = false,
+		chipButton = UiKit.control(parent, {
+			variant = "primary", height = "pill", text = "",
+			name = "UtilityChip", width = UI.Action.Width,
+			anchor = Vector2.new(0, 1),
+			position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.ShopPanel.BottomGapNoUtility),
 		})
+		chipButton.Visible = false
 		chipLabel = text(chipButton, {
 			Size = UDim2.fromScale(1, 1),
 			Font = Style.Font.title,

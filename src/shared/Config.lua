@@ -846,6 +846,56 @@ Config.UI = {
 		primary = 56,
 		secondary = 46,
 		pill = 44,
+
+		-- invariant: FIVE VARIANTS AND NO SIXTH. A variant is what a control MEANS
+		-- — a fill role, the ink role that prints on it, the size it sets its
+		-- label at, and the height it takes unless told otherwise. UiKit.control
+		-- is a pure reader of this table, so a control's look is a row here
+		-- rather than four properties a call site assigns and three it forgets.
+		--
+		-- HEIGHT IS THE ONE THING A CALLER MAY OVERRIDE, and only with another
+		-- name off the ladder. BOOST means the same as REBIRTH and sits in a row
+		-- that cannot afford 56 px; without the override that is a sixth variant
+		-- whose only difference from the fifth is a number, which is how a table
+		-- of five becomes a table of nine.
+		--
+		-- WHAT THIS REPLACES: every panel expressing "disabled" inline. ShopUI set
+		-- a background and Active = false and left AutoButtonColor on (so a dead
+		-- button still flashed), left the label at ink on a dark fill (so nobody
+		-- could read it) and left Selectable on (so a gamepad still landed on it).
+		--
+		-- TEXTSCALED IS GONE. It set every label at a size derived from its own
+		-- box, so REBIRTH and NOT ENOUGH TUNG came out at two different sizes in
+		-- the same modal — and not one of those sizes was a number the verifier
+		-- could hold against MinTextPx. SessionUI carried a shim forcing sized
+		-- text at 15 for exactly this reason; the shim was right and is now the
+		-- rule.
+		Pad = 12,
+		IconGap = 8,
+		Radius = 10,
+		MinWidth = 88,
+		-- A square control carrying a glyph and no label. Both CLOSE buttons and
+		-- the party decline shipped under the touch floor because they were sized
+		-- to their text; a glyph-only control is sized to a thumb instead.
+		IconOnly = 44,
+
+		Variant = {
+			primary   = { height = "primary",   fill = "action",   ink = "onAction",   textPx = 20 },
+			secondary = { height = "secondary", fill = "neutral",  ink = "onNeutral",  textPx = 17, stroke = "line" },
+			pill      = { height = "pill",      fill = "affirm",   ink = "onAffirm",   textPx = 15 },
+			ghost     = { height = "pill",      fill = "surface",  ink = "onSurface",  textPx = 15, stroke = "line" },
+			danger    = { height = "secondary", fill = "danger",   ink = "onDanger",   textPx = 17 },
+		},
+		-- What a control of ANY variant becomes in each state that is not idle.
+		-- One row each, so the four properties that were forgotten inline cannot
+		-- be forgotten one at a time.
+		--
+		-- `On` is the state a disabled fill cannot express: a control whose effect
+		-- is RUNNING. A live boost and a held sprint are both unpressable and both
+		-- need to read as on rather than as dead, and greying them is how you tell
+		-- a player their boost stopped.
+		Disabled = { fill = "disabled", ink = "onDisabled" },
+		On       = { fill = "affirm",   ink = "onAffirm" },
 	},
 
 	-- invariant: WHAT IS RESERVED FOR ROBLOX'S OWN CONTROLS, and the one number
@@ -948,7 +998,13 @@ Config.UI = {
 	PartyPanel = {
 		-- Row heights only; HUD.column() places the panel and sets its width.
 		HeaderHeight = 22,
-		RowHeight = 24,
+		-- RowHeight is DERIVED from the touch ladder below, not typed. At 24 it
+		-- gave every control on this card a height of RowHeight - 4 = 20, so the
+		-- decline button was 16 by 12 PHYSICAL pixels at MinScale — the smallest
+		-- target in the game, on the card that asks a stranger to join you.
+		Pad = 8,
+		RowGap = 4,
+		ActionWidth = 88,
 		LayoutOrder = 3,
 	},
 
@@ -968,7 +1024,7 @@ Config.UI = {
 		RowTitleHeight = 18, RowTitleTextPx = 15,
 		RowSubHeight   = 16, RowSubTextPx   = 13,
 		RowPadY = 8,
-		ActionWidth = 66, ActionTextPx = 14,
+		ActionWidth = 66,
 		-- 12 shipped on the heading, the sub-lines and the badge — 7.4 physical
 		-- pixels at MinScale, under both floors this file declares. It is the
 		-- same defect the NEXT UPGRADE heading had, for the same reason: it was a
@@ -978,7 +1034,6 @@ Config.UI = {
 		DailyY = 28, DailyHeight = 50,
 		PlaytimeHeight = 56,
 		BarHeight = 4, BarY = 44,   -- the playtime gauge, inside the playtime row
-		BoostTextPx = 18,
 
 		-- the optional tail
 		RowHeight = 46,
@@ -1068,14 +1123,12 @@ Config.UI = {
 			AmountHeight = 60, AmountTextPx = 46,
 			RateHeight   = 20, RateTextPx   = 13,
 			CapHeight    = 50, CapTextPx    = 13,
-			ButtonTextPx = 22,
 		},
 		Rebirth = {
 			Width = 430, Height = 250,
 			Pad = 20, TopPad = 18, RowGap = 6,
 			TitleHeight = 34, TitleTextPx = 28,
 			BodyHeight  = 96, BodyTextPx  = 15,
-			ButtonTextPx = 20,
 		},
 	},
 }
@@ -1158,6 +1211,18 @@ do
 	local rail = ui.Rail
 	-- The three stroke:size ratios, so "one optical weight across the set" is a
 	-- number the verifier can hold rather than a claim in a comment.
+	-- Where a labelled control's text starts when it carries a glyph, so the
+	-- label width left over is a number the verifier can hold against zero.
+	ui.Button.LabelInset = ui.Button.Pad + ui.Icon.Medium + ui.Button.IconGap
+
+	-- A party row is a touch target plus the breathing room either side of it,
+	-- and the text column is whatever the two controls leave.
+	ui.PartyPanel.RowHeight = ui.Button.pill + ui.PartyPanel.RowGap
+	ui.PartyPanel.ActionX = ui.PartyPanel.ActionWidth + ui.PartyPanel.Pad
+	ui.PartyPanel.CloseX = ui.Button.IconOnly + ui.PartyPanel.Pad
+	ui.PartyPanel.PairX = ui.PartyPanel.ActionX + ui.PartyPanel.CloseX
+	ui.PartyPanel.TextWidth = ui.ColumnWidth - ui.PartyPanel.PairX - ui.PartyPanel.Pad * 2
+
 	ui.Icon.RatioSmall  = ui.Icon.StrokeSmall  / ui.Icon.Small
 	ui.Icon.RatioMedium = ui.Icon.StrokeMedium / ui.Icon.Medium
 	ui.Icon.RatioLarge  = ui.Icon.StrokeLarge  / ui.Icon.Large

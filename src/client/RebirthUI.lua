@@ -12,12 +12,14 @@
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Net = Req("Net")
 local UiKit = Req("UiKit")
+local Config = Req("Config")
 local HUD = Req("HUD")
 local Style = Req("Style")
 
 local RebirthUI = {}
 
 local ROLE = UiKit.ROLE
+local ONWARD_WIDTH = 140
 local SHOW_SECONDS = 14
 
 local panel
@@ -109,14 +111,16 @@ local function render(payload)
 	})
 	y += 22
 
-	local close = UiKit.button(panel, "ONWARD", ROLE.action, {
-		Size = UDim2.fromOffset(96, 26),
-		Position = UDim2.new(0.5, -48, 0, y),
+	-- 96x26 was a 60x16 physical target at MinScale, on the one button that
+	-- dismisses the report.
+	local close = UiKit.control(panel, {
+		variant = "primary", text = "ONWARD", width = ONWARD_WIDTH,
+		position = UDim2.new(0.5, -math.floor(ONWARD_WIDTH / 2), 0, y),
 	})
 	close.Activated:Connect(function()
 		panel.Visible = false
 	end)
-	y += 34
+	y += Config.UI.Button.primary + 8
 	panel.Size = UDim2.fromOffset(320, y)
 end
 
