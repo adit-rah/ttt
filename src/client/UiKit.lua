@@ -303,7 +303,14 @@ function UiKit.setControlState(button: TextButton, state: string, label: string?
 				local stroke = part:FindFirstChildOfClass("UIStroke")
 				if stroke then
 					stroke.Color = ROLE[ink]
-				elseif part.BackgroundColor3 ~= ROLE[variant.fill] then
+				elseif part:GetAttribute("Cut") then
+					-- A CUT FOLLOWS THE NEW BACKGROUND. A cut part is drawn in
+					-- whatever is behind the glyph so it reads as a hole, and it
+					-- was identified by COLOUR here and then left — so a disabled
+					-- control kept its holes in the live variant's fill, and the
+					-- backpack's pocket sat gold on a grey tile.
+					part.BackgroundColor3 = ROLE[fill]
+				else
 					part.BackgroundColor3 = ROLE[ink]
 				end
 			end
@@ -443,8 +450,12 @@ end
 --- argument, generalised — its numbers were already fractions of `size`.
 local G = ICON.Grid
 
-local function rect(x, y, w, h, radius, rotation)
-	return { kind = "rect", x = x, y = y, w = w, h = h, radius = radius or 0, rotation = rotation }
+--- `opts` may carry `cut = true`, drawing the part in the colour behind the
+--- glyph so it reads as punched through whatever is under it — the same flag
+--- `bar` takes, and a punched rectangle is as useful as a punched line.
+local function rect(x, y, w, h, radius, rotation, opts)
+	return { kind = "rect", x = x, y = y, w = w, h = h,
+		radius = radius or 0, rotation = rotation, cut = opts and opts.cut or false }
 end
 
 local function dot(cx, cy, d)
@@ -495,10 +506,23 @@ UiKit.ICONS = {
 	dash = { bar(5, 6, 12, 12), bar(12, 12, 5, 18), bar(12, 6, 19, 12), bar(19, 12, 12, 18) },
 	-- The shop rail: an awning over a box with a door in it.
 	shop = { bar(3, 6.5, 21, 6.5, { thick = 2 }), rect(5, 10, 14, 11, 1), rect(10, 15, 4, 6, 0.5) },
-	-- A satchel: a squared handle over a body with a clasp punched through it.
-	-- Nothing here draws an arc, so the handle is three bars.
-	inventory = { bar(9, 8, 9, 5), bar(9, 5, 15, 5), bar(15, 5, 15, 8),
-		rect(4, 8, 16, 13, 2), bar(12, 12, 12, 16, { cut = true, thick = 2 }) },
+	-- A backpack: a haul loop over a generously rounded body, with the lid seam
+	-- and the front pocket punched through it. Nothing here draws an arc, so the
+	-- loop is three bars — and the body's radius is what makes it read as
+	-- fabric rather than as a crate.
+	--
+	-- DRAWN, NOT AN ENGINE TEXTURE. rbxasset:// images are allowed here (the
+	-- sound library and the particle sprites are both engine assets), but the
+	-- inventory glyphs Roblox ships live in CoreGui's internal texture paths,
+	-- which are not the documented surface that sounds/ and textures/particles/
+	-- are. An ImageLabel would also sit outside this registry entirely: at some
+	-- other optical weight, beside twenty glyphs that share one. design:D-06.
+	inventory = {
+		bar(10, 6, 10, 3.5), bar(10, 3.5, 14, 3.5), bar(14, 3.5, 14, 6),
+		rect(4, 6, 16, 15, 4),
+		bar(6, 11.5, 18, 11.5, { cut = true }),
+		rect(8.5, 14, 7, 5, 1.5, nil, { cut = true }),
+	},
 	-- What the shop sells. The bat runs knob to barrel on the diagonal and is
 	-- the one glyph with a deliberately heavier part — `thick` on the barrel,
 	-- which is still a multiple of the drawing's own weight.
@@ -588,6 +612,13 @@ function UiKit.icon(parent: Instance, name: string, size: number, ink: Color3, c
 		f.AnchorPoint = Vector2.new(0.5, 0.5)
 		f.BorderSizePixel = 0
 		f.BackgroundColor3 = part.cut and hole or ink
+		-- Marked, not inferred from the colour it currently is. A cut has to be
+		-- recolourable when the control around it changes state, and asking
+		-- "is this part the fill colour" cannot survive the round trip: after
+		-- one disable the cuts are the DISABLED fill and the question answers no.
+		if part.cut then
+			f:SetAttribute("Cut", true)
+		end
 
 		if part.kind == "bar" then
 			local dx, dy = (part.x2 - part.x1) * unit, (part.y2 - part.y1) * unit

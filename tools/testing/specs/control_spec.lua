@@ -118,6 +118,40 @@ T.spec("on is unpressable and does not look disabled", function(t)
 	t:eq(b.BackgroundColor3, UiKit.ROLE.affirm, "the on state is not the affirm fill")
 end)
 
+T.spec("a disabled control's glyph holes follow its new fill", function(t)
+	local world = clientWorld()
+	local UiKit = world.req("UiKit")
+
+	-- A cut part is drawn in whatever is behind the glyph so it reads as a hole.
+	-- setControlState identified those parts and then left them, so a disabled
+	-- control kept its holes in the LIVE variant's fill — the backpack's pocket
+	-- sitting gold on a grey tile.
+	local b = UiKit.control(surface(world), {
+		variant = "primary", icon = "inventory", iconOnly = true,
+	})
+	UiKit.setControlState(b, "disabled")
+
+	local glyph = b:FindFirstChild("Glyph")
+	t:notNil(glyph, "the control drew no glyph")
+	local stale = 0
+	for _, part in ipairs(glyph:GetChildren()) do
+		if part:IsA("Frame") and part.BackgroundColor3 == UiKit.ROLE.action then
+			stale += 1
+		end
+	end
+	t:eq(stale, 0,
+		("%d of the glyph's parts are still the live variant's fill after being disabled"):format(stale))
+
+	UiKit.setControlState(b, "idle")
+	local holes = 0
+	for _, part in ipairs(glyph:GetChildren()) do
+		if part:IsA("Frame") and part.BackgroundColor3 == UiKit.ROLE.action then
+			holes += 1
+		end
+	end
+	t:eq(holes, 2, ("the backpack has two holes and %d came back"):format(holes))
+end)
+
 T.spec("an unknown variant and an unknown state are both errors", function(t)
 	local world = clientWorld()
 	local UiKit = world.req("UiKit")

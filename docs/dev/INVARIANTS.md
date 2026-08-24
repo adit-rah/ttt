@@ -1323,6 +1323,13 @@ defects in the same file.
   landing exactly on a declared tier. `[spec]` `icon_spec.lua` — every glyph draws at all three
   sizes, every bar in one glyph is a whole multiple of that glyph's lightest, every ring strokes
   at the tier weight Config declares, and every declared coordinate is inside the grid.
+- **A cut part is MARKED, not inferred from the colour it currently is.** A cut is drawn in
+  whatever sits behind the glyph so it reads as a hole, and it has to be recolourable when the
+  control around it changes state. Asking "is this part the fill colour" cannot survive the round
+  trip — after one disable the cuts are the DISABLED fill and the question answers no, so a
+  control returning to idle lost its holes. `UiKit.icon` sets a `Cut` attribute; `setControlState`
+  points those at the new fill and everything else at the new ink. `[spec]` `control_spec.lua`,
+  disabled and back.
 - **An unknown glyph name is an error, never an empty frame.** The rail shipped two items whose
   glyph slot was silently empty because `railItem` returned a slot and two of its three callers
   took only the button. A drawing that fails quietly is how that happens again. `[spec]`
