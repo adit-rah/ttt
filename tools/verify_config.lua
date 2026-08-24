@@ -3719,6 +3719,157 @@ check(UI.MinScale >= 0.5,
 check(UI.ReferenceWidth > UI.ReferenceHeight,
 	"the reference frame has to be landscape; the HUD is a left column, a right column and the game in between")
 
+-- ── colour, as a role ───────────────────────────────────────────────────────
+--
+-- THE FIRST THING IN THIS FILE THAT CHECKS A COLOUR. INVARIANTS §7 covers world
+-- text, screen geometry and assets and says nothing at all about colour, which
+-- is why UiKit.PALETTE could be three copies of a palette, then one copy with
+-- twenty-six raw Color3 calls around it, and nothing in the repo noticed either
+-- state. Config.UI.Palette is readable here only because the stub at the top of
+-- this file returns { r, g, b } — a Color3 is arithmetic, and contrast is a
+-- formula over it.
+--
+-- WHAT IS MEASURED IS WHAT THE PLAYER SEES. A label does not print on the panel
+-- colour; it prints on the panel composited at PanelAlpha over whatever is
+-- behind the card, and the worst case behind a card is a bright sky. Measuring
+-- against the flat swatch overstates every ratio in the game by about a third.
+
+local PAL, ROLE = UI.Palette, UI.Role
+
+-- WCAG 2.1 relative luminance, and the contrast ratio built on it. The 0.03928
+-- knee and the 2.4 exponent are the specification's, not a tuning.
+local function channel(value)
+	local c = value / 255
+	if c <= 0.03928 then
+		return c / 12.92
+	end
+	return ((c + 0.055) / 1.055) ^ 2.4
+end
+
+local function luminance(colour)
+	return 0.2126 * channel(colour.r) + 0.7152 * channel(colour.g) + 0.0722 * channel(colour.b)
+end
+
+local function contrast(a, b)
+	local hi, lo = luminance(a), luminance(b)
+	if hi < lo then
+		hi, lo = lo, hi
+	end
+	return (hi + 0.05) / (lo + 0.05)
+end
+
+--- The colour a role actually resolves to, or nil if it names a key that is
+--- not there. Every check below skips a nil rather than indexing it: the
+--- missing key is already reported by its own check, and a crash here would
+--- bury that message under a stack trace — which is the failure mode this
+--- project keeps having, an assertion that reads as coverage and prints noise.
+local function colourOf(role)
+	return PAL[ROLE[role]]
+end
+
+--- A card's fill as the player sees it: the surface mixed toward the sky by
+--- PanelAlpha. Transparency 0 is opaque, so the surface keeps (1 - alpha).
+local function onCard(colour)
+	local a = UI.PanelAlpha
+	return {
+		r = colour.r * (1 - a) + UI.SkyR * a,
+		g = colour.g * (1 - a) + UI.SkyG * a,
+		b = colour.b * (1 - a) + UI.SkyB * a,
+	}
+end
+
+-- EVERY ROLE NAMES A KEY THAT EXISTS. This is Style.Font.head — five call sites
+-- reading a field that was never defined, silently rendering in the wrong face
+-- for two rounds — closed for colour before it can happen, because a nil colour
+-- assigned to a BackgroundColor3 is an error and a nil in a props table is not.
+for role, key in pairs(ROLE) do
+	check(PAL[key] ~= nil,
+		("UI.Role.%s names palette key %q, which UI.Palette does not hold"):format(role, tostring(key)))
+end
+
+-- ...AND EVERY PALETTE KEY IS NAMED BY SOME ROLE. An unreferenced colour is a
+-- colour nothing draws, and the next person to want one picks it because it is
+-- there rather than because it means anything.
+for key in pairs(PAL) do
+	local used = false
+	for _, named in pairs(ROLE) do
+		if named == key then
+			used = true
+			break
+		end
+	end
+	check(used, ("UI.Palette.%s is named by no role, so nothing can draw it"):format(key))
+end
+
+-- A FILL AND THE INK ON IT ARE ONE DECISION, and the naming says which pairs
+-- with which: role `x` is printed on in role `onX` wherever both exist. Nobody
+-- maintains a list of pairs, so nobody can forget to add one.
+--
+-- The floor is 3.0 rather than 4.5 for these: every one of them is a button
+-- label, drawn bold at 15 px and up, which is WCAG's large-text case. The one
+-- exception is body copy on a card, held to 4.5 below.
+for role in pairs(ROLE) do
+	local inkRole = "on" .. role:sub(1, 1):upper() .. role:sub(2)
+	local fill, ink = colourOf(role), colourOf(inkRole)
+	if fill and ink and role ~= "surface" then
+		local ratio = contrast(fill, ink)
+		check(ratio >= 3.0,
+			("UI.Role.%s takes UI.Role.%s as its ink at %.2f:1, under the 3.0 a bold button label needs — a fill nobody can read the label of is a button that looks broken")
+				:format(role, inkRole, ratio))
+	end
+end
+
+-- BODY COPY ON A CARD, against the composited surface rather than the swatch.
+if colourOf("surface") and colourOf("onSurface") and colourOf("onSurfaceMuted")
+	and colourOf("currency") then
+check(contrast(onCard(colourOf("surface")), colourOf("onSurface")) >= 4.5,
+	("onSurface reads at %.2f:1 against the card over a bright sky, under the 4.5 body copy needs")
+		:format(contrast(onCard(colourOf("surface")), colourOf("onSurface"))))
+check(contrast(onCard(colourOf("surface")), colourOf("onSurfaceMuted")) >= 3.0,
+	("onSurfaceMuted reads at %.2f:1 against the card over a bright sky; a stat line under 3.0 is decoration")
+		:format(contrast(onCard(colourOf("surface")), colourOf("onSurfaceMuted"))))
+
+-- THE HEADLINE IS THE BRIGHTEST THING ON THE CARD. The balance is the number a
+-- player checks mid-fight with the sky behind it.
+check(contrast(onCard(colourOf("surface")), colourOf("currency")) >= 4.5,
+	("the currency colour reads at %.2f:1 on a card over a bright sky, and the balance is the largest type in the game")
+		:format(contrast(onCard(colourOf("surface")), colourOf("currency"))))
+end
+
+-- THE SIGNALS HAVE TO BE TELLABLE APART, and colour is the only thing
+-- separating them. Manhattan distance in RGB rather than a contrast ratio,
+-- because two colours of the SAME luminance and different hue are the failure
+-- here: "affordable" and "you are being raided" at a glance, on a phone.
+for i = 1, #UI.Signal do
+	for j = i + 1, #UI.Signal do
+		local a, b = UI.Signal[i], UI.Signal[j]
+		local ca, cb = colourOf(a), colourOf(b)
+		local apart = (ca and cb)
+			and math.abs(ca.r - cb.r) + math.abs(ca.g - cb.g) + math.abs(ca.b - cb.b)
+			or math.huge
+		check(apart >= 40,
+			("the %s and %s signals are %d apart across all three channels; under 40 they are one colour with two meanings")
+				:format(a, b, apart))
+	end
+end
+
+-- A CONTROL THAT CANNOT BE PRESSED AND ONE THAT CAN MUST NOT RENDER ALIKE.
+-- LEAVE PLOT sits beside REBIRTH and CANCEL beside DO IT; all four are live,
+-- and only `disabled` means "this does nothing".
+do
+	local a, b = colourOf("disabled"), colourOf("neutral")
+	local apart = (a and b)
+		and math.abs(a.r - b.r) + math.abs(a.g - b.g) + math.abs(a.b - b.b)
+		or math.huge
+	check(apart >= 40,
+		("the disabled and neutral fills are %d apart; a dead control and a live one that reads the same is a player pressing nothing"):format(apart))
+end
+
+-- THE CARD IS A CARD AND NOT A TINT. Past about a fifth the panel is more sky
+-- than surface and every ratio above stops meaning anything.
+check(UI.PanelAlpha >= 0 and UI.PanelAlpha <= 0.2,
+	("UI.PanelAlpha is %.2f; past 0.2 the card is mostly whatever is behind it"):format(UI.PanelAlpha))
+
 -- THE TWO FLOORS, IN PHYSICAL PIXELS. A design-pixel minimum means nothing on
 -- its own: it is worth MinScale of itself on the smallest screen that still
 -- gets a full-size layout, and that is the number a thumb and an eye actually

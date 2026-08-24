@@ -27,6 +27,8 @@ local UserInputService = game:GetService("UserInputService")
 
 local MovementClient = {}
 
+local ROLE = UiKit.ROLE
+
 local M = Config.Movement
 
 local function requestRecall()
@@ -109,10 +111,10 @@ function MovementClient.start()
 		local button = Instance.new("TextButton")
 		button.Name = name
 		button.Size = UDim2.fromOffset(64, 64)
-		button.BackgroundColor3 = Color3.fromRGB(30, 26, 44)
+		button.BackgroundColor3 = ROLE.surfaceRaised
 		button.BackgroundTransparency = 0.35
 		button.Text = text
-		button.TextColor3 = Color3.fromRGB(235, 225, 250)
+		button.TextColor3 = ROLE.onSurface
 		button.TextSize = 20
 		button.BorderSizePixel = 0
 		button.LayoutOrder = order
@@ -130,11 +132,11 @@ function MovementClient.start()
 	-- carries the state
 	sprintButton.MouseButton1Down:Connect(function()
 		sprint(true)
-		sprintButton.BackgroundColor3 = Color3.fromRGB(90, 70, 150)
+		sprintButton.BackgroundColor3 = ROLE.action
 	end)
 	sprintButton.MouseButton1Up:Connect(function()
 		sprint(false)
-		sprintButton.BackgroundColor3 = Color3.fromRGB(30, 26, 44)
+		sprintButton.BackgroundColor3 = ROLE.surfaceRaised
 	end)
 	dashButton.MouseButton1Click:Connect(function()
 		requestDash:FireServer()

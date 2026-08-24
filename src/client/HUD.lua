@@ -54,19 +54,19 @@ local CARD = Config.UI.StatusCard
 local RAIL = Config.UI.Rail
 local TOAST = Config.UI.Toast
 local REBIRTH = Config.UI.Modal.Rebirth
-local PALETTE = UiKit.PALETTE
+local ROLE = UiKit.ROLE
 
 local KIND_COLOR = {
-	buy      = PALETTE.good,
-	warn     = PALETTE.bad,
-	wave     = PALETTE.wave,
-	boss     = PALETTE.boss,
-	rebirth  = PALETTE.accent,
-	gear     = PALETTE.gold,
-	ko       = Color3.fromRGB(255, 230, 140),
-	claim    = PALETTE.good,
-	welcome  = PALETTE.gold,
-	info     = PALETTE.accent,
+	buy      = ROLE.affirm,
+	warn     = ROLE.danger,
+	wave     = ROLE.warn,
+	boss     = ROLE.alarm,
+	rebirth  = ROLE.action,
+	gear     = ROLE.currency,
+	ko       = ROLE.currency,
+	claim    = ROLE.affirm,
+	welcome  = ROLE.currency,
+	info     = ROLE.notice,
 }
 
 local state = {
@@ -141,11 +141,11 @@ local function buildStatusCard(parent: Instance)
 	local icon = Instance.new("TextLabel")
 	icon.Size = UDim2.fromOffset(CARD.IconSize, CARD.IconSize)
 	icon.Position = UDim2.fromOffset(CARD.Pad, CARD.IconY)
-	icon.BackgroundColor3 = PALETTE.gold
+	icon.BackgroundColor3 = ROLE.currency
 	icon.BackgroundTransparency = 0.15
 	icon.Font = Style.Font.title
 	icon.Text = "T"
-	icon.TextColor3 = Color3.fromRGB(40, 28, 10)
+	icon.TextColor3 = ROLE.onCurrency
 	icon.TextScaled = true
 	icon.Parent = frame
 	corner(icon, math.floor(CARD.IconSize / 2))
@@ -156,7 +156,7 @@ local function buildStatusCard(parent: Instance)
 		Font = Style.Font.title,
 		Text = "0",
 		TextSize = CARD.BalanceTextPx,
-		TextColor3 = PALETTE.gold,
+		TextColor3 = ROLE.currency,
 	})
 
 	multLabel = text(frame, {
@@ -165,7 +165,7 @@ local function buildStatusCard(parent: Instance)
 		Font = Style.Font.body,
 		Text = "x1.00",
 		TextSize = CARD.MultTextPx,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 	})
 
 	-- THE TERMS, FULL WIDTH, where the two lines above it are indented past the
@@ -178,7 +178,7 @@ local function buildStatusCard(parent: Instance)
 		Font = Style.Font.body,
 		Text = "",
 		TextSize = CARD.TermsTextPx,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	})
 
@@ -188,7 +188,7 @@ local function buildStatusCard(parent: Instance)
 	divider.Name = "Rule"
 	divider.Size = UDim2.fromOffset(CARD.ContentWidth, CARD.DividerHeight)
 	divider.Position = UDim2.fromOffset(CARD.Pad, CARD.DividerY)
-	divider.BackgroundColor3 = PALETTE.accent
+	divider.BackgroundColor3 = ROLE.line
 	divider.BackgroundTransparency = 0.75
 	divider.BorderSizePixel = 0
 	divider.Parent = frame
@@ -199,7 +199,7 @@ local function buildStatusCard(parent: Instance)
 		Font = Style.Font.body,
 		Text = "NEXT UPGRADE",
 		TextSize = CARD.HeadingTextPx,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 	})
 
 	nextLabel = text(frame, {
@@ -208,7 +208,7 @@ local function buildStatusCard(parent: Instance)
 		Font = Style.Font.title,
 		Text = "Tung Dropper — 50",
 		TextSize = CARD.NameTextPx,
-		TextColor3 = PALETTE.text,
+		TextColor3 = ROLE.onSurface,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	})
 
@@ -220,7 +220,7 @@ local function buildStatusCard(parent: Instance)
 	barTrack.Name = "Progress"
 	barTrack.Size = UDim2.fromOffset(CARD.ContentWidth, CARD.BarHeight)
 	barTrack.Position = UDim2.fromOffset(CARD.Pad, CARD.BarY)
-	barTrack.BackgroundColor3 = PALETTE.panel2
+	barTrack.BackgroundColor3 = ROLE.progressTrack
 	barTrack.BackgroundTransparency = 0.25
 	barTrack.BorderSizePixel = 0
 	barTrack.Parent = frame
@@ -229,7 +229,7 @@ local function buildStatusCard(parent: Instance)
 	nextFill = Instance.new("Frame")
 	nextFill.Name = "Fill"
 	nextFill.Size = UDim2.fromScale(0, 1)
-	nextFill.BackgroundColor3 = PALETTE.gold
+	nextFill.BackgroundColor3 = ROLE.progress
 	nextFill.BorderSizePixel = 0
 	nextFill.Parent = barTrack
 	corner(nextFill, math.floor(CARD.BarHeight / 2))
@@ -244,7 +244,7 @@ local function buildStatusCard(parent: Instance)
 		Font = Style.Font.body,
 		Text = "",
 		TextSize = CARD.DetailTextPx,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 	})
 
 	return frame
@@ -295,14 +295,14 @@ local function buildWaveBanner()
 	waveLabel = Style.text(waveFrame, {
 		name = "Line",
 		size = UDim2.fromScale(1, 1 - barFraction),
-		text = "", color = PALETTE.wave,
+		text = "", color = ROLE.warn,
 	})
 
 	bossTrack = Instance.new("Frame")
 	bossTrack.Name = "BossBar"
 	bossTrack.Size = UDim2.fromScale(1 - inset * 2, barFraction * 0.7)
 	bossTrack.Position = UDim2.fromScale(inset, 1 - barFraction)
-	bossTrack.BackgroundColor3 = PALETTE.panel
+	bossTrack.BackgroundColor3 = ROLE.surface
 	bossTrack.BackgroundTransparency = 0.35
 	bossTrack.BorderSizePixel = 0
 	-- Only ever up during a boss fight. Every other wave, the sign is the one
@@ -314,7 +314,7 @@ local function buildWaveBanner()
 	bossFill = Instance.new("Frame")
 	bossFill.Name = "Fill"
 	bossFill.Size = UDim2.fromScale(1, 1)
-	bossFill.BackgroundColor3 = PALETTE.boss
+	bossFill.BackgroundColor3 = ROLE.alarm
 	bossFill.BorderSizePixel = 0
 	bossFill.Parent = bossTrack
 	corner(bossFill, 3)
@@ -355,9 +355,9 @@ local function buildUtilityRail(parent: Instance)
 	})
 
 	local slot
-	inviteButton, slot, inviteCaption = UiKit.railItem(railFrame, "Invite", PALETTE.good)
+	inviteButton, slot, inviteCaption = UiKit.railItem(railFrame, "Invite", ROLE.affirm)
 	buildHelp(railFrame)
-	UiKit.personPlus(slot, RAIL.GlyphSize, UiKit.INK, PALETTE.good)
+	UiKit.personPlus(slot, RAIL.GlyphSize, UiKit.INK, ROLE.affirm)
 	-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 	-- control does not exist. See refreshInvite.
 	inviteButton.Visible = false
@@ -396,14 +396,14 @@ local function buildActions(parent: Instance)
 		direction = "Vertical",
 	})
 
-	rebirthButton = button(holder, "REBIRTH", PALETTE.accent, {
+	rebirthButton = button(holder, "REBIRTH", ROLE.action, {
 		Size = UDim2.fromOffset(UI.Action.Width, UI.Button.primary),
 		LayoutOrder = 1,
 	})
 	-- No TextSize: UiKit.button is TextScaled, which overrides one. There was a
 	-- `TextSize = 16` here doing nothing, which is worse than no number at all —
 	-- it reads as the size this label is drawn at and it never was.
-	local leave = button(holder, "LEAVE PLOT", Color3.fromRGB(120, 110, 140), {
+	local leave = button(holder, "LEAVE PLOT", ROLE.neutral, {
 		Size = UDim2.fromOffset(UI.Action.Width, UI.Button.secondary),
 		LayoutOrder = 2,
 	})
@@ -457,11 +457,11 @@ function HUD.toast(payload)
 	end
 	toastOrder += 1
 
-	local color = KIND_COLOR[payload.kind] or PALETTE.accent
+	local color = KIND_COLOR[payload.kind] or ROLE.notice
 
 	local card = Instance.new("Frame")
 	card.Size = UDim2.fromOffset(TOAST.Width, TOAST.CardHeight)
-	card.BackgroundColor3 = PALETTE.panel
+	card.BackgroundColor3 = ROLE.surface
 	card.BackgroundTransparency = 0.08
 	card.BorderSizePixel = 0
 	card.LayoutOrder = toastOrder
@@ -493,7 +493,7 @@ function HUD.toast(payload)
 		Font = Style.Font.body,
 		Text = payload.body or "",
 		TextSize = TOAST.BodyTextPx,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 		TextWrapped = true,
 	})
 
@@ -567,7 +567,7 @@ local function renderHelp()
 		Text = "WHAT YOU HAVE SO FAR",
 		TextSize = 16,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = PALETTE.gold,
+		TextColor3 = ROLE.heading,
 	})
 	y += 30
 	for _, row in ipairs(Config.Disclosure) do
@@ -579,7 +579,7 @@ local function renderHelp()
 				Text = row.name,
 				TextSize = 14,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = PALETTE.accent,
+				TextColor3 = ROLE.emphasis,
 			})
 			y += 17
 			local body = UiKit.text(helpPanel, {
@@ -589,7 +589,7 @@ local function renderHelp()
 				Text = row.help,
 				TextSize = 12,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = PALETTE.muted,
+				TextColor3 = ROLE.onSurfaceMuted,
 			})
 			body.TextWrapped = true
 			y += 34
@@ -599,7 +599,7 @@ local function renderHelp()
 end
 
 function buildHelp(rail)
-	local button = UiKit.railItem(rail, "Help", PALETTE.accent)
+	local button = UiKit.railItem(rail, "Help", ROLE.notice)
 	button.Text = "?"
 	helpPanel = UiKit.panel(overlay, UDim2.fromOffset(320, 60), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 	helpPanel.Name = "Help"
@@ -610,7 +610,7 @@ function buildHelp(rail)
 			renderHelp()
 		end
 	end)
-	local close = UiKit.button(helpPanel, "CLOSE", PALETTE.bad, {
+	local close = UiKit.button(helpPanel, "CLOSE", ROLE.danger, {
 		Size = UDim2.fromOffset(64, 22),
 		Position = UDim2.new(1, -72, 0, 8),
 	})
@@ -661,7 +661,7 @@ local function renderTerms()
 		table.insert(parts, ("+%d%% friends"):format(friendPercent(state.friends)))
 	end
 	termsLabel.Text = table.concat(parts, "  •  ")
-	termsLabel.TextColor3 = state.friends > 0 and PALETTE.good or PALETTE.muted
+	termsLabel.TextColor3 = state.friends > 0 and ROLE.affirm or ROLE.onSurfaceMuted
 end
 
 -- #108: rail items other modules hang on the rail, with a visibility rule
@@ -705,7 +705,7 @@ function HUD.addRailItem(name: string, label: string, visible: () -> boolean, on
 	if not railFrame then
 		return
 	end
-	local button = UiKit.railItem(railFrame, name, PALETTE.gold)
+	local button = UiKit.railItem(railFrame, name, ROLE.currency)
 	button.Text = label
 	button.Visible = visible()
 	button.Activated:Connect(onPress)
@@ -759,7 +759,7 @@ function HUD.showRebirthModal(cost: number)
 	local shade = Instance.new("Frame")
 	shade.Name = "RebirthModal"
 	shade.Size = UDim2.fromScale(1, 1)
-	shade.BackgroundColor3 = Color3.new(0, 0, 0)
+	shade.BackgroundColor3 = ROLE.scrim
 	shade.BackgroundTransparency = 0.45
 	shade.BorderSizePixel = 0
 	shade.ZIndex = 20
@@ -781,7 +781,7 @@ function HUD.showRebirthModal(cost: number)
 		Font = Style.Font.title,
 		Text = "SAHUR REBIRTH",
 		TextSize = REBIRTH.TitleTextPx,
-		TextColor3 = PALETTE.accent,
+		TextColor3 = ROLE.emphasis,
 		ZIndex = 22,
 	})
 
@@ -793,19 +793,19 @@ function HUD.showRebirthModal(cost: number)
 		Text = ("Cost: <b>%s Tung</b>\n\nYour factory and cash are wiped, but every payout after this is permanently multiplied.\n\nNext multiplier: <b>x%.2f</b>")
 			:format(Util.abbreviate(cost), Config.Rebirth.MultiplierPerRebirth ^ (state.rebirths + 1)),
 		TextSize = REBIRTH.BodyTextPx,
-		TextColor3 = affordable and PALETTE.text or PALETTE.muted,
+		TextColor3 = affordable and ROLE.onSurface or ROLE.onSurfaceMuted,
 		TextWrapped = true,
 		ZIndex = 22,
 	})
 
 	local confirm = button(card, affordable and "DO IT" or "NOT ENOUGH TUNG",
-		affordable and PALETTE.accent or PALETTE.dead, {
+		affordable and ROLE.action or ROLE.disabled, {
 			Size = UDim2.fromOffset(REBIRTH.ButtonWidth, UI.Button.primary),
 			Position = UDim2.fromOffset(REBIRTH.Pad, REBIRTH.ButtonY),
 			ZIndex = 22,
 			TextSize = REBIRTH.ButtonTextPx,
 		})
-	local cancel = button(card, "CANCEL", Color3.fromRGB(120, 110, 140), {
+	local cancel = button(card, "CANCEL", ROLE.neutral, {
 		Size = UDim2.fromOffset(REBIRTH.ButtonWidth, UI.Button.primary),
 		Position = UDim2.fromOffset(REBIRTH.CancelX, REBIRTH.ButtonY),
 		ZIndex = 22,
@@ -885,13 +885,13 @@ local function renderNext()
 	end
 	if not nextUp then
 		nextLabel.Text = "Everything built. Rebirth?"
-		nextLabel.TextColor3 = PALETTE.accent
+		nextLabel.TextColor3 = ROLE.emphasis
 		-- A full bar, in the rebirth colour: there is no next rung, and an empty
 		-- track under "everything built" reads as no progress at all.
 		nextFill.Size = UDim2.fromScale(1, 1)
-		nextFill.BackgroundColor3 = PALETTE.accent
+		nextFill.BackgroundColor3 = ROLE.action
 		nextDetail.Text = ("all %d steps built"):format(#Config.Buttons)
-		nextDetail.TextColor3 = PALETTE.muted
+		nextDetail.TextColor3 = ROLE.onSurfaceMuted
 		return
 	end
 
@@ -903,14 +903,14 @@ local function renderNext()
 	local affordable = fraction >= 1
 
 	nextFill.Size = UDim2.fromScale(fraction, 1)
-	nextFill.BackgroundColor3 = affordable and PALETTE.good or PALETTE.gold
+	nextFill.BackgroundColor3 = affordable and ROLE.affirm or ROLE.progress
 	nextLabel.Text = ("%s — %s"):format(nextUp.name, Util.abbreviate(nextUp.price))
-	nextLabel.TextColor3 = affordable and PALETTE.good or PALETTE.text
+	nextLabel.TextColor3 = affordable and ROLE.affirm or ROLE.onSurface
 	nextDetail.Text = affordable
 		and ("%s %d/%d  •  affordable now"):format(nextUp.label, nextUp.step, nextUp.of)
 		or ("%s %d/%d  •  %s to go"):format(nextUp.label, nextUp.step, nextUp.of,
 			Util.abbreviate(nextUp.price - displayedCash))
-	nextDetail.TextColor3 = affordable and PALETTE.good or PALETTE.muted
+	nextDetail.TextColor3 = affordable and ROLE.affirm or ROLE.onSurfaceMuted
 end
 
 function HUD.applyStats(payload)
@@ -959,7 +959,7 @@ function HUD.applyStats(payload)
 	renderNext()
 
 	rebirthButton.Text = ("REBIRTH  %s"):format(Util.abbreviate(state.rebirthCost))
-	rebirthButton.BackgroundColor3 = state.cash >= state.rebirthCost and PALETTE.accent or PALETTE.dead
+	rebirthButton.BackgroundColor3 = state.cash >= state.rebirthCost and ROLE.action or ROLE.disabled
 	for _, fn in ipairs(statsListeners) do
 		fn()
 	end
@@ -1021,13 +1021,13 @@ function HUD.renderWave()
 		-- nothing on screen is most of why the old gap felt long.
 		waveFrame.Enabled = left > 0
 		waveLabel.Text = ("NEXT RAID IN %ds"):format(left)
-		waveLabel.TextColor3 = PALETTE.muted
+		waveLabel.TextColor3 = ROLE.onSurfaceMuted
 	elseif phase == "warning" then
 		waveFrame.Enabled = true
 		waveLabel.Text = boss
 			and ("BOSS RAID %d IN %ds"):format(wave.wave, left)
 			or ("SAHUR RAID %d IN %ds"):format(wave.wave, left)
-		waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
+		waveLabel.TextColor3 = boss and ROLE.alarm or ROLE.warn
 	elseif phase == "spawning" or phase == "active" then
 		waveFrame.Enabled = true
 		local maxHp = wave.bossMaxHp
@@ -1041,18 +1041,18 @@ function HUD.renderWave()
 			bossFill.Size = UDim2.fromScale(fraction, 1)
 			waveLabel.Text = ("WAVE %d BOSS  •  %d%%  •  scaled for %d"):format(
 				wave.wave, math.floor(fraction * 100 + 0.5), wave.bossScale or 1)
-			waveLabel.TextColor3 = PALETTE.boss
+			waveLabel.TextColor3 = ROLE.alarm
 		else
 			waveLabel.Text = ("WAVE %d  •  %d / %d RAIDERS"):format(
 				wave.wave, wave.remaining or 0, wave.total or 0)
-			waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
+			waveLabel.TextColor3 = boss and ROLE.alarm or ROLE.warn
 		end
 	elseif phase == "clear" then
 		waveFrame.Enabled = left > 0
 		waveLabel.Text = wave.forced
 			and ("WAVE %d TIMED OUT"):format(wave.wave)
 			or ("WAVE %d CLEARED"):format(wave.wave)
-		waveLabel.TextColor3 = wave.forced and PALETTE.muted or PALETTE.good
+		waveLabel.TextColor3 = wave.forced and ROLE.onSurfaceMuted or ROLE.affirm
 	end
 end
 

@@ -4,9 +4,11 @@ verify.py — full pre-flight check for Tung Tung Tycoon.
 
     python3 tools/verify.py [--luau /path/to/luau] [--analyze /path/to/luau-analyze]
 
-Runs THIRTEEN passes, in order. Keep this list and main() in step -- it has said
-five, seven and eight while main() ran nine, and a pass count nobody can trust
-is a pass somebody can quietly delete.
+Runs FIFTEEN passes, in order. Keep this list and main() in step -- it has said
+five, seven, eight and thirteen while main() ran nine, then fourteen, and a pass
+count nobody can trust is a pass somebody can quietly delete. It was wrong again
+when `ui colour` was added: the list had never carried `tycoon method
+resolution` at all.
 
   1. syntax        every file in src/ and tools/testing/ compiles (luau-compile)
   2. analysis      luau-analyze, with the Roblox globals NAMED (see ROBLOX_GLOBALS)
@@ -15,13 +17,15 @@ is a pass somebody can quietly delete.
   4. prototypes    every Config.Prototypes flag read is a flag that exists
   5. config paths  every Config.<path> read in src/ names a key that exists
   6. mixin folders a split class's aggregator requires every file in its folder
-  7. ui geometry   no card-scale literal in src/client; it comes from Config.UI
-  8. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
-  9. design refs   every design:D-NN cited in source names a row in DECISIONS.md
- 10. comment triage a long comment block declares which of the four homes it is
- 11. config        the integrity suite in tools/verify_config.lua
- 12. specs         the runtime specs in tools/testing, via tools/test.py
- 13. packed build  regenerates build/ and syntax-checks the output
+  7. method res    a tycoon mixin does not shadow a method another mixin defines
+  8. ui geometry   no card-scale literal in src/client; it comes from Config.UI
+  9. ui colour     no Color3 literal in src/client; it comes from Config.UI.Role
+ 10. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
+ 11. design refs   every design:D-NN cited in source names a row in DECISIONS.md
+ 12. comment triage a long comment block declares which of the four homes it is
+ 13. config        the integrity suite in tools/verify_config.lua
+ 14. specs         the runtime specs in tools/testing, via tools/test.py
+ 15. packed build  regenerates build/ and syntax-checks the output
 
 Exit code is non-zero if anything fails, so it drops straight into CI.
 """
@@ -240,6 +244,45 @@ def check_ui_geometry(files):
     print(f"  {GREEN}ok{RESET}  every card-scale size in src/client comes from {UI_GEOMETRY_OWNER}")
     return True
 
+
+# COLOUR IN src/client COMES FROM Config.UI.Role, AND FROM NOWHERE ELSE.
+#
+# UiKit.PALETTE was written out three times before it was merged, and the merge
+# fixed the values while leaving nothing to stop a fourth copy. What actually
+# grew back was worse than a fourth copy: twenty-six raw Color3 calls scattered
+# across seven files, including three in MovementClient.lua for the only square,
+# off-palette, wrong-font buttons in the game, and a `ko` toast colour sitting in
+# a table whose other nine entries all read the palette.
+#
+# None of that was visible to anything. The style pass greps for Enum.Font,
+# TextStrokeTransparency and MaxDistance; a colour is none of the three.
+#
+# The rule has teeth because the values now live in Config, where
+# verify_config.lua holds every role against WCAG contrast on a composited card.
+# A literal here is a colour outside that check -- so it is not merely
+# inconsistent, it is unmeasured.
+COLOUR_OWNER = "Config.UI.Role"
+COLOUR_LITERAL = re.compile(r"Color3\s*\.\s*(fromRGB|new|fromHSV|fromHex)\s*\(")
+
+
+def check_ui_colour(files):
+    step("ui colour")
+    findings = []
+    for path in client_sources(files):
+        rel = path.relative_to(ROOT).as_posix()
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("--"):
+                continue
+            if COLOUR_LITERAL.search(line):
+                findings.append((rel, number, line.strip()))
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for rel, number, text in findings:
+            print(f"    {rel}:{number} builds a colour from numbers — name a role in {COLOUR_OWNER}")
+            print(f"      {DIM}{text}{RESET}")
+        return False
+    print(f"  {GREEN}ok{RESET}  every colour in src/client resolves through {COLOUR_OWNER}")
+    return True
 
 # ONE ScreenGui MEANS ONE UIScale.
 #
@@ -895,6 +938,7 @@ def main():
         check_mixin_folders(),
         check_method_resolution(files),
         check_ui_geometry(files),
+        check_ui_colour(files),
         check_single_screengui(files),
         check_design_refs(files),
         check_comment_triage(files),

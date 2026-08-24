@@ -17,7 +17,7 @@ local Style = Req("Style")
 
 local RebirthUI = {}
 
-local PALETTE = UiKit.PALETTE
+local ROLE = UiKit.ROLE
 local SHOW_SECONDS = 14
 
 local panel
@@ -37,7 +37,7 @@ local function render(payload)
 		Text = ("SAHUR REBIRTH #%d"):format(payload.rebirths or 0),
 		TextSize = 18,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = Color3.fromRGB(200, 120, 255),
+		TextColor3 = ROLE.emphasis,
 	})
 	y += 28
 	if payload.rankChanged then
@@ -48,7 +48,7 @@ local function render(payload)
 			Text = ("RANK UP  •  %s"):format(payload.rank or ""),
 			TextSize = 20,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.gold,
+			TextColor3 = ROLE.heading,
 		})
 		y += 26
 	end
@@ -60,7 +60,7 @@ local function render(payload)
 			Text = payload.motto,
 			TextSize = 12,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
 		y += 22
 	end
@@ -71,7 +71,7 @@ local function render(payload)
 		Text = ("Every payout is now x%.2f."):format(payload.multiplier or 1),
 		TextSize = 14,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = PALETTE.good,
+		TextColor3 = ROLE.affirm,
 	})
 	y += 24
 	UiKit.text(panel, {
@@ -81,7 +81,7 @@ local function render(payload)
 		Text = "YOU KEEP",
 		TextSize = 11,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 	})
 	y += 16
 	for _, line in ipairs(payload.keeps or {}) do
@@ -92,7 +92,7 @@ local function render(payload)
 			Text = "• " .. line,
 			TextSize = 12,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.accent,
+			TextColor3 = ROLE.emphasis,
 		})
 		y += 16
 	end
@@ -105,11 +105,11 @@ local function render(payload)
 		Text = "The factory resets. The climb back is faster than it was.",
 		TextSize = 11,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 	})
 	y += 22
 
-	local close = UiKit.button(panel, "ONWARD", PALETTE.accent, {
+	local close = UiKit.button(panel, "ONWARD", ROLE.action, {
 		Size = UDim2.fromOffset(96, 26),
 		Position = UDim2.new(0.5, -48, 0, y),
 	})

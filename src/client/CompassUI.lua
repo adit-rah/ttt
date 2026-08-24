@@ -28,7 +28,7 @@ local Players = game:GetService("Players")
 
 local CompassUI = {}
 
-local PALETTE = UiKit.PALETTE
+local ROLE = UiKit.ROLE
 local WIDTH, HEIGHT = 260, 20
 local HALF_FOV = math.rad(100)
 
@@ -71,15 +71,15 @@ end
 
 local function targets()
 	local list = {
-		{ id = "core", text = "◆", color = Color3.fromRGB(255, 110, 90), position = Vector3.zero },
-		{ id = "tower", text = "▲", color = Color3.fromRGB(200, 120, 255),
+		{ id = "core", text = "◆", color = ROLE.alarm, position = Vector3.zero },
+		{ id = "tower", text = "▲", color = ROLE.emphasis,
 			position = Vector3.new(0, 0, -Config.Tower.EntranceRadius) },
 	}
 	if plotIndex then
 		local placements = Config.plotPlacements(Config.plotCountFor())
 		local placement = placements[plotIndex]
 		if placement then
-			table.insert(list, { id = "home", text = "⌂", color = PALETTE.gold,
+			table.insert(list, { id = "home", text = "⌂", color = ROLE.currency,
 				position = Vector3.new(
 					math.sin(placement.angle) * placement.radius, 0,
 					math.cos(placement.angle) * placement.radius) })
@@ -90,7 +90,7 @@ local function targets()
 		local root = mate and mate.Character and mate.Character:FindFirstChild("HumanoidRootPart")
 		if root and mate ~= Players.LocalPlayer then
 			table.insert(list, { id = "mate" .. userId, text = mate.DisplayName:sub(1, 1),
-				color = PALETTE.good, position = root.Position })
+				color = ROLE.affirm, position = root.Position })
 		end
 	end
 	for userId in pairs(thiefIds) do
@@ -98,7 +98,7 @@ local function targets()
 		local root = thief and thief.Character and thief.Character:FindFirstChild("HumanoidRootPart")
 		if root then
 			table.insert(list, { id = "thief" .. userId, text = "!",
-				color = Color3.fromRGB(255, 90, 70), position = root.Position })
+				color = ROLE.alarm, position = root.Position })
 		else
 			-- the thief left or died unseen; the mark dies with the body
 			thiefIds[userId] = nil
@@ -160,7 +160,7 @@ function CompassUI.start()
 	-- top middle, which no other surface claims
 	strip.AnchorPoint = Vector2.new(0.5, 0)
 	strip.Position = UDim2.new(0.5, 0, 0, 6)
-	strip.BackgroundColor3 = Color3.fromRGB(10, 8, 16)
+	strip.BackgroundColor3 = ROLE.surface
 	strip.BackgroundTransparency = 0.55
 	UiKit.corner(strip, 10)
 	strip.Visible = false

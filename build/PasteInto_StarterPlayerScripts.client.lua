@@ -725,6 +725,100 @@ __MODULES["Config"] = function()
 		MinScale = 0.62,
 		MaxScale = 1.0,
 
+		-- ── COLOUR, AS A ROLE ────────────────────────────────────────────────────
+		--
+		-- mechanism: two tables, and the split is the point. `Palette` is what the
+		-- colours ARE; `Role` is what each one is FOR. Every builder names a role
+		-- and never a palette key, so retheming the game is an edit to these two
+		-- tables and to nothing in src/client.
+		--
+		-- WHY THIS IS IN CONFIG AND NOT IN UiKit. verify_config.lua stubs
+		-- Color3.fromRGB as { r, g, b } and can do arithmetic on it, so a palette
+		-- here is a palette the verifier can hold against WCAG contrast — which is
+		-- the only reason INVARIANTS §7's total silence on colour is fixable.
+		-- UiKit.PALETTE was three copies of a palette merged into one, and the merge
+		-- fixed the values while leaving nothing to stop a fourth copy appearing:
+		-- twenty-six raw Color3 calls were in src/client when this table was
+		-- written. verify.py's ui-ownership pass is what keeps that at zero.
+		--
+		-- design:D-05 — the screen is drawn in one system.
+		Palette = {
+			panel   = Color3.fromRGB( 22,  18,  32),
+			panel2  = Color3.fromRGB( 32,  26,  46),
+			accent  = Color3.fromRGB(190, 130, 255),
+			gold    = Color3.fromRGB(255, 205,  90),
+			good    = Color3.fromRGB(120, 235, 160),
+			bad     = Color3.fromRGB(255, 110, 110),
+			text    = Color3.fromRGB(238, 232, 250),
+			muted   = Color3.fromRGB(160, 150, 180),
+			dead    = Color3.fromRGB( 90,  84, 104),
+			neutral = Color3.fromRGB(120, 110, 140),
+			wave    = Color3.fromRGB(255, 150,  60),
+			boss    = Color3.fromRGB(255,  90,  60),
+			ink     = Color3.fromRGB( 20,  16,  28),
+			shade   = Color3.fromRGB(  0,   0,   0),
+		},
+
+		-- Every role a builder is allowed to name. A role that resolves to a key
+		-- Palette does not hold fails the build — the same failure Style.Font.head
+		-- got away with for two rounds, closed here before it can happen for colour.
+		--
+		-- THE `on*` ROLES ARE WHAT PRINTS ON THE ROLE THEY ARE NAMED AFTER, and they
+		-- exist because a fill and its label are one decision. Assigning a disabled
+		-- background and leaving the label at ink is how the shop shipped a buy
+		-- button nobody could read.
+		Role = {
+			-- surfaces
+			surface        = "panel",
+			surfaceRaised  = "panel2",
+			line           = "accent",
+			scrim          = "shade",
+			-- ink on a surface
+			onSurface      = "text",
+			onSurfaceMuted = "muted",
+			-- fills, and what prints on each
+			action         = "accent",  onAction   = "ink",
+			affirm         = "good",    onAffirm   = "ink",
+			danger         = "bad",     onDanger   = "ink",
+			disabled       = "dead",    onDisabled = "text",
+			-- A control that is live and is not the one you want: LEAVE PLOT next to
+			-- REBIRTH, CANCEL next to DO IT. Distinct from `disabled`, which cannot be
+			-- pressed at all, and the two must never render the same.
+			neutral        = "neutral", onNeutral  = "ink",
+			-- The ink a gold surface takes: the coin's face, a price on a gold pill.
+			onCurrency     = "ink",
+			-- meaning
+			currency       = "gold",
+			heading        = "gold",
+			emphasis       = "accent",
+			progress       = "gold",
+			progressTrack  = "panel2",
+			notice         = "accent",
+			warn           = "wave",
+			alarm          = "boss",
+			-- drawn glyphs: the ink, and the colour a punched hole shows through to
+			glyph          = "text",
+			glyphCut       = "panel",
+		},
+
+		-- invariant: THE ROLES A PLAYER HAS TO TELL APART AT A GLANCE. Everything
+		-- here is a state or a warning, and two of them rendering alike is a player
+		-- who cannot see that a thing became affordable. The verifier holds every
+		-- pair to a channel distance. The wood scale is deliberately NOT in this
+		-- list: a surface and the ink on it are meant to be close in hue, and they
+		-- are told apart by contrast instead.
+		Signal = { "currency", "affirm", "danger", "warn", "alarm", "notice", "disabled" },
+
+		-- invariant: THE ALPHA EVERY CARD IS DRAWN AT, here rather than in UiKit
+		-- because contrast is measured against what the player SEES. A panel at 0.12
+		-- over a bright sky is not the panel colour; it is that colour mixed an
+		-- eighth of the way to the sky, and every label on it reads against the mix.
+		PanelAlpha = 0.12,
+		-- What the verifier composites against: the brightest thing that can be
+		-- behind a card. Roblox skies clip near this, and a HUD cannot choose its
+		-- backdrop, so the worst case is the only honest one to measure.
+		SkyR = 215, SkyG = 232, SkyB = 250,
+
 		-- The gutter every panel keeps from the edge of the design canvas, and the
 		-- gap between two panels stacked in one column.
 		Margin = 18,
@@ -6443,6 +6537,7 @@ __MODULES["CombatClient"] = function()
 	local Net = Req("Net")
 	local HUD = Req("HUD")
 	local SwingAnim = Req("SwingAnim")
+	local UiKit = Req("UiKit")
 
 	local Players = game:GetService("Players")
 	local RunService = game:GetService("RunService")
@@ -6450,6 +6545,8 @@ __MODULES["CombatClient"] = function()
 	local player = Players.LocalPlayer
 
 	local CombatClient = {}
+
+	local ROLE = UiKit.ROLE
 
 	local shake = 0
 
@@ -6478,7 +6575,7 @@ __MODULES["CombatClient"] = function()
 				tick.AnchorPoint = Vector2.new(0.5, 0.5)
 				tick.Size = UDim2.fromOffset(16, 4)
 				tick.Position = UDim2.fromScale(0.5, 0.5)
-				tick.BackgroundColor3 = Color3.fromRGB(255, 245, 200)
+				tick.BackgroundColor3 = ROLE.onSurface
 				tick.BorderSizePixel = 0
 				tick.Rotation = rot
 				tick.Parent = marker
@@ -6579,9 +6676,9 @@ __MODULES["CombatClient"] = function()
 			hideAt = os.clock() + 0.16
 			for _, tick in ipairs(marker:GetChildren()) do
 				if tick:IsA("Frame") then
-					tick.BackgroundColor3 = payload.killed and Color3.fromRGB(255, 120, 90)
-						or payload.crit and Color3.fromRGB(255, 190, 90)
-						or Color3.fromRGB(255, 245, 200)
+					tick.BackgroundColor3 = payload.killed and ROLE.alarm
+						or payload.crit and ROLE.currency
+						or ROLE.onSurface
 				end
 			end
 			shake = math.min(shake + (payload.killed and 1.1 or payload.crit and 0.85 or 0.55), 2)
@@ -6687,7 +6784,7 @@ __MODULES["CompassUI"] = function()
 
 	local CompassUI = {}
 
-	local PALETTE = UiKit.PALETTE
+	local ROLE = UiKit.ROLE
 	local WIDTH, HEIGHT = 260, 20
 	local HALF_FOV = math.rad(100)
 
@@ -6730,15 +6827,15 @@ __MODULES["CompassUI"] = function()
 
 	local function targets()
 		local list = {
-			{ id = "core", text = "◆", color = Color3.fromRGB(255, 110, 90), position = Vector3.zero },
-			{ id = "tower", text = "▲", color = Color3.fromRGB(200, 120, 255),
+			{ id = "core", text = "◆", color = ROLE.alarm, position = Vector3.zero },
+			{ id = "tower", text = "▲", color = ROLE.emphasis,
 				position = Vector3.new(0, 0, -Config.Tower.EntranceRadius) },
 		}
 		if plotIndex then
 			local placements = Config.plotPlacements(Config.plotCountFor())
 			local placement = placements[plotIndex]
 			if placement then
-				table.insert(list, { id = "home", text = "⌂", color = PALETTE.gold,
+				table.insert(list, { id = "home", text = "⌂", color = ROLE.currency,
 					position = Vector3.new(
 						math.sin(placement.angle) * placement.radius, 0,
 						math.cos(placement.angle) * placement.radius) })
@@ -6749,7 +6846,7 @@ __MODULES["CompassUI"] = function()
 			local root = mate and mate.Character and mate.Character:FindFirstChild("HumanoidRootPart")
 			if root and mate ~= Players.LocalPlayer then
 				table.insert(list, { id = "mate" .. userId, text = mate.DisplayName:sub(1, 1),
-					color = PALETTE.good, position = root.Position })
+					color = ROLE.affirm, position = root.Position })
 			end
 		end
 		for userId in pairs(thiefIds) do
@@ -6757,7 +6854,7 @@ __MODULES["CompassUI"] = function()
 			local root = thief and thief.Character and thief.Character:FindFirstChild("HumanoidRootPart")
 			if root then
 				table.insert(list, { id = "thief" .. userId, text = "!",
-					color = Color3.fromRGB(255, 90, 70), position = root.Position })
+					color = ROLE.alarm, position = root.Position })
 			else
 				-- the thief left or died unseen; the mark dies with the body
 				thiefIds[userId] = nil
@@ -6819,7 +6916,7 @@ __MODULES["CompassUI"] = function()
 		-- top middle, which no other surface claims
 		strip.AnchorPoint = Vector2.new(0.5, 0)
 		strip.Position = UDim2.new(0.5, 0, 0, 6)
-		strip.BackgroundColor3 = Color3.fromRGB(10, 8, 16)
+		strip.BackgroundColor3 = ROLE.surface
 		strip.BackgroundTransparency = 0.55
 		UiKit.corner(strip, 10)
 		strip.Visible = false
@@ -6917,19 +7014,19 @@ __MODULES["HUD"] = function()
 	local RAIL = Config.UI.Rail
 	local TOAST = Config.UI.Toast
 	local REBIRTH = Config.UI.Modal.Rebirth
-	local PALETTE = UiKit.PALETTE
+	local ROLE = UiKit.ROLE
 
 	local KIND_COLOR = {
-		buy      = PALETTE.good,
-		warn     = PALETTE.bad,
-		wave     = PALETTE.wave,
-		boss     = PALETTE.boss,
-		rebirth  = PALETTE.accent,
-		gear     = PALETTE.gold,
-		ko       = Color3.fromRGB(255, 230, 140),
-		claim    = PALETTE.good,
-		welcome  = PALETTE.gold,
-		info     = PALETTE.accent,
+		buy      = ROLE.affirm,
+		warn     = ROLE.danger,
+		wave     = ROLE.warn,
+		boss     = ROLE.alarm,
+		rebirth  = ROLE.action,
+		gear     = ROLE.currency,
+		ko       = ROLE.currency,
+		claim    = ROLE.affirm,
+		welcome  = ROLE.currency,
+		info     = ROLE.notice,
 	}
 
 	local state = {
@@ -7004,11 +7101,11 @@ __MODULES["HUD"] = function()
 		local icon = Instance.new("TextLabel")
 		icon.Size = UDim2.fromOffset(CARD.IconSize, CARD.IconSize)
 		icon.Position = UDim2.fromOffset(CARD.Pad, CARD.IconY)
-		icon.BackgroundColor3 = PALETTE.gold
+		icon.BackgroundColor3 = ROLE.currency
 		icon.BackgroundTransparency = 0.15
 		icon.Font = Style.Font.title
 		icon.Text = "T"
-		icon.TextColor3 = Color3.fromRGB(40, 28, 10)
+		icon.TextColor3 = ROLE.onCurrency
 		icon.TextScaled = true
 		icon.Parent = frame
 		corner(icon, math.floor(CARD.IconSize / 2))
@@ -7019,7 +7116,7 @@ __MODULES["HUD"] = function()
 			Font = Style.Font.title,
 			Text = "0",
 			TextSize = CARD.BalanceTextPx,
-			TextColor3 = PALETTE.gold,
+			TextColor3 = ROLE.currency,
 		})
 
 		multLabel = text(frame, {
@@ -7028,7 +7125,7 @@ __MODULES["HUD"] = function()
 			Font = Style.Font.body,
 			Text = "x1.00",
 			TextSize = CARD.MultTextPx,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
 
 		-- THE TERMS, FULL WIDTH, where the two lines above it are indented past the
@@ -7041,7 +7138,7 @@ __MODULES["HUD"] = function()
 			Font = Style.Font.body,
 			Text = "",
 			TextSize = CARD.TermsTextPx,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 			TextTruncate = Enum.TextTruncate.AtEnd,
 		})
 
@@ -7051,7 +7148,7 @@ __MODULES["HUD"] = function()
 		divider.Name = "Rule"
 		divider.Size = UDim2.fromOffset(CARD.ContentWidth, CARD.DividerHeight)
 		divider.Position = UDim2.fromOffset(CARD.Pad, CARD.DividerY)
-		divider.BackgroundColor3 = PALETTE.accent
+		divider.BackgroundColor3 = ROLE.line
 		divider.BackgroundTransparency = 0.75
 		divider.BorderSizePixel = 0
 		divider.Parent = frame
@@ -7062,7 +7159,7 @@ __MODULES["HUD"] = function()
 			Font = Style.Font.body,
 			Text = "NEXT UPGRADE",
 			TextSize = CARD.HeadingTextPx,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
 
 		nextLabel = text(frame, {
@@ -7071,7 +7168,7 @@ __MODULES["HUD"] = function()
 			Font = Style.Font.title,
 			Text = "Tung Dropper — 50",
 			TextSize = CARD.NameTextPx,
-			TextColor3 = PALETTE.text,
+			TextColor3 = ROLE.onSurface,
 			TextTruncate = Enum.TextTruncate.AtEnd,
 		})
 
@@ -7083,7 +7180,7 @@ __MODULES["HUD"] = function()
 		barTrack.Name = "Progress"
 		barTrack.Size = UDim2.fromOffset(CARD.ContentWidth, CARD.BarHeight)
 		barTrack.Position = UDim2.fromOffset(CARD.Pad, CARD.BarY)
-		barTrack.BackgroundColor3 = PALETTE.panel2
+		barTrack.BackgroundColor3 = ROLE.progressTrack
 		barTrack.BackgroundTransparency = 0.25
 		barTrack.BorderSizePixel = 0
 		barTrack.Parent = frame
@@ -7092,7 +7189,7 @@ __MODULES["HUD"] = function()
 		nextFill = Instance.new("Frame")
 		nextFill.Name = "Fill"
 		nextFill.Size = UDim2.fromScale(0, 1)
-		nextFill.BackgroundColor3 = PALETTE.gold
+		nextFill.BackgroundColor3 = ROLE.progress
 		nextFill.BorderSizePixel = 0
 		nextFill.Parent = barTrack
 		corner(nextFill, math.floor(CARD.BarHeight / 2))
@@ -7107,7 +7204,7 @@ __MODULES["HUD"] = function()
 			Font = Style.Font.body,
 			Text = "",
 			TextSize = CARD.DetailTextPx,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
 
 		return frame
@@ -7158,14 +7255,14 @@ __MODULES["HUD"] = function()
 		waveLabel = Style.text(waveFrame, {
 			name = "Line",
 			size = UDim2.fromScale(1, 1 - barFraction),
-			text = "", color = PALETTE.wave,
+			text = "", color = ROLE.warn,
 		})
 
 		bossTrack = Instance.new("Frame")
 		bossTrack.Name = "BossBar"
 		bossTrack.Size = UDim2.fromScale(1 - inset * 2, barFraction * 0.7)
 		bossTrack.Position = UDim2.fromScale(inset, 1 - barFraction)
-		bossTrack.BackgroundColor3 = PALETTE.panel
+		bossTrack.BackgroundColor3 = ROLE.surface
 		bossTrack.BackgroundTransparency = 0.35
 		bossTrack.BorderSizePixel = 0
 		-- Only ever up during a boss fight. Every other wave, the sign is the one
@@ -7177,7 +7274,7 @@ __MODULES["HUD"] = function()
 		bossFill = Instance.new("Frame")
 		bossFill.Name = "Fill"
 		bossFill.Size = UDim2.fromScale(1, 1)
-		bossFill.BackgroundColor3 = PALETTE.boss
+		bossFill.BackgroundColor3 = ROLE.alarm
 		bossFill.BorderSizePixel = 0
 		bossFill.Parent = bossTrack
 		corner(bossFill, 3)
@@ -7218,9 +7315,9 @@ __MODULES["HUD"] = function()
 		})
 
 		local slot
-		inviteButton, slot, inviteCaption = UiKit.railItem(railFrame, "Invite", PALETTE.good)
+		inviteButton, slot, inviteCaption = UiKit.railItem(railFrame, "Invite", ROLE.affirm)
 		buildHelp(railFrame)
-		UiKit.personPlus(slot, RAIL.GlyphSize, UiKit.INK, PALETTE.good)
+		UiKit.personPlus(slot, RAIL.GlyphSize, UiKit.INK, ROLE.affirm)
 		-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 		-- control does not exist. See refreshInvite.
 		inviteButton.Visible = false
@@ -7259,14 +7356,14 @@ __MODULES["HUD"] = function()
 			direction = "Vertical",
 		})
 
-		rebirthButton = button(holder, "REBIRTH", PALETTE.accent, {
+		rebirthButton = button(holder, "REBIRTH", ROLE.action, {
 			Size = UDim2.fromOffset(UI.Action.Width, UI.Button.primary),
 			LayoutOrder = 1,
 		})
 		-- No TextSize: UiKit.button is TextScaled, which overrides one. There was a
 		-- `TextSize = 16` here doing nothing, which is worse than no number at all —
 		-- it reads as the size this label is drawn at and it never was.
-		local leave = button(holder, "LEAVE PLOT", Color3.fromRGB(120, 110, 140), {
+		local leave = button(holder, "LEAVE PLOT", ROLE.neutral, {
 			Size = UDim2.fromOffset(UI.Action.Width, UI.Button.secondary),
 			LayoutOrder = 2,
 		})
@@ -7320,11 +7417,11 @@ __MODULES["HUD"] = function()
 		end
 		toastOrder += 1
 
-		local color = KIND_COLOR[payload.kind] or PALETTE.accent
+		local color = KIND_COLOR[payload.kind] or ROLE.notice
 
 		local card = Instance.new("Frame")
 		card.Size = UDim2.fromOffset(TOAST.Width, TOAST.CardHeight)
-		card.BackgroundColor3 = PALETTE.panel
+		card.BackgroundColor3 = ROLE.surface
 		card.BackgroundTransparency = 0.08
 		card.BorderSizePixel = 0
 		card.LayoutOrder = toastOrder
@@ -7356,7 +7453,7 @@ __MODULES["HUD"] = function()
 			Font = Style.Font.body,
 			Text = payload.body or "",
 			TextSize = TOAST.BodyTextPx,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 			TextWrapped = true,
 		})
 
@@ -7430,7 +7527,7 @@ __MODULES["HUD"] = function()
 			Text = "WHAT YOU HAVE SO FAR",
 			TextSize = 16,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.gold,
+			TextColor3 = ROLE.heading,
 		})
 		y += 30
 		for _, row in ipairs(Config.Disclosure) do
@@ -7442,7 +7539,7 @@ __MODULES["HUD"] = function()
 					Text = row.name,
 					TextSize = 14,
 					TextXAlignment = Enum.TextXAlignment.Left,
-					TextColor3 = PALETTE.accent,
+					TextColor3 = ROLE.emphasis,
 				})
 				y += 17
 				local body = UiKit.text(helpPanel, {
@@ -7452,7 +7549,7 @@ __MODULES["HUD"] = function()
 					Text = row.help,
 					TextSize = 12,
 					TextXAlignment = Enum.TextXAlignment.Left,
-					TextColor3 = PALETTE.muted,
+					TextColor3 = ROLE.onSurfaceMuted,
 				})
 				body.TextWrapped = true
 				y += 34
@@ -7462,7 +7559,7 @@ __MODULES["HUD"] = function()
 	end
 
 	function buildHelp(rail)
-		local button = UiKit.railItem(rail, "Help", PALETTE.accent)
+		local button = UiKit.railItem(rail, "Help", ROLE.notice)
 		button.Text = "?"
 		helpPanel = UiKit.panel(overlay, UDim2.fromOffset(320, 60), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		helpPanel.Name = "Help"
@@ -7473,7 +7570,7 @@ __MODULES["HUD"] = function()
 				renderHelp()
 			end
 		end)
-		local close = UiKit.button(helpPanel, "CLOSE", PALETTE.bad, {
+		local close = UiKit.button(helpPanel, "CLOSE", ROLE.danger, {
 			Size = UDim2.fromOffset(64, 22),
 			Position = UDim2.new(1, -72, 0, 8),
 		})
@@ -7524,7 +7621,7 @@ __MODULES["HUD"] = function()
 			table.insert(parts, ("+%d%% friends"):format(friendPercent(state.friends)))
 		end
 		termsLabel.Text = table.concat(parts, "  •  ")
-		termsLabel.TextColor3 = state.friends > 0 and PALETTE.good or PALETTE.muted
+		termsLabel.TextColor3 = state.friends > 0 and ROLE.affirm or ROLE.onSurfaceMuted
 	end
 
 	-- #108: rail items other modules hang on the rail, with a visibility rule
@@ -7568,7 +7665,7 @@ __MODULES["HUD"] = function()
 		if not railFrame then
 			return
 		end
-		local button = UiKit.railItem(railFrame, name, PALETTE.gold)
+		local button = UiKit.railItem(railFrame, name, ROLE.currency)
 		button.Text = label
 		button.Visible = visible()
 		button.Activated:Connect(onPress)
@@ -7622,7 +7719,7 @@ __MODULES["HUD"] = function()
 		local shade = Instance.new("Frame")
 		shade.Name = "RebirthModal"
 		shade.Size = UDim2.fromScale(1, 1)
-		shade.BackgroundColor3 = Color3.new(0, 0, 0)
+		shade.BackgroundColor3 = ROLE.scrim
 		shade.BackgroundTransparency = 0.45
 		shade.BorderSizePixel = 0
 		shade.ZIndex = 20
@@ -7644,7 +7741,7 @@ __MODULES["HUD"] = function()
 			Font = Style.Font.title,
 			Text = "SAHUR REBIRTH",
 			TextSize = REBIRTH.TitleTextPx,
-			TextColor3 = PALETTE.accent,
+			TextColor3 = ROLE.emphasis,
 			ZIndex = 22,
 		})
 
@@ -7656,19 +7753,19 @@ __MODULES["HUD"] = function()
 			Text = ("Cost: <b>%s Tung</b>\n\nYour factory and cash are wiped, but every payout after this is permanently multiplied.\n\nNext multiplier: <b>x%.2f</b>")
 				:format(Util.abbreviate(cost), Config.Rebirth.MultiplierPerRebirth ^ (state.rebirths + 1)),
 			TextSize = REBIRTH.BodyTextPx,
-			TextColor3 = affordable and PALETTE.text or PALETTE.muted,
+			TextColor3 = affordable and ROLE.onSurface or ROLE.onSurfaceMuted,
 			TextWrapped = true,
 			ZIndex = 22,
 		})
 
 		local confirm = button(card, affordable and "DO IT" or "NOT ENOUGH TUNG",
-			affordable and PALETTE.accent or PALETTE.dead, {
+			affordable and ROLE.action or ROLE.disabled, {
 				Size = UDim2.fromOffset(REBIRTH.ButtonWidth, UI.Button.primary),
 				Position = UDim2.fromOffset(REBIRTH.Pad, REBIRTH.ButtonY),
 				ZIndex = 22,
 				TextSize = REBIRTH.ButtonTextPx,
 			})
-		local cancel = button(card, "CANCEL", Color3.fromRGB(120, 110, 140), {
+		local cancel = button(card, "CANCEL", ROLE.neutral, {
 			Size = UDim2.fromOffset(REBIRTH.ButtonWidth, UI.Button.primary),
 			Position = UDim2.fromOffset(REBIRTH.CancelX, REBIRTH.ButtonY),
 			ZIndex = 22,
@@ -7748,13 +7845,13 @@ __MODULES["HUD"] = function()
 		end
 		if not nextUp then
 			nextLabel.Text = "Everything built. Rebirth?"
-			nextLabel.TextColor3 = PALETTE.accent
+			nextLabel.TextColor3 = ROLE.emphasis
 			-- A full bar, in the rebirth colour: there is no next rung, and an empty
 			-- track under "everything built" reads as no progress at all.
 			nextFill.Size = UDim2.fromScale(1, 1)
-			nextFill.BackgroundColor3 = PALETTE.accent
+			nextFill.BackgroundColor3 = ROLE.action
 			nextDetail.Text = ("all %d steps built"):format(#Config.Buttons)
-			nextDetail.TextColor3 = PALETTE.muted
+			nextDetail.TextColor3 = ROLE.onSurfaceMuted
 			return
 		end
 
@@ -7766,14 +7863,14 @@ __MODULES["HUD"] = function()
 		local affordable = fraction >= 1
 
 		nextFill.Size = UDim2.fromScale(fraction, 1)
-		nextFill.BackgroundColor3 = affordable and PALETTE.good or PALETTE.gold
+		nextFill.BackgroundColor3 = affordable and ROLE.affirm or ROLE.progress
 		nextLabel.Text = ("%s — %s"):format(nextUp.name, Util.abbreviate(nextUp.price))
-		nextLabel.TextColor3 = affordable and PALETTE.good or PALETTE.text
+		nextLabel.TextColor3 = affordable and ROLE.affirm or ROLE.onSurface
 		nextDetail.Text = affordable
 			and ("%s %d/%d  •  affordable now"):format(nextUp.label, nextUp.step, nextUp.of)
 			or ("%s %d/%d  •  %s to go"):format(nextUp.label, nextUp.step, nextUp.of,
 				Util.abbreviate(nextUp.price - displayedCash))
-		nextDetail.TextColor3 = affordable and PALETTE.good or PALETTE.muted
+		nextDetail.TextColor3 = affordable and ROLE.affirm or ROLE.onSurfaceMuted
 	end
 
 	function HUD.applyStats(payload)
@@ -7822,7 +7919,7 @@ __MODULES["HUD"] = function()
 		renderNext()
 
 		rebirthButton.Text = ("REBIRTH  %s"):format(Util.abbreviate(state.rebirthCost))
-		rebirthButton.BackgroundColor3 = state.cash >= state.rebirthCost and PALETTE.accent or PALETTE.dead
+		rebirthButton.BackgroundColor3 = state.cash >= state.rebirthCost and ROLE.action or ROLE.disabled
 		for _, fn in ipairs(statsListeners) do
 			fn()
 		end
@@ -7884,13 +7981,13 @@ __MODULES["HUD"] = function()
 			-- nothing on screen is most of why the old gap felt long.
 			waveFrame.Enabled = left > 0
 			waveLabel.Text = ("NEXT RAID IN %ds"):format(left)
-			waveLabel.TextColor3 = PALETTE.muted
+			waveLabel.TextColor3 = ROLE.onSurfaceMuted
 		elseif phase == "warning" then
 			waveFrame.Enabled = true
 			waveLabel.Text = boss
 				and ("BOSS RAID %d IN %ds"):format(wave.wave, left)
 				or ("SAHUR RAID %d IN %ds"):format(wave.wave, left)
-			waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
+			waveLabel.TextColor3 = boss and ROLE.alarm or ROLE.warn
 		elseif phase == "spawning" or phase == "active" then
 			waveFrame.Enabled = true
 			local maxHp = wave.bossMaxHp
@@ -7904,18 +8001,18 @@ __MODULES["HUD"] = function()
 				bossFill.Size = UDim2.fromScale(fraction, 1)
 				waveLabel.Text = ("WAVE %d BOSS  •  %d%%  •  scaled for %d"):format(
 					wave.wave, math.floor(fraction * 100 + 0.5), wave.bossScale or 1)
-				waveLabel.TextColor3 = PALETTE.boss
+				waveLabel.TextColor3 = ROLE.alarm
 			else
 				waveLabel.Text = ("WAVE %d  •  %d / %d RAIDERS"):format(
 					wave.wave, wave.remaining or 0, wave.total or 0)
-				waveLabel.TextColor3 = boss and PALETTE.boss or PALETTE.wave
+				waveLabel.TextColor3 = boss and ROLE.alarm or ROLE.warn
 			end
 		elseif phase == "clear" then
 			waveFrame.Enabled = left > 0
 			waveLabel.Text = wave.forced
 				and ("WAVE %d TIMED OUT"):format(wave.wave)
 				or ("WAVE %d CLEARED"):format(wave.wave)
-			waveLabel.TextColor3 = wave.forced and PALETTE.muted or PALETTE.good
+			waveLabel.TextColor3 = wave.forced and ROLE.onSurfaceMuted or ROLE.affirm
 		end
 	end
 
@@ -8156,6 +8253,8 @@ __MODULES["MovementClient"] = function()
 
 	local MovementClient = {}
 
+	local ROLE = UiKit.ROLE
+
 	local M = Config.Movement
 
 	local function requestRecall()
@@ -8238,10 +8337,10 @@ __MODULES["MovementClient"] = function()
 			local button = Instance.new("TextButton")
 			button.Name = name
 			button.Size = UDim2.fromOffset(64, 64)
-			button.BackgroundColor3 = Color3.fromRGB(30, 26, 44)
+			button.BackgroundColor3 = ROLE.surfaceRaised
 			button.BackgroundTransparency = 0.35
 			button.Text = text
-			button.TextColor3 = Color3.fromRGB(235, 225, 250)
+			button.TextColor3 = ROLE.onSurface
 			button.TextSize = 20
 			button.BorderSizePixel = 0
 			button.LayoutOrder = order
@@ -8259,11 +8358,11 @@ __MODULES["MovementClient"] = function()
 		-- carries the state
 		sprintButton.MouseButton1Down:Connect(function()
 			sprint(true)
-			sprintButton.BackgroundColor3 = Color3.fromRGB(90, 70, 150)
+			sprintButton.BackgroundColor3 = ROLE.action
 		end)
 		sprintButton.MouseButton1Up:Connect(function()
 			sprint(false)
-			sprintButton.BackgroundColor3 = Color3.fromRGB(30, 26, 44)
+			sprintButton.BackgroundColor3 = ROLE.surfaceRaised
 		end)
 		dashButton.MouseButton1Click:Connect(function()
 			requestDash:FireServer()
@@ -8294,7 +8393,7 @@ __MODULES["ObjectivesUI"] = function()
 
 	local ObjectivesUI = {}
 
-	local PALETTE = UiKit.PALETTE
+	local ROLE = UiKit.ROLE
 	local WIDTH = Config.UI.SessionPanel.Width
 
 	local panel
@@ -8322,7 +8421,7 @@ __MODULES["ObjectivesUI"] = function()
 			Text = "TODAY",
 			TextSize = 12,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
 		y += 18
 
@@ -8334,7 +8433,7 @@ __MODULES["ObjectivesUI"] = function()
 				Text = ("%s  %s"):format(row.done and "✓" or ("%d/%d"):format(row.progress, row.count), row.name),
 				TextSize = 12,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = row.done and PALETTE.good or PALETTE.accent,
+				TextColor3 = row.done and ROLE.affirm or ROLE.emphasis,
 			})
 			y += 17
 		end
@@ -8347,7 +8446,7 @@ __MODULES["ObjectivesUI"] = function()
 				Text = state.hint,
 				TextSize = 11,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = PALETTE.muted,
+				TextColor3 = ROLE.onSurfaceMuted,
 			})
 			hint.TextWrapped = true
 			y += 30
@@ -8402,7 +8501,7 @@ __MODULES["PartyUI"] = function()
 
 	local PartyUI = {}
 
-	local PALETTE = UiKit.PALETTE
+	local ROLE = UiKit.ROLE
 	local P = Config.UI.PartyPanel
 	local WIDTH = Config.UI.SessionPanel.Width   -- one column, one width
 
@@ -8479,18 +8578,18 @@ __MODULES["PartyUI"] = function()
 			Text = inParty and ("PARTY  %d/%d"):format(#state.members, Config.Party.MaxSize) or "PARTY",
 			TextSize = 13,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
 		header.LayoutOrder = 0
 
 		if state.invite then
 			local r = row(1)
 			rows += 1
-			rowText(r, ("%s invited you"):format(state.invite.fromName), PALETTE.gold)
-			rowButton(r, "JOIN", PALETTE.good, 74, 40).Activated:Connect(function()
+			rowText(r, ("%s invited you"):format(state.invite.fromName), ROLE.heading)
+			rowButton(r, "JOIN", ROLE.affirm, 74, 40).Activated:Connect(function()
 				send("accept")
 			end)
-			rowButton(r, "X", PALETTE.bad, 30, 26).Activated:Connect(function()
+			rowButton(r, "X", ROLE.danger, 30, 26).Activated:Connect(function()
 				send("decline")
 			end)
 		end
@@ -8500,12 +8599,12 @@ __MODULES["PartyUI"] = function()
 				if member.userId ~= Players.LocalPlayer.UserId then
 					local r = row(1 + i)
 					rows += 1
-					rowText(r, ("%s   %s"):format(member.name, distanceTo(member.userId)), PALETTE.accent)
+					rowText(r, ("%s   %s"):format(member.name, distanceTo(member.userId)), ROLE.emphasis)
 				end
 			end
 			local r = row(99)
 			rows += 1
-			rowButton(r, "LEAVE", PALETTE.bad, 74, 66).Activated:Connect(function()
+			rowButton(r, "LEAVE", ROLE.danger, 74, 66).Activated:Connect(function()
 				send("leave")
 			end)
 		else
@@ -8517,8 +8616,8 @@ __MODULES["PartyUI"] = function()
 					shown += 1
 					local r = row(1 + shown)
 					rows += 1
-					rowText(r, other.DisplayName, PALETTE.accent)
-					rowButton(r, "INVITE", PALETTE.good, 74, 66).Activated:Connect(function()
+					rowText(r, other.DisplayName, ROLE.emphasis)
+					rowButton(r, "INVITE", ROLE.affirm, 74, 66).Activated:Connect(function()
 						send("invite", other.UserId)
 					end)
 				end
@@ -8585,7 +8684,7 @@ __MODULES["RebirthUI"] = function()
 
 	local RebirthUI = {}
 
-	local PALETTE = UiKit.PALETTE
+	local ROLE = UiKit.ROLE
 	local SHOW_SECONDS = 14
 
 	local panel
@@ -8605,7 +8704,7 @@ __MODULES["RebirthUI"] = function()
 			Text = ("SAHUR REBIRTH #%d"):format(payload.rebirths or 0),
 			TextSize = 18,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = Color3.fromRGB(200, 120, 255),
+			TextColor3 = ROLE.emphasis,
 		})
 		y += 28
 		if payload.rankChanged then
@@ -8616,7 +8715,7 @@ __MODULES["RebirthUI"] = function()
 				Text = ("RANK UP  •  %s"):format(payload.rank or ""),
 				TextSize = 20,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = PALETTE.gold,
+				TextColor3 = ROLE.heading,
 			})
 			y += 26
 		end
@@ -8628,7 +8727,7 @@ __MODULES["RebirthUI"] = function()
 				Text = payload.motto,
 				TextSize = 12,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = PALETTE.muted,
+				TextColor3 = ROLE.onSurfaceMuted,
 			})
 			y += 22
 		end
@@ -8639,7 +8738,7 @@ __MODULES["RebirthUI"] = function()
 			Text = ("Every payout is now x%.2f."):format(payload.multiplier or 1),
 			TextSize = 14,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.good,
+			TextColor3 = ROLE.affirm,
 		})
 		y += 24
 		UiKit.text(panel, {
@@ -8649,7 +8748,7 @@ __MODULES["RebirthUI"] = function()
 			Text = "YOU KEEP",
 			TextSize = 11,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
 		y += 16
 		for _, line in ipairs(payload.keeps or {}) do
@@ -8660,7 +8759,7 @@ __MODULES["RebirthUI"] = function()
 				Text = "• " .. line,
 				TextSize = 12,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = PALETTE.accent,
+				TextColor3 = ROLE.emphasis,
 			})
 			y += 16
 		end
@@ -8673,11 +8772,11 @@ __MODULES["RebirthUI"] = function()
 			Text = "The factory resets. The climb back is faster than it was.",
 			TextSize = 11,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
 		y += 22
 
-		local close = UiKit.button(panel, "ONWARD", PALETTE.accent, {
+		local close = UiKit.button(panel, "ONWARD", ROLE.action, {
 			Size = UDim2.fromOffset(96, 26),
 			Position = UDim2.new(0.5, -48, 0, y),
 		})
@@ -8757,7 +8856,7 @@ __MODULES["SessionUI"] = function()
 	local SessionUI = {}
 
 	local UI = Config.UI
-	local PALETTE = UiKit.PALETTE
+	local ROLE = UiKit.ROLE
 	-- Spelled from `Config`, like HUD.lua's CARD, because verify.py's config-path
 	-- pass follows exactly one alias hop. Every number in this file comes from here
 	-- now; there is no X and no Y among them, because HUD.column() places the panel.
@@ -8863,7 +8962,7 @@ __MODULES["SessionUI"] = function()
 		local shade = Instance.new("Frame")
 		shade.Name = "OfflineModal"
 		shade.Size = UDim2.fromScale(1, 1)
-		shade.BackgroundColor3 = Color3.new(0, 0, 0)
+		shade.BackgroundColor3 = ROLE.scrim
 		shade.BackgroundTransparency = 0.45
 		shade.BorderSizePixel = 0
 		shade.ZIndex = 30
@@ -8885,7 +8984,7 @@ __MODULES["SessionUI"] = function()
 			Font = Style.Font.title,
 			Text = "WELCOME BACK",
 			TextSize = OFFLINE.TitleTextPx,
-			TextColor3 = PALETTE.accent,
+			TextColor3 = ROLE.emphasis,
 			ZIndex = 32,
 		})
 
@@ -8895,7 +8994,7 @@ __MODULES["SessionUI"] = function()
 			Font = Style.Font.body,
 			Text = ("Away for <b>%s</b> — your factory kept running."):format(describe(offline.seconds)),
 			TextSize = OFFLINE.AwayTextPx,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 			ZIndex = 32,
 		})
 
@@ -8905,7 +9004,7 @@ __MODULES["SessionUI"] = function()
 			Font = Style.Font.title,
 			Text = "0",
 			TextSize = OFFLINE.AmountTextPx,
-			TextColor3 = PALETTE.gold,
+			TextColor3 = ROLE.heading,
 			ZIndex = 32,
 		})
 
@@ -8918,7 +9017,7 @@ __MODULES["SessionUI"] = function()
 				Util.abbreviate(offline.perSecond or 0),
 				describe(offline.creditedSeconds or offline.seconds)),
 			TextSize = OFFLINE.RateTextPx,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 			ZIndex = 32,
 		})
 
@@ -8936,10 +9035,10 @@ __MODULES["SessionUI"] = function()
 			else
 				capText ..= "\nYou already own the longest vault timer."
 			end
-			capColor = PALETTE.bad
+			capColor = ROLE.danger
 		else
 			capText = ("Well inside your %dh offline cap."):format(offline.capHours)
-			capColor = PALETTE.good
+			capColor = ROLE.affirm
 		end
 
 		text(card, {
@@ -8953,7 +9052,7 @@ __MODULES["SessionUI"] = function()
 			ZIndex = 32,
 		})
 
-		local collect = button(card, ("COLLECT %s"):format(Util.abbreviate(offline.earned)), PALETTE.good, {
+		local collect = button(card, ("COLLECT %s"):format(Util.abbreviate(offline.earned)), ROLE.affirm, {
 			Size = UDim2.fromOffset(OFFLINE.ContentWidth, UI.Button.primary),
 			Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.ButtonY),
 			TextSize = OFFLINE.ButtonTextPx,
@@ -8999,7 +9098,7 @@ __MODULES["SessionUI"] = function()
 		local row = Instance.new("Frame")
 		row.Size = UDim2.fromOffset(PANEL.RowWidth, height)
 		row.Position = UDim2.fromOffset(PANEL.Pad, y)
-		row.BackgroundColor3 = PALETTE.panel2
+		row.BackgroundColor3 = ROLE.surfaceRaised
 		row.BackgroundTransparency = 0.25
 		row.BorderSizePixel = 0
 		row.Parent = parent
@@ -9011,7 +9110,7 @@ __MODULES["SessionUI"] = function()
 			Font = Style.Font.title,
 			Text = title,
 			TextSize = PANEL.RowTitleTextPx,
-			TextColor3 = PALETTE.text,
+			TextColor3 = ROLE.onSurface,
 		})
 		local subLabel = text(row, {
 			Size = UDim2.fromOffset(PANEL.ActionTextWidth, PANEL.RowSubHeight),
@@ -9019,12 +9118,12 @@ __MODULES["SessionUI"] = function()
 			Font = Style.Font.body,
 			Text = "",
 			TextSize = PANEL.RowSubTextPx,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
 		-- A 66x30 pill was a 41x19 physical target at MinScale, which is a coin
 		-- flip with a thumb. Full touch height, vertically centred in whatever row
 		-- it lands in — the rows are 46, 50 and 56 tall.
-		local action = button(row, "CLAIM", PALETTE.good, {
+		local action = button(row, "CLAIM", ROLE.affirm, {
 			Size = UDim2.fromOffset(PANEL.ActionWidth, UI.Button.pill),
 			Position = UDim2.fromOffset(PANEL.ActionX, math.round((height - UI.Button.pill) / 2)),
 			TextSize = PANEL.ActionTextPx,
@@ -9051,7 +9150,7 @@ __MODULES["SessionUI"] = function()
 			Font = Style.Font.body,
 			Text = "SESSION",
 			TextSize = PANEL.HeadTextPx,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
 
 		-- the weekend bonus is server-wide and invisible unless something says so
@@ -9062,7 +9161,7 @@ __MODULES["SessionUI"] = function()
 			Text = "",
 			TextSize = PANEL.HeadTextPx,
 			TextXAlignment = Enum.TextXAlignment.Right,
-			TextColor3 = PALETTE.gold,
+			TextColor3 = ROLE.heading,
 		})
 
 		dailyRow = buildRow(panel, PANEL.DailyY, PANEL.DailyHeight, "DAILY STREAK")
@@ -9073,19 +9172,19 @@ __MODULES["SessionUI"] = function()
 		local track = Instance.new("Frame")
 		track.Size = UDim2.fromOffset(PANEL.BarWidth, PANEL.BarHeight)
 		track.Position = UDim2.fromOffset(PANEL.RowPad, PANEL.BarY)
-		track.BackgroundColor3 = PALETTE.panel
+		track.BackgroundColor3 = ROLE.progressTrack
 		track.BorderSizePixel = 0
 		track.Parent = playtimeRow.row
 		corner(track, 2)
 
 		playtimeFill = Instance.new("Frame")
 		playtimeFill.Size = UDim2.fromScale(0, 1)
-		playtimeFill.BackgroundColor3 = PALETTE.accent
+		playtimeFill.BackgroundColor3 = ROLE.progress
 		playtimeFill.BorderSizePixel = 0
 		playtimeFill.Parent = track
 		corner(playtimeFill, 2)
 
-		boostButton = button(panel, "BOOST", PALETTE.gold, {
+		boostButton = button(panel, "BOOST", ROLE.currency, {
 			Size = UDim2.fromOffset(PANEL.RowWidth, UI.Button.secondary),
 			Position = UDim2.fromOffset(PANEL.Pad, PANEL.BoostY),
 			TextSize = PANEL.BoostTextPx,
@@ -9095,13 +9194,13 @@ __MODULES["SessionUI"] = function()
 		-- and go independently and a fixed y for each leaves a hole in the panel.
 		vaultRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "VAULT TIMER")
 		vaultRow.row.Visible = false
-		vaultRow.action.BackgroundColor3 = PALETTE.gold
+		vaultRow.action.BackgroundColor3 = ROLE.currency
 
 		offlineRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "OFFLINE TUNG")
 		TAIL_ROWS = { vaultRow, offlineRow }
 		offlineRow.row.Visible = false
 		offlineRow.action.Text = "OPEN"
-		offlineRow.action.BackgroundColor3 = PALETTE.gold
+		offlineRow.action.BackgroundColor3 = ROLE.currency
 
 		dailyRow.action.Activated:Connect(function()
 			click()
@@ -9161,15 +9260,15 @@ __MODULES["SessionUI"] = function()
 			dailyRow.sub.Text = daily.milestone
 				and ("%s  +  %s milestone"):format(Util.abbreviate(daily.reward - daily.milestone), Util.abbreviate(daily.milestone))
 				or ("%s waiting"):format(Util.abbreviate(daily.reward))
-			dailyRow.sub.TextColor3 = PALETTE.good
+			dailyRow.sub.TextColor3 = ROLE.affirm
 			dailyRow.action.Visible = true
 			dailyRow.action.Text = "CLAIM"
-			dailyRow.action.BackgroundColor3 = PALETTE.good
+			dailyRow.action.BackgroundColor3 = ROLE.affirm
 		else
 			dailyRow.title.Text = ("DAILY  •  %d DAY STREAK"):format(daily.streak)
 			dailyRow.sub.Text = ("next in %s  •  %dh grace"):format(
 				describe(math.max(0, (daily.resetIn or 0) - elapsed())), daily.graceHours)
-			dailyRow.sub.TextColor3 = PALETTE.muted
+			dailyRow.sub.TextColor3 = ROLE.onSurfaceMuted
 			dailyRow.action.Visible = false
 		end
 	end
@@ -9197,7 +9296,7 @@ __MODULES["SessionUI"] = function()
 		if ready then
 			playtimeRow.title.Text = ("PLAYTIME  •  %d MIN"):format(ready.minutes)
 			playtimeRow.sub.Text = ("%s ready to claim"):format(Util.abbreviate(ready.reward))
-			playtimeRow.sub.TextColor3 = PALETTE.good
+			playtimeRow.sub.TextColor3 = ROLE.affirm
 			playtimeRow.action.Visible = true
 			playtimeFill.Size = UDim2.fromScale(1, 1)
 		elseif nextRung then
@@ -9205,7 +9304,7 @@ __MODULES["SessionUI"] = function()
 			playtimeRow.title.Text = "PLAYTIME"
 			playtimeRow.sub.Text = ("%s at %d min  •  %s to go"):format(
 				Util.abbreviate(nextRung.reward), nextRung.minutes, clockText(target - active))
-			playtimeRow.sub.TextColor3 = PALETTE.muted
+			playtimeRow.sub.TextColor3 = ROLE.onSurfaceMuted
 			playtimeRow.action.Visible = false
 			local previous = 0
 			for _, rung in ipairs(playtime.rungs) do
@@ -9221,7 +9320,7 @@ __MODULES["SessionUI"] = function()
 			-- has to say when it comes back rather than implying a reconnect does it.
 			playtimeRow.sub.Text = ("whole ladder claimed  •  resets in %s"):format(
 				describe(math.max(0, (playtime.resetIn or 0) - elapsed())))
-			playtimeRow.sub.TextColor3 = PALETTE.muted
+			playtimeRow.sub.TextColor3 = ROLE.onSurfaceMuted
 			playtimeRow.action.Visible = false
 			playtimeFill.Size = UDim2.fromScale(1, 1)
 		end
@@ -9239,7 +9338,7 @@ __MODULES["SessionUI"] = function()
 		vaultRow.title.Text = upgrade.name:upper()
 		vaultRow.sub.Text = ("banks %dh offline, up from %dh"):format(
 			upgrade.hours, payload.capHours or upgrade.hours)
-		vaultRow.sub.TextColor3 = PALETTE.muted
+		vaultRow.sub.TextColor3 = ROLE.onSurfaceMuted
 		vaultRow.action.Visible = true
 		vaultRow.action.Text = Util.abbreviate(upgrade.cost)
 	end
@@ -9254,13 +9353,13 @@ __MODULES["SessionUI"] = function()
 		local since = elapsed()
 		if boost.active then
 			boostButton.Text = ("x%g BOOST  •  %s"):format(boost.multiplier, clockText(boost.secondsLeft - since))
-			boostButton.BackgroundColor3 = PALETTE.good
+			boostButton.BackgroundColor3 = ROLE.affirm
 		elseif boost.cooldownLeft - since > 0 then
 			boostButton.Text = ("BOOST READY IN %s"):format(clockText(boost.cooldownLeft - since))
-			boostButton.BackgroundColor3 = PALETTE.dead
+			boostButton.BackgroundColor3 = ROLE.disabled
 		else
 			boostButton.Text = ("CLAIM x%g BOOST  •  %d MIN"):format(boost.multiplier, boost.duration // 60)
-			boostButton.BackgroundColor3 = PALETTE.gold
+			boostButton.BackgroundColor3 = ROLE.currency
 		end
 
 		weekendBadge.Text = boost.weekend and ("WEEKEND x%g"):format(boost.weekendMultiplier) or ""
@@ -9314,7 +9413,7 @@ __MODULES["SessionUI"] = function()
 			offlineRow.row.Visible = true
 			offlineRow.sub.Text = ("%s from %s away"):format(
 				Util.abbreviate(payload.offline.earned), describe(payload.offline.seconds))
-			offlineRow.sub.TextColor3 = PALETTE.gold
+			offlineRow.sub.TextColor3 = ROLE.currency
 			offlineRow.action.Visible = true
 		else
 			offlineRow.row.Visible = false
@@ -9410,7 +9509,7 @@ __MODULES["ShopUI"] = function()
 
 	local ShopUI = {}
 
-	local PALETTE = UiKit.PALETTE
+	local ROLE = UiKit.ROLE
 
 	local panel
 	local rows = {}
@@ -9440,14 +9539,14 @@ __MODULES["ShopUI"] = function()
 			Text = title,
 			TextSize = 14,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.gold,
+			TextColor3 = ROLE.heading,
 		})
 		y += 22
 		for _, def in ipairs(defs) do
 			local row = Instance.new("Frame")
 			row.Size = UDim2.new(1, -16, 0, 34)
 			row.Position = UDim2.fromOffset(8, y)
-			row.BackgroundColor3 = PALETTE.panel
+			row.BackgroundColor3 = ROLE.surface
 			row.BackgroundTransparency = 0.35
 			row.BorderSizePixel = 0
 			row.Parent = panel
@@ -9460,7 +9559,7 @@ __MODULES["ShopUI"] = function()
 				Text = def.name,
 				TextSize = 13,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = PALETTE.accent,
+				TextColor3 = ROLE.emphasis,
 			})
 			UiKit.text(row, {
 				Size = UDim2.new(1, -160, 0, 13),
@@ -9469,9 +9568,9 @@ __MODULES["ShopUI"] = function()
 				Text = statLine(def),
 				TextSize = 11,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = PALETTE.muted,
+				TextColor3 = ROLE.onSurfaceMuted,
 			})
-			local button = UiKit.button(row, "", PALETTE.good, {
+			local button = UiKit.button(row, "", ROLE.affirm, {
 				Size = UDim2.fromOffset(130, 26),
 				Position = UDim2.new(1, -138, 0, 4),
 			})
@@ -9501,15 +9600,15 @@ __MODULES["ShopUI"] = function()
 			end
 			if isOwned then
 				row.button.Text = "OWNED"
-				row.button.BackgroundColor3 = PALETTE.panel
+				row.button.BackgroundColor3 = ROLE.surface
 				row.button.Active = false
 			elseif blocked then
 				row.button.Text = "AFTER " .. blocked.name:upper():sub(1, 12)
-				row.button.BackgroundColor3 = PALETTE.panel
+				row.button.BackgroundColor3 = ROLE.surface
 				row.button.Active = false
 			else
 				row.button.Text = "$" .. Util.abbreviate(row.def.price)
-				row.button.BackgroundColor3 = PALETTE.good
+				row.button.BackgroundColor3 = ROLE.affirm
 				row.button.Active = true
 			end
 		end
@@ -9533,9 +9632,9 @@ __MODULES["ShopUI"] = function()
 			Text = "THE SHOP",
 			TextSize = 17,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.gold,
+			TextColor3 = ROLE.heading,
 		})
-		local close = UiKit.button(panel, "CLOSE", PALETTE.bad, {
+		local close = UiKit.button(panel, "CLOSE", ROLE.danger, {
 			Size = UDim2.fromOffset(64, 22),
 			Position = UDim2.new(1, -72, 0, 10),
 		})
@@ -9584,6 +9683,8 @@ __MODULES["TowerUI"] = function()
 
 	local TowerUI = {}
 
+	local ROLE = UiKit.ROLE
+
 	local WIDTH, HEIGHT = 300, 22
 
 	local strip, label
@@ -9627,7 +9728,7 @@ __MODULES["TowerUI"] = function()
 		})
 		strip.AnchorPoint = Vector2.new(0.5, 0)
 		strip.Position = UDim2.new(0.5, 0, 0, 30)
-		strip.BackgroundColor3 = Color3.fromRGB(26, 14, 40)
+		strip.BackgroundColor3 = ROLE.surface
 		strip.BackgroundTransparency = 0.35
 		UiKit.corner(strip, 10)
 		strip.Visible = false
@@ -9637,7 +9738,7 @@ __MODULES["TowerUI"] = function()
 			Font = Style.Font.body,
 			Text = "",
 			TextSize = 13,
-			TextColor3 = Color3.fromRGB(220, 190, 255),
+			TextColor3 = ROLE.onSurface,
 		})
 
 		Net.event("TowerState").OnClientEvent:Connect(function(payload)
@@ -9712,31 +9813,31 @@ __MODULES["UiKit"] = function()
 
 	local UiKit = {}
 
-	--- THE PALETTE, once. This is the union of the three copies it replaces: `wave`
-	--- and `boss` came from HUD (promoted out of a toast-only table, because the
-	--- raid banner had inline literals of the same two colours and the raid read as
-	--- two different oranges depending on which widget you looked at), and `dead`
-	--- came from SessionUI and UpgradeUI, where it greys out a claimed or
-	--- unaffordable control.
-	UiKit.PALETTE = {
-		panel   = Color3.fromRGB(22, 18, 32),
-		panel2  = Color3.fromRGB(32, 26, 46),
-		accent  = Color3.fromRGB(190, 130, 255),
-		gold    = Color3.fromRGB(255, 205, 90),
-		good    = Color3.fromRGB(120, 235, 160),
-		bad     = Color3.fromRGB(255, 110, 110),
-		text    = Color3.fromRGB(238, 232, 250),
-		muted   = Color3.fromRGB(160, 150, 180),
-		dead    = Color3.fromRGB(90, 84, 104),
-		wave    = Color3.fromRGB(255, 150, 60),
-		boss    = Color3.fromRGB(255, 90, 60),
-	}
+	--- THE PALETTE, RESOLVED. Config.UI.Role names what a colour is FOR and
+	--- Config.UI.Palette says what it IS; this is the two of them composed, once,
+	--- into the only colour table src/client is allowed to read.
+	---
+	--- WHY THE VALUES ARE NOT HERE. They were, as three copies merged into one —
+	--- and merging them fixed the values while leaving nothing to stop a fourth
+	--- copy, which is what twenty-six raw Color3 calls elsewhere in src/client
+	--- were. In Config the verifier can read them: it stubs Color3.fromRGB as
+	--- { r, g, b }, so contrast against the surface a label prints on is
+	--- arithmetic rather than something a reader has to notice.
+	---
+	--- A ROLE THAT NAMES A MISSING KEY IS A BUILD FAILURE, not a nil that spreads.
+	--- Style.Font.head got away with being nil for two rounds because a nil in a
+	--- props table is a key that never arrives; this errors at require time.
+	UiKit.ROLE = {}
+	for role, key in pairs(UI.Role) do
+		local colour = UI.Palette[key]
+		if not colour then
+			error(("[Tung] Config.UI.Role.%s names palette key %q, which does not exist")
+				:format(role, tostring(key)), 2)
+		end
+		UiKit.ROLE[role] = colour
+	end
 
-	--- The ink every button and pill prints its label in. Dark, because every
-	--- button colour in the palette above is a bright one.
-	UiKit.INK = Color3.fromRGB(20, 16, 28)
-
-	local PALETTE = UiKit.PALETTE
+	local ROLE = UiKit.ROLE
 
 	-- ─────────────────────────────────────────────────────────────────────────────
 	-- builders
@@ -9765,15 +9866,15 @@ __MODULES["UiKit"] = function()
 		f.Size = size
 		f.Position = position
 		f.AnchorPoint = anchor or Vector2.zero
-		f.BackgroundColor3 = PALETTE.panel
-		f.BackgroundTransparency = 0.12
+		f.BackgroundColor3 = ROLE.surface
+		f.BackgroundTransparency = UI.PanelAlpha
 		f.BorderSizePixel = 0
 		f.Parent = parent
 		UiKit.corner(f, 14)
-		UiKit.stroke(f, PALETTE.accent, 2)
+		UiKit.stroke(f, ROLE.line, 2)
 
 		local gradient = Instance.new("UIGradient")
-		gradient.Color = ColorSequence.new(PALETTE.panel2, PALETTE.panel)
+		gradient.Color = ColorSequence.new(ROLE.surfaceRaised, ROLE.surface)
 		gradient.Rotation = 90
 		gradient.Parent = f
 		return f
@@ -9783,7 +9884,7 @@ __MODULES["UiKit"] = function()
 		local l = Instance.new("TextLabel")
 		l.BackgroundTransparency = 1
 		l.Font = Style.Font.body
-		l.TextColor3 = PALETTE.text
+		l.TextColor3 = ROLE.onSurface
 		l.TextXAlignment = Enum.TextXAlignment.Left
 		l.TextScaled = false
 		l.RichText = true
@@ -9805,7 +9906,7 @@ __MODULES["UiKit"] = function()
 		b.AutoButtonColor = true
 		b.Font = Style.Font.title
 		b.Text = label
-		b.TextColor3 = UiKit.INK
+		b.TextColor3 = ROLE.onAction
 		b.TextScaled = true
 		for k, v in pairs(props or {}) do
 			(b :: any)[k] = v
@@ -9989,7 +10090,7 @@ __MODULES["UiKit"] = function()
 			Font = Style.Font.title,
 			Text = "",
 			TextSize = RAIL.BadgeTextPx,
-			TextColor3 = UiKit.INK,
+			TextColor3 = ROLE.onAction,
 			TextXAlignment = Enum.TextXAlignment.Center,
 		})
 
@@ -10138,7 +10239,7 @@ __MODULES["UpgradeUI"] = function()
 	local SEND_THROTTLE = 0.2
 
 	local UI = Config.UI
-	local PALETTE = UiKit.PALETTE
+	local ROLE = UiKit.ROLE
 
 	local state = {
 		cash = 0,
@@ -10184,7 +10285,7 @@ __MODULES["UpgradeUI"] = function()
 			Font = Style.Font.body,
 			Text = label,
 			TextSize = 12,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
 	end
 
@@ -10195,14 +10296,14 @@ __MODULES["UpgradeUI"] = function()
 		row.Name = id
 		row.Text = ""
 		row.AutoButtonColor = false
-		row.BackgroundColor3 = PALETTE.panel2
+		row.BackgroundColor3 = ROLE.surfaceRaised
 		row.BackgroundTransparency = 0.25
 		row.BorderSizePixel = 0
 		row.Size = UDim2.new(1, -6, 0, UI.ShopPanel.RowHeight)   -- -6 leaves the scrollbar its lane
 		row.LayoutOrder = order
 		row.Parent = parent
 		corner(row, 10)
-		local edge = stroke(row, PALETTE.accent, 1.5)
+		local edge = stroke(row, ROLE.line, 1.5)
 		edge.Transparency = 0.7
 
 		local title = text(row, {
@@ -10220,7 +10321,7 @@ __MODULES["UpgradeUI"] = function()
 			Font = Style.Font.body,
 			Text = "",
 			TextSize = 12,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 			TextWrapped = true,
 			TextYAlignment = Enum.TextYAlignment.Top,
 		})
@@ -10229,7 +10330,7 @@ __MODULES["UpgradeUI"] = function()
 		pill.AnchorPoint = Vector2.new(1, 0.5)
 		pill.Position = UDim2.new(1, -10, 0.5, 0)
 		pill.Size = UDim2.fromOffset(92, 32)
-		pill.BackgroundColor3 = PALETTE.good
+		pill.BackgroundColor3 = ROLE.affirm
 		pill.BackgroundTransparency = 0.12
 		pill.BorderSizePixel = 0
 		pill.Parent = row
@@ -10242,7 +10343,7 @@ __MODULES["UpgradeUI"] = function()
 			TextSize = 15,
 			TextScaled = false,
 			TextXAlignment = Enum.TextXAlignment.Center,
-			TextColor3 = Color3.fromRGB(20, 16, 28),
+			TextColor3 = ROLE.onAction,
 		})
 
 		row.Activated:Connect(function()
@@ -10260,10 +10361,10 @@ __MODULES["UpgradeUI"] = function()
 	local function paint(entry, opts)
 		entry.blurb.Text = opts.blurb
 		entry.title.Text = opts.title
-		entry.title.TextColor3 = opts.dim and PALETTE.muted or PALETTE.text
+		entry.title.TextColor3 = opts.dim and ROLE.onSurfaceMuted or ROLE.onSurface
 		entry.pill.BackgroundColor3 = opts.pillColor
 		entry.pillLabel.Text = opts.pillText
-		entry.pillLabel.TextColor3 = opts.pillTextColor or Color3.fromRGB(20, 16, 28)
+		entry.pillLabel.TextColor3 = opts.pillTextColor or ROLE.onAction
 		entry.row.BackgroundTransparency = opts.dim and 0.55 or 0.25
 		entry.edge.Transparency = opts.dim and 0.9 or 0.7
 	end
@@ -10273,8 +10374,8 @@ __MODULES["UpgradeUI"] = function()
 			title = name,
 			blurb = "…",
 			pillText = "…",
-			pillColor = PALETTE.dead,
-			pillTextColor = PALETTE.muted,
+			pillColor = ROLE.disabled,
+			pillTextColor = ROLE.onSurfaceMuted,
 			dim = true,
 		})
 	end
@@ -10299,8 +10400,8 @@ __MODULES["UpgradeUI"] = function()
 							ShopMath.describe(def, level),
 							ShopMath.formatValue(ShopMath.valueAt(def, level + 1))),
 					pillText = maxed and "MAX" or Util.abbreviate(cost or 0),
-					pillColor = maxed and PALETTE.accent or (affordable and PALETTE.good or PALETTE.dead),
-					pillTextColor = (not maxed and not affordable) and PALETTE.muted or nil,
+					pillColor = maxed and ROLE.action or (affordable and ROLE.affirm or ROLE.disabled),
+					pillTextColor = (not maxed and not affordable) and ROLE.onSurfaceMuted or nil,
 					dim = not maxed and not affordable,
 				})
 			end
@@ -10320,14 +10421,14 @@ __MODULES["UpgradeUI"] = function()
 
 				local pillText, pillColor, dim
 				if equipped then
-					pillText, pillColor, dim = "EQUIPPED", PALETTE.accent, false
+					pillText, pillColor, dim = "EQUIPPED", ROLE.action, false
 				elseif owned then
-					pillText, pillColor, dim = "EQUIP", PALETTE.gold, false
+					pillText, pillColor, dim = "EQUIP", ROLE.currency, false
 				elseif lockedBy then
-					pillText, pillColor, dim = "LOCKED", PALETTE.dead, true
+					pillText, pillColor, dim = "LOCKED", ROLE.disabled, true
 				else
 					pillText = Util.abbreviate(def.price)
-					pillColor = affordable and PALETTE.good or PALETTE.dead
+					pillColor = affordable and ROLE.affirm or ROLE.disabled
 					dim = not affordable
 				end
 
@@ -10336,7 +10437,7 @@ __MODULES["UpgradeUI"] = function()
 					blurb = lockedBy and ("Needs %s."):format(lockedBy) or ShopMath.verbBlurb(def),
 					pillText = pillText,
 					pillColor = pillColor,
-					pillTextColor = dim and PALETTE.muted or nil,
+					pillTextColor = dim and ROLE.onSurfaceMuted or nil,
 					dim = dim,
 				})
 			end
@@ -10368,17 +10469,17 @@ __MODULES["UpgradeUI"] = function()
 		local remaining = math.max(0, state.readyAt - os.clock())
 		if os.clock() < flashUntil then
 			-- a mistimed press reads as "not yet" rather than as a dropped input
-			chipButton.BackgroundColor3 = PALETTE.bad
+			chipButton.BackgroundColor3 = ROLE.danger
 			chipLabel.Text = ("%.0fs"):format(math.ceil(remaining))
-			chipLabel.TextColor3 = Color3.fromRGB(30, 12, 12)
+			chipLabel.TextColor3 = ROLE.onDanger
 		elseif remaining > 0 then
-			chipButton.BackgroundColor3 = PALETTE.dead
+			chipButton.BackgroundColor3 = ROLE.disabled
 			chipLabel.Text = ("%s  •  %.0fs"):format(def and def.name or "?", math.ceil(remaining))
-			chipLabel.TextColor3 = PALETTE.muted
+			chipLabel.TextColor3 = ROLE.onSurfaceMuted
 		else
-			chipButton.BackgroundColor3 = PALETTE.accent
+			chipButton.BackgroundColor3 = ROLE.action
 			chipLabel.Text = ("Q   %s"):format(def and def.name or "?")
-			chipLabel.TextColor3 = Color3.fromRGB(20, 16, 28)
+			chipLabel.TextColor3 = ROLE.onAction
 		end
 	end
 
@@ -10434,7 +10535,7 @@ __MODULES["UpgradeUI"] = function()
 			Font = Style.Font.title,
 			Text = "TUNG UPGRADES",
 			TextSize = 20,
-			TextColor3 = PALETTE.accent,
+			TextColor3 = ROLE.emphasis,
 		})
 
 		local scroll = Instance.new("ScrollingFrame")
@@ -10449,7 +10550,7 @@ __MODULES["UpgradeUI"] = function()
 		-- scrolling sideways, which looks like a bug rather than like a list
 		scroll.ScrollingDirection = Enum.ScrollingDirection.Y
 		scroll.ScrollBarThickness = 4
-		scroll.ScrollBarImageColor3 = PALETTE.accent
+		scroll.ScrollBarImageColor3 = ROLE.line
 		scroll.Parent = panelFrame
 
 		local layout = Instance.new("UIListLayout")
@@ -10477,7 +10578,7 @@ __MODULES["UpgradeUI"] = function()
 	end
 
 	local function buildToggle(parent: Instance)
-		toggleButton = button(parent, "UPGRADES", PALETTE.accent, {
+		toggleButton = button(parent, "UPGRADES", ROLE.action, {
 			Name = "UpgradeToggle",
 			AnchorPoint = Vector2.new(0, 1),
 			Position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.Margin),
@@ -10493,7 +10594,7 @@ __MODULES["UpgradeUI"] = function()
 	end
 
 	local function buildChip(parent: Instance)
-		chipButton = button(parent, "", PALETTE.accent, {
+		chipButton = button(parent, "", ROLE.action, {
 			Name = "UtilityChip",
 			AnchorPoint = Vector2.new(0, 1),
 			Position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.ShopPanel.BottomGapNoUtility),
@@ -10506,7 +10607,7 @@ __MODULES["UpgradeUI"] = function()
 			Text = "",
 			TextSize = 16,
 			TextXAlignment = Enum.TextXAlignment.Center,
-			TextColor3 = Color3.fromRGB(20, 16, 28),
+			TextColor3 = ROLE.onAction,
 		})
 		chipButton.Activated:Connect(fireUtility)
 	end

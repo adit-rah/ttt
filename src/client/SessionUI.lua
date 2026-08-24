@@ -40,7 +40,7 @@ local TweenService = game:GetService("TweenService")
 local SessionUI = {}
 
 local UI = Config.UI
-local PALETTE = UiKit.PALETTE
+local ROLE = UiKit.ROLE
 -- Spelled from `Config`, like HUD.lua's CARD, because verify.py's config-path
 -- pass follows exactly one alias hop. Every number in this file comes from here
 -- now; there is no X and no Y among them, because HUD.column() places the panel.
@@ -146,7 +146,7 @@ function SessionUI.showOfflineModal(offline)
 	local shade = Instance.new("Frame")
 	shade.Name = "OfflineModal"
 	shade.Size = UDim2.fromScale(1, 1)
-	shade.BackgroundColor3 = Color3.new(0, 0, 0)
+	shade.BackgroundColor3 = ROLE.scrim
 	shade.BackgroundTransparency = 0.45
 	shade.BorderSizePixel = 0
 	shade.ZIndex = 30
@@ -168,7 +168,7 @@ function SessionUI.showOfflineModal(offline)
 		Font = Style.Font.title,
 		Text = "WELCOME BACK",
 		TextSize = OFFLINE.TitleTextPx,
-		TextColor3 = PALETTE.accent,
+		TextColor3 = ROLE.emphasis,
 		ZIndex = 32,
 	})
 
@@ -178,7 +178,7 @@ function SessionUI.showOfflineModal(offline)
 		Font = Style.Font.body,
 		Text = ("Away for <b>%s</b> — your factory kept running."):format(describe(offline.seconds)),
 		TextSize = OFFLINE.AwayTextPx,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 		ZIndex = 32,
 	})
 
@@ -188,7 +188,7 @@ function SessionUI.showOfflineModal(offline)
 		Font = Style.Font.title,
 		Text = "0",
 		TextSize = OFFLINE.AmountTextPx,
-		TextColor3 = PALETTE.gold,
+		TextColor3 = ROLE.heading,
 		ZIndex = 32,
 	})
 
@@ -201,7 +201,7 @@ function SessionUI.showOfflineModal(offline)
 			Util.abbreviate(offline.perSecond or 0),
 			describe(offline.creditedSeconds or offline.seconds)),
 		TextSize = OFFLINE.RateTextPx,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 		ZIndex = 32,
 	})
 
@@ -219,10 +219,10 @@ function SessionUI.showOfflineModal(offline)
 		else
 			capText ..= "\nYou already own the longest vault timer."
 		end
-		capColor = PALETTE.bad
+		capColor = ROLE.danger
 	else
 		capText = ("Well inside your %dh offline cap."):format(offline.capHours)
-		capColor = PALETTE.good
+		capColor = ROLE.affirm
 	end
 
 	text(card, {
@@ -236,7 +236,7 @@ function SessionUI.showOfflineModal(offline)
 		ZIndex = 32,
 	})
 
-	local collect = button(card, ("COLLECT %s"):format(Util.abbreviate(offline.earned)), PALETTE.good, {
+	local collect = button(card, ("COLLECT %s"):format(Util.abbreviate(offline.earned)), ROLE.affirm, {
 		Size = UDim2.fromOffset(OFFLINE.ContentWidth, UI.Button.primary),
 		Position = UDim2.fromOffset(OFFLINE.Pad, OFFLINE.ButtonY),
 		TextSize = OFFLINE.ButtonTextPx,
@@ -282,7 +282,7 @@ local function buildRow(parent: Instance, y: number, height: number, title: stri
 	local row = Instance.new("Frame")
 	row.Size = UDim2.fromOffset(PANEL.RowWidth, height)
 	row.Position = UDim2.fromOffset(PANEL.Pad, y)
-	row.BackgroundColor3 = PALETTE.panel2
+	row.BackgroundColor3 = ROLE.surfaceRaised
 	row.BackgroundTransparency = 0.25
 	row.BorderSizePixel = 0
 	row.Parent = parent
@@ -294,7 +294,7 @@ local function buildRow(parent: Instance, y: number, height: number, title: stri
 		Font = Style.Font.title,
 		Text = title,
 		TextSize = PANEL.RowTitleTextPx,
-		TextColor3 = PALETTE.text,
+		TextColor3 = ROLE.onSurface,
 	})
 	local subLabel = text(row, {
 		Size = UDim2.fromOffset(PANEL.ActionTextWidth, PANEL.RowSubHeight),
@@ -302,12 +302,12 @@ local function buildRow(parent: Instance, y: number, height: number, title: stri
 		Font = Style.Font.body,
 		Text = "",
 		TextSize = PANEL.RowSubTextPx,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 	})
 	-- A 66x30 pill was a 41x19 physical target at MinScale, which is a coin
 	-- flip with a thumb. Full touch height, vertically centred in whatever row
 	-- it lands in — the rows are 46, 50 and 56 tall.
-	local action = button(row, "CLAIM", PALETTE.good, {
+	local action = button(row, "CLAIM", ROLE.affirm, {
 		Size = UDim2.fromOffset(PANEL.ActionWidth, UI.Button.pill),
 		Position = UDim2.fromOffset(PANEL.ActionX, math.round((height - UI.Button.pill) / 2)),
 		TextSize = PANEL.ActionTextPx,
@@ -334,7 +334,7 @@ local function buildPanel()
 		Font = Style.Font.body,
 		Text = "SESSION",
 		TextSize = PANEL.HeadTextPx,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 	})
 
 	-- the weekend bonus is server-wide and invisible unless something says so
@@ -345,7 +345,7 @@ local function buildPanel()
 		Text = "",
 		TextSize = PANEL.HeadTextPx,
 		TextXAlignment = Enum.TextXAlignment.Right,
-		TextColor3 = PALETTE.gold,
+		TextColor3 = ROLE.heading,
 	})
 
 	dailyRow = buildRow(panel, PANEL.DailyY, PANEL.DailyHeight, "DAILY STREAK")
@@ -356,19 +356,19 @@ local function buildPanel()
 	local track = Instance.new("Frame")
 	track.Size = UDim2.fromOffset(PANEL.BarWidth, PANEL.BarHeight)
 	track.Position = UDim2.fromOffset(PANEL.RowPad, PANEL.BarY)
-	track.BackgroundColor3 = PALETTE.panel
+	track.BackgroundColor3 = ROLE.progressTrack
 	track.BorderSizePixel = 0
 	track.Parent = playtimeRow.row
 	corner(track, 2)
 
 	playtimeFill = Instance.new("Frame")
 	playtimeFill.Size = UDim2.fromScale(0, 1)
-	playtimeFill.BackgroundColor3 = PALETTE.accent
+	playtimeFill.BackgroundColor3 = ROLE.progress
 	playtimeFill.BorderSizePixel = 0
 	playtimeFill.Parent = track
 	corner(playtimeFill, 2)
 
-	boostButton = button(panel, "BOOST", PALETTE.gold, {
+	boostButton = button(panel, "BOOST", ROLE.currency, {
 		Size = UDim2.fromOffset(PANEL.RowWidth, UI.Button.secondary),
 		Position = UDim2.fromOffset(PANEL.Pad, PANEL.BoostY),
 		TextSize = PANEL.BoostTextPx,
@@ -378,13 +378,13 @@ local function buildPanel()
 	-- and go independently and a fixed y for each leaves a hole in the panel.
 	vaultRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "VAULT TIMER")
 	vaultRow.row.Visible = false
-	vaultRow.action.BackgroundColor3 = PALETTE.gold
+	vaultRow.action.BackgroundColor3 = ROLE.currency
 
 	offlineRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "OFFLINE TUNG")
 	TAIL_ROWS = { vaultRow, offlineRow }
 	offlineRow.row.Visible = false
 	offlineRow.action.Text = "OPEN"
-	offlineRow.action.BackgroundColor3 = PALETTE.gold
+	offlineRow.action.BackgroundColor3 = ROLE.currency
 
 	dailyRow.action.Activated:Connect(function()
 		click()
@@ -444,15 +444,15 @@ local function renderDaily(daily)
 		dailyRow.sub.Text = daily.milestone
 			and ("%s  +  %s milestone"):format(Util.abbreviate(daily.reward - daily.milestone), Util.abbreviate(daily.milestone))
 			or ("%s waiting"):format(Util.abbreviate(daily.reward))
-		dailyRow.sub.TextColor3 = PALETTE.good
+		dailyRow.sub.TextColor3 = ROLE.affirm
 		dailyRow.action.Visible = true
 		dailyRow.action.Text = "CLAIM"
-		dailyRow.action.BackgroundColor3 = PALETTE.good
+		dailyRow.action.BackgroundColor3 = ROLE.affirm
 	else
 		dailyRow.title.Text = ("DAILY  •  %d DAY STREAK"):format(daily.streak)
 		dailyRow.sub.Text = ("next in %s  •  %dh grace"):format(
 			describe(math.max(0, (daily.resetIn or 0) - elapsed())), daily.graceHours)
-		dailyRow.sub.TextColor3 = PALETTE.muted
+		dailyRow.sub.TextColor3 = ROLE.onSurfaceMuted
 		dailyRow.action.Visible = false
 	end
 end
@@ -480,7 +480,7 @@ local function renderPlaytime(playtime)
 	if ready then
 		playtimeRow.title.Text = ("PLAYTIME  •  %d MIN"):format(ready.minutes)
 		playtimeRow.sub.Text = ("%s ready to claim"):format(Util.abbreviate(ready.reward))
-		playtimeRow.sub.TextColor3 = PALETTE.good
+		playtimeRow.sub.TextColor3 = ROLE.affirm
 		playtimeRow.action.Visible = true
 		playtimeFill.Size = UDim2.fromScale(1, 1)
 	elseif nextRung then
@@ -488,7 +488,7 @@ local function renderPlaytime(playtime)
 		playtimeRow.title.Text = "PLAYTIME"
 		playtimeRow.sub.Text = ("%s at %d min  •  %s to go"):format(
 			Util.abbreviate(nextRung.reward), nextRung.minutes, clockText(target - active))
-		playtimeRow.sub.TextColor3 = PALETTE.muted
+		playtimeRow.sub.TextColor3 = ROLE.onSurfaceMuted
 		playtimeRow.action.Visible = false
 		local previous = 0
 		for _, rung in ipairs(playtime.rungs) do
@@ -504,7 +504,7 @@ local function renderPlaytime(playtime)
 		-- has to say when it comes back rather than implying a reconnect does it.
 		playtimeRow.sub.Text = ("whole ladder claimed  •  resets in %s"):format(
 			describe(math.max(0, (playtime.resetIn or 0) - elapsed())))
-		playtimeRow.sub.TextColor3 = PALETTE.muted
+		playtimeRow.sub.TextColor3 = ROLE.onSurfaceMuted
 		playtimeRow.action.Visible = false
 		playtimeFill.Size = UDim2.fromScale(1, 1)
 	end
@@ -522,7 +522,7 @@ local function renderVault(payload)
 	vaultRow.title.Text = upgrade.name:upper()
 	vaultRow.sub.Text = ("banks %dh offline, up from %dh"):format(
 		upgrade.hours, payload.capHours or upgrade.hours)
-	vaultRow.sub.TextColor3 = PALETTE.muted
+	vaultRow.sub.TextColor3 = ROLE.onSurfaceMuted
 	vaultRow.action.Visible = true
 	vaultRow.action.Text = Util.abbreviate(upgrade.cost)
 end
@@ -537,13 +537,13 @@ local function renderBoost(boost)
 	local since = elapsed()
 	if boost.active then
 		boostButton.Text = ("x%g BOOST  •  %s"):format(boost.multiplier, clockText(boost.secondsLeft - since))
-		boostButton.BackgroundColor3 = PALETTE.good
+		boostButton.BackgroundColor3 = ROLE.affirm
 	elseif boost.cooldownLeft - since > 0 then
 		boostButton.Text = ("BOOST READY IN %s"):format(clockText(boost.cooldownLeft - since))
-		boostButton.BackgroundColor3 = PALETTE.dead
+		boostButton.BackgroundColor3 = ROLE.disabled
 	else
 		boostButton.Text = ("CLAIM x%g BOOST  •  %d MIN"):format(boost.multiplier, boost.duration // 60)
-		boostButton.BackgroundColor3 = PALETTE.gold
+		boostButton.BackgroundColor3 = ROLE.currency
 	end
 
 	weekendBadge.Text = boost.weekend and ("WEEKEND x%g"):format(boost.weekendMultiplier) or ""
@@ -597,7 +597,7 @@ local function render()
 		offlineRow.row.Visible = true
 		offlineRow.sub.Text = ("%s from %s away"):format(
 			Util.abbreviate(payload.offline.earned), describe(payload.offline.seconds))
-		offlineRow.sub.TextColor3 = PALETTE.gold
+		offlineRow.sub.TextColor3 = ROLE.currency
 		offlineRow.action.Visible = true
 	else
 		offlineRow.row.Visible = false

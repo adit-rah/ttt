@@ -135,5 +135,7 @@ work under `D-06` and `D-05`.
   `MACHINE_MASSES` in `tycoon/Parts.lua`.
 - **The two palettes.** The plot's colour language is `Tycoon.COLORS` in
   `tycoon/Class.lua`, `PALETTE` in `src/server/MapBuilder.lua` and the shell's
-  `WALL_COLOR` in `tycoon/Installers.lua`; the screen's is
-  `UiKit.PALETTE` and `UiKit.INK` in `src/client/UiKit.lua`.
+  `WALL_COLOR` in `tycoon/Installers.lua` — three tables in `src/server`, which the
+  verifier cannot read. The screen's is `Config.UI.Palette`, addressed through
+  `Config.UI.Role`, and it is the one a tool can read: `tools/verify_config.lua` holds
+  every role against WCAG contrast on a card composited over a bright sky.

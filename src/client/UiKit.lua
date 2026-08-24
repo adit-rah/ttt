@@ -45,31 +45,31 @@ local RAIL = Config.UI.Rail
 
 local UiKit = {}
 
---- THE PALETTE, once. This is the union of the three copies it replaces: `wave`
---- and `boss` came from HUD (promoted out of a toast-only table, because the
---- raid banner had inline literals of the same two colours and the raid read as
---- two different oranges depending on which widget you looked at), and `dead`
---- came from SessionUI and UpgradeUI, where it greys out a claimed or
---- unaffordable control.
-UiKit.PALETTE = {
-	panel   = Color3.fromRGB(22, 18, 32),
-	panel2  = Color3.fromRGB(32, 26, 46),
-	accent  = Color3.fromRGB(190, 130, 255),
-	gold    = Color3.fromRGB(255, 205, 90),
-	good    = Color3.fromRGB(120, 235, 160),
-	bad     = Color3.fromRGB(255, 110, 110),
-	text    = Color3.fromRGB(238, 232, 250),
-	muted   = Color3.fromRGB(160, 150, 180),
-	dead    = Color3.fromRGB(90, 84, 104),
-	wave    = Color3.fromRGB(255, 150, 60),
-	boss    = Color3.fromRGB(255, 90, 60),
-}
+--- THE PALETTE, RESOLVED. Config.UI.Role names what a colour is FOR and
+--- Config.UI.Palette says what it IS; this is the two of them composed, once,
+--- into the only colour table src/client is allowed to read.
+---
+--- WHY THE VALUES ARE NOT HERE. They were, as three copies merged into one —
+--- and merging them fixed the values while leaving nothing to stop a fourth
+--- copy, which is what twenty-six raw Color3 calls elsewhere in src/client
+--- were. In Config the verifier can read them: it stubs Color3.fromRGB as
+--- { r, g, b }, so contrast against the surface a label prints on is
+--- arithmetic rather than something a reader has to notice.
+---
+--- A ROLE THAT NAMES A MISSING KEY IS A BUILD FAILURE, not a nil that spreads.
+--- Style.Font.head got away with being nil for two rounds because a nil in a
+--- props table is a key that never arrives; this errors at require time.
+UiKit.ROLE = {}
+for role, key in pairs(UI.Role) do
+	local colour = UI.Palette[key]
+	if not colour then
+		error(("[Tung] Config.UI.Role.%s names palette key %q, which does not exist")
+			:format(role, tostring(key)), 2)
+	end
+	UiKit.ROLE[role] = colour
+end
 
---- The ink every button and pill prints its label in. Dark, because every
---- button colour in the palette above is a bright one.
-UiKit.INK = Color3.fromRGB(20, 16, 28)
-
-local PALETTE = UiKit.PALETTE
+local ROLE = UiKit.ROLE
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- builders
@@ -98,15 +98,15 @@ function UiKit.panel(parent: Instance, size: UDim2, position: UDim2, anchor: Vec
 	f.Size = size
 	f.Position = position
 	f.AnchorPoint = anchor or Vector2.zero
-	f.BackgroundColor3 = PALETTE.panel
-	f.BackgroundTransparency = 0.12
+	f.BackgroundColor3 = ROLE.surface
+	f.BackgroundTransparency = UI.PanelAlpha
 	f.BorderSizePixel = 0
 	f.Parent = parent
 	UiKit.corner(f, 14)
-	UiKit.stroke(f, PALETTE.accent, 2)
+	UiKit.stroke(f, ROLE.line, 2)
 
 	local gradient = Instance.new("UIGradient")
-	gradient.Color = ColorSequence.new(PALETTE.panel2, PALETTE.panel)
+	gradient.Color = ColorSequence.new(ROLE.surfaceRaised, ROLE.surface)
 	gradient.Rotation = 90
 	gradient.Parent = f
 	return f
@@ -116,7 +116,7 @@ function UiKit.text(parent: Instance, props): TextLabel
 	local l = Instance.new("TextLabel")
 	l.BackgroundTransparency = 1
 	l.Font = Style.Font.body
-	l.TextColor3 = PALETTE.text
+	l.TextColor3 = ROLE.onSurface
 	l.TextXAlignment = Enum.TextXAlignment.Left
 	l.TextScaled = false
 	l.RichText = true
@@ -138,7 +138,7 @@ function UiKit.button(parent: Instance, label: string, color: Color3, props): Te
 	b.AutoButtonColor = true
 	b.Font = Style.Font.title
 	b.Text = label
-	b.TextColor3 = UiKit.INK
+	b.TextColor3 = ROLE.onAction
 	b.TextScaled = true
 	for k, v in pairs(props or {}) do
 		(b :: any)[k] = v
@@ -322,7 +322,7 @@ function UiKit.railItem(parent: Instance, name: string, colour: Color3): (TextBu
 		Font = Style.Font.title,
 		Text = "",
 		TextSize = RAIL.BadgeTextPx,
-		TextColor3 = UiKit.INK,
+		TextColor3 = ROLE.onAction,
 		TextXAlignment = Enum.TextXAlignment.Center,
 	})
 
