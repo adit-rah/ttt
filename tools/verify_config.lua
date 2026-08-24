@@ -4038,7 +4038,59 @@ check(UI.Action.Height >= UI.Button.primary + UI.Gap + UI.Button.secondary,
 		:format(UI.Action.Height, UI.Button.primary, UI.Gap, UI.Button.secondary))
 -- The shop rows are one big TextButton each, which is the whole point of them.
 check(UI.ShopPanel.RowHeight >= UI.MinTouchPx,
-	("an upgrade row is %d design px tall against a touch floor of %d"):format(UI.ShopPanel.RowHeight, UI.MinTouchPx))
+	("an upgrade row is %d design px tall against a touch floor of %d — and this is the PROTOTYPE panel in UpgradeUI, which ships behind a false flag; the live shop's row is UI.Shop.RowHeight")
+		:format(UI.ShopPanel.RowHeight, UI.MinTouchPx))
+
+-- ── the live shop (#108) ────────────────────────────────────────────────────
+--
+-- The storefront a player can actually open. It had no geometry in this file at
+-- all: 340 wide, 34-tall rows, a 130x26 buy button and a 64x22 close, all typed
+-- into src/client, and a card that grew from an accumulated y with nothing
+-- holding it against the viewport.
+
+local SHOP = UI.Shop
+
+check(SHOP.RowHeight >= UI.MinTouchPx,
+	("a shop row is %d design px tall against a touch floor of %d"):format(SHOP.RowHeight, UI.MinTouchPx))
+check(SHOP.WellSize >= UI.Icon.Medium,
+	("the icon well is %d and the glyph in it is %d"):format(SHOP.WellSize, UI.Icon.Medium))
+check(SHOP.WellSize <= SHOP.RowHeight,
+	("the icon well is %d inside a %d-tall row"):format(SHOP.WellSize, SHOP.RowHeight))
+-- The two text lines and the pips, stacked inside the row with padding.
+check(SHOP.NameHeight + SHOP.StatHeight + SHOP.RowPad * 2 <= SHOP.RowHeight,
+	("a shop row stacks %d of name, %d of stat and %d of padding into %d")
+		:format(SHOP.NameHeight, SHOP.StatHeight, SHOP.RowPad * 2, SHOP.RowHeight))
+for label, size in pairs({ heading = SHOP.HeadTextPx, balance = SHOP.BalanceTextPx,
+	section = SHOP.SectionTextPx, name = SHOP.NameTextPx, stat = SHOP.StatTextPx }) do
+	check(size >= UI.MinTextPx,
+		("the shop's %s text is %d design px, %.1f physical at MinScale — under the %d-px floor this file declares")
+			:format(label, size, size * UI.MinScale, UI.MinTextPx))
+end
+check(SHOP.BuyWidth >= UI.Button.MinWidth,
+	("the buy control is %d wide against a %d minimum"):format(SHOP.BuyWidth, UI.Button.MinWidth))
+-- A NAME COLUMN THAT TRUNCATES EVERY ROW IS A COLUMN OF ELLIPSES. This is the
+-- one number that decides whether the well and the control have eaten the row.
+check(SHOP.TextWidth >= SHOP.MinNameWidth,
+	("the shop leaves %d px for an item's name beside its well and its control; under %d every row truncates")
+		:format(SHOP.TextWidth, SHOP.MinNameWidth))
+-- The card fits the screen, which the old one never had to because it simply
+-- grew until it did not.
+check(SHOP.Width + UI.Margin * 2 <= UI.ReferenceWidth,
+	("the shop card is %d wide on a %d screen with %d margins"):format(SHOP.Width, UI.ReferenceWidth, UI.Margin))
+check(UI.Modal.MaxHeight + UI.Margin * 2 <= UI.ReferenceHeight,
+	("the shop card is %d tall on a %d screen"):format(UI.Modal.MaxHeight, UI.ReferenceHeight))
+-- A SCROLLER SHOWING TWO ROWS IS A KEYHOLE. Nine rows is what the shipped
+-- Config holds, and a player comparing bats has to see more than a pair.
+check(SHOP.RowsVisible >= 3,
+	("the shop shows %d rows at a time in %d px of viewport; under three nobody can scan a ladder")
+		:format(SHOP.RowsVisible, SHOP.ViewportHeight))
+check(SHOP.ViewportHeight > 0,
+	("the shop's scroller is %d px tall: a %d card less %d of header and %d of padding")
+		:format(SHOP.ViewportHeight, UI.Modal.MaxHeight, SHOP.HeadHeight, SHOP.Pad * 2))
+-- The pips have to fit beside the name they sit under.
+check(#Config.WeaponButtons * (SHOP.PipSize + SHOP.PipGap) <= SHOP.TextWidth,
+	("%d bat pips need %d px and the text column is %d")
+		:format(#Config.WeaponButtons, #Config.WeaponButtons * (SHOP.PipSize + SHOP.PipGap), SHOP.TextWidth))
 
 -- THE STATUS CARD.
 --
@@ -4211,6 +4263,17 @@ check(UI.ColumnBottom + UI.Margin <= UI.ReferenceHeight,
 	("the left column ends at y=%d, past the bottom of a %d-tall reference screen")
 		:format(UI.ColumnBottom, UI.ReferenceHeight))
 
+-- EVERY UI.ShopPanel CHECK BELOW GUARDS A SCREEN NOBODY CAN SEE, and that is
+-- worth saying once rather than nine times. The table's only reader is
+-- UpgradeUI.lua, behind Config.Prototypes.PlayerUpgrades and .Utilities, both
+-- of which the prototype pass requires to ship false. So the shop-versus-column
+-- overlap check — the defect this whole Config.UI table was written for — has
+-- been guarding the PROTOTYPE second column, while the live storefront typed
+-- 340, 34, 26 and 22 into src/client where nothing could read them.
+--
+-- They stay: the prototype is real and its geometry should keep working. The
+-- live shop is UI.Shop, and its own family is above.
+--
 -- Asserted BEFORE the clamp below, and the clamp is spelled out with min/max
 -- rather than math.clamp, which ERRORS when its floor is above its ceiling. A
 -- bad pair of numbers here should cost one failed check with a sentence on it,

@@ -183,6 +183,29 @@ T.spec("every declared coordinate is on the grid", function(t)
 	t:gt(checked, 0, "no coordinates were read — the registry's shape changed and this spec went blind")
 end)
 
+T.spec("a heavier part is a WHOLE multiple of the glyph's weight", function(t)
+	local world = clientWorld()
+	local UiKit = world.req("UiKit")
+
+	-- Declared rather than drawn, because a fraction is visible here and not in
+	-- the built frame: 2.2 against a weight of 3 rounds to 7, which is not a
+	-- multiple of anything and is exactly the drift the shared weight prevents.
+	local bars = 0
+	for _, name in ipairs(UiKit.iconNames()) do
+		local glyph = UiKit.ICONS[name]
+		for _, part in ipairs(glyph.parts or glyph) do
+			if part.kind == "bar" then
+				bars += 1
+				t:eq(part.thick, math.floor(part.thick),
+					("icon %q declares a bar at %s times the glyph weight; a fraction rounds to a thickness that is a multiple of nothing")
+						:format(name, tostring(part.thick)))
+				t:gt(part.thick, 0, ("icon %q declares a bar at %s times the weight"):format(name, tostring(part.thick)))
+			end
+		end
+	end
+	t:gt(bars, 0, "no bars were declared — the registry changed shape and this spec went blind")
+end)
+
 T.spec("an unknown glyph is an error, never an empty frame", function(t)
 	local world = clientWorld()
 	local UiKit = world.req("UiKit")

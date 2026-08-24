@@ -1141,6 +1141,29 @@ defects in the same file.
   thrown on the invite rail, on a device, after shipping. Pass 2 names undeclared globals and
   this is a key on a table; pass 5 walks `Config.<path>` and stops there. `[lint]` `verify.py`
   "module fields". A field assigned dynamically is still invisible to it — see §10.
+- **The live shop has its own geometry, `Config.UI.Shop`, and it is not `Config.UI.ShopPanel`.**
+  `ShopPanel`'s only reader is `UpgradeUI.lua`, behind two `Config.Prototypes` flags the verifier
+  requires to ship false — so nine assertions on it, **including the shop-versus-column overlap
+  check the whole `Config.UI` table was written for**, guard a surface nobody can see. Meanwhile
+  the storefront a player can open typed 340, 34, 26 and 22 into `src/client`. The nine stay,
+  because the prototype is real; their messages name it now. `[assert]`
+- **The shop scrolls, and the scroller shows at least three rows.** Nine catalog rows at a
+  thumb-sized height is well past `Modal.MaxHeight`, and the card grew from an accumulated `y`
+  with nothing holding it against the viewport — so it got taller every time somebody added a
+  Config row, and the first anyone would know is on a phone. A scroller showing two rows is a
+  keyhole. `[assert]`
+- **A shop row leaves a name column, and the well and the control may not eat it.** `TextWidth`
+  is derived and held against `MinNameWidth`; under it every row is an ellipsis. `[assert]`
+- **A shop row's state differs in more than colour.** The control's label says which state it is,
+  the glyph dims when the row is locked, and the pips fill or outline. `SYSTEMS.md` §8 requires
+  it, because colour is the first thing a bright sky takes away. `[spec]` `shop_spec.lua`.
+- **The shop reads the balance.** It did not: an unaffordable buy fired the remote, failed
+  server-side and came back as a toast saying no. `HUD.cash()` returns `state.cash` and NOT the
+  lerped `displayedCash` — a shop deciding what you can afford has to answer with what you have,
+  or a row reads as locked for as long as the animation takes to catch up. `[spec]`
+- **A row's tier is its position in its own Config table, drawn as pips.** Not the item's colour:
+  the variant palette is placeholder art, and a screen keyed to it needs redrawing the day that
+  art is replaced. Fill-versus-empty is a shape, so it survives the sky too. `[spec]`
 - **A tile is a glyph over a caption, and both are required.** `railItem` returned
   `(button, glyphSlot, caption)` and two of its three callers took only the button, so the rail
   shipped as one drawn icon beside two text buttons, each carrying an empty `GlyphSlot` Frame and
