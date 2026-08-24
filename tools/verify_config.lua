@@ -4380,13 +4380,20 @@ check(UI.NewCard.MaxHeight + UI.Margin * 2 <= UI.ReferenceHeight,
 		:format(UI.NewCard.MaxHeight, UI.ReferenceHeight))
 check(UI.NewCard.Width + UI.Margin * 2 <= UI.ReferenceWidth,
 	("the NEW card is %d wide on a %d screen"):format(UI.NewCard.Width, UI.ReferenceWidth))
-for label, size in pairs({ badge = UI.NewCard.BadgeTextPx, title = UI.NewCard.TitleTextPx,
-	name = UI.NewCard.NameTextPx, body = UI.NewCard.BodyTextPx }) do
+for label, size in pairs({ name = UI.NewCard.NameTextPx, body = UI.NewCard.BodyTextPx }) do
 	check(size >= UI.MinTextPx,
 		("the NEW card's %s text is %d design px, %.1f physical at MinScale — under the %d-px floor this file declares")
 			:format(label, size, size * UI.MinScale, UI.MinTextPx))
 end
 -- The longest help line in the table has to fit the two rows the card gives it.
+-- The first block's name shares its line with the x in the corner, so it has
+-- to have somewhere left to print.
+check(UI.NewCard.NameWidth >= 160,
+	("the NEW card leaves %d px for a name beside the control that closes it")
+		:format(UI.NewCard.NameWidth))
+check(UI.NewCard.NameHeight >= UI.NewCard.NameTextPx,
+	("the NEW card gives a name %d px and prints it at %d")
+		:format(UI.NewCard.NameHeight, UI.NewCard.NameTextPx))
 check(UI.NewCard.BodyHeight >= UI.NewCard.BodyTextPx * 2,
 	("the NEW card gives a blurb %d px and prints at %d; the disclosure help lines run to 160 characters and need two rows")
 		:format(UI.NewCard.BodyHeight, UI.NewCard.BodyTextPx))

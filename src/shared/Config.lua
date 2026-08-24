@@ -1131,11 +1131,13 @@ Config.UI = {
 	-- largest group Config.Disclosure can actually produce.
 	NewCard = {
 		Width = 380, Pad = 16, TopPad = 14,
-		BadgeWidth = 54, BadgeHeight = 22, BadgeTextPx = 13,
-		TitleHeight = 24, TitleTextPx = 18,
-		RowGap = 10,
-		NameHeight = 20, NameTextPx = 15,
+		-- EVERY ARRIVAL IS A TITLED BLOCK: the thing's own name, tagged, over its
+		-- blurb. There was a card-level heading reading "Something opened up"
+		-- above rows that then named the things — a line of chrome over the only
+		-- words that carried the news. The name IS the news.
+		NameHeight = 26, NameTextPx = 17,
 		BodyHeight = 34, BodyTextPx = 13,
+		RowGap = 12,
 		MaxRows = 3,
 	},
 
@@ -1384,9 +1386,12 @@ do
 	-- The card is a heading, a run of arrivals, and one control to dismiss it.
 	ui.NewCard.ContentWidth = ui.NewCard.Width - ui.NewCard.Pad * 2
 	ui.NewCard.RowHeight = ui.NewCard.NameHeight + ui.NewCard.BodyHeight
-	ui.NewCard.MaxHeight = ui.NewCard.TopPad + ui.NewCard.TitleHeight
+	-- The first block's name shares its line with the close control, so it is
+	-- inset by one on the right; the blurbs run the full width.
+	ui.NewCard.NameWidth = ui.NewCard.ContentWidth - ui.Button.IconOnly
+	ui.NewCard.MaxHeight = ui.NewCard.TopPad
 		+ ui.NewCard.MaxRows * (ui.NewCard.RowHeight + ui.NewCard.RowGap)
-		+ ui.Button.primary + ui.NewCard.Pad * 2
+		+ ui.NewCard.Pad
 
 	ui.PartyPanel.Width = ui.ColumnWidth
 	ui.Objectives.Width = ui.ColumnWidth

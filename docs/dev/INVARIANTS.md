@@ -1200,6 +1200,13 @@ defects in the same file.
   tallest card it carries clearing both the top margin and `TouchReserve.Bottom`. A modal with a
   scrim stays centred — it has taken the whole screen already, so there is nothing left behind it
   to sit clear of.
+- **An arrival names itself.** Every arrival is a titled block — `<Name> (New)` over its blurb.
+  There was a card-level heading reading "Something opened up" above rows that then named the
+  things, which is a line of chrome over the only words carrying the news. The name IS the news.
+  The card closes with the x in the corner, like the shop and the help card: a full-width primary
+  action is wrong on a card that asks for nothing, where reading it IS the interaction and the
+  only thing left to do is put it away. `[assert]` the first name has room beside the control
+  that closes it; `[spec]` the names carry the tag and the control is a glyph.
 - **An arrival is a card, not a toast.** `DisclosureService` announced a new surface into the same
   side column as a knockout and a loot drop, so an addition to the game read as one more line of
   traffic. It rides the disclosure push it already sends, as `fresh`, so the id is in the set

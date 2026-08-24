@@ -604,45 +604,22 @@ local function renderNew()
 		end
 	end
 
+	-- ONE TITLED BLOCK PER ARRIVAL: the thing's own name, tagged, over its
+	-- blurb. There was a card-level heading reading "Something opened up" above
+	-- rows that then named the things, which is a line of chrome over the only
+	-- words carrying the news. The name IS the news.
 	local y = NEW.TopPad
-	local badge = Instance.new("Frame")
-	badge.Name = "Badge"
-	badge.Size = UDim2.fromOffset(NEW.BadgeWidth, NEW.BadgeHeight)
-	badge.Position = UDim2.fromOffset(NEW.Pad, y)
-	badge.BackgroundColor3 = ROLE.affirm
-	badge.BorderSizePixel = 0
-	badge.Parent = newPanel
-	corner(badge, math.floor(NEW.BadgeHeight / 2))
-	text(badge, {
-		Name = "BadgeText",
-		Size = UDim2.fromScale(1, 1),
-		Font = Style.Font.title,
-		Text = "NEW",
-		TextSize = NEW.BadgeTextPx,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		TextColor3 = ROLE.onAffirm,
-	})
-	text(newPanel, {
-		Name = "Title",
-		Size = UDim2.fromOffset(NEW.ContentWidth - NEW.BadgeWidth - NEW.RowGap, NEW.TitleHeight),
-		Position = UDim2.fromOffset(NEW.Pad + NEW.BadgeWidth + NEW.RowGap, y),
-		Font = Style.Font.title,
-		Text = #newRows == 1 and "Something opened up" or ("%d things opened up"):format(#newRows),
-		TextSize = NEW.TitleTextPx,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = ROLE.heading,
-	})
-	y += NEW.TitleHeight + NEW.RowGap
-
-	for _, row in ipairs(newRows) do
+	for index, row in ipairs(newRows) do
 		text(newPanel, {
-			Size = UDim2.fromOffset(NEW.ContentWidth, NEW.NameHeight),
+			-- Only the first block shares its line with the close control.
+			Size = UDim2.fromOffset(index == 1 and NEW.NameWidth or NEW.ContentWidth, NEW.NameHeight),
 			Position = UDim2.fromOffset(NEW.Pad, y),
 			Font = Style.Font.title,
-			Text = row.name,
+			Text = ("%s (New)"):format(row.name),
 			TextSize = NEW.NameTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = ROLE.emphasis,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextColor3 = ROLE.affirm,
 		})
 		local body = text(newPanel, {
 			Size = UDim2.fromOffset(NEW.ContentWidth, NEW.BodyHeight),
@@ -658,17 +635,19 @@ local function renderNew()
 		y += NEW.RowHeight + NEW.RowGap
 	end
 
-	local ok = UiKit.control(newPanel, {
-		variant = "primary", text = "GOT IT", width = NEW.ContentWidth,
-		position = UDim2.fromOffset(NEW.Pad, y),
+	-- The x in the corner, like the shop and the help card. A full-width GOT IT
+	-- was a primary action on a card that asks for nothing: reading it IS the
+	-- interaction, and the only thing left to do is put it away.
+	local close = UiKit.control(newPanel, {
+		variant = "ghost", name = "Close", icon = "close", iconOnly = true,
+		position = UDim2.fromOffset(NEW.Width - UI.Button.IconOnly - NEW.Pad, NEW.Pad),
 	})
-	ok.Activated:Connect(function()
+	close.Activated:Connect(function()
 		newRows = {}
 		newPanel.Visible = false
 	end)
-	y += UI.Button.primary + NEW.Pad
 
-	newPanel.Size = UDim2.fromOffset(NEW.Width, y)
+	newPanel.Size = UDim2.fromOffset(NEW.Width, y - NEW.RowGap + NEW.Pad)
 end
 
 --- Announce what just arrived. Appends to whatever is already showing, so a
@@ -768,7 +747,7 @@ function buildHelp(rail)
 	helpScroll.ScrollBarImageColor3 = ROLE.line
 	helpScroll.Parent = helpPanel
 
-	newPanel = UiKit.overlayCard(overlay, UDim2.fromOffset(NEW.Width, NEW.TitleHeight))
+	newPanel = UiKit.overlayCard(overlay, UDim2.fromOffset(NEW.Width, NEW.NameHeight))
 	newPanel.Name = "NewCard"
 	newPanel.Visible = false
 	button.Activated:Connect(function()
