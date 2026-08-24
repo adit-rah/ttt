@@ -1163,11 +1163,13 @@ __MODULES["Config"] = function()
 		-- largest group Config.Disclosure can actually produce.
 		NewCard = {
 			Width = 380, Pad = 16, TopPad = 14,
-			BadgeWidth = 54, BadgeHeight = 22, BadgeTextPx = 13,
-			TitleHeight = 24, TitleTextPx = 18,
-			RowGap = 10,
-			NameHeight = 20, NameTextPx = 15,
+			-- EVERY ARRIVAL IS A TITLED BLOCK: the thing's own name, tagged, over its
+			-- blurb. There was a card-level heading reading "Something opened up"
+			-- above rows that then named the things — a line of chrome over the only
+			-- words that carried the news. The name IS the news.
+			NameHeight = 26, NameTextPx = 17,
 			BodyHeight = 34, BodyTextPx = 13,
+			RowGap = 12,
 			MaxRows = 3,
 		},
 
@@ -1416,9 +1418,12 @@ __MODULES["Config"] = function()
 		-- The card is a heading, a run of arrivals, and one control to dismiss it.
 		ui.NewCard.ContentWidth = ui.NewCard.Width - ui.NewCard.Pad * 2
 		ui.NewCard.RowHeight = ui.NewCard.NameHeight + ui.NewCard.BodyHeight
-		ui.NewCard.MaxHeight = ui.NewCard.TopPad + ui.NewCard.TitleHeight
+		-- The first block's name shares its line with the close control, so it is
+		-- inset by one on the right; the blurbs run the full width.
+		ui.NewCard.NameWidth = ui.NewCard.ContentWidth - ui.Button.IconOnly
+		ui.NewCard.MaxHeight = ui.NewCard.TopPad
 			+ ui.NewCard.MaxRows * (ui.NewCard.RowHeight + ui.NewCard.RowGap)
-			+ ui.Button.primary + ui.NewCard.Pad * 2
+			+ ui.NewCard.Pad
 
 		ui.PartyPanel.Width = ui.ColumnWidth
 		ui.Objectives.Width = ui.ColumnWidth
@@ -7961,45 +7966,22 @@ __MODULES["HUD"] = function()
 			end
 		end
 
+		-- ONE TITLED BLOCK PER ARRIVAL: the thing's own name, tagged, over its
+		-- blurb. There was a card-level heading reading "Something opened up" above
+		-- rows that then named the things, which is a line of chrome over the only
+		-- words carrying the news. The name IS the news.
 		local y = NEW.TopPad
-		local badge = Instance.new("Frame")
-		badge.Name = "Badge"
-		badge.Size = UDim2.fromOffset(NEW.BadgeWidth, NEW.BadgeHeight)
-		badge.Position = UDim2.fromOffset(NEW.Pad, y)
-		badge.BackgroundColor3 = ROLE.affirm
-		badge.BorderSizePixel = 0
-		badge.Parent = newPanel
-		corner(badge, math.floor(NEW.BadgeHeight / 2))
-		text(badge, {
-			Name = "BadgeText",
-			Size = UDim2.fromScale(1, 1),
-			Font = Style.Font.title,
-			Text = "NEW",
-			TextSize = NEW.BadgeTextPx,
-			TextXAlignment = Enum.TextXAlignment.Center,
-			TextColor3 = ROLE.onAffirm,
-		})
-		text(newPanel, {
-			Name = "Title",
-			Size = UDim2.fromOffset(NEW.ContentWidth - NEW.BadgeWidth - NEW.RowGap, NEW.TitleHeight),
-			Position = UDim2.fromOffset(NEW.Pad + NEW.BadgeWidth + NEW.RowGap, y),
-			Font = Style.Font.title,
-			Text = #newRows == 1 and "Something opened up" or ("%d things opened up"):format(#newRows),
-			TextSize = NEW.TitleTextPx,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = ROLE.heading,
-		})
-		y += NEW.TitleHeight + NEW.RowGap
-
-		for _, row in ipairs(newRows) do
+		for index, row in ipairs(newRows) do
 			text(newPanel, {
-				Size = UDim2.fromOffset(NEW.ContentWidth, NEW.NameHeight),
+				-- Only the first block shares its line with the close control.
+				Size = UDim2.fromOffset(index == 1 and NEW.NameWidth or NEW.ContentWidth, NEW.NameHeight),
 				Position = UDim2.fromOffset(NEW.Pad, y),
 				Font = Style.Font.title,
-				Text = row.name,
+				Text = ("%s (New)"):format(row.name),
 				TextSize = NEW.NameTextPx,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = ROLE.emphasis,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				TextColor3 = ROLE.affirm,
 			})
 			local body = text(newPanel, {
 				Size = UDim2.fromOffset(NEW.ContentWidth, NEW.BodyHeight),
@@ -8015,17 +7997,19 @@ __MODULES["HUD"] = function()
 			y += NEW.RowHeight + NEW.RowGap
 		end
 
-		local ok = UiKit.control(newPanel, {
-			variant = "primary", text = "GOT IT", width = NEW.ContentWidth,
-			position = UDim2.fromOffset(NEW.Pad, y),
+		-- The x in the corner, like the shop and the help card. A full-width GOT IT
+		-- was a primary action on a card that asks for nothing: reading it IS the
+		-- interaction, and the only thing left to do is put it away.
+		local close = UiKit.control(newPanel, {
+			variant = "ghost", name = "Close", icon = "close", iconOnly = true,
+			position = UDim2.fromOffset(NEW.Width - UI.Button.IconOnly - NEW.Pad, NEW.Pad),
 		})
-		ok.Activated:Connect(function()
+		close.Activated:Connect(function()
 			newRows = {}
 			newPanel.Visible = false
 		end)
-		y += UI.Button.primary + NEW.Pad
 
-		newPanel.Size = UDim2.fromOffset(NEW.Width, y)
+		newPanel.Size = UDim2.fromOffset(NEW.Width, y - NEW.RowGap + NEW.Pad)
 	end
 
 	--- Announce what just arrived. Appends to whatever is already showing, so a
@@ -8125,7 +8109,7 @@ __MODULES["HUD"] = function()
 		helpScroll.ScrollBarImageColor3 = ROLE.line
 		helpScroll.Parent = helpPanel
 
-		newPanel = UiKit.overlayCard(overlay, UDim2.fromOffset(NEW.Width, NEW.TitleHeight))
+		newPanel = UiKit.overlayCard(overlay, UDim2.fromOffset(NEW.Width, NEW.NameHeight))
 		newPanel.Name = "NewCard"
 		newPanel.Visible = false
 		button.Activated:Connect(function()

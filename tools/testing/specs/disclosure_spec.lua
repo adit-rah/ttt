@@ -121,10 +121,14 @@ T.spec("a batch of arrivals is one card, not one card each", function(t)
 
 	-- Buying `walls` earns all three at once. Three cards in a row is the toast
 	-- problem with bigger rectangles, which is what this replaced.
+	-- Each arrival is a titled block naming the thing itself: there was a
+	-- card-level "Something opened up" over rows that then named them, which is
+	-- a line of chrome over the only words carrying the news.
 	local names = namesOn(card)
 	local found = 0
 	for _, text in ipairs(names) do
-		if text == "Parties" or text == "Recall" or text == "Raids on your plot" then
+		if text == "Parties (New)" or text == "Recall (New)"
+			or text == "Raids on your plot (New)" then
 			found += 1
 		end
 	end
@@ -142,7 +146,7 @@ T.spec("a join push announces nothing", function(t)
 	t:eq(card.Visible, false, "a push with no `fresh` opened the NEW card anyway")
 end)
 
-T.spec("GOT IT dismisses it, and the next arrival opens a fresh one", function(t)
+T.spec("the x dismisses it, and the next arrival opens a fresh one", function(t)
 	local world = clientWorld()
 	local HUD = world.req("HUD")
 	local card = findCard(world)
@@ -150,13 +154,14 @@ T.spec("GOT IT dismisses it, and the next arrival opens a fresh one", function(t
 	HUD.applyDisclosure({ ids = { "party" }, fresh = { { name = "Parties", help = "Party up." } } })
 	t:eq(card.Visible, true, "one arrival did not open the card")
 
-	local ok
-	for _, child in ipairs(card:GetChildren()) do
-		if child.ClassName == "TextButton" then
-			ok = child
-		end
-	end
+	-- The x in the corner, like the shop and the help card, rather than a
+	-- full-width primary action on a card that asks for nothing.
+	local ok = card:FindFirstChild("Close")
 	t:notNil(ok, "the NEW card has nothing to dismiss it with")
+	if ok then
+		t:eq(ok.Text, "", "the close control is a word rather than a glyph")
+		t:notNil(ok:FindFirstChild("Glyph"), "the close control draws no glyph")
+	end
 	if ok then
 		ok.Activated:Fire()
 		t:eq(card.Visible, false, "GOT IT did not close the card")
@@ -166,7 +171,7 @@ T.spec("GOT IT dismisses it, and the next arrival opens a fresh one", function(t
 	t:eq(card.Visible, true, "a second arrival did not reopen the card")
 	local names = namesOn(card)
 	for _, text in ipairs(names) do
-		t:ne(text, "Parties", "the dismissed arrival came back on the next card")
+		t:ne(text, "Parties (New)", "the dismissed arrival came back on the next card")
 	end
 end)
 
