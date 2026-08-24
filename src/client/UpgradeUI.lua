@@ -39,7 +39,7 @@ local USE_KEY = Enum.KeyCode.Q
 local SEND_THROTTLE = 0.2
 
 local UI = Config.UI
-local PALETTE = UiKit.PALETTE
+local ROLE = UiKit.ROLE
 
 local state = {
 	cash = 0,
@@ -85,7 +85,7 @@ local function sectionLabel(parent: Instance, label: string, order: number)
 		Font = Style.Font.body,
 		Text = label,
 		TextSize = 12,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 	})
 end
 
@@ -96,14 +96,14 @@ local function buildRow(parent: Instance, id: string, name: string, order: numbe
 	row.Name = id
 	row.Text = ""
 	row.AutoButtonColor = false
-	row.BackgroundColor3 = PALETTE.panel2
+	row.BackgroundColor3 = ROLE.surfaceRaised
 	row.BackgroundTransparency = 0.25
 	row.BorderSizePixel = 0
 	row.Size = UDim2.new(1, -6, 0, UI.ShopPanel.RowHeight)   -- -6 leaves the scrollbar its lane
 	row.LayoutOrder = order
 	row.Parent = parent
 	corner(row, 10)
-	local edge = stroke(row, PALETTE.accent, 1.5)
+	local edge = stroke(row, ROLE.line, 1.5)
 	edge.Transparency = 0.7
 
 	local title = text(row, {
@@ -121,7 +121,7 @@ local function buildRow(parent: Instance, id: string, name: string, order: numbe
 		Font = Style.Font.body,
 		Text = "",
 		TextSize = 12,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 		TextWrapped = true,
 		TextYAlignment = Enum.TextYAlignment.Top,
 	})
@@ -130,7 +130,7 @@ local function buildRow(parent: Instance, id: string, name: string, order: numbe
 	pill.AnchorPoint = Vector2.new(1, 0.5)
 	pill.Position = UDim2.new(1, -10, 0.5, 0)
 	pill.Size = UDim2.fromOffset(92, 32)
-	pill.BackgroundColor3 = PALETTE.good
+	pill.BackgroundColor3 = ROLE.affirm
 	pill.BackgroundTransparency = 0.12
 	pill.BorderSizePixel = 0
 	pill.Parent = row
@@ -143,7 +143,7 @@ local function buildRow(parent: Instance, id: string, name: string, order: numbe
 		TextSize = 15,
 		TextScaled = false,
 		TextXAlignment = Enum.TextXAlignment.Center,
-		TextColor3 = Color3.fromRGB(20, 16, 28),
+		TextColor3 = ROLE.onAction,
 	})
 
 	row.Activated:Connect(function()
@@ -161,10 +161,10 @@ end
 local function paint(entry, opts)
 	entry.blurb.Text = opts.blurb
 	entry.title.Text = opts.title
-	entry.title.TextColor3 = opts.dim and PALETTE.muted or PALETTE.text
+	entry.title.TextColor3 = opts.dim and ROLE.onSurfaceMuted or ROLE.onSurface
 	entry.pill.BackgroundColor3 = opts.pillColor
 	entry.pillLabel.Text = opts.pillText
-	entry.pillLabel.TextColor3 = opts.pillTextColor or Color3.fromRGB(20, 16, 28)
+	entry.pillLabel.TextColor3 = opts.pillTextColor or ROLE.onAction
 	entry.row.BackgroundTransparency = opts.dim and 0.55 or 0.25
 	entry.edge.Transparency = opts.dim and 0.9 or 0.7
 end
@@ -174,8 +174,8 @@ local function paintPending(entry, name: string)
 		title = name,
 		blurb = "…",
 		pillText = "…",
-		pillColor = PALETTE.dead,
-		pillTextColor = PALETTE.muted,
+		pillColor = ROLE.disabled,
+		pillTextColor = ROLE.onSurfaceMuted,
 		dim = true,
 	})
 end
@@ -200,8 +200,8 @@ local function refreshUpgrades()
 						ShopMath.describe(def, level),
 						ShopMath.formatValue(ShopMath.valueAt(def, level + 1))),
 				pillText = maxed and "MAX" or Util.abbreviate(cost or 0),
-				pillColor = maxed and PALETTE.accent or (affordable and PALETTE.good or PALETTE.dead),
-				pillTextColor = (not maxed and not affordable) and PALETTE.muted or nil,
+				pillColor = maxed and ROLE.action or (affordable and ROLE.affirm or ROLE.disabled),
+				pillTextColor = (not maxed and not affordable) and ROLE.onSurfaceMuted or nil,
 				dim = not maxed and not affordable,
 			})
 		end
@@ -221,14 +221,14 @@ local function refreshUtilities()
 
 			local pillText, pillColor, dim
 			if equipped then
-				pillText, pillColor, dim = "EQUIPPED", PALETTE.accent, false
+				pillText, pillColor, dim = "EQUIPPED", ROLE.action, false
 			elseif owned then
-				pillText, pillColor, dim = "EQUIP", PALETTE.gold, false
+				pillText, pillColor, dim = "EQUIP", ROLE.currency, false
 			elseif lockedBy then
-				pillText, pillColor, dim = "LOCKED", PALETTE.dead, true
+				pillText, pillColor, dim = "LOCKED", ROLE.disabled, true
 			else
 				pillText = Util.abbreviate(def.price)
-				pillColor = affordable and PALETTE.good or PALETTE.dead
+				pillColor = affordable and ROLE.affirm or ROLE.disabled
 				dim = not affordable
 			end
 
@@ -237,7 +237,7 @@ local function refreshUtilities()
 				blurb = lockedBy and ("Needs %s."):format(lockedBy) or ShopMath.verbBlurb(def),
 				pillText = pillText,
 				pillColor = pillColor,
-				pillTextColor = dim and PALETTE.muted or nil,
+				pillTextColor = dim and ROLE.onSurfaceMuted or nil,
 				dim = dim,
 			})
 		end
@@ -269,17 +269,17 @@ local function refreshChip()
 	local remaining = math.max(0, state.readyAt - os.clock())
 	if os.clock() < flashUntil then
 		-- a mistimed press reads as "not yet" rather than as a dropped input
-		chipButton.BackgroundColor3 = PALETTE.bad
+		chipButton.BackgroundColor3 = ROLE.danger
 		chipLabel.Text = ("%.0fs"):format(math.ceil(remaining))
-		chipLabel.TextColor3 = Color3.fromRGB(30, 12, 12)
+		chipLabel.TextColor3 = ROLE.onDanger
 	elseif remaining > 0 then
-		chipButton.BackgroundColor3 = PALETTE.dead
+		chipButton.BackgroundColor3 = ROLE.disabled
 		chipLabel.Text = ("%s  •  %.0fs"):format(def and def.name or "?", math.ceil(remaining))
-		chipLabel.TextColor3 = PALETTE.muted
+		chipLabel.TextColor3 = ROLE.onSurfaceMuted
 	else
-		chipButton.BackgroundColor3 = PALETTE.accent
+		chipButton.BackgroundColor3 = ROLE.action
 		chipLabel.Text = ("Q   %s"):format(def and def.name or "?")
-		chipLabel.TextColor3 = Color3.fromRGB(20, 16, 28)
+		chipLabel.TextColor3 = ROLE.onAction
 	end
 end
 
@@ -335,7 +335,7 @@ local function buildPanel(parent: Instance)
 		Font = Style.Font.title,
 		Text = "TUNG UPGRADES",
 		TextSize = 20,
-		TextColor3 = PALETTE.accent,
+		TextColor3 = ROLE.emphasis,
 	})
 
 	local scroll = Instance.new("ScrollingFrame")
@@ -350,7 +350,7 @@ local function buildPanel(parent: Instance)
 	-- scrolling sideways, which looks like a bug rather than like a list
 	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
 	scroll.ScrollBarThickness = 4
-	scroll.ScrollBarImageColor3 = PALETTE.accent
+	scroll.ScrollBarImageColor3 = ROLE.line
 	scroll.Parent = panelFrame
 
 	local layout = Instance.new("UIListLayout")
@@ -378,7 +378,7 @@ local function buildPanel(parent: Instance)
 end
 
 local function buildToggle(parent: Instance)
-	toggleButton = button(parent, "UPGRADES", PALETTE.accent, {
+	toggleButton = button(parent, "UPGRADES", ROLE.action, {
 		Name = "UpgradeToggle",
 		AnchorPoint = Vector2.new(0, 1),
 		Position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.Margin),
@@ -394,7 +394,7 @@ local function buildToggle(parent: Instance)
 end
 
 local function buildChip(parent: Instance)
-	chipButton = button(parent, "", PALETTE.accent, {
+	chipButton = button(parent, "", ROLE.action, {
 		Name = "UtilityChip",
 		AnchorPoint = Vector2.new(0, 1),
 		Position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.ShopPanel.BottomGapNoUtility),
@@ -407,7 +407,7 @@ local function buildChip(parent: Instance)
 		Text = "",
 		TextSize = 16,
 		TextXAlignment = Enum.TextXAlignment.Center,
-		TextColor3 = Color3.fromRGB(20, 16, 28),
+		TextColor3 = ROLE.onAction,
 	})
 	chipButton.Activated:Connect(fireUtility)
 end

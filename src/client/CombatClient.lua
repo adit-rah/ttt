@@ -9,6 +9,7 @@ local Config = Req("Config")
 local Net = Req("Net")
 local HUD = Req("HUD")
 local SwingAnim = Req("SwingAnim")
+local UiKit = Req("UiKit")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -16,6 +17,8 @@ local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 
 local CombatClient = {}
+
+local ROLE = UiKit.ROLE
 
 local shake = 0
 
@@ -44,7 +47,7 @@ local function buildHitmarker(root: Instance)
 			tick.AnchorPoint = Vector2.new(0.5, 0.5)
 			tick.Size = UDim2.fromOffset(16, 4)
 			tick.Position = UDim2.fromScale(0.5, 0.5)
-			tick.BackgroundColor3 = Color3.fromRGB(255, 245, 200)
+			tick.BackgroundColor3 = ROLE.onSurface
 			tick.BorderSizePixel = 0
 			tick.Rotation = rot
 			tick.Parent = marker
@@ -145,9 +148,9 @@ function CombatClient.start()
 		hideAt = os.clock() + 0.16
 		for _, tick in ipairs(marker:GetChildren()) do
 			if tick:IsA("Frame") then
-				tick.BackgroundColor3 = payload.killed and Color3.fromRGB(255, 120, 90)
-					or payload.crit and Color3.fromRGB(255, 190, 90)
-					or Color3.fromRGB(255, 245, 200)
+				tick.BackgroundColor3 = payload.killed and ROLE.alarm
+					or payload.crit and ROLE.currency
+					or ROLE.onSurface
 			end
 		end
 		shake = math.min(shake + (payload.killed and 1.1 or payload.crit and 0.85 or 0.55), 2)

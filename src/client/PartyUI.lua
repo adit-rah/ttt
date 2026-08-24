@@ -24,7 +24,7 @@ local Players = game:GetService("Players")
 
 local PartyUI = {}
 
-local PALETTE = UiKit.PALETTE
+local ROLE = UiKit.ROLE
 local P = Config.UI.PartyPanel
 local WIDTH = Config.UI.SessionPanel.Width   -- one column, one width
 
@@ -101,18 +101,18 @@ local function render()
 		Text = inParty and ("PARTY  %d/%d"):format(#state.members, Config.Party.MaxSize) or "PARTY",
 		TextSize = 13,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 	})
 	header.LayoutOrder = 0
 
 	if state.invite then
 		local r = row(1)
 		rows += 1
-		rowText(r, ("%s invited you"):format(state.invite.fromName), PALETTE.gold)
-		rowButton(r, "JOIN", PALETTE.good, 74, 40).Activated:Connect(function()
+		rowText(r, ("%s invited you"):format(state.invite.fromName), ROLE.heading)
+		rowButton(r, "JOIN", ROLE.affirm, 74, 40).Activated:Connect(function()
 			send("accept")
 		end)
-		rowButton(r, "X", PALETTE.bad, 30, 26).Activated:Connect(function()
+		rowButton(r, "X", ROLE.danger, 30, 26).Activated:Connect(function()
 			send("decline")
 		end)
 	end
@@ -122,12 +122,12 @@ local function render()
 			if member.userId ~= Players.LocalPlayer.UserId then
 				local r = row(1 + i)
 				rows += 1
-				rowText(r, ("%s   %s"):format(member.name, distanceTo(member.userId)), PALETTE.accent)
+				rowText(r, ("%s   %s"):format(member.name, distanceTo(member.userId)), ROLE.emphasis)
 			end
 		end
 		local r = row(99)
 		rows += 1
-		rowButton(r, "LEAVE", PALETTE.bad, 74, 66).Activated:Connect(function()
+		rowButton(r, "LEAVE", ROLE.danger, 74, 66).Activated:Connect(function()
 			send("leave")
 		end)
 	else
@@ -139,8 +139,8 @@ local function render()
 				shown += 1
 				local r = row(1 + shown)
 				rows += 1
-				rowText(r, other.DisplayName, PALETTE.accent)
-				rowButton(r, "INVITE", PALETTE.good, 74, 66).Activated:Connect(function()
+				rowText(r, other.DisplayName, ROLE.emphasis)
+				rowButton(r, "INVITE", ROLE.affirm, 74, 66).Activated:Connect(function()
 					send("invite", other.UserId)
 				end)
 			end

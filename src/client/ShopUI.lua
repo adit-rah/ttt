@@ -24,7 +24,7 @@ local Style = Req("Style")
 
 local ShopUI = {}
 
-local PALETTE = UiKit.PALETTE
+local ROLE = UiKit.ROLE
 
 local panel
 local rows = {}
@@ -50,18 +50,18 @@ local function buildSection(title: string, defs, y: number): number
 	UiKit.text(panel, {
 		Size = UDim2.new(1, -24, 0, 18),
 		Position = UDim2.fromOffset(12, y),
-		Font = Style.Font.head,
+		Font = Style.Font.title,
 		Text = title,
 		TextSize = 14,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = PALETTE.gold,
+		TextColor3 = ROLE.heading,
 	})
 	y += 22
 	for _, def in ipairs(defs) do
 		local row = Instance.new("Frame")
 		row.Size = UDim2.new(1, -16, 0, 34)
 		row.Position = UDim2.fromOffset(8, y)
-		row.BackgroundColor3 = PALETTE.panel
+		row.BackgroundColor3 = ROLE.surface
 		row.BackgroundTransparency = 0.35
 		row.BorderSizePixel = 0
 		row.Parent = panel
@@ -74,7 +74,7 @@ local function buildSection(title: string, defs, y: number): number
 			Text = def.name,
 			TextSize = 13,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.accent,
+			TextColor3 = ROLE.emphasis,
 		})
 		UiKit.text(row, {
 			Size = UDim2.new(1, -160, 0, 13),
@@ -83,9 +83,9 @@ local function buildSection(title: string, defs, y: number): number
 			Text = statLine(def),
 			TextSize = 11,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
-		local button = UiKit.button(row, "", PALETTE.good, {
+		local button = UiKit.button(row, "", ROLE.affirm, {
 			Size = UDim2.fromOffset(130, 26),
 			Position = UDim2.new(1, -138, 0, 4),
 		})
@@ -115,15 +115,15 @@ local function refresh()
 		end
 		if isOwned then
 			row.button.Text = "OWNED"
-			row.button.BackgroundColor3 = PALETTE.panel
+			row.button.BackgroundColor3 = ROLE.surface
 			row.button.Active = false
 		elseif blocked then
 			row.button.Text = "AFTER " .. blocked.name:upper():sub(1, 12)
-			row.button.BackgroundColor3 = PALETTE.panel
+			row.button.BackgroundColor3 = ROLE.surface
 			row.button.Active = false
 		else
 			row.button.Text = "$" .. Util.abbreviate(row.def.price)
-			row.button.BackgroundColor3 = PALETTE.good
+			row.button.BackgroundColor3 = ROLE.affirm
 			row.button.Active = true
 		end
 	end
@@ -143,13 +143,13 @@ function ShopUI.start()
 	UiKit.text(panel, {
 		Size = UDim2.new(1, -24, 0, 20),
 		Position = UDim2.fromOffset(12, y),
-		Font = Style.Font.head,
+		Font = Style.Font.title,
 		Text = "THE SHOP",
 		TextSize = 17,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = PALETTE.gold,
+		TextColor3 = ROLE.heading,
 	})
-	local close = UiKit.button(panel, "CLOSE", PALETTE.bad, {
+	local close = UiKit.button(panel, "CLOSE", ROLE.danger, {
 		Size = UDim2.fromOffset(64, 22),
 		Position = UDim2.new(1, -72, 0, 10),
 	})

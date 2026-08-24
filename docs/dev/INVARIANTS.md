@@ -1132,6 +1132,46 @@ defects in the same file.
   `UDim2.fromOffset` literal correct by construction. `[assert]` the `UI.MinScale`/`MaxScale`/
   reference-frame relationships, the physical-pixel floors for touch targets and small print,
   and that every modal fits the reference frame with margins.
+- **A field read off `UiKit` or `Style` is a field that module defines.** `Style.Font.head` is
+  read at five call sites and `Style.lua` declares `title` and `body`; because a nil value means
+  the key never enters the props-table literal, `UiKit.text`'s `pairs(props)` loop never visits
+  it, and every heading in the shop, the help card and the rebirth report rendered in the body
+  face for two rounds without erroring. The same class bit again immediately: moving the palette
+  into Config deleted `UiKit.INK` and left three reads of it in `HUD.lua`, which would have
+  thrown on the invite rail, on a device, after shipping. Pass 2 names undeclared globals and
+  this is a key on a table; pass 5 walks `Config.<path>` and stops there. `[lint]` `verify.py`
+  "module fields". A field assigned dynamically is still invisible to it — see §10.
+- **Colour in `src/client` is a role, and roles live in `Config.UI.Role`.** A builder names
+  `surface` or `onAction`; it never names `panel` and never writes a `Color3`. Two tables —
+  `Palette` for what the colours are, `Role` for what each is for — so retheming is an edit to
+  Config and to nothing in `src/client`. `UiKit.PALETTE` was three copies merged into one, and
+  merging them fixed the values while leaving nothing to stop a fourth: twenty-six raw `Color3`
+  calls had grown back across seven files, including the three that made `MovementClient`'s
+  touch buttons the only off-palette controls in the game. `[lint]` `verify.py` "ui colour".
+- **Every role names a palette key that exists, and every palette key is named by some role.**
+  The first half is `Style.Font.head` — five call sites reading a field never defined, rendering
+  in the wrong face for two rounds — closed for colour before it can happen. The second half is
+  what stops an orphan colour sitting in the table for the next person to pick because it is
+  there. `[assert]` both directions, plus a `UiKit` load-time `error()` on the first.
+- **Contrast is measured against what the player SEES, not against the swatch.** A label prints
+  on the card composited at `UI.PanelAlpha` over whatever is behind it, and the worst case
+  behind a card is a bright sky; measuring against the flat panel colour overstates every ratio
+  in the game by about a third. Body copy on a card clears 4.5:1, a stat line 3.0:1, and the
+  currency colour 4.5:1 because the balance is the largest type in the game. `[assert]`
+- **A fill and the ink on it are one decision, and the pairing is derived from the names.**
+  Role `x` is printed on in role `onX` wherever both exist, held to 3.0:1 — WCAG's large-text
+  case, which is what a bold button label at 15 px and up is. Nobody maintains a list of pairs,
+  so nobody can forget to add one. This is the check that would have caught the shop assigning
+  a disabled background and leaving the label at ink. `[assert]`
+- **The signals are told apart by hue, not by luminance.** `Config.UI.Signal` names the roles a
+  player has to distinguish at a glance — affordable, danger, a raid — and every pair is held to
+  a Manhattan distance of 40 across the three channels. A contrast ratio is the wrong test here:
+  two colours of the same luminance and different hue pass it and are still one colour with two
+  meanings on a phone. The wood scale is deliberately outside this set, because a surface and
+  the ink on it are meant to be close in hue. `[assert]`
+- **A dead control and a live one that is merely not the one you want must not render alike.**
+  `disabled` cannot be pressed; `neutral` is LEAVE PLOT beside REBIRTH and CANCEL beside DO IT.
+  They shared a palette key for exactly as long as it took the assertion to be written. `[assert]`
 - **Card-scale geometry belongs to `Config.UI`.** A 470×330 card written as a literal in
   `src/client` is a number the verifier cannot see, cannot scale-check and cannot fit against
   the panel next to it — which is how the upgrade shop came to sit on top of the NEXT UPGRADE
@@ -1389,6 +1429,11 @@ round can take a row rather than a subsystem.
 **A lint over `src/` would catch these** (text-level, cheap, the pattern already exists four
 times in `verify.py`):
 
+- A field assigned to `UiKit` or `Style` DYNAMICALLY, rather than in a `Module.name =` or
+  `function Module.name` line, is invisible to the "module fields" pass — it parses those two
+  forms out of the owner and nothing else. Neither owner does this today, and the pass fails
+  loudly if it parses zero fields, so the file changing shape is caught; the file growing a
+  computed export is not.
 - Nothing collidable near the belt except the running surface — a lint could require the
   `CanCollide = false` on the named decoration parts, or invert it: flag a new part built near
   a belt leg without it.

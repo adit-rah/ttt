@@ -17,7 +17,7 @@ local Style = Req("Style")
 
 local ObjectivesUI = {}
 
-local PALETTE = UiKit.PALETTE
+local ROLE = UiKit.ROLE
 local WIDTH = Config.UI.SessionPanel.Width
 
 local panel
@@ -45,7 +45,7 @@ local function render()
 		Text = "TODAY",
 		TextSize = 12,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = PALETTE.muted,
+		TextColor3 = ROLE.onSurfaceMuted,
 	})
 	y += 18
 
@@ -57,7 +57,7 @@ local function render()
 			Text = ("%s  %s"):format(row.done and "✓" or ("%d/%d"):format(row.progress, row.count), row.name),
 			TextSize = 12,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = row.done and PALETTE.good or PALETTE.accent,
+			TextColor3 = row.done and ROLE.affirm or ROLE.emphasis,
 		})
 		y += 17
 	end
@@ -70,7 +70,7 @@ local function render()
 			Text = state.hint,
 			TextSize = 11,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = PALETTE.muted,
+			TextColor3 = ROLE.onSurfaceMuted,
 		})
 		hint.TextWrapped = true
 		y += 30

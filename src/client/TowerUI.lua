@@ -16,6 +16,8 @@ local Style = Req("Style")
 
 local TowerUI = {}
 
+local ROLE = UiKit.ROLE
+
 local WIDTH, HEIGHT = 300, 22
 
 local strip, label
@@ -59,7 +61,7 @@ function TowerUI.start()
 	})
 	strip.AnchorPoint = Vector2.new(0.5, 0)
 	strip.Position = UDim2.new(0.5, 0, 0, 30)
-	strip.BackgroundColor3 = Color3.fromRGB(26, 14, 40)
+	strip.BackgroundColor3 = ROLE.surface
 	strip.BackgroundTransparency = 0.35
 	UiKit.corner(strip, 10)
 	strip.Visible = false
@@ -69,7 +71,7 @@ function TowerUI.start()
 		Font = Style.Font.body,
 		Text = "",
 		TextSize = 13,
-		TextColor3 = Color3.fromRGB(220, 190, 255),
+		TextColor3 = ROLE.onSurface,
 	})
 
 	Net.event("TowerState").OnClientEvent:Connect(function(payload)

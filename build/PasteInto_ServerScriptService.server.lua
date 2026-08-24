@@ -725,6 +725,100 @@ __MODULES["Config"] = function()
 		MinScale = 0.62,
 		MaxScale = 1.0,
 
+		-- ── COLOUR, AS A ROLE ────────────────────────────────────────────────────
+		--
+		-- mechanism: two tables, and the split is the point. `Palette` is what the
+		-- colours ARE; `Role` is what each one is FOR. Every builder names a role
+		-- and never a palette key, so retheming the game is an edit to these two
+		-- tables and to nothing in src/client.
+		--
+		-- WHY THIS IS IN CONFIG AND NOT IN UiKit. verify_config.lua stubs
+		-- Color3.fromRGB as { r, g, b } and can do arithmetic on it, so a palette
+		-- here is a palette the verifier can hold against WCAG contrast — which is
+		-- the only reason INVARIANTS §7's total silence on colour is fixable.
+		-- UiKit.PALETTE was three copies of a palette merged into one, and the merge
+		-- fixed the values while leaving nothing to stop a fourth copy appearing:
+		-- twenty-six raw Color3 calls were in src/client when this table was
+		-- written. verify.py's ui-ownership pass is what keeps that at zero.
+		--
+		-- design:D-05 — the screen is drawn in one system.
+		Palette = {
+			panel   = Color3.fromRGB( 22,  18,  32),
+			panel2  = Color3.fromRGB( 32,  26,  46),
+			accent  = Color3.fromRGB(190, 130, 255),
+			gold    = Color3.fromRGB(255, 205,  90),
+			good    = Color3.fromRGB(120, 235, 160),
+			bad     = Color3.fromRGB(255, 110, 110),
+			text    = Color3.fromRGB(238, 232, 250),
+			muted   = Color3.fromRGB(160, 150, 180),
+			dead    = Color3.fromRGB( 90,  84, 104),
+			neutral = Color3.fromRGB(120, 110, 140),
+			wave    = Color3.fromRGB(255, 150,  60),
+			boss    = Color3.fromRGB(255,  90,  60),
+			ink     = Color3.fromRGB( 20,  16,  28),
+			shade   = Color3.fromRGB(  0,   0,   0),
+		},
+
+		-- Every role a builder is allowed to name. A role that resolves to a key
+		-- Palette does not hold fails the build — the same failure Style.Font.head
+		-- got away with for two rounds, closed here before it can happen for colour.
+		--
+		-- THE `on*` ROLES ARE WHAT PRINTS ON THE ROLE THEY ARE NAMED AFTER, and they
+		-- exist because a fill and its label are one decision. Assigning a disabled
+		-- background and leaving the label at ink is how the shop shipped a buy
+		-- button nobody could read.
+		Role = {
+			-- surfaces
+			surface        = "panel",
+			surfaceRaised  = "panel2",
+			line           = "accent",
+			scrim          = "shade",
+			-- ink on a surface
+			onSurface      = "text",
+			onSurfaceMuted = "muted",
+			-- fills, and what prints on each
+			action         = "accent",  onAction   = "ink",
+			affirm         = "good",    onAffirm   = "ink",
+			danger         = "bad",     onDanger   = "ink",
+			disabled       = "dead",    onDisabled = "text",
+			-- A control that is live and is not the one you want: LEAVE PLOT next to
+			-- REBIRTH, CANCEL next to DO IT. Distinct from `disabled`, which cannot be
+			-- pressed at all, and the two must never render the same.
+			neutral        = "neutral", onNeutral  = "ink",
+			-- The ink a gold surface takes: the coin's face, a price on a gold pill.
+			onCurrency     = "ink",
+			-- meaning
+			currency       = "gold",
+			heading        = "gold",
+			emphasis       = "accent",
+			progress       = "gold",
+			progressTrack  = "panel2",
+			notice         = "accent",
+			warn           = "wave",
+			alarm          = "boss",
+			-- drawn glyphs: the ink, and the colour a punched hole shows through to
+			glyph          = "text",
+			glyphCut       = "panel",
+		},
+
+		-- invariant: THE ROLES A PLAYER HAS TO TELL APART AT A GLANCE. Everything
+		-- here is a state or a warning, and two of them rendering alike is a player
+		-- who cannot see that a thing became affordable. The verifier holds every
+		-- pair to a channel distance. The wood scale is deliberately NOT in this
+		-- list: a surface and the ink on it are meant to be close in hue, and they
+		-- are told apart by contrast instead.
+		Signal = { "currency", "affirm", "danger", "warn", "alarm", "notice", "disabled" },
+
+		-- invariant: THE ALPHA EVERY CARD IS DRAWN AT, here rather than in UiKit
+		-- because contrast is measured against what the player SEES. A panel at 0.12
+		-- over a bright sky is not the panel colour; it is that colour mixed an
+		-- eighth of the way to the sky, and every label on it reads against the mix.
+		PanelAlpha = 0.12,
+		-- What the verifier composites against: the brightest thing that can be
+		-- behind a card. Roblox skies clip near this, and a HUD cannot choose its
+		-- backdrop, so the worst case is the only honest one to measure.
+		SkyR = 215, SkyG = 232, SkyB = 250,
+
 		-- The gutter every panel keeps from the edge of the design canvas, and the
 		-- gap between two panels stacked in one column.
 		Margin = 18,

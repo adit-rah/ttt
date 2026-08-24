@@ -4,9 +4,11 @@ verify.py — full pre-flight check for Tung Tung Tycoon.
 
     python3 tools/verify.py [--luau /path/to/luau] [--analyze /path/to/luau-analyze]
 
-Runs THIRTEEN passes, in order. Keep this list and main() in step -- it has said
-five, seven and eight while main() ran nine, and a pass count nobody can trust
-is a pass somebody can quietly delete.
+Runs SIXTEEN passes, in order. Keep this list and main() in step -- it has said
+five, seven, eight and thirteen while main() ran nine, then fourteen, and a pass
+count nobody can trust is a pass somebody can quietly delete. It was wrong again
+when `ui colour` was added: the list had never carried `tycoon method
+resolution` at all.
 
   1. syntax        every file in src/ and tools/testing/ compiles (luau-compile)
   2. analysis      luau-analyze, with the Roblox globals NAMED (see ROBLOX_GLOBALS)
@@ -14,14 +16,17 @@ is a pass somebody can quietly delete.
   3. style         nothing but Style.lua names a font, an outline or a view distance
   4. prototypes    every Config.Prototypes flag read is a flag that exists
   5. config paths  every Config.<path> read in src/ names a key that exists
-  6. mixin folders a split class's aggregator requires every file in its folder
-  7. ui geometry   no card-scale literal in src/client; it comes from Config.UI
-  8. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
-  9. design refs   every design:D-NN cited in source names a row in DECISIONS.md
- 10. comment triage a long comment block declares which of the four homes it is
- 11. config        the integrity suite in tools/verify_config.lua
- 12. specs         the runtime specs in tools/testing, via tools/test.py
- 13. packed build  regenerates build/ and syntax-checks the output
+  6. module fields every UiKit.<field> and Style.Font.<face> read is one that exists
+  7. mixin folders a split class's aggregator requires every file in its folder
+  8. method res    a tycoon mixin does not shadow a method another mixin defines
+  9. ui geometry   no card-scale literal in src/client; it comes from Config.UI
+ 10. ui colour     no Color3 literal in src/client; it comes from Config.UI.Role
+ 11. one screengui HUD.lua owns the only ScreenGui, so there is one UIScale
+ 12. design refs   every design:D-NN cited in source names a row in DECISIONS.md
+ 13. comment triage a long comment block declares which of the four homes it is
+ 14. config        the integrity suite in tools/verify_config.lua
+ 15. specs         the runtime specs in tools/testing, via tools/test.py
+ 16. packed build  regenerates build/ and syntax-checks the output
 
 Exit code is non-zero if anything fails, so it drops straight into CI.
 """
@@ -240,6 +245,141 @@ def check_ui_geometry(files):
     print(f"  {GREEN}ok{RESET}  every card-scale size in src/client comes from {UI_GEOMETRY_OWNER}")
     return True
 
+
+# COLOUR IN src/client COMES FROM Config.UI.Role, AND FROM NOWHERE ELSE.
+#
+# UiKit.PALETTE was written out three times before it was merged, and the merge
+# fixed the values while leaving nothing to stop a fourth copy. What actually
+# grew back was worse than a fourth copy: twenty-six raw Color3 calls scattered
+# across seven files, including three in MovementClient.lua for the only square,
+# off-palette, wrong-font buttons in the game, and a `ko` toast colour sitting in
+# a table whose other nine entries all read the palette.
+#
+# None of that was visible to anything. The style pass greps for Enum.Font,
+# TextStrokeTransparency and MaxDistance; a colour is none of the three.
+#
+# The rule has teeth because the values now live in Config, where
+# verify_config.lua holds every role against WCAG contrast on a composited card.
+# A literal here is a colour outside that check -- so it is not merely
+# inconsistent, it is unmeasured.
+COLOUR_OWNER = "Config.UI.Role"
+COLOUR_LITERAL = re.compile(r"Color3\s*\.\s*(fromRGB|new|fromHSV|fromHex)\s*\(")
+
+
+def check_ui_colour(files):
+    step("ui colour")
+    findings = []
+    for path in client_sources(files):
+        rel = path.relative_to(ROOT).as_posix()
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("--"):
+                continue
+            if COLOUR_LITERAL.search(line):
+                findings.append((rel, number, line.strip()))
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for rel, number, text in findings:
+            print(f"    {rel}:{number} builds a colour from numbers — name a role in {COLOUR_OWNER}")
+            print(f"      {DIM}{text}{RESET}")
+        return False
+    print(f"  {GREEN}ok{RESET}  every colour in src/client resolves through {COLOUR_OWNER}")
+    return True
+
+# A FIELD READ OFF A MODULE TABLE MUST BE A FIELD THAT MODULE DEFINES.
+#
+# This is the shape of bug that survives everything else in this file. Pass 2
+# names undeclared GLOBALS, and the thing that goes missing here is a key on a
+# table. Pass 5 walks Config.<path> and stops there.
+#
+# It has now happened twice. `Style.Font.head` is read at five call sites and
+# Style.lua defines `title` and `body` -- and because a nil value means the key
+# never enters the props-table literal, UiKit.text's `for k, v in pairs(props)`
+# loop never visits it and every heading in the shop, the help card and the
+# rebirth report renders in the body face. Nothing errors, ever. Then the PR
+# that moved the palette into Config deleted `UiKit.INK` and left three reads of
+# it in HUD.lua, which WOULD have errored -- on the invite rail, on a device,
+# after the change had shipped.
+#
+# The two owners here are the two that have failed. Widening this to every
+# module means parsing every module's exports, and the honest limit is that a
+# field assigned dynamically is invisible to it -- see INVARIANTS section 10.
+FIELD_OWNERS = {
+    "UiKit": "src/client/UiKit.lua",
+    "Style": "src/shared/Style.lua",
+}
+# `Style.Font` is a table of faces rather than a flat field, and it is the one
+# that shipped the defect, so its keys are collected as `Font.title` and read
+# back the same way.
+NESTED_TABLES = {("Style", "Font")}
+
+
+def _defined_fields(path, module):
+    text = path.read_text(encoding="utf-8")
+    found = set()
+    for match in re.finditer(rf"^(?:local\s+)?function\s+{module}\.(\w+)", text, re.M):
+        found.add(match.group(1))
+    for match in re.finditer(rf"^{module}\.(\w+)\s*=", text, re.M):
+        found.add(match.group(1))
+    for _, table in (p for p in NESTED_TABLES if p[0] == module):
+        block = re.search(rf"^{module}\.{table}\s*=\s*\{{(.*?)^\}}", text, re.M | re.S)
+        if block:
+            for key in re.finditer(r"^\s*(\w+)\s*=", block.group(1), re.M):
+                found.add(f"{table}.{key.group(1)}")
+    return found
+
+
+def check_module_fields(files):
+    step("module fields")
+    known = {}
+    for module, rel in FIELD_OWNERS.items():
+        path = ROOT / rel
+        if not path.exists():
+            print(f"  {RED}missing {rel}{RESET} — this pass names it as the owner of {module}.<field>")
+            return False
+        known[module] = _defined_fields(path, module)
+        if not known[module]:
+            print(f"  {RED}no fields parsed out of {rel}{RESET} — the file's shape changed and this pass went blind")
+            return False
+
+    findings = []
+    for path in files:
+        rel = path.relative_to(ROOT).as_posix()
+        owner_of = {m: r for m, r in FIELD_OWNERS.items()}
+        # Every module here opens with a --[[ ]] header that names the other
+        # modules in prose, so block comments have to be skipped and not just
+        # `--` lines. Line numbers are kept by blanking rather than dropping.
+        in_block = False
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if in_block:
+                if "]]" in line:
+                    in_block = False
+                continue
+            if "--[[" in line:
+                in_block = "]]" not in line.split("--[[", 1)[1]
+                continue
+            if line.lstrip().startswith("--"):
+                continue
+            for module, rel_owner in owner_of.items():
+                if rel == rel_owner:
+                    continue
+                # `Config.Style.RaidSignHeight` is the Config table, not the Style
+                # module. Anything with a dot or a word character in front of the
+                # name is somebody else's field.
+                for match in re.finditer(rf"(?<![\w.]){module}\.(\w+)(?:\.(\w+))?", line):
+                    head, tail = match.group(1), match.group(2)
+                    nested = f"{head}.{tail}" if tail and (module, head) in NESTED_TABLES else None
+                    name = nested or head
+                    if name not in known[module]:
+                        findings.append((rel, number, module, name, rel_owner, line.strip()))
+    if findings:
+        print(f"  {RED}{len(findings)} finding(s){RESET}")
+        for rel, number, module, name, rel_owner, text in findings:
+            print(f"    {rel}:{number} reads {module}.{name}, which {rel_owner} does not define")
+            print(f"      {DIM}{text}{RESET}")
+        return False
+    total = sum(len(v) for v in known.values())
+    print(f"  {GREEN}ok{RESET}  every field read off {'/'.join(FIELD_OWNERS)} is one of the {total} they define")
+    return True
 
 # ONE ScreenGui MEANS ONE UIScale.
 #
@@ -892,9 +1032,11 @@ def main():
         check_style(files),
         check_prototypes(files),
         check_config_paths(files),
+        check_module_fields(files),
         check_mixin_folders(),
         check_method_resolution(files),
         check_ui_geometry(files),
+        check_ui_colour(files),
         check_single_screengui(files),
         check_design_refs(files),
         check_comment_triage(files),
