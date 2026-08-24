@@ -25,6 +25,9 @@ local Style = Req("Style")
 local ShopUI = {}
 
 local ROLE = UiKit.ROLE
+local UI = Config.UI
+local BUY_WIDTH = 132
+local ROW_HEIGHT = UI.Button.pill + 8
 
 local panel
 local rows = {}
@@ -59,7 +62,7 @@ local function buildSection(title: string, defs, y: number): number
 	y += 22
 	for _, def in ipairs(defs) do
 		local row = Instance.new("Frame")
-		row.Size = UDim2.new(1, -16, 0, 34)
+		row.Size = UDim2.new(1, -16, 0, ROW_HEIGHT)
 		row.Position = UDim2.fromOffset(8, y)
 		row.BackgroundColor3 = ROLE.surface
 		row.BackgroundTransparency = 0.35
@@ -85,15 +88,18 @@ local function buildSection(title: string, defs, y: number): number
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.onSurfaceMuted,
 		})
-		local button = UiKit.button(row, "", ROLE.affirm, {
-			Size = UDim2.fromOffset(130, 26),
-			Position = UDim2.new(1, -138, 0, 4),
+		-- 130x26 was an 81x16 physical target at MinScale, on the buy button of
+		-- the game's only storefront. The row grows to hold a real one; the rest
+		-- of this card's layout is #183's next step.
+		local button = UiKit.control(row, {
+			variant = "pill", text = "", width = BUY_WIDTH,
+			position = UDim2.new(1, -(BUY_WIDTH + 8), 0, math.round((ROW_HEIGHT - UI.Button.pill) / 2)),
 		})
 		button.Activated:Connect(function()
 			Net.event("Shop"):FireServer({ action = "buy", id = def.id })
 		end)
 		rows[def.id] = { def = def, nameLabel = name, button = button }
-		y += 38
+		y += ROW_HEIGHT + 4
 	end
 	return y + 6
 end
@@ -113,18 +119,18 @@ local function refresh()
 				break
 			end
 		end
+		-- A state, not a colour. The inline version set a fill and Active and
+		-- left AutoButtonColor on, so a dead button still flashed under a thumb,
+		-- and left the ink at the live variant's, so OWNED printed unreadably.
 		if isOwned then
 			row.button.Text = "OWNED"
-			row.button.BackgroundColor3 = ROLE.surface
-			row.button.Active = false
+			UiKit.setControlState(row.button, "disabled")
 		elseif blocked then
 			row.button.Text = "AFTER " .. blocked.name:upper():sub(1, 12)
-			row.button.BackgroundColor3 = ROLE.surface
-			row.button.Active = false
+			UiKit.setControlState(row.button, "disabled")
 		else
 			row.button.Text = "$" .. Util.abbreviate(row.def.price)
-			row.button.BackgroundColor3 = ROLE.affirm
-			row.button.Active = true
+			UiKit.setControlState(row.button, "idle")
 		end
 	end
 end
@@ -149,9 +155,9 @@ function ShopUI.start()
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = ROLE.heading,
 	})
-	local close = UiKit.button(panel, "CLOSE", ROLE.danger, {
-		Size = UDim2.fromOffset(64, 22),
-		Position = UDim2.new(1, -72, 0, 10),
+	local close = UiKit.control(panel, {
+		variant = "ghost", name = "Close", icon = "close", iconOnly = true,
+		position = UDim2.new(1, -(UI.Button.IconOnly + 8), 0, 8),
 	})
 	close.Activated:Connect(function()
 		panel.Visible = false

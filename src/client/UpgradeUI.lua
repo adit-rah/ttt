@@ -66,8 +66,8 @@ local flashUntil = 0
 -- builders (UiKit's — see the header)
 -- ─────────────────────────────────────────────────────────────────────────────
 
-local corner, stroke, panel, text, button =
-	UiKit.corner, UiKit.stroke, UiKit.panel, UiKit.text, UiKit.button
+local corner, stroke, panel, text =
+	UiKit.corner, UiKit.stroke, UiKit.panel, UiKit.text
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- rows
@@ -378,12 +378,11 @@ local function buildPanel(parent: Instance)
 end
 
 local function buildToggle(parent: Instance)
-	toggleButton = button(parent, "UPGRADES", ROLE.action, {
-		Name = "UpgradeToggle",
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.Margin),
-		Size = UDim2.fromOffset(UI.Action.Width, UI.Button.pill),
-		TextSize = 18,
+	toggleButton = UiKit.control(parent, {
+		variant = "primary", height = "pill", text = "UPGRADES",
+		name = "UpgradeToggle", width = UI.Action.Width,
+		anchor = Vector2.new(0, 1),
+		position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.Margin),
 	})
 	toggleButton.Activated:Connect(function()
 		panelFrame.Visible = not panelFrame.Visible
@@ -394,13 +393,13 @@ local function buildToggle(parent: Instance)
 end
 
 local function buildChip(parent: Instance)
-	chipButton = button(parent, "", ROLE.action, {
-		Name = "UtilityChip",
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.ShopPanel.BottomGapNoUtility),
-		Size = UDim2.fromOffset(UI.Action.Width, UI.Button.pill),
-		Visible = false,
+	chipButton = UiKit.control(parent, {
+		variant = "primary", height = "pill", text = "",
+		name = "UtilityChip", width = UI.Action.Width,
+		anchor = Vector2.new(0, 1),
+		position = UDim2.new(0, UI.ShopPanel.X, 1, -UI.ShopPanel.BottomGapNoUtility),
 	})
+	chipButton.Visible = false
 	chipLabel = text(chipButton, {
 		Size = UDim2.fromScale(1, 1),
 		Font = Style.Font.title,

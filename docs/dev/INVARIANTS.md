@@ -1141,6 +1141,35 @@ defects in the same file.
   thrown on the invite rail, on a device, after shipping. Pass 2 names undeclared globals and
   this is a key on a table; pass 5 walks `Config.<path>` and stops there. `[lint]` `verify.py`
   "module fields". A field assigned dynamically is still invisible to it — see §10.
+- **A control is a variant and a state, and `Config.UI.Button.Variant` holds all five rows.**
+  A variant is a fill role, the ink role that prints on it, the text size, and the height it
+  takes unless a caller names another rung. Height is the one overridable field, and only with
+  another ladder name: BOOST means what REBIRTH means and sits in a row that cannot afford 56 px,
+  which without the override is a sixth variant differing from the fifth by a number. `[assert]`
+  every variant's height is on the ladder and clears `MinTouchPx`; its `textPx` clears
+  `MinTextPx` and fits its own box; its fill and ink are roles that exist and contrast at 3.0:1;
+  the text ladder descends. `[spec]` `control_spec.lua`.
+- **`TextScaled` is gone from every control.** It sizes a label from its own box, so REBIRTH and
+  NOT ENOUGH TUNG printed at two sizes in one modal, and not one of those sizes was a number the
+  verifier could hold against `MinTextPx`. `SessionUI` carried a shim forcing sized text at 15
+  and its argument was right; the shim is deleted and its 15 is the `pill` variant's. `[spec]`
+- **A state sets all six properties, and four of them are the ones nobody remembers.** `idle` /
+  `on` / `disabled` / `busy`. Written inline at four call sites, every one set a fill and `Active`
+  and left `AutoButtonColor` on (a dead control still flashing under a thumb), left the ink at the
+  live variant's (`OWNED` printed dark on dark), and left `Selectable` on (a gamepad still landing
+  there). `on` is the state a disabled fill cannot express — a running boost and a held sprint are
+  live effects, and greying one reads as it having stopped. `[spec]`
+- **Every touch target in the game comes off the `UI.Button` ladder, and now that is true.**
+  `verify_config` asserted `Button.pill >= MinTouchPx` with a message claiming the pill was the
+  smallest button drawn; five controls typed their own size and landed under it — the shop's buy
+  at 26, both CLOSE buttons at 22, ONWARD at 26, and every party row control at 20, which is
+  sixteen by twelve PHYSICAL pixels at `MinScale`. `PartyPanel.RowHeight` is derived from the
+  ladder rather than typed, so it cannot drift back. `[assert]`
+- **A glyph-only control is square at `Button.IconOnly` and carries no label.** It is how a
+  control with nothing to say clears the touch floor — a CLOSE sized to the word "CLOSE" is 22 px
+  tall. `[assert]` `[spec]`
+- **A labelled glyph control hands its text to a sibling of the drawing.** A `TextButton` with
+  `Text` set runs it UNDER a child glyph. `[spec]`
 - **Every icon is drawn from four primitives on one 24-unit grid, and the stroke weight is
   resolved ONCE per drawing.** `rect`, `dot`, `bar` and `ring`, because a Frame with a `UICorner`
   is the only thing this game can draw. `bar` takes two POINTS and derives its own length and

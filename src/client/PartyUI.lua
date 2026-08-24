@@ -26,6 +26,7 @@ local PartyUI = {}
 
 local ROLE = UiKit.ROLE
 local P = Config.UI.PartyPanel
+local UI = Config.UI
 local WIDTH = Config.UI.SessionPanel.Width   -- one column, one width
 
 local panel
@@ -61,8 +62,8 @@ end
 
 local function rowText(parent: Frame, textValue: string, color: Color3)
 	return UiKit.text(parent, {
-		Size = UDim2.new(1, -74, 1, 0),
-		Position = UDim2.fromOffset(8, 0),
+		Size = UDim2.fromOffset(P.TextWidth, P.RowHeight),
+		Position = UDim2.fromOffset(P.Pad, 0),
 		Font = Style.Font.body,
 		Text = textValue,
 		TextSize = 14,
@@ -71,12 +72,22 @@ local function rowText(parent: Frame, textValue: string, color: Color3)
 	})
 end
 
-local function rowButton(parent: Frame, label: string, color: Color3, x: number, width: number)
-	local b = UiKit.button(parent, label, color, {
-		Size = UDim2.fromOffset(width, P.RowHeight - 4),
-		Position = UDim2.new(1, -x, 0, 2),
+--- A row's control, right-aligned. Every one is a full touch target now: the
+--- height comes off the ladder through P.RowHeight rather than from the row.
+local function rowButton(parent: Frame, label: string, variant: string, x: number)
+	return UiKit.control(parent, {
+		variant = variant, text = label, width = P.ActionWidth,
+		position = UDim2.new(1, -x, 0, math.round((P.RowHeight - UI.Button.pill) / 2)),
 	})
-	return b
+end
+
+--- The decline. A glyph rather than an "X" typed into a 26-px box, which is how
+--- it came to be the smallest control in the game.
+local function rowClose(parent: Frame, x: number)
+	return UiKit.control(parent, {
+		variant = "danger", name = "Decline", icon = "close", iconOnly = true,
+		position = UDim2.new(1, -x, 0, math.round((P.RowHeight - UI.Button.IconOnly) / 2)),
+	})
 end
 
 --- The whole card, rebuilt from state. Cheap: at most MaxSize + a header of
@@ -109,10 +120,10 @@ local function render()
 		local r = row(1)
 		rows += 1
 		rowText(r, ("%s invited you"):format(state.invite.fromName), ROLE.heading)
-		rowButton(r, "JOIN", ROLE.affirm, 74, 40).Activated:Connect(function()
+		rowButton(r, "JOIN", "pill", P.PairX).Activated:Connect(function()
 			send("accept")
 		end)
-		rowButton(r, "X", ROLE.danger, 30, 26).Activated:Connect(function()
+		rowClose(r, P.CloseX).Activated:Connect(function()
 			send("decline")
 		end)
 	end
@@ -127,7 +138,7 @@ local function render()
 		end
 		local r = row(99)
 		rows += 1
-		rowButton(r, "LEAVE", ROLE.danger, 74, 66).Activated:Connect(function()
+		rowButton(r, "LEAVE", "danger", P.ActionX).Activated:Connect(function()
 			send("leave")
 		end)
 	else
@@ -140,7 +151,7 @@ local function render()
 				local r = row(1 + shown)
 				rows += 1
 				rowText(r, other.DisplayName, ROLE.emphasis)
-				rowButton(r, "INVITE", ROLE.affirm, 74, 66).Activated:Connect(function()
+				rowButton(r, "INVITE", "pill", P.ActionX).Activated:Connect(function()
 					send("invite", other.UserId)
 				end)
 			end

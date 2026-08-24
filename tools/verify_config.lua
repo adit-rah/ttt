@@ -3873,6 +3873,95 @@ end
 check(UI.PanelAlpha >= 0 and UI.PanelAlpha <= 0.2,
 	("UI.PanelAlpha is %.2f; past 0.2 the card is mostly whatever is behind it"):format(UI.PanelAlpha))
 
+-- ── controls ────────────────────────────────────────────────────────────────
+--
+-- EVERY BUTTON IN THE GAME IS A ROW IN THIS TABLE NOW, which is what makes the
+-- touch floor below mean something. It did not before: verify_config asserted
+-- `Button.pill >= MinTouchPx` with a message claiming the pill was the smallest
+-- button the game draws, and five controls typed their own size and landed
+-- under it — the shop's buy at 26, both CLOSE buttons at 22, ONWARD at 26, and
+-- every party row control at 20, which is sixteen by twelve PHYSICAL pixels at
+-- MinScale on the card that asks a stranger to join you.
+
+local BTN = UI.Button
+
+for name, variant in pairs(BTN.Variant) do
+	local height = BTN[variant.height]
+	check(height ~= nil,
+		("the %q variant asks for height %q, which is not a rung of the Button ladder")
+			:format(name, tostring(variant.height)))
+	if height then
+		check(height >= UI.MinTouchPx,
+			("the %q variant is %d design px tall against a touch floor of %d")
+				:format(name, height, UI.MinTouchPx))
+		-- The label has to fit the box it is centred in, with the control's own
+		-- padding either side of it.
+		check(variant.textPx + BTN.Pad <= height,
+			("the %q variant prints %d-px text in a %d-px box with %d of padding; the label does not fit its own control")
+				:format(name, variant.textPx, height, BTN.Pad))
+	end
+	check(variant.textPx >= UI.MinTextPx,
+		("the %q variant prints at %d design px, %.1f physical at MinScale — under the %d-px floor this file declares")
+			:format(name, variant.textPx, variant.textPx * UI.MinScale, UI.MinTextPx))
+
+	-- A variant may pair any fill with any ink, so the derived on-X contrast
+	-- family above does not reach it. This one does.
+	local fill, ink = UI.Role[variant.fill], UI.Role[variant.ink]
+	check(fill ~= nil, ("the %q variant fills with role %q, which does not exist"):format(name, tostring(variant.fill)))
+	check(ink ~= nil, ("the %q variant inks with role %q, which does not exist"):format(name, tostring(variant.ink)))
+	if fill and ink then
+		local ratio = contrast(PAL[fill], PAL[ink])
+		check(ratio >= 3.0,
+			("the %q variant prints %s on %s at %.2f:1, under the 3.0 a bold button label needs")
+				:format(name, variant.ink, variant.fill, ratio))
+	end
+	if variant.stroke then
+		check(UI.Role[variant.stroke] ~= nil,
+			("the %q variant strokes with role %q, which does not exist"):format(name, tostring(variant.stroke)))
+	end
+end
+
+-- The two non-idle looks, held to the same bar. A disabled label nobody can
+-- read is how the shop shipped OWNED in ink on a dark fill.
+for state, look in pairs({ Disabled = BTN.Disabled, On = BTN.On }) do
+	local fill, ink = UI.Role[look.fill], UI.Role[look.ink]
+	check(fill ~= nil and ink ~= nil,
+		("the %s state names roles %q/%q and one of them does not exist"):format(state, tostring(look.fill), tostring(look.ink)))
+	if fill and ink then
+		check(contrast(PAL[fill], PAL[ink]) >= 3.0,
+			("the %s state prints %s on %s at %.2f:1, under the 3.0 a bold button label needs")
+				:format(state, look.ink, look.fill, contrast(PAL[fill], PAL[ink])))
+	end
+end
+
+check(BTN.IconOnly >= UI.MinTouchPx,
+	("a glyph-only control is %d design px square against a touch floor of %d — it has no label to grow it")
+		:format(BTN.IconOnly, UI.MinTouchPx))
+check(BTN.MinWidth >= UI.MinTouchPx,
+	("the narrowest control is %d design px wide against a touch floor of %d"):format(BTN.MinWidth, UI.MinTouchPx))
+-- A glyph inside a control, with the control's padding above and below it.
+check(UI.Icon.Medium + BTN.Pad <= BTN.pill,
+	("a %d-px glyph plus %d of padding does not fit the %d-px pill it is drawn in")
+		:format(UI.Icon.Medium, BTN.Pad, BTN.pill))
+-- ...and the label beside it has somewhere to go.
+check(BTN.LabelInset + 40 <= BTN.MinWidth + UI.Icon.Medium,
+	("a control carrying a glyph starts its label at %d, which leaves nothing of a %d-px minimum width")
+		:format(BTN.LabelInset, BTN.MinWidth))
+check(BTN.Variant.primary.textPx > BTN.Variant.secondary.textPx
+	and BTN.Variant.secondary.textPx >= BTN.Variant.pill.textPx,
+	("the variant text sizes are primary %d, secondary %d, pill %d; a ladder that does not descend means the names carry no weight")
+		:format(BTN.Variant.primary.textPx, BTN.Variant.secondary.textPx, BTN.Variant.pill.textPx))
+
+-- EVERY PARTY ROW HOLDS A TOUCH TARGET. The row height is derived from the
+-- ladder rather than typed, so this cannot drift — it is here to say why the
+-- derivation exists and to fail if somebody types it back.
+check(UI.PartyPanel.RowHeight >= UI.Button.pill,
+	("a party row is %d design px and the control in it is %d; the row shipped at 24 and gave every button on the card a height of 20")
+		:format(UI.PartyPanel.RowHeight, UI.Button.pill))
+check(UI.PartyPanel.TextWidth >= 90,
+	("a party row leaves %d px for a display name beside its controls; under 90 every name is an ellipsis")
+		:format(UI.PartyPanel.TextWidth))
+
 -- ── icons ───────────────────────────────────────────────────────────────────
 --
 -- ONE OPTICAL WEIGHT ACROSS THE SET, expressed as arithmetic rather than as a
@@ -3939,7 +4028,7 @@ check(UI.MinTextPx * UI.MinScale >= 8,
 -- Every button height in the game comes from UI.Button, so asserting the
 -- smallest of the three asserts all of them.
 check(UI.Button.pill >= UI.MinTouchPx,
-	("UI.Button.pill is %d and the touch floor is %d; the pill is the SMALLEST button the game draws, so it is the one that decides")
+	("UI.Button.pill is %d and the touch floor is %d; the pill is the shortest rung of the ladder, and since every control in the game is a Config.UI.Button.Variant row it really is the smallest button drawn — that clause was FALSE for two rounds while five controls typed their own size")
 		:format(UI.Button.pill, UI.MinTouchPx))
 check(UI.Button.secondary >= UI.Button.pill and UI.Button.primary >= UI.Button.secondary,
 	("the button ladder is primary %d, secondary %d, pill %d — it has to be ordered or the names mean nothing")
@@ -4102,12 +4191,15 @@ check(UI.SessionPanel.BarHeight < UI.MinTouchPx,
 -- Its text, against the same floor the status card's is held to. Three of these
 -- shipped at 12 — 7.4 physical px at MinScale — as literals in SessionUI.lua,
 -- which is the same defect the NEXT UPGRADE heading had and for the same reason.
+--
+-- The claim pill and the boost button used to be in this list. Their sizes are
+-- Config.UI.Button.Variant's now, held against the same floor with every other
+-- control's in the variant block above — a button's text size is a property of
+-- what KIND of button it is, not of which panel it happens to sit in.
 local panelText = {
 	{ "SESSION heading", UI.SessionPanel.HeadTextPx },
 	{ "row title", UI.SessionPanel.RowTitleTextPx },
 	{ "row sub-line", UI.SessionPanel.RowSubTextPx },
-	{ "claim pill", UI.SessionPanel.ActionTextPx },
-	{ "boost button", UI.SessionPanel.BoostTextPx },
 }
 for _, row in ipairs(panelText) do
 	check(row[2] >= UI.MinTextPx,
