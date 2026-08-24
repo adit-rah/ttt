@@ -42,9 +42,9 @@ local GuiService = game:GetService("GuiService")
 local UI = Config.UI
 -- Spelled from `Config` rather than from `UI`, exactly like HUD.lua's CARD, so
 -- verify.py's config-path pass can resolve it: it follows ONE alias hop, and a
--- `local RAIL = UI.Rail` would be a name it has no way to check reads against.
-local RAIL = Config.UI.Rail
+-- `local TILE = UI.Tile` would be a name it has no way to check reads against.
 local ICON = Config.UI.Icon
+local TILE = Config.UI.Tile
 local BTN = Config.UI.Button
 
 local UiKit = {}
@@ -166,7 +166,11 @@ function UiKit.control(parent: Instance, opts): TextButton
 	local width = opts.iconOnly and BTN.IconOnly or (opts.width or BTN.MinWidth)
 
 	local b = Instance.new("TextButton")
-	b.Name = opts.name or opts.text or opts.variant
+	-- An empty string is truthy in Lua, so a control built with text = "" and
+	-- filled in by a later state push was landing in the tree called "".
+	b.Name = opts.name
+		or (opts.text ~= nil and opts.text ~= "" and opts.text)
+		or opts.variant
 	b.Size = UDim2.fromOffset(width, opts.iconOnly and BTN.IconOnly or height)
 	b.BackgroundColor3 = ROLE[variant.fill]
 	b.BackgroundTransparency = 0.1
@@ -320,10 +324,21 @@ end
 --- the edge it is docked to. Naming the corner once is what stops a call site
 --- getting two of the three right.
 local DOCKS = {
-	topLeft     = { x = 0, y = 0, alignX = "Left",  alignY = "Top" },
-	topRight    = { x = 1, y = 0, alignX = "Right", alignY = "Top" },
-	bottomLeft  = { x = 0, y = 1, alignX = "Left",  alignY = "Bottom" },
-	bottomRight = { x = 1, y = 1, alignX = "Right", alignY = "Bottom" },
+	topLeft      = { x = 0,   y = 0,   alignX = "Left",   alignY = "Top" },
+	topRight     = { x = 1,   y = 0,   alignX = "Right",  alignY = "Top" },
+	bottomLeft   = { x = 0,   y = 1,   alignX = "Left",   alignY = "Bottom" },
+	bottomRight  = { x = 1,   y = 1,   alignX = "Right",  alignY = "Bottom" },
+	-- THE CENTRED THREE, and they exist because the claim above was false.
+	-- CompassUI and TowerUI both docked topLeft and then overwrote AnchorPoint
+	-- and Position to centre themselves, which is two call sites spelling out
+	-- what "against the edge" means — the exact thing this function was written
+	-- to end. INVARIANTS §7 recorded it as [nothing] rather than fixing it.
+	--
+	-- A centred dock takes no insetX: there is no edge on that axis to step in
+	-- from, and a caller passing one has misunderstood which corner they want.
+	topCentre    = { x = 0.5, y = 0,   alignX = "Center", alignY = "Top",    centreX = true },
+	bottomCentre = { x = 0.5, y = 1,   alignX = "Center", alignY = "Bottom", centreX = true },
+	centre       = { x = 0.5, y = 0.5, alignX = "Center", alignY = "Center", centreX = true, centreY = true },
 }
 
 --- invariant: a transparent region pinned to one corner of the design canvas,
@@ -344,10 +359,18 @@ function UiKit.dock(parent: Instance, opts): Frame
 	if not spot then
 		-- Loud, like Style.distance: a typo'd corner that fell back to top-left
 		-- would be a panel silently drawn on top of the status card.
-		error(("[Tung] unknown dock corner %q; expected topLeft/topRight/bottomLeft/bottomRight")
+		error(("[Tung] unknown dock corner %q; expected topLeft/topRight/bottomLeft/bottomRight/topCentre/bottomCentre/centre")
 			:format(tostring(opts.corner)), 2)
 	end
 
+	if spot.centreX and opts.insetX then
+		error(("[Tung] dock %q is centred on X; an insetX has no edge to measure from")
+			:format(opts.corner), 2)
+	end
+	if spot.centreY and opts.insetY then
+		error(("[Tung] dock %q is centred on Y; an insetY has no edge to measure from")
+			:format(opts.corner), 2)
+	end
 	local insetX = opts.insetX or UI.Margin
 	local insetY = opts.insetY or UI.Margin
 
@@ -356,9 +379,11 @@ function UiKit.dock(parent: Instance, opts): Frame
 	frame.AnchorPoint = Vector2.new(spot.x, spot.y)
 	-- The scale term picks the edge and the offset term steps inward from it, so
 	-- the same expression serves all four corners.
+	-- A centred axis takes no inset at all; the other two step inward from the
+	-- edge the scale term picked, so one expression still serves every corner.
 	frame.Position = UDim2.new(
-		spot.x, spot.x == 0 and insetX or -insetX,
-		spot.y, spot.y == 0 and insetY or -insetY)
+		spot.x, spot.centreX and 0 or (spot.x == 0 and insetX or -insetX),
+		spot.y, spot.centreY and 0 or (spot.y == 0 and insetY or -insetY))
 	frame.Size = UDim2.fromOffset(opts.width, opts.height)
 	frame.BackgroundTransparency = 1
 	frame.BorderSizePixel = 0
@@ -436,6 +461,16 @@ UiKit.ICONS = {
 	-- done. Replaces the ✓ that ObjectivesUI printed as text.
 	tick = { bar(5, 12.5, 10, 17.5), bar(10, 17.5, 19, 6.5) },
 	close = { bar(6.5, 6.5, 17.5, 17.5), bar(17.5, 6.5, 6.5, 17.5) },
+	-- The help rail. A question mark is a smooth open curve and is not
+	-- drawable from these four primitives; the substitution is #183's open
+	-- question, and this is what it substitutes.
+	info = { ring(12, 12, 20), dot(12, 7.5, 3), bar(12, 11, 12, 17) },
+	-- The touch pad. Three motion lines, a double chevron, and the roof the
+	-- compass already draws.
+	run  = { bar(4, 7, 20, 7), bar(7, 12, 20, 12), bar(11, 17, 20, 17) },
+	dash = { bar(5, 6, 12, 12), bar(12, 12, 5, 18), bar(12, 6, 19, 12), bar(19, 12, 12, 18) },
+	-- The shop rail: an awning over a box with a door in it.
+	shop = { bar(3, 6.5, 21, 6.5, { thick = 2 }), rect(5, 10, 14, 11, 1), rect(10, 15, 4, 6, 0.5) },
 
 	-- the compass set, replacing ◆ ▲ ⌂ ! and a partymate's first initial
 	core  = { rect(7, 7, 10, 10, 1, 45) },
@@ -581,48 +616,74 @@ end
 -- the rail
 -- ─────────────────────────────────────────────────────────────────────────────
 
---- A rail item: a glyph over a caption, the whole thing one hit target.
+--- invariant: A TILE IS A GLYPH OVER A CAPTION, AND BOTH ARE REQUIRED.
 ---
---- The caption is not decoration. This is the only control in the game that asks
---- a player to do something outside the server, and the number under the glyph
---- is what the ask is worth — an icon on its own is a button a child has to
---- press to find out what it does.
+--- This returned (button, glyphSlot, caption) and two of its three callers took
+--- only the button and wrote text into it — so the rail shipped as one drawn
+--- icon beside two text buttons, each carrying an empty GlyphSlot Frame and an
+--- empty Caption label nobody could see. Handing back a slot for the caller to
+--- fill is what made forgetting possible; nothing is handed back now.
 ---
---- Returns the button and its caption label; the caller draws into the glyph
---- slot and writes the caption.
-function UiKit.railItem(parent: Instance, name: string, colour: Color3): (TextButton, Frame, TextLabel)
+--- The caption is not decoration. This is the shape a control takes when it has
+--- no room for a sentence, and an icon on its own is a button a child has to
+--- press to find out what it does. On the invite the caption carries the number
+--- the ask is worth.
+---
+--- opts: { name, icon, caption, variant }
+function UiKit.tile(parent: Instance, opts): TextButton
+	if not opts.icon or not opts.caption then
+		error(("[Tung] the %q tile needs both an icon and a caption; an icon with no caption is a button nobody can read")
+			:format(tostring(opts.name)), 2)
+	end
+	local variant = BTN.Variant[opts.variant]
+	if not variant then
+		error(("[Tung] unknown tile variant %q"):format(tostring(opts.variant)), 2)
+	end
+
 	local b = Instance.new("TextButton")
-	b.Name = name
-	b.Size = UDim2.fromOffset(RAIL.ItemWidth, RAIL.ItemHeight)
-	b.BackgroundColor3 = colour
+	b.Name = opts.name
+	b.Size = UDim2.fromOffset(TILE.Width, TILE.Height)
+	b.BackgroundColor3 = ROLE[variant.fill]
 	b.BackgroundTransparency = 0.1
 	b.BorderSizePixel = 0
 	b.AutoButtonColor = true
+	b.Active = true
+	b.Selectable = true
 	b.Font = Style.Font.title
 	b.Text = ""
 	b.Parent = parent
 	UiKit.corner(b, 12)
+	if variant.stroke then
+		UiKit.stroke(b, ROLE[variant.stroke], 1.5)
+	end
+	b:SetAttribute("Variant", opts.variant)
 
-	local slot = Instance.new("Frame")
-	slot.Name = "GlyphSlot"
-	slot.Size = UDim2.fromOffset(RAIL.GlyphSize, RAIL.GlyphSize)
-	slot.Position = UDim2.fromOffset(RAIL.GlyphX, RAIL.GlyphY)
-	slot.BackgroundTransparency = 1
-	slot.BorderSizePixel = 0
-	slot.Parent = b
+	local glyph = UiKit.icon(b, opts.icon, TILE.GlyphSize, ROLE[variant.ink], ROLE[variant.fill])
+	glyph.Position = UDim2.fromOffset(
+		math.floor((TILE.Width - TILE.GlyphSize) / 2), TILE.Pad)
 
-	local caption = UiKit.text(b, {
+	UiKit.text(b, {
 		Name = "Caption",
-		Size = UDim2.fromOffset(RAIL.BadgeWidth, RAIL.BadgeHeight),
-		Position = UDim2.fromOffset(RAIL.Pad, RAIL.BadgeY),
+		Size = UDim2.fromOffset(TILE.Width - TILE.Pad * 2, TILE.CaptionHeight),
+		Position = UDim2.fromOffset(TILE.Pad, TILE.Pad + TILE.GlyphSize + TILE.GlyphGap),
 		Font = Style.Font.title,
-		Text = "",
-		TextSize = RAIL.BadgeTextPx,
-		TextColor3 = ROLE.onAction,
+		Text = opts.caption,
+		TextSize = TILE.CaptionTextPx,
+		TextColor3 = ROLE[variant.ink],
 		TextXAlignment = Enum.TextXAlignment.Center,
 	})
 
-	return b, slot, caption
+	return b
+end
+
+--- Rewrites a tile's caption. The invite's is a live number, so the label has
+--- to be reachable — by name off the tile rather than by a Frame the caller was
+--- handed and had to keep.
+function UiKit.setTileCaption(tile: TextButton, caption: string)
+	local label = tile:FindFirstChild("Caption")
+	if label and label:IsA("TextLabel") then
+		label.Text = caption
+	end
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────

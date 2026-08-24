@@ -4273,6 +4273,37 @@ check(UI.Rail.GlyphSize <= UI.Rail.ItemWidth - UI.Rail.Pad * 2,
 	("the rail glyph is %d wide inside a %d item with %d of padding a side")
 		:format(UI.Rail.GlyphSize, UI.Rail.ItemWidth, UI.Rail.Pad))
 
+-- ...AND THE RAIL'S SHAPE IS THE TILE'S. The four checks above read UI.Rail,
+-- whose shape keys are now derived from UI.Tile, so they cover the touch pad
+-- too — the two surfaces were 56x72 and 64x64 for no reason anybody wrote down.
+-- These are the ones the derivation itself has to hold.
+check(UI.Rail.ItemWidth == UI.Tile.Width and UI.Rail.ItemHeight == UI.Tile.Height,
+	("the rail is %dx%d and a tile is %dx%d; the rail IS a row of tiles and a second shape is a second design")
+		:format(UI.Rail.ItemWidth, UI.Rail.ItemHeight, UI.Tile.Width, UI.Tile.Height))
+check(UI.Tile.GlyphSize == UI.Icon.Large,
+	("a tile draws its glyph at %d and the large icon tier is %d; UiKit.icon snaps to the nearest tier, so a size between two rounds silently")
+		:format(UI.Tile.GlyphSize, UI.Icon.Large))
+
+-- THE TOUCH PAD HOLDS WHAT IT LAYS OUT. It shipped as a 208-tall dock laying
+-- out 212 — three 64-px buttons plus two UI.Gap — so it drew four pixels out of
+-- its own bottom edge, and 208 was a literal in a builder that nothing could
+-- read. The height is derived from the count now; this is here to fail if
+-- somebody types it back.
+check(UI.TouchPad.Height >= UI.TouchPad.Count * UI.Tile.Height
+	+ (UI.TouchPad.Count - 1) * UI.Gap,
+	("the touch pad is %d tall and lays out %d: %d tiles of %d with %d between them")
+		:format(UI.TouchPad.Height, UI.TouchPad.Count * UI.Tile.Height + (UI.TouchPad.Count - 1) * UI.Gap,
+			UI.TouchPad.Count, UI.Tile.Height, UI.Gap))
+-- And it sits on the LEFT reserve, above the thumbstick, on the same screen the
+-- action stack clears on the right.
+check(UI.TouchPad.Height + UI.TouchReserve.Bottom + UI.Margin <= UI.ReferenceHeight,
+	("the touch pad needs %d px above a %d reserve on a %d-tall screen, which leaves %d for everything else")
+		:format(UI.TouchPad.Height, UI.TouchReserve.Bottom, UI.ReferenceHeight,
+			UI.ReferenceHeight - UI.TouchPad.Height - UI.TouchReserve.Bottom))
+check(UI.TouchPad.Count >= 1,
+	("the touch pad lays out %d tiles; a dock with nothing in it is a frame somebody has to rule out when a layout breaks")
+		:format(UI.TouchPad.Count))
+
 -- BOTH BOTTOM CORNERS BELONG TO THE ENGINE. On a touch device Roblox draws the
 -- movement thumbstick bottom-left and the jump button bottom-right, on a layer
 -- above ours, and there is no API that returns either rectangle. The action

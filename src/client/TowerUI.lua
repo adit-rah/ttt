@@ -56,11 +56,9 @@ end
 
 function TowerUI.start()
 	strip = UiKit.dock(HUD.root(), {
-		name = "TowerBanner", corner = "topLeft",
-		width = WIDTH, height = HEIGHT,
+		name = "TowerBanner", corner = "topCentre",
+		width = WIDTH, height = HEIGHT, insetY = 30,
 	})
-	strip.AnchorPoint = Vector2.new(0.5, 0)
-	strip.Position = UDim2.new(0.5, 0, 0, 30)
 	strip.BackgroundColor3 = ROLE.surface
 	strip.BackgroundTransparency = 0.35
 	UiKit.corner(strip, 10)

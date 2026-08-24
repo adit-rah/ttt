@@ -126,11 +126,22 @@ function Mock.build(deps)
 			CollisionGroupSetCollidable = function() end,
 		},
 		ContextActionService = { BindAction = function() end, UnbindAction = function() end },
+		-- TouchEnabled starts false, which is the DESKTOP claim. A spec that
+		-- wants the touch surfaces flips it before the module loads — see
+		-- hud_spec's touch sweep. Four out of five real sessions are the other
+		-- value, so a harness that can only be the desktop one is a harness that
+		-- cannot see the layout most players get.
+		--
+		-- InputEnded was ABSENT until the touch pad was specced, and its absence
+		-- was a wrong claim about Roblox rather than a stated limitation:
+		-- MovementClient.start connects to it on every platform, so the module's
+		-- start function had never once run in this harness.
 		UserInputService = {
 			TouchEnabled = false,
 			KeyboardEnabled = true,
 			GamepadEnabled = false,
 			InputBegan = Instance.Signal.new(),
+			InputEnded = Instance.Signal.new(),
 		},
 		GuiService = {
 			GetGuiInset = function()

@@ -27,7 +27,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local MovementClient = {}
 
-local ROLE = UiKit.ROLE
+local PAD = Config.UI.TouchPad
 
 local M = Config.Movement
 
@@ -101,45 +101,48 @@ function MovementClient.start()
 	end
 
 	local stack = UiKit.dock(HUD.root(), {
-		name = "Movement", corner = "bottomLeft",
-		width = 64, height = 208,
+		name = "TouchPad", corner = "bottomLeft",
+		width = PAD.Width, height = PAD.Height,
 		insetY = Config.UI.TouchReserve.Bottom,
 		direction = "Vertical",
 	})
 
-	local function touchButton(name, text, order)
-		local button = Instance.new("TextButton")
-		button.Name = name
-		button.Size = UDim2.fromOffset(64, 64)
-		button.BackgroundColor3 = ROLE.surfaceRaised
-		button.BackgroundTransparency = 0.35
-		button.Text = text
-		button.TextColor3 = ROLE.onSurface
-		button.TextSize = 20
-		button.BorderSizePixel = 0
-		button.LayoutOrder = order
-		button.AutoButtonColor = true
-		button.Parent = stack
-		return button
+	-- These were three 64x64 TextButtons built by hand: their own colours off
+	-- the palette, no UICorner — the only square buttons in the game — and NO
+	-- FONT SET AT ALL, so the three most-pressed controls a phone player has
+	-- rendered in the engine's default face while everything else was
+	-- FredokaOne. The style lint could not see it, because it greps for
+	-- Enum.Font and a missing assignment is not one.
+	local function touchTile(name: string, icon: string, caption: string, order: number)
+		local tile = UiKit.tile(stack, {
+			name = name, variant = "ghost", icon = icon, caption = caption,
+		})
+		tile.LayoutOrder = order
+		return tile
 	end
 
-	local sprintButton = touchButton("Sprint", "RUN", 3)
-	local dashButton = touchButton("Dash", "DASH", 2)
-	local homeButton = touchButton("Recall", "HOME", 1)
-	homeButton.MouseButton1Click:Connect(requestRecall)
+	local homeButton = touchTile("Recall", "home", "HOME", 1)
+	local dashButton = touchTile("Dash", "dash", "DASH", 2)
+	local sprintButton = touchTile("Sprint", "run", "RUN", 3)
+	-- Activated rather than MouseButton1Click, like every other control in the
+	-- game: it is the one that also fires for a gamepad, and these three were
+	-- the only buttons connecting anything else.
+	homeButton.Activated:Connect(requestRecall)
 
-	-- hold-to-sprint on touch: down is on, up is off, and the button's colour
-	-- carries the state
+	dashButton.Activated:Connect(function()
+		requestDash:FireServer()
+	end)
+
+	-- Hold to sprint. `on` rather than a hand-picked highlight colour: it is the
+	-- state a control takes while its effect is RUNNING, and it is the same look
+	-- the boost button uses for the same reason.
 	sprintButton.MouseButton1Down:Connect(function()
 		sprint(true)
-		sprintButton.BackgroundColor3 = ROLE.action
+		UiKit.setControlState(sprintButton, "on")
 	end)
 	sprintButton.MouseButton1Up:Connect(function()
 		sprint(false)
-		sprintButton.BackgroundColor3 = ROLE.surfaceRaised
-	end)
-	dashButton.MouseButton1Click:Connect(function()
-		requestDash:FireServer()
+		UiKit.setControlState(sprintButton, "idle")
 	end)
 end
 

@@ -174,13 +174,9 @@ end
 
 function CompassUI.start()
 	strip = UiKit.dock(HUD.root(), {
-		name = "Compass", corner = "topLeft",
-		width = WIDTH, height = HEIGHT,
+		name = "Compass", corner = "topCentre",
+		width = WIDTH, height = HEIGHT, insetY = 6,
 	})
-	-- centred: the dock gave it a corner anchor; the strip re-anchors to the
-	-- top middle, which no other surface claims
-	strip.AnchorPoint = Vector2.new(0.5, 0)
-	strip.Position = UDim2.new(0.5, 0, 0, 6)
 	strip.BackgroundColor3 = ROLE.surface
 	strip.BackgroundTransparency = 0.55
 	UiKit.corner(strip, 10)

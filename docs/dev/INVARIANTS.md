@@ -1141,6 +1141,34 @@ defects in the same file.
   thrown on the invite rail, on a device, after shipping. Pass 2 names undeclared globals and
   this is a key on a table; pass 5 walks `Config.<path>` and stops there. `[lint]` `verify.py`
   "module fields". A field assigned dynamically is still invisible to it — see §10.
+- **A tile is a glyph over a caption, and both are required.** `railItem` returned
+  `(button, glyphSlot, caption)` and two of its three callers took only the button, so the rail
+  shipped as one drawn icon beside two text buttons, each carrying an empty `GlyphSlot` Frame and
+  an empty `Caption` nobody could see. Handing back a slot for the caller to fill is what made
+  forgetting possible; `UiKit.tile` hands back nothing and errors without both. `[spec]`
+  `hud_spec.lua` sweeps the built tree for a control that is on screen and says nothing.
+- **The rail and the touch pad are the same shape, and it is `Config.UI.Tile`.** They were 56×72
+  through UiKit and 64×64 built by hand, for no reason anybody wrote down. `[assert]` the rail's
+  shape equals the tile's, and the tile's glyph lands exactly on a declared icon tier.
+- **The touch pad holds what it lays out.** It shipped as a 208-tall dock laying out 212 — three
+  64-px buttons plus two `UI.Gap` — so it drew four pixels out of its own bottom, and 208 was a
+  literal in a builder nothing could read. The height derives from `TouchPad.Count`. `[assert]`
+- **Every control in `src/client` is built by `UiKit`, and every font comes from `Style.Font`.**
+  `MovementClient` built three `TextButton`s by hand with no `UICorner`, three raw colours, and
+  **no `Font` assignment at all**, so the three most-pressed controls a phone player has rendered
+  in the engine's default face. The style pass greps `Enum.Font.`, and a font that is never
+  assigned is not a font literal. `[lint]` `verify.py` "control ownership", which exempts
+  `UpgradeUI` by name — a prototype behind two flags that ship false, whose row-as-hit-target
+  pattern no shipped surface needs. That exemption goes in the same commit as the flag.
+  `[spec]` every text instance under the HUD names a face, swept on both platforms.
+- **`UiKit.dock` names seven corners, and the centred three exist because the claim was false.**
+  Its header called itself the only way anything gets pinned to an edge; `CompassUI` and
+  `TowerUI` both docked `topLeft` and then overwrote `AnchorPoint` and `Position`, and §7 recorded
+  that as `[nothing]` rather than fixing it. A centred dock refuses an inset on its centred axis,
+  because there is no edge there to measure from. `[runtime]` the `error()`; `[nothing]` still
+  stops a NEW panel setting a Position by hand — the three remaining `AnchorPoint` writes in
+  `src/client` are all inside a card, and a lint that flagged them would be a lint somebody
+  deletes.
 - **A control is a variant and a state, and `Config.UI.Button.Variant` holds all five rows.**
   A variant is a fill role, the ink role that prints on it, the text size, and the height it
   takes unless a caller names another rung. Height is the one overridable field, and only with
@@ -1540,6 +1568,9 @@ times in `verify.py`):
   mid-swing, the every-frame `WalkSpeed` write, `entry.ai` vs `entry.phase`, the recomputed
   chaser count.
 - `hitscan` walking up to the Humanoid's owner; a deferred strike re-checking the attacker.
+
+- Whether a glyph reads as the thing it names. The bat either looks like a bat or it does not,
+  and no harness can say. The round's handoff carries the list.
 
 **Only Roblox can settle these** — they are `[nothing]` by construction, and the honest move
 is to keep them in the handoffs' Studio lists rather than to pretend a check exists:

@@ -19,6 +19,7 @@ local player = Players.LocalPlayer
 local CombatClient = {}
 
 local ROLE = UiKit.ROLE
+local MARKER_SIZE = 44
 
 local shake = 0
 
@@ -31,14 +32,13 @@ local shake = 0
 --- A 44x44 marker at MinScale would have drawn 44 physical pixels on a phone
 --- while every other 44 in the game drew 27.
 local function buildHitmarker(root: Instance)
-	local marker = Instance.new("Frame")
-	marker.Name = "Hitmarker"
-	marker.AnchorPoint = Vector2.new(0.5, 0.5)
-	marker.Position = UDim2.fromScale(0.5, 0.5)
-	marker.Size = UDim2.fromOffset(44, 44)
-	marker.BackgroundTransparency = 1
+	-- Through the dock rather than by hand: it is a top-level region of the root
+	-- layer like any other, and "centred" is a corner UiKit names now.
+	local marker = UiKit.dock(root, {
+		name = "Hitmarker", corner = "centre",
+		width = MARKER_SIZE, height = MARKER_SIZE,
+	})
 	marker.Visible = false
-	marker.Parent = root
 
 	for i, rot in ipairs({ 45, -45 }) do
 		for j, offset in ipairs({ -1, 1 }) do

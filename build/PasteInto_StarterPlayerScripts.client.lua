@@ -1072,7 +1072,7 @@ __MODULES["Config"] = function()
 			OptionalRows = 2,
 		},
 
-		-- THE TOP-RIGHT UTILITY RAIL. One item wide today and built to hold more:
+		-- invariant: THE TOP-RIGHT UTILITY RAIL. Built to hold more than one item:
 		-- an icon over a caption, docked to the top-right corner, with the toast
 		-- column derived to start below it rather than on top of it.
 		--
@@ -1087,14 +1087,36 @@ __MODULES["Config"] = function()
 		-- offer — and that argument survives the move: the badge under the glyph
 		-- reads what you would gain when you have nobody here, and what you are
 		-- getting once you do.
-		Rail = {
-			ItemWidth = 56,
-			ItemHeight = 72,
+		-- invariant: A TILE IS A GLYPH OVER A CAPTION, and two surfaces are made of
+		-- them: the top-right utility rail and the bottom-left touch pad. They were
+		-- two different shapes for no reason — the rail 56x72 through UiKit, the
+		-- pad 64x64 built by hand with its own colours, no corner radius and NO FONT
+		-- AT ALL, so the three most-pressed controls on a phone rendered in the
+		-- engine's default face while the rest of the game was FredokaOne.
+		--
+		-- THE CAPTION IS NOT DECORATION. An icon on its own is a button a child has
+		-- to press to find out what it does, and on the invite it carries the number
+		-- the ask is worth.
+		Tile = {
+			Width = 56,
+			Height = 72,
 			Pad = 6,
 			GlyphSize = 40,
 			GlyphGap = 2,
-			BadgeHeight = 16, BadgeTextPx = 13,
+			CaptionHeight = 16, CaptionTextPx = 13,
 		},
+
+		-- The rail is a row of tiles, so its shape IS Tile's; only what it does with
+		-- them is its own. The keys below are derived, not typed.
+		Rail = {},
+
+		-- The touch pad is a column of them, and it is UI.TouchPad rather than
+		-- UI.Movement because Config.Movement is the gameplay table that these three
+		-- buttons drive. Count is what the stack's height is
+		-- derived FROM: it shipped as a 208-tall frame laying out 212 (three 64-px
+		-- buttons plus two UI.Gap), so it drew four pixels out of its own bottom,
+		-- and 208 was a literal in a builder that nothing could read.
+		TouchPad = { Count = 3 },
 
 		-- THE UPGRADE SHOP IS A SECOND COLUMN, not the bottom of the first. It is
 		-- bottom-anchored and proportionally tall, so on a short screen it grows
@@ -1255,10 +1277,24 @@ __MODULES["Config"] = function()
 		ui.PartyPanel.PairX = ui.PartyPanel.ActionX + ui.PartyPanel.CloseX
 		ui.PartyPanel.TextWidth = ui.ColumnWidth - ui.PartyPanel.PairX - ui.PartyPanel.Pad * 2
 
+		-- The stack holds exactly what it lays out: UiKit.dock puts UI.Gap between
+		-- children, and a frame that does not account for the gaps draws its last
+		-- tile past its own edge.
+		ui.TouchPad.Width = ui.Tile.Width
+		ui.TouchPad.Height = ui.TouchPad.Count * ui.Tile.Height
+			+ (ui.TouchPad.Count - 1) * ui.Gap
+
 		ui.Icon.RatioSmall  = ui.Icon.StrokeSmall  / ui.Icon.Small
 		ui.Icon.RatioMedium = ui.Icon.StrokeMedium / ui.Icon.Medium
 		ui.Icon.RatioLarge  = ui.Icon.StrokeLarge  / ui.Icon.Large
 
+		ui.Rail.ItemWidth = ui.Tile.Width
+		ui.Rail.ItemHeight = ui.Tile.Height
+		ui.Rail.Pad = ui.Tile.Pad
+		ui.Rail.GlyphSize = ui.Tile.GlyphSize
+		ui.Rail.BadgeHeight = ui.Tile.CaptionHeight
+		ui.Rail.BadgeTextPx = ui.Tile.CaptionTextPx
+		ui.Rail.GlyphGap = ui.Tile.GlyphGap
 		ui.Rail.GlyphX = math.floor((rail.ItemWidth - rail.GlyphSize) / 2)
 		ui.Rail.GlyphY = rail.Pad
 		ui.Rail.BadgeY = rail.Pad + rail.GlyphSize + rail.GlyphGap
@@ -6675,6 +6711,7 @@ __MODULES["CombatClient"] = function()
 	local CombatClient = {}
 
 	local ROLE = UiKit.ROLE
+	local MARKER_SIZE = 44
 
 	local shake = 0
 
@@ -6687,14 +6724,13 @@ __MODULES["CombatClient"] = function()
 	--- A 44x44 marker at MinScale would have drawn 44 physical pixels on a phone
 	--- while every other 44 in the game drew 27.
 	local function buildHitmarker(root: Instance)
-		local marker = Instance.new("Frame")
-		marker.Name = "Hitmarker"
-		marker.AnchorPoint = Vector2.new(0.5, 0.5)
-		marker.Position = UDim2.fromScale(0.5, 0.5)
-		marker.Size = UDim2.fromOffset(44, 44)
-		marker.BackgroundTransparency = 1
+		-- Through the dock rather than by hand: it is a top-level region of the root
+		-- layer like any other, and "centred" is a corner UiKit names now.
+		local marker = UiKit.dock(root, {
+			name = "Hitmarker", corner = "centre",
+			width = MARKER_SIZE, height = MARKER_SIZE,
+		})
 		marker.Visible = false
-		marker.Parent = root
 
 		for i, rot in ipairs({ 45, -45 }) do
 			for j, offset in ipairs({ -1, 1 }) do
@@ -7058,13 +7094,9 @@ __MODULES["CompassUI"] = function()
 
 	function CompassUI.start()
 		strip = UiKit.dock(HUD.root(), {
-			name = "Compass", corner = "topLeft",
-			width = WIDTH, height = HEIGHT,
+			name = "Compass", corner = "topCentre",
+			width = WIDTH, height = HEIGHT, insetY = 6,
 		})
-		-- centred: the dock gave it a corner anchor; the strip re-anchors to the
-		-- top middle, which no other surface claims
-		strip.AnchorPoint = Vector2.new(0.5, 0)
-		strip.Position = UDim2.new(0.5, 0, 0, 6)
 		strip.BackgroundColor3 = ROLE.surface
 		strip.BackgroundTransparency = 0.55
 		UiKit.corner(strip, 10)
@@ -7199,7 +7231,7 @@ __MODULES["HUD"] = function()
 
 	local gui, root, overlay, rootScale, overlayScale, rootPadding
 	local column, cashLabel, multLabel, termsLabel
-	local inviteButton, inviteCaption
+	local inviteButton
 	local waveFrame, waveLabel, toastList, rebirthButton
 	-- the next-purchase half of the status card: name, bar fill, "N to go". The bar's
 	-- TRACK is not kept — it is drawn once and never written to again, and a module
@@ -7458,10 +7490,10 @@ __MODULES["HUD"] = function()
 			direction = "Horizontal",
 		})
 
-		local slot
-		inviteButton, slot, inviteCaption = UiKit.railItem(railFrame, "Invite", ROLE.affirm)
+		inviteButton = UiKit.tile(railFrame, {
+			name = "Invite", variant = "pill", icon = "personPlus", caption = "+0%",
+		})
 		buildHelp(railFrame)
-		UiKit.icon(slot, "personPlus", RAIL.GlyphSize, ROLE.onAffirm, ROLE.affirm)
 		-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 		-- control does not exist. See refreshInvite.
 		inviteButton.Visible = false
@@ -7700,8 +7732,12 @@ __MODULES["HUD"] = function()
 	end
 
 	function buildHelp(rail)
-		local button = UiKit.railItem(rail, "Help", ROLE.notice)
-		button.Text = "?"
+		-- The `?` was text in a tile whose glyph slot sat empty. A question mark is
+		-- a smooth open curve and is not drawable from the four primitives, so this
+		-- is the substitution #183 asks about.
+		local button = UiKit.tile(rail, {
+			name = "Help", variant = "ghost", icon = "info", caption = "HELP",
+		})
 		helpPanel = UiKit.panel(overlay, UDim2.fromOffset(320, 60), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 		helpPanel.Name = "Help"
 		helpPanel.Visible = false
@@ -7727,13 +7763,11 @@ __MODULES["HUD"] = function()
 		inviteButton.Visible = state.canInvite and state.friends < state.friendCap
 			and HUD.disclosed("social")
 		if state.friends > 0 then
-			inviteCaption.Text = ("+%d%%"):format(friendPercent(state.friends))
-			inviteCaption.TextColor3 = ROLE.onAffirm
+			UiKit.setTileCaption(inviteButton, ("+%d%%"):format(friendPercent(state.friends)))
 		else
 			-- One friend's worth, not zero: zero is what you have, and what you have
 			-- is not what a button is offering you.
-			inviteCaption.Text = ("+%d%%"):format(friendPercent(1))
-			inviteCaption.TextColor3 = ROLE.onAffirm
+			UiKit.setTileCaption(inviteButton, ("+%d%%"):format(friendPercent(1)))
 		end
 	end
 
@@ -7802,12 +7836,13 @@ __MODULES["HUD"] = function()
 	end
 
 	--- A rail item owned by another module: label, a visibility rule, a press.
-	function HUD.addRailItem(name: string, label: string, visible: () -> boolean, onPress: () -> ())
+	function HUD.addRailItem(name: string, icon: string, label: string, visible: () -> boolean, onPress: () -> ())
 		if not railFrame then
 			return
 		end
-		local button = UiKit.railItem(railFrame, name, ROLE.currency)
-		button.Text = label
+		local button = UiKit.tile(railFrame, {
+			name = name, variant = "primary", icon = icon, caption = label,
+		})
 		button.Visible = visible()
 		button.Activated:Connect(onPress)
 		table.insert(dynamicRail, { button = button, visible = visible })
@@ -8388,7 +8423,7 @@ __MODULES["MovementClient"] = function()
 
 	local MovementClient = {}
 
-	local ROLE = UiKit.ROLE
+	local PAD = Config.UI.TouchPad
 
 	local M = Config.Movement
 
@@ -8462,45 +8497,48 @@ __MODULES["MovementClient"] = function()
 		end
 
 		local stack = UiKit.dock(HUD.root(), {
-			name = "Movement", corner = "bottomLeft",
-			width = 64, height = 208,
+			name = "TouchPad", corner = "bottomLeft",
+			width = PAD.Width, height = PAD.Height,
 			insetY = Config.UI.TouchReserve.Bottom,
 			direction = "Vertical",
 		})
 
-		local function touchButton(name, text, order)
-			local button = Instance.new("TextButton")
-			button.Name = name
-			button.Size = UDim2.fromOffset(64, 64)
-			button.BackgroundColor3 = ROLE.surfaceRaised
-			button.BackgroundTransparency = 0.35
-			button.Text = text
-			button.TextColor3 = ROLE.onSurface
-			button.TextSize = 20
-			button.BorderSizePixel = 0
-			button.LayoutOrder = order
-			button.AutoButtonColor = true
-			button.Parent = stack
-			return button
+		-- These were three 64x64 TextButtons built by hand: their own colours off
+		-- the palette, no UICorner — the only square buttons in the game — and NO
+		-- FONT SET AT ALL, so the three most-pressed controls a phone player has
+		-- rendered in the engine's default face while everything else was
+		-- FredokaOne. The style lint could not see it, because it greps for
+		-- Enum.Font and a missing assignment is not one.
+		local function touchTile(name: string, icon: string, caption: string, order: number)
+			local tile = UiKit.tile(stack, {
+				name = name, variant = "ghost", icon = icon, caption = caption,
+			})
+			tile.LayoutOrder = order
+			return tile
 		end
 
-		local sprintButton = touchButton("Sprint", "RUN", 3)
-		local dashButton = touchButton("Dash", "DASH", 2)
-		local homeButton = touchButton("Recall", "HOME", 1)
-		homeButton.MouseButton1Click:Connect(requestRecall)
+		local homeButton = touchTile("Recall", "home", "HOME", 1)
+		local dashButton = touchTile("Dash", "dash", "DASH", 2)
+		local sprintButton = touchTile("Sprint", "run", "RUN", 3)
+		-- Activated rather than MouseButton1Click, like every other control in the
+		-- game: it is the one that also fires for a gamepad, and these three were
+		-- the only buttons connecting anything else.
+		homeButton.Activated:Connect(requestRecall)
 
-		-- hold-to-sprint on touch: down is on, up is off, and the button's colour
-		-- carries the state
+		dashButton.Activated:Connect(function()
+			requestDash:FireServer()
+		end)
+
+		-- Hold to sprint. `on` rather than a hand-picked highlight colour: it is the
+		-- state a control takes while its effect is RUNNING, and it is the same look
+		-- the boost button uses for the same reason.
 		sprintButton.MouseButton1Down:Connect(function()
 			sprint(true)
-			sprintButton.BackgroundColor3 = ROLE.action
+			UiKit.setControlState(sprintButton, "on")
 		end)
 		sprintButton.MouseButton1Up:Connect(function()
 			sprint(false)
-			sprintButton.BackgroundColor3 = ROLE.surfaceRaised
-		end)
-		dashButton.MouseButton1Click:Connect(function()
-			requestDash:FireServer()
+			UiKit.setControlState(sprintButton, "idle")
 		end)
 	end
 
@@ -9817,7 +9855,7 @@ __MODULES["ShopUI"] = function()
 			end
 		end)
 		-- door two: the rail item, earned like every surface
-		HUD.addRailItem("Shop", "SHOP", function()
+		HUD.addRailItem("Shop", "shop", "SHOP", function()
 			return HUD.disclosed("shop")
 		end, open)
 		-- ownership rides Stats; re-dress on every push while open
@@ -9887,11 +9925,9 @@ __MODULES["TowerUI"] = function()
 
 	function TowerUI.start()
 		strip = UiKit.dock(HUD.root(), {
-			name = "TowerBanner", corner = "topLeft",
-			width = WIDTH, height = HEIGHT,
+			name = "TowerBanner", corner = "topCentre",
+			width = WIDTH, height = HEIGHT, insetY = 30,
 		})
-		strip.AnchorPoint = Vector2.new(0.5, 0)
-		strip.Position = UDim2.new(0.5, 0, 0, 30)
 		strip.BackgroundColor3 = ROLE.surface
 		strip.BackgroundTransparency = 0.35
 		UiKit.corner(strip, 10)
@@ -9974,9 +10010,9 @@ __MODULES["UiKit"] = function()
 	local UI = Config.UI
 	-- Spelled from `Config` rather than from `UI`, exactly like HUD.lua's CARD, so
 	-- verify.py's config-path pass can resolve it: it follows ONE alias hop, and a
-	-- `local RAIL = UI.Rail` would be a name it has no way to check reads against.
-	local RAIL = Config.UI.Rail
+	-- `local TILE = UI.Tile` would be a name it has no way to check reads against.
 	local ICON = Config.UI.Icon
+	local TILE = Config.UI.Tile
 	local BTN = Config.UI.Button
 
 	local UiKit = {}
@@ -10098,7 +10134,11 @@ __MODULES["UiKit"] = function()
 		local width = opts.iconOnly and BTN.IconOnly or (opts.width or BTN.MinWidth)
 
 		local b = Instance.new("TextButton")
-		b.Name = opts.name or opts.text or opts.variant
+		-- An empty string is truthy in Lua, so a control built with text = "" and
+		-- filled in by a later state push was landing in the tree called "".
+		b.Name = opts.name
+			or (opts.text ~= nil and opts.text ~= "" and opts.text)
+			or opts.variant
 		b.Size = UDim2.fromOffset(width, opts.iconOnly and BTN.IconOnly or height)
 		b.BackgroundColor3 = ROLE[variant.fill]
 		b.BackgroundTransparency = 0.1
@@ -10252,10 +10292,21 @@ __MODULES["UiKit"] = function()
 	--- the edge it is docked to. Naming the corner once is what stops a call site
 	--- getting two of the three right.
 	local DOCKS = {
-		topLeft     = { x = 0, y = 0, alignX = "Left",  alignY = "Top" },
-		topRight    = { x = 1, y = 0, alignX = "Right", alignY = "Top" },
-		bottomLeft  = { x = 0, y = 1, alignX = "Left",  alignY = "Bottom" },
-		bottomRight = { x = 1, y = 1, alignX = "Right", alignY = "Bottom" },
+		topLeft      = { x = 0,   y = 0,   alignX = "Left",   alignY = "Top" },
+		topRight     = { x = 1,   y = 0,   alignX = "Right",  alignY = "Top" },
+		bottomLeft   = { x = 0,   y = 1,   alignX = "Left",   alignY = "Bottom" },
+		bottomRight  = { x = 1,   y = 1,   alignX = "Right",  alignY = "Bottom" },
+		-- THE CENTRED THREE, and they exist because the claim above was false.
+		-- CompassUI and TowerUI both docked topLeft and then overwrote AnchorPoint
+		-- and Position to centre themselves, which is two call sites spelling out
+		-- what "against the edge" means — the exact thing this function was written
+		-- to end. INVARIANTS §7 recorded it as [nothing] rather than fixing it.
+		--
+		-- A centred dock takes no insetX: there is no edge on that axis to step in
+		-- from, and a caller passing one has misunderstood which corner they want.
+		topCentre    = { x = 0.5, y = 0,   alignX = "Center", alignY = "Top",    centreX = true },
+		bottomCentre = { x = 0.5, y = 1,   alignX = "Center", alignY = "Bottom", centreX = true },
+		centre       = { x = 0.5, y = 0.5, alignX = "Center", alignY = "Center", centreX = true, centreY = true },
 	}
 
 	--- invariant: a transparent region pinned to one corner of the design canvas,
@@ -10276,10 +10327,18 @@ __MODULES["UiKit"] = function()
 		if not spot then
 			-- Loud, like Style.distance: a typo'd corner that fell back to top-left
 			-- would be a panel silently drawn on top of the status card.
-			error(("[Tung] unknown dock corner %q; expected topLeft/topRight/bottomLeft/bottomRight")
+			error(("[Tung] unknown dock corner %q; expected topLeft/topRight/bottomLeft/bottomRight/topCentre/bottomCentre/centre")
 				:format(tostring(opts.corner)), 2)
 		end
 
+		if spot.centreX and opts.insetX then
+			error(("[Tung] dock %q is centred on X; an insetX has no edge to measure from")
+				:format(opts.corner), 2)
+		end
+		if spot.centreY and opts.insetY then
+			error(("[Tung] dock %q is centred on Y; an insetY has no edge to measure from")
+				:format(opts.corner), 2)
+		end
 		local insetX = opts.insetX or UI.Margin
 		local insetY = opts.insetY or UI.Margin
 
@@ -10288,9 +10347,11 @@ __MODULES["UiKit"] = function()
 		frame.AnchorPoint = Vector2.new(spot.x, spot.y)
 		-- The scale term picks the edge and the offset term steps inward from it, so
 		-- the same expression serves all four corners.
+		-- A centred axis takes no inset at all; the other two step inward from the
+		-- edge the scale term picked, so one expression still serves every corner.
 		frame.Position = UDim2.new(
-			spot.x, spot.x == 0 and insetX or -insetX,
-			spot.y, spot.y == 0 and insetY or -insetY)
+			spot.x, spot.centreX and 0 or (spot.x == 0 and insetX or -insetX),
+			spot.y, spot.centreY and 0 or (spot.y == 0 and insetY or -insetY))
 		frame.Size = UDim2.fromOffset(opts.width, opts.height)
 		frame.BackgroundTransparency = 1
 		frame.BorderSizePixel = 0
@@ -10368,6 +10429,16 @@ __MODULES["UiKit"] = function()
 		-- done. Replaces the ✓ that ObjectivesUI printed as text.
 		tick = { bar(5, 12.5, 10, 17.5), bar(10, 17.5, 19, 6.5) },
 		close = { bar(6.5, 6.5, 17.5, 17.5), bar(17.5, 6.5, 6.5, 17.5) },
+		-- The help rail. A question mark is a smooth open curve and is not
+		-- drawable from these four primitives; the substitution is #183's open
+		-- question, and this is what it substitutes.
+		info = { ring(12, 12, 20), dot(12, 7.5, 3), bar(12, 11, 12, 17) },
+		-- The touch pad. Three motion lines, a double chevron, and the roof the
+		-- compass already draws.
+		run  = { bar(4, 7, 20, 7), bar(7, 12, 20, 12), bar(11, 17, 20, 17) },
+		dash = { bar(5, 6, 12, 12), bar(12, 12, 5, 18), bar(12, 6, 19, 12), bar(19, 12, 12, 18) },
+		-- The shop rail: an awning over a box with a door in it.
+		shop = { bar(3, 6.5, 21, 6.5, { thick = 2 }), rect(5, 10, 14, 11, 1), rect(10, 15, 4, 6, 0.5) },
 
 		-- the compass set, replacing ◆ ▲ ⌂ ! and a partymate's first initial
 		core  = { rect(7, 7, 10, 10, 1, 45) },
@@ -10513,48 +10584,74 @@ __MODULES["UiKit"] = function()
 	-- the rail
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	--- A rail item: a glyph over a caption, the whole thing one hit target.
+	--- invariant: A TILE IS A GLYPH OVER A CAPTION, AND BOTH ARE REQUIRED.
 	---
-	--- The caption is not decoration. This is the only control in the game that asks
-	--- a player to do something outside the server, and the number under the glyph
-	--- is what the ask is worth — an icon on its own is a button a child has to
-	--- press to find out what it does.
+	--- This returned (button, glyphSlot, caption) and two of its three callers took
+	--- only the button and wrote text into it — so the rail shipped as one drawn
+	--- icon beside two text buttons, each carrying an empty GlyphSlot Frame and an
+	--- empty Caption label nobody could see. Handing back a slot for the caller to
+	--- fill is what made forgetting possible; nothing is handed back now.
 	---
-	--- Returns the button and its caption label; the caller draws into the glyph
-	--- slot and writes the caption.
-	function UiKit.railItem(parent: Instance, name: string, colour: Color3): (TextButton, Frame, TextLabel)
+	--- The caption is not decoration. This is the shape a control takes when it has
+	--- no room for a sentence, and an icon on its own is a button a child has to
+	--- press to find out what it does. On the invite the caption carries the number
+	--- the ask is worth.
+	---
+	--- opts: { name, icon, caption, variant }
+	function UiKit.tile(parent: Instance, opts): TextButton
+		if not opts.icon or not opts.caption then
+			error(("[Tung] the %q tile needs both an icon and a caption; an icon with no caption is a button nobody can read")
+				:format(tostring(opts.name)), 2)
+		end
+		local variant = BTN.Variant[opts.variant]
+		if not variant then
+			error(("[Tung] unknown tile variant %q"):format(tostring(opts.variant)), 2)
+		end
+
 		local b = Instance.new("TextButton")
-		b.Name = name
-		b.Size = UDim2.fromOffset(RAIL.ItemWidth, RAIL.ItemHeight)
-		b.BackgroundColor3 = colour
+		b.Name = opts.name
+		b.Size = UDim2.fromOffset(TILE.Width, TILE.Height)
+		b.BackgroundColor3 = ROLE[variant.fill]
 		b.BackgroundTransparency = 0.1
 		b.BorderSizePixel = 0
 		b.AutoButtonColor = true
+		b.Active = true
+		b.Selectable = true
 		b.Font = Style.Font.title
 		b.Text = ""
 		b.Parent = parent
 		UiKit.corner(b, 12)
+		if variant.stroke then
+			UiKit.stroke(b, ROLE[variant.stroke], 1.5)
+		end
+		b:SetAttribute("Variant", opts.variant)
 
-		local slot = Instance.new("Frame")
-		slot.Name = "GlyphSlot"
-		slot.Size = UDim2.fromOffset(RAIL.GlyphSize, RAIL.GlyphSize)
-		slot.Position = UDim2.fromOffset(RAIL.GlyphX, RAIL.GlyphY)
-		slot.BackgroundTransparency = 1
-		slot.BorderSizePixel = 0
-		slot.Parent = b
+		local glyph = UiKit.icon(b, opts.icon, TILE.GlyphSize, ROLE[variant.ink], ROLE[variant.fill])
+		glyph.Position = UDim2.fromOffset(
+			math.floor((TILE.Width - TILE.GlyphSize) / 2), TILE.Pad)
 
-		local caption = UiKit.text(b, {
+		UiKit.text(b, {
 			Name = "Caption",
-			Size = UDim2.fromOffset(RAIL.BadgeWidth, RAIL.BadgeHeight),
-			Position = UDim2.fromOffset(RAIL.Pad, RAIL.BadgeY),
+			Size = UDim2.fromOffset(TILE.Width - TILE.Pad * 2, TILE.CaptionHeight),
+			Position = UDim2.fromOffset(TILE.Pad, TILE.Pad + TILE.GlyphSize + TILE.GlyphGap),
 			Font = Style.Font.title,
-			Text = "",
-			TextSize = RAIL.BadgeTextPx,
-			TextColor3 = ROLE.onAction,
+			Text = opts.caption,
+			TextSize = TILE.CaptionTextPx,
+			TextColor3 = ROLE[variant.ink],
 			TextXAlignment = Enum.TextXAlignment.Center,
 		})
 
-		return b, slot, caption
+		return b
+	end
+
+	--- Rewrites a tile's caption. The invite's is a live number, so the label has
+	--- to be reachable — by name off the tile rather than by a Frame the caller was
+	--- handed and had to keep.
+	function UiKit.setTileCaption(tile: TextButton, caption: string)
+		local label = tile:FindFirstChild("Caption")
+		if label and label:IsA("TextLabel") then
+			label.Text = caption
+		end
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
