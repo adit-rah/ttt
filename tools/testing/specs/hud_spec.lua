@@ -820,4 +820,127 @@ T.spec("everything that prints text names a face, including the touch pad", func
 end)
 
 
+
+-- ── folding a column card ───────────────────────────────────────────────────
+--
+-- The two optional cards fold to their header. Layout is verify_config's — the
+-- mock stores a UDim2 and never resolves it — but the SIZE a panel writes is a
+-- number this can read back, and so is whether the content went away.
+
+local function headerOf(card)
+	return card:FindFirstChild("Header")
+end
+
+T.spec("the session panel folds to its header and comes back", function(t)
+	local world = clientWorld()
+	local Config = world.req("Config")
+	local HUD = world.req("HUD")
+	local SessionUI = world.req("SessionUI")
+	HUD.start()
+	SessionUI.start()
+	HUD.applyDisclosure({ ids = { "session" } })
+	toClient(world, "SessionState", withTail(true))
+
+	local panel = HUD.column():FindFirstChild("Session")
+	t:notNil(panel, "no session panel")
+	local header = headerOf(panel)
+	t:notNil(header, "the session panel has no header to fold it with")
+	local body = panel:FindFirstChild("Body")
+	t:notNil(body, "the session panel has no body to fold")
+
+	local open = panel.Size.Y.Offset
+	t:isTrue(body.Visible, "the session panel started folded")
+
+	header.Activated:Fire()
+	t:isFalse(body.Visible, "pressing the header left the rows showing")
+	t:eq(panel.Size.Y.Offset, Config.UI.SessionPanel.CollapsedHeight,
+		("a folded session panel is %d px and CollapsedHeight says %d")
+			:format(panel.Size.Y.Offset, Config.UI.SessionPanel.CollapsedHeight))
+
+	header.Activated:Fire()
+	t:isTrue(body.Visible, "pressing the header again did not bring the rows back")
+	t:eq(panel.Size.Y.Offset, open, "unfolding did not restore the panel's height")
+end)
+
+T.spec("the objectives card folds to its header and comes back", function(t)
+	local world = clientWorld()
+	local Config = world.req("Config")
+	local HUD = world.req("HUD")
+	local ObjectivesUI = world.req("ObjectivesUI")
+	HUD.start()
+	ObjectivesUI.start()
+	HUD.applyDisclosure({ ids = { "objectives" } })
+	toClient(world, "Objectives", { rows = {
+		{ name = "Bank 5 Tung", progress = 2, count = 5, done = false },
+		{ name = "Swing a bat", progress = 1, count = 1, done = true },
+	}, hint = "Try the tower." })
+
+	local panel = HUD.column():FindFirstChild("Objectives")
+	t:notNil(panel, "no objectives card")
+	local header = headerOf(panel)
+	t:notNil(header, "the objectives card has no header to fold it with")
+	local open = panel.Size.Y.Offset
+
+	header.Activated:Fire()
+	t:eq(panel.Size.Y.Offset, Config.UI.Objectives.CollapsedHeight,
+		("a folded objectives card is %d px and CollapsedHeight says %d")
+			:format(panel.Size.Y.Offset, Config.UI.Objectives.CollapsedHeight))
+	-- FOLDED IS NOT HIDDEN. A card a player folded has to stay where they
+	-- folded it, or the only way back is to guess.
+	t:isTrue(panel.Visible, "folding the objectives card hid it entirely")
+	t:notNil(headerOf(panel), "a folded objectives card lost the header that unfolds it")
+
+	header.Activated:Fire()
+	t:eq(panel.Size.Y.Offset, open, "unfolding did not restore the card's height")
+end)
+
+T.spec("re-rendering a card does not leave the last render behind", function(t)
+	local world = clientWorld()
+	local HUD = world.req("HUD")
+	local ObjectivesUI = world.req("ObjectivesUI")
+	HUD.start()
+	ObjectivesUI.start()
+	HUD.applyDisclosure({ ids = { "objectives" } })
+
+	local payload = { rows = {
+		{ name = "Bank 5 Tung", progress = 2, count = 5, done = false },
+		{ name = "Swing a bat", progress = 1, count = 1, done = true },
+	}, hint = "Try the tower." }
+
+	-- The card is rebuilt on every push, and its clear loop destroyed only
+	-- TextLabels. That was true when a done row printed its tick as text; a
+	-- drawn tick is a Frame, so one was left behind per push — invisible on the
+	-- first two and a stack of carets and ticks by the tenth.
+	toClient(world, "Objectives", payload)
+	local panel = HUD.column():FindFirstChild("Objectives")
+	local first = #panel:GetChildren()
+
+	for _ = 1, 5 do
+		toClient(world, "Objectives", payload)
+	end
+	t:eq(#panel:GetChildren(), first,
+		("the objectives card holds %d children after six identical pushes and %d after one")
+			:format(#panel:GetChildren(), first))
+end)
+
+T.spec("a folded card still says what it is", function(t)
+	local world = clientWorld()
+	local HUD = world.req("HUD")
+	local SessionUI = world.req("SessionUI")
+	HUD.start()
+	SessionUI.start()
+	HUD.applyDisclosure({ ids = { "session" } })
+	toClient(world, "SessionState", withTail(true))
+
+	local panel = HUD.column():FindFirstChild("Session")
+	headerOf(panel).Activated:Fire()
+
+	local title = headerOf(panel):FindFirstChild("Title")
+	t:notNil(title, "a folded card has no title on it")
+	if title then
+		t:ne(title.Text, "", "a folded card is a blank strip")
+	end
+end)
+
+
 end

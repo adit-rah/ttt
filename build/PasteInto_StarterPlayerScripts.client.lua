@@ -1068,7 +1068,7 @@ __MODULES["Config"] = function()
 			-- literal in a builder and nothing could read it to say so.
 
 			-- the fixed stack, top to bottom
-			DailyY = 28, DailyHeight = 50,
+			DailyHeight = 50,
 			PlaytimeHeight = 56,
 			BarHeight = 4, BarY = 44,   -- the playtime gauge, inside the playtime row
 
@@ -1137,6 +1137,20 @@ __MODULES["Config"] = function()
 		-- so there is nothing behind it to sit clear of.
 		OverlayY = 0.44,
 
+		-- invariant: A COLUMN CARD'S HEADER IS THE CONTROL THAT FOLDS IT, and it is a
+		-- touch target like any other. The whole strip, because a 44-px square in the
+		-- corner of a card whose header is sixteen pixels tall overlaps the first row.
+		--
+		-- FOLDING IS SESSION-ONLY AND DELIBERATELY NOT SAVED. A persisted field means
+		-- both defaultProfile() and the explicit save() payload, and INVARIANTS §10
+		-- lists that pair in the backlog precisely because getting one of the two
+		-- means it works all session and is gone at next login. If folding should
+		-- survive a rejoin, that is the field to add and both halves to write.
+		CardHeader = {
+			Pad = 12,
+			TitleTextPx = 13,
+		},
+
 		-- invariant: THE NEW CARD (#183) — what arrives when a surface unlocks.
 		--
 		-- Disclosure used to announce an arrival as a toast, in the same side column
@@ -1165,7 +1179,6 @@ __MODULES["Config"] = function()
 			-- Every one of these shipped as a literal in ObjectivesUI.lua at 11 or 12,
 			-- which is 6.8 to 7.4 PHYSICAL px at MinScale — the same defect the NEXT
 			-- UPGRADE heading had, in the one place nothing could read it.
-			HeaderHeight = 18, HeaderTextPx = 13,
 			RowGap = 2,
 			RowTextPx = 13, CountTextPx = 13,
 			HintHeight = 28, HintTextPx = 13,
@@ -1345,6 +1358,10 @@ __MODULES["Config"] = function()
 		ui.StatusCard.ContentHeight = sc.DetailY + sc.DetailHeight + sc.Pad
 
 		-- ── THE SESSION PANEL, ROW BY ROW, and both of its heights ───────────────
+		-- A card header is a touch target, so its height is the ladder's rather
+		-- than a number. Derived FIRST: the session panel's rows start under it.
+		ui.CardHeader.Height = ui.Button.pill
+
 		local sp = ui.SessionPanel
 		ui.SessionPanel.RowWidth = sp.Width - sp.Pad * 2
 		-- a row's insides
@@ -1355,6 +1372,10 @@ __MODULES["Config"] = function()
 		-- the heading and the badge opposite it
 		ui.SessionPanel.BadgeX = sp.Width - sp.Pad - sp.BadgeWidth
 		-- the fixed stack
+		-- The rows start under the header, which is the fold control and is a
+		-- touch target. DailyY was typed at 28 against a 16-px heading.
+		ui.SessionPanel.DailyY = ui.CardHeader.Height + sp.RowGap
+		ui.SessionPanel.CollapsedHeight = ui.CardHeader.Height + sp.TailPad
 		ui.SessionPanel.PlaytimeY = sp.DailyY + sp.DailyHeight + sp.RowGap
 		ui.SessionPanel.BoostY = sp.PlaytimeY + sp.PlaytimeHeight + sp.RowGap
 		-- WHERE THE OPTIONAL TAIL STARTS, which SessionUI used to type as 200.
@@ -1403,6 +1424,9 @@ __MODULES["Config"] = function()
 		-- become rather than what it happens to be showing.
 		ui.PartyPanel.MaxHeight = ui.PartyPanel.HeaderHeight + ui.PartyPanel.HeadGap
 			+ ui.PartyPanel.MaxRows * ui.PartyPanel.RowHeight
+		-- The header IS the fold control, so its height is the ladder's.
+		ui.Objectives.HeaderHeight = ui.CardHeader.Height
+		ui.Objectives.CollapsedHeight = ui.CardHeader.Height + ui.Objectives.Pad
 		ui.Objectives.RowHeight = ui.Icon.Small
 		ui.Objectives.TextX = ui.Objectives.Gutter + ui.Icon.Small + ui.Objectives.GlyphGap
 		ui.Objectives.TextWidth = ui.ColumnWidth - ui.Objectives.TextX - ui.Objectives.Gutter
@@ -8942,6 +8966,7 @@ __MODULES["ObjectivesUI"] = function()
 
 	local ROLE = UiKit.ROLE
 	local O = Config.UI.Objectives
+	local collapsed = false
 	local GLYPH = Config.UI.Icon.Small
 	local WIDTH = Config.UI.ColumnWidth
 
@@ -8956,23 +8981,35 @@ __MODULES["ObjectivesUI"] = function()
 			panel.Visible = false
 			return
 		end
+		-- EVERY child this function built, not just the labels. It cleared only
+		-- TextLabels, which was true when a done row printed a tick as text; a
+		-- drawn tick is a Frame, so one accumulated on the card per push, and the
+		-- header that folds the card is a TextButton.
 		for _, child in ipairs(panel:GetChildren()) do
-			if child:IsA("TextLabel") then
+			if child:IsA("TextLabel") or child:IsA("TextButton") or child:IsA("Frame") then
 				child:Destroy()
 			end
 		end
 
-		local y = O.Pad
-		UiKit.text(panel, {
-			Size = UDim2.fromOffset(O.TextWidth + O.TextX - O.Gutter, O.HeaderHeight),
-			Position = UDim2.fromOffset(O.Gutter, y),
-			Font = Style.Font.title,
-			Text = "TODAY",
-			TextSize = O.HeaderTextPx,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = ROLE.onSurfaceMuted,
+		-- The header is the fold control, and it is rebuilt with everything else:
+		-- render() clears the card on every push.
+		local header = UiKit.cardHeader(panel, {
+			name = "Header", title = "TODAY",
+			width = Config.UI.ColumnWidth, collapsed = collapsed,
 		})
-		y += O.HeaderHeight
+		header.Activated:Connect(function()
+			collapsed = not collapsed
+			render()
+		end)
+		local y = O.HeaderHeight
+
+		if collapsed then
+			-- Folded to the header, and NOT hidden: a card a player folded away has
+			-- to stay where they folded it, or the only way back is to guess.
+			panel.Size = UDim2.fromOffset(WIDTH, O.CollapsedHeight)
+			panel.Visible = #state.rows > 0 or state.hint ~= nil
+			return
+		end
 
 		-- A marker column, then the name. The state used to be the first character
 		-- of the same string — a drawn tick when done and "2/5" when not — which
@@ -9460,6 +9497,11 @@ __MODULES["SessionUI"] = function()
 	}
 
 	local column, overlay, panel, dailyRow, playtimeRow, boostButton, vaultRow, offlineRow, weekendBadge
+	local header, body
+	-- Forward-declared: the header's Activated handler is wired in start(), which
+	-- is above layoutTail, and folding is a height layoutTail owns.
+	local layoutTail
+	local collapsed = false
 	local playtimeFill, modalOpen = nil, false
 	-- The optional rows, in the order layoutTail() stacks them, and the list
 	-- Config.UI.SessionPanel.OptionalRows counts. Filled by buildPanel; see
@@ -9722,19 +9764,31 @@ __MODULES["SessionUI"] = function()
 		panel.LayoutOrder = 2
 		panel.Visible = false
 
-		text(panel, {
-			Size = UDim2.fromOffset(PANEL.ActionTextWidth, PANEL.HeadHeight),
-			Position = UDim2.fromOffset(PANEL.Pad, PANEL.HeadPad),
-			Font = Style.Font.body,
-			Text = "SESSION",
-			TextSize = PANEL.HeadTextPx,
-			TextColor3 = ROLE.onSurfaceMuted,
+		-- The header is the fold control. Built once, unlike the objectives card's,
+		-- because this panel is not rebuilt on a push — layoutTail moves its rows.
+		header = UiKit.cardHeader(panel, {
+			name = "Header", title = "SESSION",
+			width = PANEL.Width, collapsed = collapsed,
 		})
+		body = Instance.new("Frame")
+		body.Name = "Body"
+		body.Size = UDim2.fromScale(1, 1)
+		body.BackgroundTransparency = 1
+		body.BorderSizePixel = 0
+		body.Parent = panel
 
-		-- the weekend bonus is server-wide and invisible unless something says so
-		weekendBadge = text(panel, {
-			Size = UDim2.fromOffset(PANEL.BadgeWidth, PANEL.HeadHeight),
-			Position = UDim2.fromOffset(PANEL.BadgeX, PANEL.HeadPad),
+		header.Activated:Connect(function()
+			collapsed = not collapsed
+			UiKit.setHeaderCollapsed(header, collapsed)
+			layoutTail()
+		end)
+
+		-- the weekend bonus is server-wide and invisible unless something says so.
+		-- Inside the header, so it stays readable when the card is folded — a
+		-- weekend is exactly the thing a folded card should still be able to say.
+		weekendBadge = text(header, {
+			Size = UDim2.fromOffset(PANEL.BadgeWidth, Config.UI.CardHeader.Height),
+			Position = UDim2.fromOffset(PANEL.BadgeX - Config.UI.Icon.Small, 0),
 			Font = Style.Font.body,
 			Text = "",
 			TextSize = PANEL.HeadTextPx,
@@ -9742,8 +9796,8 @@ __MODULES["SessionUI"] = function()
 			TextColor3 = ROLE.heading,
 		})
 
-		dailyRow = buildRow(panel, PANEL.DailyY, PANEL.DailyHeight, "DAILY STREAK")
-		playtimeRow = buildRow(panel, PANEL.PlaytimeY, PANEL.PlaytimeHeight, "PLAYTIME")
+		dailyRow = buildRow(body, PANEL.DailyY, PANEL.DailyHeight, "DAILY STREAK")
+		playtimeRow = buildRow(body, PANEL.PlaytimeY, PANEL.PlaytimeHeight, "PLAYTIME")
 
 		-- a thin progress bar along the bottom of the playtime row: the ladder is
 		-- the only part of this panel with a "how far to go" answer
@@ -9764,7 +9818,7 @@ __MODULES["SessionUI"] = function()
 
 		-- Gold, at the row height the panel can afford. BOOST means what REBIRTH
 		-- means and cannot have REBIRTH's 56 px.
-		boostButton = UiKit.control(panel, {
+		boostButton = UiKit.control(body, {
 			variant = "primary", height = "secondary", text = "BOOST",
 			width = PANEL.RowWidth,
 			position = UDim2.fromOffset(PANEL.Pad, PANEL.BoostY),
@@ -9772,10 +9826,10 @@ __MODULES["SessionUI"] = function()
 
 		-- Both of these are positioned by layoutTail() rather than here: they come
 		-- and go independently and a fixed y for each leaves a hole in the panel.
-		vaultRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "VAULT TIMER")
+		vaultRow = buildRow(body, PANEL.StackTop, PANEL.RowHeight, "VAULT TIMER")
 		vaultRow.row.Visible = false
 
-		offlineRow = buildRow(panel, PANEL.StackTop, PANEL.RowHeight, "OFFLINE TUNG")
+		offlineRow = buildRow(body, PANEL.StackTop, PANEL.RowHeight, "OFFLINE TUNG")
 		TAIL_ROWS = { vaultRow, offlineRow }
 		offlineRow.row.Visible = false
 		offlineRow.action.Text = "OPEN"
@@ -9956,7 +10010,22 @@ __MODULES["SessionUI"] = function()
 	--- OptionalRows counts: adding a third row here without adding it there is a
 	--- panel that grows past the budget again, and tools/testing/specs/hud_spec.lua
 	--- is what says so.
-	local function layoutTail()
+	function layoutTail()
+		-- FOLDED IS A HEIGHT THIS FUNCTION OWNS TOO. The panel's height has exactly
+		-- one owner and a second write elsewhere would be invisible, because this
+		-- one lands after it — which is the note above, and the fold is no
+		-- exception to it.
+		-- ONE CONTAINER, not a list of parts to hide and restore. Every row below
+		-- the header owns its own Visible — the vault row comes and goes with the
+		-- vault, the boost button with disclosure — and folding by walking them
+		-- would have to remember what each one wanted, then get it wrong the first
+		-- time a row grew a fourth state.
+		body.Visible = not collapsed
+		if collapsed then
+			panel.Size = UDim2.fromOffset(PANEL.Width, PANEL.CollapsedHeight)
+			return
+		end
+
 		local y = PANEL.StackTop
 		local shown = 0
 		for _, row in ipairs(TAIL_ROWS) do
@@ -10522,6 +10591,7 @@ __MODULES["UiKit"] = function()
 	local ICON = Config.UI.Icon
 	local TILE = Config.UI.Tile
 	local BTN = Config.UI.Button
+	local HEADER = Config.UI.CardHeader
 
 	local UiKit = {}
 
@@ -10956,6 +11026,10 @@ __MODULES["UiKit"] = function()
 		-- done. Replaces the ✓ that ObjectivesUI printed as text.
 		tick = { bar(5, 12.5, 10, 17.5), bar(10, 17.5, 19, 6.5) },
 		close = { bar(6.5, 6.5, 17.5, 17.5), bar(17.5, 6.5, 6.5, 17.5) },
+		-- The two halves of a fold. A caret points at what pressing it does: down
+		-- to open a folded card, up to fold an open one.
+		caretDown = { bar(6, 9.5, 12, 15.5), bar(12, 15.5, 18, 9.5) },
+		caretUp   = { bar(6, 15.5, 12, 9.5), bar(12, 9.5, 18, 15.5) },
 		-- The help rail. A question mark is a smooth open curve and is not
 		-- drawable from these four primitives; the substitution is #183's open
 		-- question, and this is what it substitutes.
@@ -11178,6 +11252,63 @@ __MODULES["UiKit"] = function()
 		})
 
 		return b
+	end
+
+	--- invariant: A CARD'S HEADER IS THE CONTROL THAT FOLDS IT.
+	---
+	--- The whole strip, because a 44-px square in the corner of a card whose header
+	--- is sixteen pixels tall overlaps the first row — and the accordion this is
+	--- imitating has always used the header, which is also the biggest target a
+	--- card can offer. Transparent, so it reads as a heading rather than as a
+	--- button sitting on one; the caret is what says it presses.
+	---
+	--- opts: { name, title, width, collapsed }
+	--- Returns the button. Its title is a child called "Title", so a caller with
+	--- something else to put in the strip — the weekend badge — parents it here.
+	function UiKit.cardHeader(parent: Instance, opts): TextButton
+		local b = Instance.new("TextButton")
+		b.Name = opts.name or "Header"
+		b.Size = UDim2.fromOffset(opts.width, HEADER.Height)
+		b.Position = UDim2.fromOffset(0, 0)
+		b.BackgroundTransparency = 1
+		b.BorderSizePixel = 0
+		b.AutoButtonColor = false
+		b.Active = true
+		b.Selectable = true
+		b.Font = Style.Font.title
+		b.Text = ""
+		b.Parent = parent
+
+		UiKit.text(b, {
+			Name = "Title",
+			Size = UDim2.fromOffset(opts.width - HEADER.Pad * 2 - ICON.Small, HEADER.Height),
+			Position = UDim2.fromOffset(HEADER.Pad, 0),
+			Font = Style.Font.title,
+			Text = opts.title,
+			TextSize = HEADER.TitleTextPx,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = ROLE.onSurfaceMuted,
+		})
+
+		local caret = UiKit.icon(b, opts.collapsed and "caretDown" or "caretUp",
+			ICON.Small, ROLE.onSurfaceMuted, ROLE.surface)
+		caret.Position = UDim2.fromOffset(
+			opts.width - HEADER.Pad - ICON.Small,
+			math.floor((HEADER.Height - ICON.Small) / 2))
+		return b
+	end
+
+	--- Points the header's caret at what pressing it will do.
+	function UiKit.setHeaderCollapsed(header: TextButton, collapsed: boolean)
+		local caret = header:FindFirstChild("Glyph")
+		if not caret then
+			return
+		end
+		local position = caret.Position
+		caret:Destroy()
+		local fresh = UiKit.icon(header, collapsed and "caretDown" or "caretUp",
+			ICON.Small, ROLE.onSurfaceMuted, ROLE.surface)
+		fresh.Position = position
 	end
 
 	--- Rewrites a tile's caption. The invite's is a live number, so the label has

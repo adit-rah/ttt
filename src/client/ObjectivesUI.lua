@@ -19,6 +19,7 @@ local ObjectivesUI = {}
 
 local ROLE = UiKit.ROLE
 local O = Config.UI.Objectives
+local collapsed = false
 local GLYPH = Config.UI.Icon.Small
 local WIDTH = Config.UI.ColumnWidth
 
@@ -33,23 +34,35 @@ local function render()
 		panel.Visible = false
 		return
 	end
+	-- EVERY child this function built, not just the labels. It cleared only
+	-- TextLabels, which was true when a done row printed a tick as text; a
+	-- drawn tick is a Frame, so one accumulated on the card per push, and the
+	-- header that folds the card is a TextButton.
 	for _, child in ipairs(panel:GetChildren()) do
-		if child:IsA("TextLabel") then
+		if child:IsA("TextLabel") or child:IsA("TextButton") or child:IsA("Frame") then
 			child:Destroy()
 		end
 	end
 
-	local y = O.Pad
-	UiKit.text(panel, {
-		Size = UDim2.fromOffset(O.TextWidth + O.TextX - O.Gutter, O.HeaderHeight),
-		Position = UDim2.fromOffset(O.Gutter, y),
-		Font = Style.Font.title,
-		Text = "TODAY",
-		TextSize = O.HeaderTextPx,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = ROLE.onSurfaceMuted,
+	-- The header is the fold control, and it is rebuilt with everything else:
+	-- render() clears the card on every push.
+	local header = UiKit.cardHeader(panel, {
+		name = "Header", title = "TODAY",
+		width = Config.UI.ColumnWidth, collapsed = collapsed,
 	})
-	y += O.HeaderHeight
+	header.Activated:Connect(function()
+		collapsed = not collapsed
+		render()
+	end)
+	local y = O.HeaderHeight
+
+	if collapsed then
+		-- Folded to the header, and NOT hidden: a card a player folded away has
+		-- to stay where they folded it, or the only way back is to guess.
+		panel.Size = UDim2.fromOffset(WIDTH, O.CollapsedHeight)
+		panel.Visible = #state.rows > 0 or state.hint ~= nil
+		return
+	end
 
 	-- A marker column, then the name. The state used to be the first character
 	-- of the same string — a drawn tick when done and "2/5" when not — which
