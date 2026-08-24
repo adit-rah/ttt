@@ -1123,6 +1123,17 @@ __MODULES["Config"] = function()
 		-- and 208 was a literal in a builder that nothing could read.
 		TouchPad = { Count = 3 },
 
+		-- invariant: WHAT SITS WHERE ON THE RAIL, left to right. The tiles were laid
+		-- out in the order they happened to be built — the invite in buildUtilityRail,
+		-- help right after it, and the shop whenever ShopUI.start got round to calling
+		-- addRailItem — so the order was a property of the boot sequence rather than a
+		-- decision, and moving a start() call moved the rail.
+		--
+		-- HELP IS LAST because it is the one a player reaches for least often and
+		-- knows the location of least well; the corner is the easiest thing on the
+		-- rail to find. design:D-05.
+		RailOrder = { "invite", "inventory", "shop", "help" },
+
 		-- invariant: WHERE AN OVERLAY CARD SITS, once. The help card, the shop and
 		-- the rebirth report each picked their own vertical centre — 0.5, 0.5 and
 		-- 0.42 — so three cards that open the same way opened in three places.
@@ -1416,6 +1427,12 @@ __MODULES["Config"] = function()
 		-- iterated only the two that declared one. They declare their own now, and
 		-- it is the column's.
 		-- The card is a heading, a run of arrivals, and one control to dismiss it.
+		-- name -> position, so a caller names its tile rather than a number.
+		ui.RailRank = {}
+		for index, id in ipairs(ui.RailOrder) do
+			ui.RailRank[id] = index
+		end
+
 		ui.NewCard.ContentWidth = ui.NewCard.Width - ui.NewCard.Pad * 2
 		ui.NewCard.RowHeight = ui.NewCard.NameHeight + ui.NewCard.BodyHeight
 		-- The first block's name shares its line with the close control, so it is
@@ -7753,7 +7770,17 @@ __MODULES["HUD"] = function()
 
 		inviteButton = UiKit.tile(railFrame, {
 			name = "Invite", variant = "pill", icon = "personPlus", caption = "+0%",
+			layoutOrder = UI.RailRank.invite,
 		})
+
+		-- PLACEHOLDER (#197). The bag exists so the rail has the shape it is going
+		-- to have; it opens nothing yet, and it is `disabled` rather than hidden so
+		-- that says itself instead of being a live button that does nothing.
+		UiKit.setControlState(UiKit.tile(railFrame, {
+			name = "Inventory", variant = "primary", icon = "inventory", caption = "ITEMS",
+			layoutOrder = UI.RailRank.inventory,
+		}), "disabled")
+
 		buildHelp(railFrame)
 		-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 		-- control does not exist. See refreshInvite.
@@ -8093,6 +8120,7 @@ __MODULES["HUD"] = function()
 		-- is the substitution #183 asks about.
 		local button = UiKit.tile(rail, {
 			name = "Help", variant = "ghost", icon = "info", caption = "HELP",
+			layoutOrder = UI.RailRank.help,
 		})
 		helpPanel = UiKit.overlayCard(overlay,
 			UDim2.fromOffset(Config.UI.HelpCard.Width, Config.UI.HelpCard.TitleHeight))
@@ -8227,6 +8255,9 @@ __MODULES["HUD"] = function()
 		end
 		local button = UiKit.tile(railFrame, {
 			name = name, variant = "primary", icon = icon, caption = label,
+			-- Named rather than numbered: a caller says which tile it is and
+			-- Config.UI.RailOrder says where that sits.
+			layoutOrder = UI.RailRank[name:lower()],
 		})
 		button.Visible = visible()
 		button.Activated:Connect(onPress)
@@ -11027,6 +11058,10 @@ __MODULES["UiKit"] = function()
 		dash = { bar(5, 6, 12, 12), bar(12, 12, 5, 18), bar(12, 6, 19, 12), bar(19, 12, 12, 18) },
 		-- The shop rail: an awning over a box with a door in it.
 		shop = { bar(3, 6.5, 21, 6.5, { thick = 2 }), rect(5, 10, 14, 11, 1), rect(10, 15, 4, 6, 0.5) },
+		-- A satchel: a squared handle over a body with a clasp punched through it.
+		-- Nothing here draws an arc, so the handle is three bars.
+		inventory = { bar(9, 8, 9, 5), bar(9, 5, 15, 5), bar(15, 5, 15, 8),
+			rect(4, 8, 16, 13, 2), bar(12, 12, 12, 16, { cut = true, thick = 2 }) },
 		-- What the shop sells. The bat runs knob to barrel on the diagonal and is
 		-- the one glyph with a deliberately heavier part — `thick` on the barrel,
 		-- which is still a multiple of the drawing's own weight.
@@ -11194,7 +11229,7 @@ __MODULES["UiKit"] = function()
 	--- press to find out what it does. On the invite the caption carries the number
 	--- the ask is worth.
 	---
-	--- opts: { name, icon, caption, variant }
+	--- opts: { name, icon, caption, variant, layoutOrder }
 	function UiKit.tile(parent: Instance, opts): TextButton
 		if not opts.icon or not opts.caption then
 			error(("[Tung] the %q tile needs both an icon and a caption; an icon with no caption is a button nobody can read")
@@ -11222,6 +11257,9 @@ __MODULES["UiKit"] = function()
 			UiKit.stroke(b, ROLE[variant.stroke], 1.5)
 		end
 		b:SetAttribute("Variant", opts.variant)
+		if opts.layoutOrder then
+			b.LayoutOrder = opts.layoutOrder
+		end
 
 		local glyph = UiKit.icon(b, opts.icon, TILE.GlyphSize, ROLE[variant.ink], ROLE[variant.fill])
 		glyph.Position = UDim2.fromOffset(

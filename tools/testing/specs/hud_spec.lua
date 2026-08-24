@@ -923,6 +923,60 @@ T.spec("re-rendering a card does not leave the last render behind", function(t)
 			:format(#panel:GetChildren(), first))
 end)
 
+T.spec("the rail runs inventory, shop, help — left to right", function(t)
+	local world = bootedWorld()
+	local Config = world.req("Config")
+	local HUD = world.req("HUD")
+	HUD.applyDisclosure({ ids = { "shop" } })
+
+	local rail
+	for _, gui in ipairs(widgets(world)) do
+		if gui.Name == "Rail" then
+			rail = gui
+		end
+	end
+	t:notNil(rail, "the HUD built no rail")
+
+	-- LayoutOrder is the order, and it comes from Config.UI.RailOrder rather
+	-- than from whichever module's start() ran first. The layout itself is the
+	-- engine's: the mock stores a UDim2 and never resolves one.
+	local placed = {}
+	for _, tile in ipairs(rail:GetChildren()) do
+		if tile.ClassName == "TextButton" then
+			placed[tile.Name:lower()] = tile.LayoutOrder
+		end
+	end
+	for _, id in ipairs({ "inventory", "shop", "help" }) do
+		t:notNil(placed[id], ("the rail has no %q tile"):format(id))
+	end
+	if placed.inventory and placed.shop and placed.help then
+		t:isTrue(placed.inventory < placed.shop,
+			("inventory sits at %d and shop at %d"):format(placed.inventory, placed.shop))
+		t:isTrue(placed.shop < placed.help,
+			("shop sits at %d and help at %d"):format(placed.shop, placed.help))
+	end
+	t:eq(placed.help, #Config.UI.RailOrder, "help is not the last tile on the rail")
+end)
+
+T.spec("the inventory tile is a placeholder and says so", function(t)
+	local world = bootedWorld()
+
+	local bag
+	for _, gui in ipairs(widgets(world)) do
+		if gui.Name == "Inventory" then
+			bag = gui
+		end
+	end
+	t:notNil(bag, "the rail has no inventory tile")
+	if bag then
+		-- #197. Disabled rather than hidden, so a tile that opens nothing reads
+		-- as not-yet rather than as a live button that does nothing.
+		t:isFalse(bag.Active, "the inventory placeholder is pressable and opens nothing")
+		t:notNil(bag:FindFirstChild("Glyph"), "the inventory tile draws no glyph")
+		t:ne(bag:FindFirstChild("Caption").Text, "", "the inventory tile has no caption")
+	end
+end)
+
 T.spec("a folded card is exactly its header, with nothing under it", function(t)
 	local world = clientWorld()
 	local HUD = world.req("HUD")

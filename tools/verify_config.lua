@@ -4313,6 +4313,36 @@ check(UI.Objectives.TextWidth >= 120,
 	("the objectives card leaves %d px for an objective's name beside its marker")
 		:format(UI.Objectives.TextWidth))
 
+-- ── the rail's order ────────────────────────────────────────────────────────
+--
+-- The tiles used to be laid out in the order they happened to be BUILT — the
+-- invite in buildUtilityRail, help right behind it, the shop whenever
+-- ShopUI.start got round to calling addRailItem. So the order was a property of
+-- the boot sequence, and moving a start() call moved the rail.
+check(#UI.RailOrder >= 2,
+	("the rail declares %d tiles; an order of one is not an order"):format(#UI.RailOrder))
+do
+	local seen = {}
+	for index, id in ipairs(UI.RailOrder) do
+		check(not seen[id], ("the rail lists %q twice, at %d and %d"):format(id, seen[id] or 0, index))
+		seen[id] = index
+		check(UI.RailRank[id] == index,
+			("the rail ranks %q at %s and lists it at %d"):format(id, tostring(UI.RailRank[id]), index))
+	end
+	-- Help is last on purpose: it is the tile a player reaches for least often
+	-- and knows the position of least well, and the corner is the easiest thing
+	-- on the rail to find.
+	check(UI.RailOrder[#UI.RailOrder] == "help",
+		("the rail ends with %q; help is last because the corner is the easiest tile to find")
+			:format(tostring(UI.RailOrder[#UI.RailOrder])))
+end
+-- The whole rail has to fit beside the toast column it sits above.
+check(#UI.RailOrder * UI.Tile.Width + (#UI.RailOrder - 1) * UI.Gap
+	+ UI.Margin * 2 <= UI.ReferenceWidth,
+	("%d rail tiles of %d with %d between them need %d px on a %d-wide screen")
+		:format(#UI.RailOrder, UI.Tile.Width, UI.Gap,
+			#UI.RailOrder * UI.Tile.Width + (#UI.RailOrder - 1) * UI.Gap, UI.ReferenceWidth))
+
 -- ── folding a column card ───────────────────────────────────────────────────
 --
 -- A CARD'S HEADER IS THE CONTROL THAT FOLDS IT, so it is a touch target like
