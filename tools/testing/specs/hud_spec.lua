@@ -923,6 +923,39 @@ T.spec("re-rendering a card does not leave the last render behind", function(t)
 			:format(#panel:GetChildren(), first))
 end)
 
+T.spec("a folded card is exactly its header, with nothing under it", function(t)
+	local world = clientWorld()
+	local HUD = world.req("HUD")
+	local SessionUI, ObjectivesUI = world.req("SessionUI"), world.req("ObjectivesUI")
+	HUD.start()
+	SessionUI.start()
+	ObjectivesUI.start()
+	HUD.applyDisclosure({ ids = { "session", "objectives" } })
+	toClient(world, "SessionState", withTail(true))
+	toClient(world, "Objectives", { rows = {
+		{ name = "Bank 5 Tung", progress = 2, count = 5, done = false } }, hint = "Try the tower." })
+
+	-- Read back off the built tree rather than off Config: the card writes its
+	-- own folded height, and the complaint that started this was that the strip
+	-- had padding under it and none over. Both cards folded to header + their
+	-- own tail padding, so twelve pixels of nothing sat below the session strip.
+	for _, name in ipairs({ "Session", "Objectives" }) do
+		local panel = HUD.column():FindFirstChild(name)
+		local header = panel:FindFirstChild("Header")
+		headerOf(panel).Activated:Fire()
+		t:eq(panel.Size.Y.Offset, header.Size.Y.Offset,
+			("the folded %s card is %d px around a %d-px header — %d of that is dead space under the strip")
+				:format(name, panel.Size.Y.Offset, header.Size.Y.Offset,
+					panel.Size.Y.Offset - header.Size.Y.Offset))
+		t:eq(header.Position.Y.Offset, 0,
+			("the folded %s card's header starts at y=%d, so its padding is uneven top to bottom")
+				:format(name, header.Position.Y.Offset))
+		t:eq(header.Size.X.Offset, panel.Size.X.Offset,
+			("the folded %s card's header is %d wide in a %d card")
+				:format(name, header.Size.X.Offset, panel.Size.X.Offset))
+	end
+end)
+
 T.spec("a folded card still says what it is", function(t)
 	local world = clientWorld()
 	local HUD = world.req("HUD")

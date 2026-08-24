@@ -4335,9 +4335,12 @@ for _, card in ipairs({
 	{ "session panel", UI.SessionPanel.CollapsedHeight, UI.SessionPanel.Height },
 	{ "objectives card", UI.Objectives.CollapsedHeight, UI.Objectives.MaxHeight },
 }) do
-	check(card[2] >= UI.CardHeader.Height,
-		("the folded %s is %d design px and its header is %d; the control that unfolds it is off the bottom")
-			:format(card[1], card[2], UI.CardHeader.Height))
+	-- EXACTLY the header, not merely at least it. Anything over is dead space
+	-- below the strip and none above it, which is what a folded card looked
+	-- like when this was header + the card's own tail padding.
+	check(card[2] == UI.CardHeader.Height,
+		("the folded %s is %d design px against a %d header, so it carries %d px of padding under the strip and none over it")
+			:format(card[1], card[2], UI.CardHeader.Height, card[2] - UI.CardHeader.Height))
 	check(card[2] < card[3],
 		("the folded %s is %d and its open height is %d; a fold that saves nothing is a control that does nothing")
 			:format(card[1], card[2], card[3]))

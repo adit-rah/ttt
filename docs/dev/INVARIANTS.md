@@ -1171,10 +1171,14 @@ defects in the same file.
   overlaps the first row — and the header is the biggest target a card can offer. `[assert]`
   `CardHeader.Height` off the `UI.Button` ladder, its text against `MinTextPx`, and the caret
   fitting beside the title.
-- **A folded card is its header and nothing else, and it is NOT hidden.** A card a player folded
-  away has to stay where they folded it, or the only way back is to guess. `[assert]` the folded
-  height covers the header and is smaller than the open one — a fold that saves nothing is a
-  control that does nothing. `[spec]` `hud_spec.lua`, both cards, folded and back.
+- **A folded card is EXACTLY its header, and it is NOT hidden.** Exactly, not merely at least:
+  both cards folded to header plus their own tail padding, which put twelve pixels of dead space
+  under the session strip and none over it. The header carries its own padding, and a card folded
+  to it needs no more. A card a player folded away also has to stay where they folded it, or the
+  only way back is to guess. `[assert]` the folded height equals `CardHeader.Height` and is
+  smaller than the open one — a fold that saves nothing is a control that does nothing.
+  `[spec]` `hud_spec.lua` reads the folded height back off the built tree, because the card
+  writes it rather than Config.
 - **The session panel folds by hiding ONE container, not a list of parts.** Every row below its
   header owns its own `Visible` — the vault row comes and goes with the vault, the boost button
   with disclosure — so folding by walking them would have to remember what each one wanted and
