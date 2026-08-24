@@ -399,7 +399,7 @@ local function buildUtilityRail(parent: Instance)
 	-- to have; it opens nothing yet, and it is `disabled` rather than hidden so
 	-- that says itself instead of being a live button that does nothing.
 	UiKit.setControlState(UiKit.tile(railFrame, {
-		name = "Inventory", variant = "primary", icon = "inventory", caption = "ITEMS",
+		name = "Inventory", variant = "primary", icon = "inventory", caption = "INV",
 		layoutOrder = UI.RailRank.inventory,
 	}), "disabled")
 

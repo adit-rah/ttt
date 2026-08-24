@@ -215,7 +215,7 @@ T.spec("an unknown glyph is an error, never an empty frame", function(t)
 	end, "unknown icon")
 end)
 
-T.spec("a cut part draws in the hole colour, not in the ink", function(t)
+T.spec("a cut part draws in the hole colour, whether it is a bar or a rect", function(t)
 	local world = clientWorld()
 	local UiKit = world.req("UiKit")
 	local ink = Color3.fromRGB(255, 255, 255)
@@ -232,6 +232,23 @@ T.spec("a cut part draws in the hole colour, not in the ink", function(t)
 	end
 	t:eq(cuts, 2,
 		("the invite glyph drew %d parts in the hole colour; the plus is two bars and both are holes"):format(cuts))
+
+	-- A RECT can be punched too, and the backpack is the glyph that needs it:
+	-- its lid seam is a cut bar and its front pocket is a cut rect. `cut` was a
+	-- bar-only flag until the pocket wanted one.
+	local bag = UiKit.icon(surface(world), "inventory", 40, ink, hole)
+	local bars, rects = 0, 0
+	for _, part in ipairs(parts(bag)) do
+		if part.BackgroundColor3 == hole then
+			if part.Name:sub(1, 3) == "Bar" then
+				bars += 1
+			else
+				rects += 1
+			end
+		end
+	end
+	t:eq(bars, 1, ("the backpack drew %d cut bars; its lid seam is one"):format(bars))
+	t:eq(rects, 1, ("the backpack drew %d cut rects; its front pocket is one"):format(rects))
 end)
 
 T.spec("the glyph holder clips only where the drawing runs off the picture", function(t)
