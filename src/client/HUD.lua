@@ -53,6 +53,7 @@ local UI = Config.UI
 local CARD = Config.UI.StatusCard
 local RAIL = Config.UI.Rail
 local HELP = Config.UI.HelpCard
+local NEW = Config.UI.NewCard
 local TOAST = Config.UI.Toast
 local REBIRTH = Config.UI.Modal.Rebirth
 local ROLE = UiKit.ROLE
@@ -92,6 +93,9 @@ local state = {
 local gui, root, overlay, rootScale, overlayScale, rootPadding
 local column, cashLabel, multLabel, termsLabel
 local inviteButton
+local helpScroll
+local newPanel
+local newRows = {}
 local waveFrame, waveLabel, toastList, rebirthButton
 -- the next-purchase half of the status card: name, bar fill, "N to go". The bar's
 -- TRACK is not kept — it is drawn once and never written to again, and a module
@@ -575,6 +579,116 @@ function HUD.onDisclosure(fn: () -> ())
 	table.insert(disclosureListeners, fn)
 end
 
+--- invariant: THE NEW CARD (#183) — what arrives when a surface unlocks.
+---
+--- Disclosure announced an arrival as a toast, in the same side column as a
+--- knockout and a loot drop, so an addition to the game read as one more line
+--- of traffic. This is the surface it gets instead: the same overlay card the
+--- help panel and the shop open on, at the same position, dismissed by hand.
+---
+--- IT HOLDS A BATCH. Arrivals come in batches — buying `walls` earns siege,
+--- party and recall in one reconcile pass — and three cards in a row is the
+--- toast problem with bigger rectangles. If more land while it is open they are
+--- appended rather than opening a second card.
+---
+--- NO SCRIM, AND NO TIMER. It does not dim the screen, so the game is playable
+--- behind it and a card arriving mid-raid costs nothing; and it waits to be
+--- read, because the whole point is that a player noticed.
+local function renderNew()
+	if not newPanel then
+		return
+	end
+	for _, child in ipairs(newPanel:GetChildren()) do
+		if child:IsA("TextLabel") or child:IsA("Frame") or child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+
+	local y = NEW.TopPad
+	local badge = Instance.new("Frame")
+	badge.Name = "Badge"
+	badge.Size = UDim2.fromOffset(NEW.BadgeWidth, NEW.BadgeHeight)
+	badge.Position = UDim2.fromOffset(NEW.Pad, y)
+	badge.BackgroundColor3 = ROLE.affirm
+	badge.BorderSizePixel = 0
+	badge.Parent = newPanel
+	corner(badge, math.floor(NEW.BadgeHeight / 2))
+	text(badge, {
+		Name = "BadgeText",
+		Size = UDim2.fromScale(1, 1),
+		Font = Style.Font.title,
+		Text = "NEW",
+		TextSize = NEW.BadgeTextPx,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = ROLE.onAffirm,
+	})
+	text(newPanel, {
+		Name = "Title",
+		Size = UDim2.fromOffset(NEW.ContentWidth - NEW.BadgeWidth - NEW.RowGap, NEW.TitleHeight),
+		Position = UDim2.fromOffset(NEW.Pad + NEW.BadgeWidth + NEW.RowGap, y),
+		Font = Style.Font.title,
+		Text = #newRows == 1 and "Something opened up" or ("%d things opened up"):format(#newRows),
+		TextSize = NEW.TitleTextPx,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = ROLE.heading,
+	})
+	y += NEW.TitleHeight + NEW.RowGap
+
+	for _, row in ipairs(newRows) do
+		text(newPanel, {
+			Size = UDim2.fromOffset(NEW.ContentWidth, NEW.NameHeight),
+			Position = UDim2.fromOffset(NEW.Pad, y),
+			Font = Style.Font.title,
+			Text = row.name,
+			TextSize = NEW.NameTextPx,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = ROLE.emphasis,
+		})
+		local body = text(newPanel, {
+			Size = UDim2.fromOffset(NEW.ContentWidth, NEW.BodyHeight),
+			Position = UDim2.fromOffset(NEW.Pad, y + NEW.NameHeight),
+			Font = Style.Font.body,
+			Text = row.help,
+			TextSize = NEW.BodyTextPx,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			TextColor3 = ROLE.onSurfaceMuted,
+		})
+		body.TextWrapped = true
+		y += NEW.RowHeight + NEW.RowGap
+	end
+
+	local ok = UiKit.control(newPanel, {
+		variant = "primary", text = "GOT IT", width = NEW.ContentWidth,
+		position = UDim2.fromOffset(NEW.Pad, y),
+	})
+	ok.Activated:Connect(function()
+		newRows = {}
+		newPanel.Visible = false
+	end)
+	y += UI.Button.primary + NEW.Pad
+
+	newPanel.Size = UDim2.fromOffset(NEW.Width, y)
+end
+
+--- Announce what just arrived. Appends to whatever is already showing, so a
+--- second batch landing before the first is dismissed extends the card.
+function HUD.showNew(fresh)
+	if not newPanel or type(fresh) ~= "table" or #fresh == 0 then
+		return
+	end
+	for _, row in ipairs(fresh) do
+		-- Capped at what the card is sized for. The verifier holds MaxRows
+		-- against the largest batch Config.Disclosure can produce, so this only
+		-- bites if a player earns two batches without dismissing the first.
+		if #newRows < NEW.MaxRows then
+			table.insert(newRows, row)
+		end
+	end
+	renderNew()
+	newPanel.Visible = true
+end
+
 --- #96's help surface: a "?" on the rail, and a card on the overlay that
 --- lists ONLY what this player has unlocked — it grows with them, so it can
 --- never become a manual. Rebuilt from Config.Disclosure on every open.
@@ -582,27 +696,26 @@ local function renderHelp()
 	if not helpPanel then
 		return
 	end
-	for _, child in ipairs(helpPanel:GetChildren()) do
+	for _, child in ipairs(helpScroll:GetChildren()) do
 		if child:IsA("TextLabel") or child:IsA("Frame") then
 			child:Destroy()
 		end
 	end
-	local y = HELP.TopPad
+	local y = 0
 	UiKit.text(helpPanel, {
 		Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2, HELP.TitleHeight),
-		Position = UDim2.fromOffset(HELP.Pad, y),
+		Position = UDim2.fromOffset(HELP.Pad, HELP.TopPad),
 		Font = Style.Font.title,
 		Text = "WHAT YOU HAVE SO FAR",
 		TextSize = HELP.TitleTextPx,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = ROLE.heading,
 	})
-	y += HELP.TitleHeight + HELP.RowGap
 	for _, row in ipairs(Config.Disclosure) do
 		if HUD.disclosed(row.id) then
-			UiKit.text(helpPanel, {
+			UiKit.text(helpScroll, {
 				Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2, HELP.RowHeight),
-				Position = UDim2.fromOffset(HELP.Pad, y),
+				Position = UDim2.fromOffset(0, y),
 				Font = Style.Font.body,
 				Text = row.name,
 				TextSize = HELP.RowTextPx,
@@ -610,9 +723,9 @@ local function renderHelp()
 				TextColor3 = ROLE.emphasis,
 			})
 			y += HELP.RowHeight + HELP.RowGap
-			local body = UiKit.text(helpPanel, {
+			local body = UiKit.text(helpScroll, {
 				Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2 - HELP.Indent, HELP.BodyHeight),
-				Position = UDim2.fromOffset(HELP.Pad + HELP.Indent, y),
+				Position = UDim2.fromOffset(HELP.Indent, y),
 				Font = Style.Font.body,
 				Text = row.help,
 				TextSize = HELP.BodyTextPx,
@@ -623,7 +736,14 @@ local function renderHelp()
 			y += HELP.BodyHeight + HELP.RowGap
 		end
 	end
-	helpPanel.Size = UDim2.fromOffset(HELP.Width, y + HELP.Pad)
+	-- The CARD's height is capped and the rows scroll inside it; at full
+	-- disclosure they come to 582 px, whose bottom third would land under the
+	-- thumbstick.
+	helpScroll.CanvasSize = UDim2.fromOffset(0, y)
+	helpPanel.Size = UDim2.fromOffset(HELP.Width,
+		math.min(HELP.TopPad + HELP.TitleHeight + y + HELP.Pad, HELP.MaxHeight))
+	helpScroll.Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2,
+		helpPanel.Size.Y.Offset - HELP.TopPad - HELP.TitleHeight - HELP.Pad)
 end
 
 function buildHelp(rail)
@@ -633,11 +753,24 @@ function buildHelp(rail)
 	local button = UiKit.tile(rail, {
 		name = "Help", variant = "ghost", icon = "info", caption = "HELP",
 	})
-	helpPanel = UiKit.panel(overlay,
-		UDim2.fromOffset(Config.UI.HelpCard.Width, Config.UI.HelpCard.TitleHeight),
-		UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	helpPanel = UiKit.overlayCard(overlay,
+		UDim2.fromOffset(Config.UI.HelpCard.Width, Config.UI.HelpCard.TitleHeight))
 	helpPanel.Name = "Help"
 	helpPanel.Visible = false
+
+	helpScroll = Instance.new("ScrollingFrame")
+	helpScroll.Name = "Rows"
+	helpScroll.Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2, HELP.ViewportHeight)
+	helpScroll.Position = UDim2.fromOffset(HELP.Pad, HELP.TopPad + HELP.TitleHeight)
+	helpScroll.BackgroundTransparency = 1
+	helpScroll.BorderSizePixel = 0
+	helpScroll.ScrollBarThickness = 3
+	helpScroll.ScrollBarImageColor3 = ROLE.line
+	helpScroll.Parent = helpPanel
+
+	newPanel = UiKit.overlayCard(overlay, UDim2.fromOffset(NEW.Width, NEW.TitleHeight))
+	newPanel.Name = "NewCard"
+	newPanel.Visible = false
 	button.Activated:Connect(function()
 		helpPanel.Visible = not helpPanel.Visible
 		if helpPanel.Visible then
@@ -717,6 +850,10 @@ function HUD.applyDisclosure(payload)
 	for _, fn in ipairs(disclosureListeners) do
 		fn()
 	end
+	-- AFTER the listeners, so the surface being announced has already rendered:
+	-- a card naming the shop while the rail item it names is still hidden is a
+	-- card pointing at nothing.
+	HUD.showNew(payload.fresh)
 end
 
 --- The owned-buttons mirror off the last Stats push — ShopUI dresses its

@@ -1123,6 +1123,40 @@ __MODULES["Config"] = function()
 		-- and 208 was a literal in a builder that nothing could read.
 		TouchPad = { Count = 3 },
 
+		-- invariant: WHERE AN OVERLAY CARD SITS, once. The help card, the shop and
+		-- the rebirth report each picked their own vertical centre — 0.5, 0.5 and
+		-- 0.42 — so three cards that open the same way opened in three places.
+		--
+		-- ABOVE CENTRE, not on it. A card centred on 0.5 puts its lower half over the
+		-- bottom third of the screen, which on a phone is the thumbstick, the jump
+		-- button and the touch pad; and the thing a player looks at after a card
+		-- opens is usually under it.
+		--
+		-- This is for cards that do NOT dim the screen. A modal with a scrim is a
+		-- different thing and stays centred: it has taken the whole screen already,
+		-- so there is nothing behind it to sit clear of.
+		OverlayY = 0.44,
+
+		-- invariant: THE NEW CARD (#183) — what arrives when a surface unlocks.
+		--
+		-- Disclosure used to announce an arrival as a toast, in the same side column
+		-- as a knockout and a loot drop, and it read as one more line of traffic. An
+		-- addition to the game is not traffic.
+		--
+		-- IT HOLDS A BATCH, because arrivals come in batches: buying `walls` earns
+		-- siege, party and recall in one reconcile pass, and three cards in a row is
+		-- the toast problem with bigger rectangles. MaxRows is held against the
+		-- largest group Config.Disclosure can actually produce.
+		NewCard = {
+			Width = 380, Pad = 16, TopPad = 14,
+			BadgeWidth = 54, BadgeHeight = 22, BadgeTextPx = 13,
+			TitleHeight = 24, TitleTextPx = 18,
+			RowGap = 10,
+			NameHeight = 20, NameTextPx = 15,
+			BodyHeight = 34, BodyTextPx = 13,
+			MaxRows = 3,
+		},
+
 		-- invariant: THE TWO COLUMN CARDS THAT HAD NO GEOMETRY AT ALL. Party and
 		-- objectives build into HUD.column() beside the status card and the session
 		-- panel, and both sized themselves from an accumulated y in src/client — so
@@ -1153,7 +1187,11 @@ __MODULES["Config"] = function()
 			BodyHeight = 28, BodyTextPx = 13,
 			RowGap = 1, Indent = 12,
 			-- Config.Disclosure is the list it prints, so the most it can hold is
-			-- however many surfaces exist.
+			-- however many surfaces exist — and at full disclosure that is 582 design
+			-- px, whose bottom third lands under the thumbstick. IT SCROLLS, like the
+			-- shop and for the same reason: a card that grows with the player is a
+			-- card that outgrows the screen, and the only question is whether anyone
+			-- finds out before a player does.
 			MaxRows = 12,
 		},
 		RebirthCard = {
@@ -1351,6 +1389,13 @@ __MODULES["Config"] = function()
 		-- column's four panels borrowed a third's — and verify_config's width loop
 		-- iterated only the two that declared one. They declare their own now, and
 		-- it is the column's.
+		-- The card is a heading, a run of arrivals, and one control to dismiss it.
+		ui.NewCard.ContentWidth = ui.NewCard.Width - ui.NewCard.Pad * 2
+		ui.NewCard.RowHeight = ui.NewCard.NameHeight + ui.NewCard.BodyHeight
+		ui.NewCard.MaxHeight = ui.NewCard.TopPad + ui.NewCard.TitleHeight
+			+ ui.NewCard.MaxRows * (ui.NewCard.RowHeight + ui.NewCard.RowGap)
+			+ ui.Button.primary + ui.NewCard.Pad * 2
+
 		ui.PartyPanel.Width = ui.ColumnWidth
 		ui.Objectives.Width = ui.ColumnWidth
 
@@ -1365,9 +1410,14 @@ __MODULES["Config"] = function()
 			+ ui.Objectives.MaxRows * (ui.Objectives.RowHeight + ui.Objectives.RowGap)
 			+ ui.Objectives.HintHeight + ui.Objectives.Pad
 
-		ui.HelpCard.MaxHeight = ui.HelpCard.TopPad + ui.HelpCard.TitleHeight
-			+ ui.HelpCard.MaxRows * (ui.HelpCard.RowHeight + ui.HelpCard.BodyHeight + ui.HelpCard.RowGap)
-			+ ui.HelpCard.Pad
+		-- What the rows come to at full disclosure, and what the card shows of it.
+		ui.HelpCard.ContentHeight = ui.HelpCard.MaxRows
+			* (ui.HelpCard.RowHeight + ui.HelpCard.BodyHeight + ui.HelpCard.RowGap)
+		ui.HelpCard.MaxHeight = math.min(
+			ui.HelpCard.TopPad + ui.HelpCard.TitleHeight + ui.HelpCard.ContentHeight + ui.HelpCard.Pad,
+			ui.Modal.MaxHeight)
+		ui.HelpCard.ViewportHeight = ui.HelpCard.MaxHeight
+			- ui.HelpCard.TopPad - ui.HelpCard.TitleHeight - ui.HelpCard.Pad
 		ui.RebirthCard.MaxHeight = ui.RebirthCard.TopPad + ui.RebirthCard.TitleHeight
 			+ ui.RebirthCard.MaxLines * (ui.RebirthCard.LineHeight + ui.RebirthCard.RowGap)
 			+ ui.Button.primary + ui.RebirthCard.Pad * 2
@@ -7333,6 +7383,7 @@ __MODULES["HUD"] = function()
 	local CARD = Config.UI.StatusCard
 	local RAIL = Config.UI.Rail
 	local HELP = Config.UI.HelpCard
+	local NEW = Config.UI.NewCard
 	local TOAST = Config.UI.Toast
 	local REBIRTH = Config.UI.Modal.Rebirth
 	local ROLE = UiKit.ROLE
@@ -7372,6 +7423,9 @@ __MODULES["HUD"] = function()
 	local gui, root, overlay, rootScale, overlayScale, rootPadding
 	local column, cashLabel, multLabel, termsLabel
 	local inviteButton
+	local helpScroll
+	local newPanel
+	local newRows = {}
 	local waveFrame, waveLabel, toastList, rebirthButton
 	-- the next-purchase half of the status card: name, bar fill, "N to go". The bar's
 	-- TRACK is not kept — it is drawn once and never written to again, and a module
@@ -7855,6 +7909,116 @@ __MODULES["HUD"] = function()
 		table.insert(disclosureListeners, fn)
 	end
 
+	--- invariant: THE NEW CARD (#183) — what arrives when a surface unlocks.
+	---
+	--- Disclosure announced an arrival as a toast, in the same side column as a
+	--- knockout and a loot drop, so an addition to the game read as one more line
+	--- of traffic. This is the surface it gets instead: the same overlay card the
+	--- help panel and the shop open on, at the same position, dismissed by hand.
+	---
+	--- IT HOLDS A BATCH. Arrivals come in batches — buying `walls` earns siege,
+	--- party and recall in one reconcile pass — and three cards in a row is the
+	--- toast problem with bigger rectangles. If more land while it is open they are
+	--- appended rather than opening a second card.
+	---
+	--- NO SCRIM, AND NO TIMER. It does not dim the screen, so the game is playable
+	--- behind it and a card arriving mid-raid costs nothing; and it waits to be
+	--- read, because the whole point is that a player noticed.
+	local function renderNew()
+		if not newPanel then
+			return
+		end
+		for _, child in ipairs(newPanel:GetChildren()) do
+			if child:IsA("TextLabel") or child:IsA("Frame") or child:IsA("TextButton") then
+				child:Destroy()
+			end
+		end
+
+		local y = NEW.TopPad
+		local badge = Instance.new("Frame")
+		badge.Name = "Badge"
+		badge.Size = UDim2.fromOffset(NEW.BadgeWidth, NEW.BadgeHeight)
+		badge.Position = UDim2.fromOffset(NEW.Pad, y)
+		badge.BackgroundColor3 = ROLE.affirm
+		badge.BorderSizePixel = 0
+		badge.Parent = newPanel
+		corner(badge, math.floor(NEW.BadgeHeight / 2))
+		text(badge, {
+			Name = "BadgeText",
+			Size = UDim2.fromScale(1, 1),
+			Font = Style.Font.title,
+			Text = "NEW",
+			TextSize = NEW.BadgeTextPx,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextColor3 = ROLE.onAffirm,
+		})
+		text(newPanel, {
+			Name = "Title",
+			Size = UDim2.fromOffset(NEW.ContentWidth - NEW.BadgeWidth - NEW.RowGap, NEW.TitleHeight),
+			Position = UDim2.fromOffset(NEW.Pad + NEW.BadgeWidth + NEW.RowGap, y),
+			Font = Style.Font.title,
+			Text = #newRows == 1 and "Something opened up" or ("%d things opened up"):format(#newRows),
+			TextSize = NEW.TitleTextPx,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = ROLE.heading,
+		})
+		y += NEW.TitleHeight + NEW.RowGap
+
+		for _, row in ipairs(newRows) do
+			text(newPanel, {
+				Size = UDim2.fromOffset(NEW.ContentWidth, NEW.NameHeight),
+				Position = UDim2.fromOffset(NEW.Pad, y),
+				Font = Style.Font.title,
+				Text = row.name,
+				TextSize = NEW.NameTextPx,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = ROLE.emphasis,
+			})
+			local body = text(newPanel, {
+				Size = UDim2.fromOffset(NEW.ContentWidth, NEW.BodyHeight),
+				Position = UDim2.fromOffset(NEW.Pad, y + NEW.NameHeight),
+				Font = Style.Font.body,
+				Text = row.help,
+				TextSize = NEW.BodyTextPx,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextYAlignment = Enum.TextYAlignment.Top,
+				TextColor3 = ROLE.onSurfaceMuted,
+			})
+			body.TextWrapped = true
+			y += NEW.RowHeight + NEW.RowGap
+		end
+
+		local ok = UiKit.control(newPanel, {
+			variant = "primary", text = "GOT IT", width = NEW.ContentWidth,
+			position = UDim2.fromOffset(NEW.Pad, y),
+		})
+		ok.Activated:Connect(function()
+			newRows = {}
+			newPanel.Visible = false
+		end)
+		y += UI.Button.primary + NEW.Pad
+
+		newPanel.Size = UDim2.fromOffset(NEW.Width, y)
+	end
+
+	--- Announce what just arrived. Appends to whatever is already showing, so a
+	--- second batch landing before the first is dismissed extends the card.
+	function HUD.showNew(fresh)
+		if not newPanel or type(fresh) ~= "table" or #fresh == 0 then
+			return
+		end
+		for _, row in ipairs(fresh) do
+			-- Capped at what the card is sized for. The verifier holds MaxRows
+			-- against the largest batch Config.Disclosure can produce, so this only
+			-- bites if a player earns two batches without dismissing the first.
+			if #newRows < NEW.MaxRows then
+				table.insert(newRows, row)
+			end
+		end
+		renderNew()
+		newPanel.Visible = true
+	end
+
 	--- #96's help surface: a "?" on the rail, and a card on the overlay that
 	--- lists ONLY what this player has unlocked — it grows with them, so it can
 	--- never become a manual. Rebuilt from Config.Disclosure on every open.
@@ -7862,27 +8026,26 @@ __MODULES["HUD"] = function()
 		if not helpPanel then
 			return
 		end
-		for _, child in ipairs(helpPanel:GetChildren()) do
+		for _, child in ipairs(helpScroll:GetChildren()) do
 			if child:IsA("TextLabel") or child:IsA("Frame") then
 				child:Destroy()
 			end
 		end
-		local y = HELP.TopPad
+		local y = 0
 		UiKit.text(helpPanel, {
 			Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2, HELP.TitleHeight),
-			Position = UDim2.fromOffset(HELP.Pad, y),
+			Position = UDim2.fromOffset(HELP.Pad, HELP.TopPad),
 			Font = Style.Font.title,
 			Text = "WHAT YOU HAVE SO FAR",
 			TextSize = HELP.TitleTextPx,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = ROLE.heading,
 		})
-		y += HELP.TitleHeight + HELP.RowGap
 		for _, row in ipairs(Config.Disclosure) do
 			if HUD.disclosed(row.id) then
-				UiKit.text(helpPanel, {
+				UiKit.text(helpScroll, {
 					Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2, HELP.RowHeight),
-					Position = UDim2.fromOffset(HELP.Pad, y),
+					Position = UDim2.fromOffset(0, y),
 					Font = Style.Font.body,
 					Text = row.name,
 					TextSize = HELP.RowTextPx,
@@ -7890,9 +8053,9 @@ __MODULES["HUD"] = function()
 					TextColor3 = ROLE.emphasis,
 				})
 				y += HELP.RowHeight + HELP.RowGap
-				local body = UiKit.text(helpPanel, {
+				local body = UiKit.text(helpScroll, {
 					Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2 - HELP.Indent, HELP.BodyHeight),
-					Position = UDim2.fromOffset(HELP.Pad + HELP.Indent, y),
+					Position = UDim2.fromOffset(HELP.Indent, y),
 					Font = Style.Font.body,
 					Text = row.help,
 					TextSize = HELP.BodyTextPx,
@@ -7903,7 +8066,14 @@ __MODULES["HUD"] = function()
 				y += HELP.BodyHeight + HELP.RowGap
 			end
 		end
-		helpPanel.Size = UDim2.fromOffset(HELP.Width, y + HELP.Pad)
+		-- The CARD's height is capped and the rows scroll inside it; at full
+		-- disclosure they come to 582 px, whose bottom third would land under the
+		-- thumbstick.
+		helpScroll.CanvasSize = UDim2.fromOffset(0, y)
+		helpPanel.Size = UDim2.fromOffset(HELP.Width,
+			math.min(HELP.TopPad + HELP.TitleHeight + y + HELP.Pad, HELP.MaxHeight))
+		helpScroll.Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2,
+			helpPanel.Size.Y.Offset - HELP.TopPad - HELP.TitleHeight - HELP.Pad)
 	end
 
 	function buildHelp(rail)
@@ -7913,11 +8083,24 @@ __MODULES["HUD"] = function()
 		local button = UiKit.tile(rail, {
 			name = "Help", variant = "ghost", icon = "info", caption = "HELP",
 		})
-		helpPanel = UiKit.panel(overlay,
-			UDim2.fromOffset(Config.UI.HelpCard.Width, Config.UI.HelpCard.TitleHeight),
-			UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+		helpPanel = UiKit.overlayCard(overlay,
+			UDim2.fromOffset(Config.UI.HelpCard.Width, Config.UI.HelpCard.TitleHeight))
 		helpPanel.Name = "Help"
 		helpPanel.Visible = false
+
+		helpScroll = Instance.new("ScrollingFrame")
+		helpScroll.Name = "Rows"
+		helpScroll.Size = UDim2.fromOffset(HELP.Width - HELP.Pad * 2, HELP.ViewportHeight)
+		helpScroll.Position = UDim2.fromOffset(HELP.Pad, HELP.TopPad + HELP.TitleHeight)
+		helpScroll.BackgroundTransparency = 1
+		helpScroll.BorderSizePixel = 0
+		helpScroll.ScrollBarThickness = 3
+		helpScroll.ScrollBarImageColor3 = ROLE.line
+		helpScroll.Parent = helpPanel
+
+		newPanel = UiKit.overlayCard(overlay, UDim2.fromOffset(NEW.Width, NEW.TitleHeight))
+		newPanel.Name = "NewCard"
+		newPanel.Visible = false
 		button.Activated:Connect(function()
 			helpPanel.Visible = not helpPanel.Visible
 			if helpPanel.Visible then
@@ -7997,6 +8180,10 @@ __MODULES["HUD"] = function()
 		for _, fn in ipairs(disclosureListeners) do
 			fn()
 		end
+		-- AFTER the listeners, so the surface being announced has already rendered:
+		-- a card naming the shop while the rail item it names is still hidden is a
+		-- card pointing at nothing.
+		HUD.showNew(payload.fresh)
 	end
 
 	--- The owned-buttons mirror off the last Stats push — ShopUI dresses its
@@ -9191,9 +9378,8 @@ __MODULES["RebirthUI"] = function()
 	end
 
 	function RebirthUI.start()
-		panel = UiKit.panel(HUD.overlay(),
-			UDim2.fromOffset(Config.UI.RebirthCard.Width, Config.UI.RebirthCard.TitleHeight),
-			UDim2.fromScale(0.5, 0.42), Vector2.new(0.5, 0.5))
+		panel = UiKit.overlayCard(HUD.overlay(),
+			UDim2.fromOffset(Config.UI.RebirthCard.Width, Config.UI.RebirthCard.TitleHeight))
 		panel.Name = "Rebirth"
 		panel.Visible = false
 
@@ -10107,9 +10293,8 @@ __MODULES["ShopUI"] = function()
 	end
 
 	function ShopUI.start()
-		panel = UiKit.panel(HUD.overlay(),
-			UDim2.fromOffset(Config.UI.Shop.Width, Config.UI.Modal.MaxHeight),
-			UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+		panel = UiKit.overlayCard(HUD.overlay(),
+			UDim2.fromOffset(Config.UI.Shop.Width, Config.UI.Modal.MaxHeight))
 		panel.Name = "Shop"
 		panel.Visible = false
 
@@ -10405,6 +10590,22 @@ __MODULES["UiKit"] = function()
 		gradient.Rotation = 90
 		gradient.Parent = f
 		return f
+	end
+
+	--- invariant: AN OVERLAY CARD, and every card that opens over the game is one.
+	---
+	--- The help card, the shop and the rebirth report each chose their own vertical
+	--- centre — 0.5, 0.5 and 0.42 — so three surfaces that open the same way opened
+	--- in three places. This is `panel` plus the one position they should have
+	--- shared, and it is ABOVE centre: a card on 0.5 puts its lower half over the
+	--- bottom third of the screen, which on a phone is the thumbstick, the jump
+	--- button and the touch pad.
+	---
+	--- Only for cards that do NOT dim the screen. A modal with a scrim has taken
+	--- the whole screen already and stays centred, because there is nothing behind
+	--- it left to sit clear of.
+	function UiKit.overlayCard(parent: Instance, size: UDim2): Frame
+		return UiKit.panel(parent, size, UDim2.fromScale(0.5, UI.OverlayY), Vector2.new(0.5, 0.5))
 	end
 
 	function UiKit.text(parent: Instance, props): TextLabel

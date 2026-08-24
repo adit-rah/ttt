@@ -1123,6 +1123,40 @@ __MODULES["Config"] = function()
 		-- and 208 was a literal in a builder that nothing could read.
 		TouchPad = { Count = 3 },
 
+		-- invariant: WHERE AN OVERLAY CARD SITS, once. The help card, the shop and
+		-- the rebirth report each picked their own vertical centre — 0.5, 0.5 and
+		-- 0.42 — so three cards that open the same way opened in three places.
+		--
+		-- ABOVE CENTRE, not on it. A card centred on 0.5 puts its lower half over the
+		-- bottom third of the screen, which on a phone is the thumbstick, the jump
+		-- button and the touch pad; and the thing a player looks at after a card
+		-- opens is usually under it.
+		--
+		-- This is for cards that do NOT dim the screen. A modal with a scrim is a
+		-- different thing and stays centred: it has taken the whole screen already,
+		-- so there is nothing behind it to sit clear of.
+		OverlayY = 0.44,
+
+		-- invariant: THE NEW CARD (#183) — what arrives when a surface unlocks.
+		--
+		-- Disclosure used to announce an arrival as a toast, in the same side column
+		-- as a knockout and a loot drop, and it read as one more line of traffic. An
+		-- addition to the game is not traffic.
+		--
+		-- IT HOLDS A BATCH, because arrivals come in batches: buying `walls` earns
+		-- siege, party and recall in one reconcile pass, and three cards in a row is
+		-- the toast problem with bigger rectangles. MaxRows is held against the
+		-- largest group Config.Disclosure can actually produce.
+		NewCard = {
+			Width = 380, Pad = 16, TopPad = 14,
+			BadgeWidth = 54, BadgeHeight = 22, BadgeTextPx = 13,
+			TitleHeight = 24, TitleTextPx = 18,
+			RowGap = 10,
+			NameHeight = 20, NameTextPx = 15,
+			BodyHeight = 34, BodyTextPx = 13,
+			MaxRows = 3,
+		},
+
 		-- invariant: THE TWO COLUMN CARDS THAT HAD NO GEOMETRY AT ALL. Party and
 		-- objectives build into HUD.column() beside the status card and the session
 		-- panel, and both sized themselves from an accumulated y in src/client — so
@@ -1153,7 +1187,11 @@ __MODULES["Config"] = function()
 			BodyHeight = 28, BodyTextPx = 13,
 			RowGap = 1, Indent = 12,
 			-- Config.Disclosure is the list it prints, so the most it can hold is
-			-- however many surfaces exist.
+			-- however many surfaces exist — and at full disclosure that is 582 design
+			-- px, whose bottom third lands under the thumbstick. IT SCROLLS, like the
+			-- shop and for the same reason: a card that grows with the player is a
+			-- card that outgrows the screen, and the only question is whether anyone
+			-- finds out before a player does.
 			MaxRows = 12,
 		},
 		RebirthCard = {
@@ -1351,6 +1389,13 @@ __MODULES["Config"] = function()
 		-- column's four panels borrowed a third's — and verify_config's width loop
 		-- iterated only the two that declared one. They declare their own now, and
 		-- it is the column's.
+		-- The card is a heading, a run of arrivals, and one control to dismiss it.
+		ui.NewCard.ContentWidth = ui.NewCard.Width - ui.NewCard.Pad * 2
+		ui.NewCard.RowHeight = ui.NewCard.NameHeight + ui.NewCard.BodyHeight
+		ui.NewCard.MaxHeight = ui.NewCard.TopPad + ui.NewCard.TitleHeight
+			+ ui.NewCard.MaxRows * (ui.NewCard.RowHeight + ui.NewCard.RowGap)
+			+ ui.Button.primary + ui.NewCard.Pad * 2
+
 		ui.PartyPanel.Width = ui.ColumnWidth
 		ui.Objectives.Width = ui.ColumnWidth
 
@@ -1365,9 +1410,14 @@ __MODULES["Config"] = function()
 			+ ui.Objectives.MaxRows * (ui.Objectives.RowHeight + ui.Objectives.RowGap)
 			+ ui.Objectives.HintHeight + ui.Objectives.Pad
 
-		ui.HelpCard.MaxHeight = ui.HelpCard.TopPad + ui.HelpCard.TitleHeight
-			+ ui.HelpCard.MaxRows * (ui.HelpCard.RowHeight + ui.HelpCard.BodyHeight + ui.HelpCard.RowGap)
-			+ ui.HelpCard.Pad
+		-- What the rows come to at full disclosure, and what the card shows of it.
+		ui.HelpCard.ContentHeight = ui.HelpCard.MaxRows
+			* (ui.HelpCard.RowHeight + ui.HelpCard.BodyHeight + ui.HelpCard.RowGap)
+		ui.HelpCard.MaxHeight = math.min(
+			ui.HelpCard.TopPad + ui.HelpCard.TitleHeight + ui.HelpCard.ContentHeight + ui.HelpCard.Pad,
+			ui.Modal.MaxHeight)
+		ui.HelpCard.ViewportHeight = ui.HelpCard.MaxHeight
+			- ui.HelpCard.TopPad - ui.HelpCard.TitleHeight - ui.HelpCard.Pad
 		ui.RebirthCard.MaxHeight = ui.RebirthCard.TopPad + ui.RebirthCard.TitleHeight
 			+ ui.RebirthCard.MaxLines * (ui.RebirthCard.LineHeight + ui.RebirthCard.RowGap)
 			+ ui.Button.primary + ui.RebirthCard.Pad * 2
@@ -8881,7 +8931,6 @@ __MODULES["DisclosureService"] = function()
 	local Req = __Req
 	local Config = Req("Config")
 	local Net = Req("Net")
-	local Economy = Req("Economy")
 	local DataService = Req("DataService")
 
 	local Players = game:GetService("Players")
@@ -8896,7 +8945,15 @@ __MODULES["DisclosureService"] = function()
 		return profile ~= nil and profile.disclosed ~= nil and profile.disclosed[id] == true
 	end
 
-	local function push(player: Player)
+	--- `fresh` is what arrived in THIS pass, and it rides the same push as the
+	--- high-water set rather than a second remote: the client has to have the id in
+	--- `ids` before it can render the surface the card is announcing, and two
+	--- remotes would be two orderings to get right.
+	---
+	--- It is absent on a join push. A returning player owns most of this list
+	--- already, and a card naming eleven things they have had for a week is not an
+	--- announcement.
+	local function push(player: Player, fresh)
 		local profile = DataService.get(player)
 		if not profile then
 			return
@@ -8905,12 +8962,12 @@ __MODULES["DisclosureService"] = function()
 		for id in pairs(profile.disclosed or {}) do
 			table.insert(ids, id)
 		end
-		remote:FireClient(player, { ids = ids })
+		remote:FireClient(player, { ids = ids, fresh = fresh })
 	end
 
 	--- One pass for one player: write every newly earned row into the high-water.
 	--- Returns how many arrived, so the beat knows whether to push.
-	function DisclosureService.reconcile(player: Player): number
+	function DisclosureService.reconcile(player: Player): (number, { { name: string, help: string } })
 		local profile = DataService.get(player)
 		if not profile then
 			return 0
@@ -8920,17 +8977,23 @@ __MODULES["DisclosureService"] = function()
 			return profile.owned[id] == true
 		end
 		local arrived = 0
+		local fresh = {}
 		for _, row in ipairs(Config.Disclosure) do
 			if not profile.disclosed[row.id] and Config.disclosureEarned(row, has) then
 				profile.disclosed[row.id] = true
 				arrived += 1
 				if row.after then
 					-- the always-on rows announce nothing; an arrival is earned
-					Economy.notify(player, { kind = "claim", title = "NEW: " .. row.name, body = row.help })
+					table.insert(fresh, { name = row.name, help = row.help })
 				end
 			end
 		end
-		return arrived
+		-- COLLECTED, NOT ANNOUNCED ONE BY ONE. This used to send a toast per row,
+		-- into the same side column as a knockout and a loot drop — so an addition
+		-- to the game read as one more line of traffic. It is also a BATCH more
+		-- often than not: buying `walls` earns siege, party and recall in one pass,
+		-- and three toasts in a row is what made it traffic.
+		return arrived, fresh
 	end
 
 	function DisclosureService.start()
@@ -8941,9 +9004,9 @@ __MODULES["DisclosureService"] = function()
 			while true do
 				task.wait(3)
 				for _, player in ipairs(Players:GetPlayers()) do
-					local ok, arrived = pcall(DisclosureService.reconcile, player)
+					local ok, arrived, fresh = pcall(DisclosureService.reconcile, player)
 					if ok and arrived > 0 then
-						push(player)
+						push(player, #fresh > 0 and fresh or nil)
 					elseif not ok then
 						warn("[Tung] disclosure error: " .. tostring(arrived))
 					end

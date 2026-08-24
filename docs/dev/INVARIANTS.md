@@ -1166,6 +1166,30 @@ defects in the same file.
 - **Every text size on the help card and the objectives card clears `MinTextPx`.** They shipped at
   11 and 12 — 6.8 to 7.4 physical px at `MinScale` — as literals in `src/client`, which is the same
   defect the NEXT UPGRADE heading had and for the same reason: nothing could read them. `[assert]`
+- **Every card that opens over the game is a `UiKit.overlayCard`, and they share one position.**
+  The help card, the shop and the rebirth report each chose their own vertical centre — 0.5, 0.5
+  and 0.42 — so three surfaces that open the same way opened in three places. `UI.OverlayY` is
+  **above** centre: a card on 0.5 puts its lower half over the bottom third of the screen, which
+  on a phone is the thumbstick, the jump button and the touch pad. `[assert]` the band, and the
+  tallest card it carries clearing both the top margin and `TouchReserve.Bottom`. A modal with a
+  scrim stays centred — it has taken the whole screen already, so there is nothing left behind it
+  to sit clear of.
+- **An arrival is a card, not a toast.** `DisclosureService` announced a new surface into the same
+  side column as a knockout and a loot drop, so an addition to the game read as one more line of
+  traffic. It rides the disclosure push it already sends, as `fresh`, so the id is in the set
+  before the card names the surface — two remotes would be two orderings to get right. `[spec]`
+- **THE NEW CARD HOLDS A BATCH.** Rows sharing an `after` become earned in the same `reconcile`
+  pass: buying `walls` earns siege, party and recall at once, and three cards in a row is the
+  toast problem with bigger rectangles. `[assert]` `NewCard.MaxRows` against the largest group
+  `Config.Disclosure` can actually produce — counted, not typed. `[spec]` one card for a batch.
+- **A join push announces nothing.** `fresh` is absent on the `PlayerAdded` push. A returning
+  player owns most of the list, and a card naming eleven things they have had for a week is not
+  an announcement. `[spec]`
+- **The help card scrolls.** At full disclosure its rows come to 582 design px, whose bottom third
+  lands under the thumbstick — found by the overlay-position assertion the same round it was
+  written. Capped at `Modal.MaxHeight` with the rows in a scroller, like the shop and for the
+  same reason: a card that grows with the player outgrows the screen, and the only question is
+  whether anyone finds out before a player does. `[assert]`
 - **The live shop has its own geometry, `Config.UI.Shop`, and it is not `Config.UI.ShopPanel`.**
   `ShopPanel`'s only reader is `UpgradeUI.lua`, behind two `Config.Prototypes` flags the verifier
   requires to ship false — so nine assertions on it, **including the shop-versus-column overlap

@@ -126,9 +126,8 @@ local function render(payload)
 end
 
 function RebirthUI.start()
-	panel = UiKit.panel(HUD.overlay(),
-		UDim2.fromOffset(Config.UI.RebirthCard.Width, Config.UI.RebirthCard.TitleHeight),
-		UDim2.fromScale(0.5, 0.42), Vector2.new(0.5, 0.5))
+	panel = UiKit.overlayCard(HUD.overlay(),
+		UDim2.fromOffset(Config.UI.RebirthCard.Width, Config.UI.RebirthCard.TitleHeight))
 	panel.Name = "Rebirth"
 	panel.Visible = false
 

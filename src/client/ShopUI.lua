@@ -230,9 +230,8 @@ local function open()
 end
 
 function ShopUI.start()
-	panel = UiKit.panel(HUD.overlay(),
-		UDim2.fromOffset(Config.UI.Shop.Width, Config.UI.Modal.MaxHeight),
-		UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	panel = UiKit.overlayCard(HUD.overlay(),
+		UDim2.fromOffset(Config.UI.Shop.Width, Config.UI.Modal.MaxHeight))
 	panel.Name = "Shop"
 	panel.Visible = false
 
