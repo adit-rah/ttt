@@ -3825,8 +3825,11 @@ if colourOf("surface") and colourOf("onSurface") and colourOf("onSurfaceMuted")
 check(contrast(onCard(colourOf("surface")), colourOf("onSurface")) >= 4.5,
 	("onSurface reads at %.2f:1 against the card over a bright sky, under the 4.5 body copy needs")
 		:format(contrast(onCard(colourOf("surface")), colourOf("onSurface"))))
-check(contrast(onCard(colourOf("surface")), colourOf("onSurfaceMuted")) >= 3.0,
-	("onSurfaceMuted reads at %.2f:1 against the card over a bright sky; a stat line under 3.0 is decoration")
+-- 4.5 and not 3.0: a stat line is 11 to 13 design px, which is nobody's
+-- definition of large text, and the large-text allowance the fill/ink pairs get
+-- does not reach it. Both the palette this replaced and the wood one clear it.
+check(contrast(onCard(colourOf("surface")), colourOf("onSurfaceMuted")) >= 4.5,
+	("onSurfaceMuted reads at %.2f:1 against the card over a bright sky, under the 4.5 an 11-px stat line needs")
 		:format(contrast(onCard(colourOf("surface")), colourOf("onSurfaceMuted"))))
 
 -- THE HEADLINE IS THE BRIGHTEST THING ON THE CARD. The balance is the number a
