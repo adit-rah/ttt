@@ -1132,6 +1132,15 @@ defects in the same file.
   `UDim2.fromOffset` literal correct by construction. `[assert]` the `UI.MinScale`/`MaxScale`/
   reference-frame relationships, the physical-pixel floors for touch targets and small print,
   and that every modal fits the reference frame with margins.
+- **A field read off `UiKit` or `Style` is a field that module defines.** `Style.Font.head` is
+  read at five call sites and `Style.lua` declares `title` and `body`; because a nil value means
+  the key never enters the props-table literal, `UiKit.text`'s `pairs(props)` loop never visits
+  it, and every heading in the shop, the help card and the rebirth report rendered in the body
+  face for two rounds without erroring. The same class bit again immediately: moving the palette
+  into Config deleted `UiKit.INK` and left three reads of it in `HUD.lua`, which would have
+  thrown on the invite rail, on a device, after shipping. Pass 2 names undeclared globals and
+  this is a key on a table; pass 5 walks `Config.<path>` and stops there. `[lint]` `verify.py`
+  "module fields". A field assigned dynamically is still invisible to it — see §10.
 - **Colour in `src/client` is a role, and roles live in `Config.UI.Role`.** A builder names
   `surface` or `onAction`; it never names `panel` and never writes a `Color3`. Two tables —
   `Palette` for what the colours are, `Role` for what each is for — so retheming is an edit to
@@ -1420,6 +1429,11 @@ round can take a row rather than a subsystem.
 **A lint over `src/` would catch these** (text-level, cheap, the pattern already exists four
 times in `verify.py`):
 
+- A field assigned to `UiKit` or `Style` DYNAMICALLY, rather than in a `Module.name =` or
+  `function Module.name` line, is invisible to the "module fields" pass — it parses those two
+  forms out of the owner and nothing else. Neither owner does this today, and the pass fails
+  loudly if it parses zero fields, so the file changing shape is caught; the file growing a
+  computed export is not.
 - Nothing collidable near the belt except the running surface — a lint could require the
   `CanCollide = false` on the named decoration parts, or invert it: flag a new part built near
   a belt leg without it.

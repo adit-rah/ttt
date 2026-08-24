@@ -50,7 +50,7 @@ local function buildSection(title: string, defs, y: number): number
 	UiKit.text(panel, {
 		Size = UDim2.new(1, -24, 0, 18),
 		Position = UDim2.fromOffset(12, y),
-		Font = Style.Font.head,
+		Font = Style.Font.title,
 		Text = title,
 		TextSize = 14,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -143,7 +143,7 @@ function ShopUI.start()
 	UiKit.text(panel, {
 		Size = UDim2.new(1, -24, 0, 20),
 		Position = UDim2.fromOffset(12, y),
-		Font = Style.Font.head,
+		Font = Style.Font.title,
 		Text = "THE SHOP",
 		TextSize = 17,
 		TextXAlignment = Enum.TextXAlignment.Left,

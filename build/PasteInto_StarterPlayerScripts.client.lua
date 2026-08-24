@@ -7317,7 +7317,7 @@ __MODULES["HUD"] = function()
 		local slot
 		inviteButton, slot, inviteCaption = UiKit.railItem(railFrame, "Invite", ROLE.affirm)
 		buildHelp(railFrame)
-		UiKit.personPlus(slot, RAIL.GlyphSize, UiKit.INK, ROLE.affirm)
+		UiKit.personPlus(slot, RAIL.GlyphSize, ROLE.onAffirm, ROLE.affirm)
 		-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 		-- control does not exist. See refreshInvite.
 		inviteButton.Visible = false
@@ -7523,7 +7523,7 @@ __MODULES["HUD"] = function()
 		UiKit.text(helpPanel, {
 			Size = UDim2.new(1, -24, 0, 22),
 			Position = UDim2.fromOffset(12, y),
-			Font = Style.Font.head,
+			Font = Style.Font.title,
 			Text = "WHAT YOU HAVE SO FAR",
 			TextSize = 16,
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -7587,12 +7587,12 @@ __MODULES["HUD"] = function()
 			and HUD.disclosed("social")
 		if state.friends > 0 then
 			inviteCaption.Text = ("+%d%%"):format(friendPercent(state.friends))
-			inviteCaption.TextColor3 = UiKit.INK
+			inviteCaption.TextColor3 = ROLE.onAffirm
 		else
 			-- One friend's worth, not zero: zero is what you have, and what you have
 			-- is not what a button is offering you.
 			inviteCaption.Text = ("+%d%%"):format(friendPercent(1))
-			inviteCaption.TextColor3 = UiKit.INK
+			inviteCaption.TextColor3 = ROLE.onAffirm
 		end
 	end
 
@@ -8700,7 +8700,7 @@ __MODULES["RebirthUI"] = function()
 		UiKit.text(panel, {
 			Size = UDim2.new(1, -24, 0, 22),
 			Position = UDim2.fromOffset(12, y),
-			Font = Style.Font.head,
+			Font = Style.Font.title,
 			Text = ("SAHUR REBIRTH #%d"):format(payload.rebirths or 0),
 			TextSize = 18,
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -8711,7 +8711,7 @@ __MODULES["RebirthUI"] = function()
 			UiKit.text(panel, {
 				Size = UDim2.new(1, -24, 0, 24),
 				Position = UDim2.fromOffset(12, y),
-				Font = Style.Font.head,
+				Font = Style.Font.title,
 				Text = ("RANK UP  •  %s"):format(payload.rank or ""),
 				TextSize = 20,
 				TextXAlignment = Enum.TextXAlignment.Left,
@@ -9535,7 +9535,7 @@ __MODULES["ShopUI"] = function()
 		UiKit.text(panel, {
 			Size = UDim2.new(1, -24, 0, 18),
 			Position = UDim2.fromOffset(12, y),
-			Font = Style.Font.head,
+			Font = Style.Font.title,
 			Text = title,
 			TextSize = 14,
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -9628,7 +9628,7 @@ __MODULES["ShopUI"] = function()
 		UiKit.text(panel, {
 			Size = UDim2.new(1, -24, 0, 20),
 			Position = UDim2.fromOffset(12, y),
-			Font = Style.Font.head,
+			Font = Style.Font.title,
 			Text = "THE SHOP",
 			TextSize = 17,
 			TextXAlignment = Enum.TextXAlignment.Left,

@@ -33,7 +33,7 @@ local function render(payload)
 	UiKit.text(panel, {
 		Size = UDim2.new(1, -24, 0, 22),
 		Position = UDim2.fromOffset(12, y),
-		Font = Style.Font.head,
+		Font = Style.Font.title,
 		Text = ("SAHUR REBIRTH #%d"):format(payload.rebirths or 0),
 		TextSize = 18,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -44,7 +44,7 @@ local function render(payload)
 		UiKit.text(panel, {
 			Size = UDim2.new(1, -24, 0, 24),
 			Position = UDim2.fromOffset(12, y),
-			Font = Style.Font.head,
+			Font = Style.Font.title,
 			Text = ("RANK UP  •  %s"):format(payload.rank or ""),
 			TextSize = 20,
 			TextXAlignment = Enum.TextXAlignment.Left,

@@ -357,7 +357,7 @@ local function buildUtilityRail(parent: Instance)
 	local slot
 	inviteButton, slot, inviteCaption = UiKit.railItem(railFrame, "Invite", ROLE.affirm)
 	buildHelp(railFrame)
-	UiKit.personPlus(slot, RAIL.GlyphSize, UiKit.INK, ROLE.affirm)
+	UiKit.personPlus(slot, RAIL.GlyphSize, ROLE.onAffirm, ROLE.affirm)
 	-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 	-- control does not exist. See refreshInvite.
 	inviteButton.Visible = false
@@ -563,7 +563,7 @@ local function renderHelp()
 	UiKit.text(helpPanel, {
 		Size = UDim2.new(1, -24, 0, 22),
 		Position = UDim2.fromOffset(12, y),
-		Font = Style.Font.head,
+		Font = Style.Font.title,
 		Text = "WHAT YOU HAVE SO FAR",
 		TextSize = 16,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -627,12 +627,12 @@ local function refreshInvite()
 		and HUD.disclosed("social")
 	if state.friends > 0 then
 		inviteCaption.Text = ("+%d%%"):format(friendPercent(state.friends))
-		inviteCaption.TextColor3 = UiKit.INK
+		inviteCaption.TextColor3 = ROLE.onAffirm
 	else
 		-- One friend's worth, not zero: zero is what you have, and what you have
 		-- is not what a button is offering you.
 		inviteCaption.Text = ("+%d%%"):format(friendPercent(1))
-		inviteCaption.TextColor3 = UiKit.INK
+		inviteCaption.TextColor3 = ROLE.onAffirm
 	end
 end
 
