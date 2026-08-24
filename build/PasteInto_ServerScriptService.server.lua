@@ -1375,7 +1375,10 @@ __MODULES["Config"] = function()
 		-- The rows start under the header, which is the fold control and is a
 		-- touch target. DailyY was typed at 28 against a 16-px heading.
 		ui.SessionPanel.DailyY = ui.CardHeader.Height + sp.RowGap
-		ui.SessionPanel.CollapsedHeight = ui.CardHeader.Height + sp.TailPad
+		-- EXACTLY the header, with nothing under it. It was header + TailPad, which
+		-- put twelve pixels of dead space below the strip and none above — the
+		-- header carries its own padding, and a card folded to it needs no more.
+		ui.SessionPanel.CollapsedHeight = ui.CardHeader.Height
 		ui.SessionPanel.PlaytimeY = sp.DailyY + sp.DailyHeight + sp.RowGap
 		ui.SessionPanel.BoostY = sp.PlaytimeY + sp.PlaytimeHeight + sp.RowGap
 		-- WHERE THE OPTIONAL TAIL STARTS, which SessionUI used to type as 200.
@@ -1426,7 +1429,7 @@ __MODULES["Config"] = function()
 			+ ui.PartyPanel.MaxRows * ui.PartyPanel.RowHeight
 		-- The header IS the fold control, so its height is the ladder's.
 		ui.Objectives.HeaderHeight = ui.CardHeader.Height
-		ui.Objectives.CollapsedHeight = ui.CardHeader.Height + ui.Objectives.Pad
+		ui.Objectives.CollapsedHeight = ui.CardHeader.Height
 		ui.Objectives.RowHeight = ui.Icon.Small
 		ui.Objectives.TextX = ui.Objectives.Gutter + ui.Icon.Small + ui.Objectives.GlyphGap
 		ui.Objectives.TextWidth = ui.ColumnWidth - ui.Objectives.TextX - ui.Objectives.Gutter
