@@ -743,19 +743,22 @@ __MODULES["Config"] = function()
 		--
 		-- design:D-05 — the screen is drawn in one system.
 		Palette = {
-			panel   = Color3.fromRGB( 22,  18,  32),
-			panel2  = Color3.fromRGB( 32,  26,  46),
-			accent  = Color3.fromRGB(190, 130, 255),
-			gold    = Color3.fromRGB(255, 205,  90),
-			good    = Color3.fromRGB(120, 235, 160),
-			bad     = Color3.fromRGB(255, 110, 110),
-			text    = Color3.fromRGB(238, 232, 250),
-			muted   = Color3.fromRGB(160, 150, 180),
-			dead    = Color3.fromRGB( 90,  84, 104),
-			neutral = Color3.fromRGB(120, 110, 140),
-			wave    = Color3.fromRGB(255, 150,  60),
-			boss    = Color3.fromRGB(255,  90,  60),
-			ink     = Color3.fromRGB( 20,  16,  28),
+			-- THE WOOD SCALE — structure, and it carries no meaning. Six steps from
+			-- grip tape to blonde ash, which is a bat from the knob to the barrel.
+			ink     = Color3.fromRGB( 26,  21,  17),   -- grip tape; the deepest surface
+			panel   = Color3.fromRGB( 38,  30,  24),   -- card surface, walnut
+			panel2  = Color3.fromRGB( 54,  43,  34),   -- gradient top, bar track, raised rows
+			edge    = Color3.fromRGB(112,  88,  64),   -- strokes, dividers, grain
+			muted   = Color3.fromRGB(182, 162, 136),   -- secondary text, tan
+			text    = Color3.fromRGB(244, 234, 216),   -- primary text, blonde ash
+			-- THE SIGNALS — reserved, and never used as decoration.
+			gold    = Color3.fromRGB(245, 196,  92),   -- brand-stamp foil: value, progress
+			good    = Color3.fromRGB(126, 200, 108),   -- affordable, claimed
+			bad     = Color3.fromRGB(238, 124, 112),   -- burnt stamp, lightened to read
+			info    = Color3.fromRGB(140, 178, 208),   -- the steel band under the knob
+			wave    = Color3.fromRGB(242, 158,  58),
+			boss    = Color3.fromRGB(222,  84,  40),
+			dead    = Color3.fromRGB(104,  92,  78),   -- a control that cannot be pressed
 			shade   = Color3.fromRGB(  0,   0,   0),
 		},
 
@@ -771,29 +774,29 @@ __MODULES["Config"] = function()
 			-- surfaces
 			surface        = "panel",
 			surfaceRaised  = "panel2",
-			line           = "accent",
+			line           = "edge",
 			scrim          = "shade",
 			-- ink on a surface
 			onSurface      = "text",
 			onSurfaceMuted = "muted",
 			-- fills, and what prints on each
-			action         = "accent",  onAction   = "ink",
+			action         = "gold",    onAction   = "ink",
 			affirm         = "good",    onAffirm   = "ink",
 			danger         = "bad",     onDanger   = "ink",
 			disabled       = "dead",    onDisabled = "text",
 			-- A control that is live and is not the one you want: LEAVE PLOT next to
 			-- REBIRTH, CANCEL next to DO IT. Distinct from `disabled`, which cannot be
 			-- pressed at all, and the two must never render the same.
-			neutral        = "neutral", onNeutral  = "ink",
+			neutral        = "panel2",  onNeutral  = "text",
 			-- The ink a gold surface takes: the coin's face, a price on a gold pill.
 			onCurrency     = "ink",
 			-- meaning
 			currency       = "gold",
 			heading        = "gold",
-			emphasis       = "accent",
+			emphasis       = "text",
 			progress       = "gold",
 			progressTrack  = "panel2",
-			notice         = "accent",
+			notice         = "info",
 			warn           = "wave",
 			alarm          = "boss",
 			-- drawn glyphs: the ink, and the colour a punched hole shows through to
@@ -813,7 +816,7 @@ __MODULES["Config"] = function()
 		-- because contrast is measured against what the player SEES. A panel at 0.12
 		-- over a bright sky is not the panel colour; it is that colour mixed an
 		-- eighth of the way to the sky, and every label on it reads against the mix.
-		PanelAlpha = 0.12,
+		PanelAlpha = 0.08,
 		-- What the verifier composites against: the brightest thing that can be
 		-- behind a card. Roblox skies clip near this, and a HUD cannot choose its
 		-- backdrop, so the worst case is the only honest one to measure.

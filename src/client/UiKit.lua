@@ -12,8 +12,9 @@
 	written out three times: HUD.lua, SessionUI.lua and UpgradeUI.lua. Two of
 	those files carried a header apologising for the copy and naming this module
 	as the fix. Three copies of a palette is three chances for the game to be two
-	different purples, and the one that drifts first is always the one nobody
-	opens.
+	different shades of the same colour, and the one that drifts first is always
+	the one nobody opens. The values are in Config now and the copies cannot
+	come back — see the note over UiKit.ROLE.
 
 	IT ALSO OWNS WHERE A REGION GOES, not just what it looks like. `dock` names
 	the four corners of the design canvas; before it, five call sites in three
