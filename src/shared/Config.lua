@@ -1091,6 +1091,40 @@ Config.UI = {
 	-- and 208 was a literal in a builder that nothing could read.
 	TouchPad = { Count = 3 },
 
+	-- invariant: WHERE AN OVERLAY CARD SITS, once. The help card, the shop and
+	-- the rebirth report each picked their own vertical centre — 0.5, 0.5 and
+	-- 0.42 — so three cards that open the same way opened in three places.
+	--
+	-- ABOVE CENTRE, not on it. A card centred on 0.5 puts its lower half over the
+	-- bottom third of the screen, which on a phone is the thumbstick, the jump
+	-- button and the touch pad; and the thing a player looks at after a card
+	-- opens is usually under it.
+	--
+	-- This is for cards that do NOT dim the screen. A modal with a scrim is a
+	-- different thing and stays centred: it has taken the whole screen already,
+	-- so there is nothing behind it to sit clear of.
+	OverlayY = 0.44,
+
+	-- invariant: THE NEW CARD (#183) — what arrives when a surface unlocks.
+	--
+	-- Disclosure used to announce an arrival as a toast, in the same side column
+	-- as a knockout and a loot drop, and it read as one more line of traffic. An
+	-- addition to the game is not traffic.
+	--
+	-- IT HOLDS A BATCH, because arrivals come in batches: buying `walls` earns
+	-- siege, party and recall in one reconcile pass, and three cards in a row is
+	-- the toast problem with bigger rectangles. MaxRows is held against the
+	-- largest group Config.Disclosure can actually produce.
+	NewCard = {
+		Width = 380, Pad = 16, TopPad = 14,
+		BadgeWidth = 54, BadgeHeight = 22, BadgeTextPx = 13,
+		TitleHeight = 24, TitleTextPx = 18,
+		RowGap = 10,
+		NameHeight = 20, NameTextPx = 15,
+		BodyHeight = 34, BodyTextPx = 13,
+		MaxRows = 3,
+	},
+
 	-- invariant: THE TWO COLUMN CARDS THAT HAD NO GEOMETRY AT ALL. Party and
 	-- objectives build into HUD.column() beside the status card and the session
 	-- panel, and both sized themselves from an accumulated y in src/client — so
@@ -1121,7 +1155,11 @@ Config.UI = {
 		BodyHeight = 28, BodyTextPx = 13,
 		RowGap = 1, Indent = 12,
 		-- Config.Disclosure is the list it prints, so the most it can hold is
-		-- however many surfaces exist.
+		-- however many surfaces exist — and at full disclosure that is 582 design
+		-- px, whose bottom third lands under the thumbstick. IT SCROLLS, like the
+		-- shop and for the same reason: a card that grows with the player is a
+		-- card that outgrows the screen, and the only question is whether anyone
+		-- finds out before a player does.
 		MaxRows = 12,
 	},
 	RebirthCard = {
@@ -1319,6 +1357,13 @@ do
 	-- column's four panels borrowed a third's — and verify_config's width loop
 	-- iterated only the two that declared one. They declare their own now, and
 	-- it is the column's.
+	-- The card is a heading, a run of arrivals, and one control to dismiss it.
+	ui.NewCard.ContentWidth = ui.NewCard.Width - ui.NewCard.Pad * 2
+	ui.NewCard.RowHeight = ui.NewCard.NameHeight + ui.NewCard.BodyHeight
+	ui.NewCard.MaxHeight = ui.NewCard.TopPad + ui.NewCard.TitleHeight
+		+ ui.NewCard.MaxRows * (ui.NewCard.RowHeight + ui.NewCard.RowGap)
+		+ ui.Button.primary + ui.NewCard.Pad * 2
+
 	ui.PartyPanel.Width = ui.ColumnWidth
 	ui.Objectives.Width = ui.ColumnWidth
 
@@ -1333,9 +1378,14 @@ do
 		+ ui.Objectives.MaxRows * (ui.Objectives.RowHeight + ui.Objectives.RowGap)
 		+ ui.Objectives.HintHeight + ui.Objectives.Pad
 
-	ui.HelpCard.MaxHeight = ui.HelpCard.TopPad + ui.HelpCard.TitleHeight
-		+ ui.HelpCard.MaxRows * (ui.HelpCard.RowHeight + ui.HelpCard.BodyHeight + ui.HelpCard.RowGap)
-		+ ui.HelpCard.Pad
+	-- What the rows come to at full disclosure, and what the card shows of it.
+	ui.HelpCard.ContentHeight = ui.HelpCard.MaxRows
+		* (ui.HelpCard.RowHeight + ui.HelpCard.BodyHeight + ui.HelpCard.RowGap)
+	ui.HelpCard.MaxHeight = math.min(
+		ui.HelpCard.TopPad + ui.HelpCard.TitleHeight + ui.HelpCard.ContentHeight + ui.HelpCard.Pad,
+		ui.Modal.MaxHeight)
+	ui.HelpCard.ViewportHeight = ui.HelpCard.MaxHeight
+		- ui.HelpCard.TopPad - ui.HelpCard.TitleHeight - ui.HelpCard.Pad
 	ui.RebirthCard.MaxHeight = ui.RebirthCard.TopPad + ui.RebirthCard.TitleHeight
 		+ ui.RebirthCard.MaxLines * (ui.RebirthCard.LineHeight + ui.RebirthCard.RowGap)
 		+ ui.Button.primary + ui.RebirthCard.Pad * 2

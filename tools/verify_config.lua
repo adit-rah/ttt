@@ -4313,6 +4313,62 @@ check(UI.Objectives.TextWidth >= 120,
 	("the objectives card leaves %d px for an objective's name beside its marker")
 		:format(UI.Objectives.TextWidth))
 
+-- ── the NEW card (#183) ─────────────────────────────────────────────────────
+--
+-- IT HAS TO HOLD THE BIGGEST BATCH Config.Disclosure CAN PRODUCE. Rows sharing
+-- an `after` become earned in the SAME reconcile pass, so buying `walls` earns
+-- siege, party and recall at once — and a card sized for one arrival would
+-- silently drop two of them. This counts the groups rather than trusting a
+-- number somebody typed after looking at the table once.
+local batches = {}
+local biggest, biggestAfter = 0, "nothing"
+for _, row in ipairs(Config.Disclosure) do
+	if row.after then
+		batches[row.after] = (batches[row.after] or 0) + 1
+		if batches[row.after] > biggest then
+			biggest, biggestAfter = batches[row.after], row.after
+		end
+	end
+end
+check(UI.NewCard.MaxRows >= biggest,
+	("the NEW card holds %d arrivals and buying %q earns %d at once, so %d of them would never be shown")
+		:format(UI.NewCard.MaxRows, biggestAfter, biggest, biggest - UI.NewCard.MaxRows))
+check(UI.NewCard.MaxHeight + UI.Margin * 2 <= UI.ReferenceHeight,
+	("the NEW card can reach %d design px on a %d-tall screen")
+		:format(UI.NewCard.MaxHeight, UI.ReferenceHeight))
+check(UI.NewCard.Width + UI.Margin * 2 <= UI.ReferenceWidth,
+	("the NEW card is %d wide on a %d screen"):format(UI.NewCard.Width, UI.ReferenceWidth))
+for label, size in pairs({ badge = UI.NewCard.BadgeTextPx, title = UI.NewCard.TitleTextPx,
+	name = UI.NewCard.NameTextPx, body = UI.NewCard.BodyTextPx }) do
+	check(size >= UI.MinTextPx,
+		("the NEW card's %s text is %d design px, %.1f physical at MinScale — under the %d-px floor this file declares")
+			:format(label, size, size * UI.MinScale, UI.MinTextPx))
+end
+-- The longest help line in the table has to fit the two rows the card gives it.
+check(UI.NewCard.BodyHeight >= UI.NewCard.BodyTextPx * 2,
+	("the NEW card gives a blurb %d px and prints at %d; the disclosure help lines run to 160 characters and need two rows")
+		:format(UI.NewCard.BodyHeight, UI.NewCard.BodyTextPx))
+
+-- ── where an overlay card sits ──────────────────────────────────────────────
+--
+-- ABOVE CENTRE, and the reason is the bottom of the screen: a card centred on
+-- 0.5 puts its lower half over the thumbstick, the jump button and the touch
+-- pad. Held off both edges so the tallest card it carries still fits.
+check(UI.OverlayY > 0.3 and UI.OverlayY < 0.5,
+	("UI.OverlayY is %.2f; above 0.5 the card sits below centre, and under 0.3 it is against the top of the screen")
+		:format(UI.OverlayY))
+do
+	local tallest = math.max(UI.Modal.MaxHeight, UI.NewCard.MaxHeight,
+		UI.HelpCard.MaxHeight, UI.RebirthCard.MaxHeight)
+	local top = UI.OverlayY * UI.ReferenceHeight - tallest / 2
+	check(top >= UI.Margin,
+		("the tallest overlay card is %d px and at OverlayY %.2f its top edge is y=%.0f, above the %d-px margin")
+			:format(tallest, UI.OverlayY, top, UI.Margin))
+	check(top + tallest <= UI.ReferenceHeight - UI.TouchReserve.Bottom,
+		("the tallest overlay card ends at y=%.0f and the bottom %d px belong to the engine's own controls")
+			:format(top + tallest, UI.TouchReserve.Bottom))
+end
+
 -- The two overlay cards, which grew from an accumulated y with nothing holding
 -- them against the screen.
 for _, card in ipairs({ { "help", UI.HelpCard }, { "rebirth report", UI.RebirthCard } }) do

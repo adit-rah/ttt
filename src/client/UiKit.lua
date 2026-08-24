@@ -116,6 +116,22 @@ function UiKit.panel(parent: Instance, size: UDim2, position: UDim2, anchor: Vec
 	return f
 end
 
+--- invariant: AN OVERLAY CARD, and every card that opens over the game is one.
+---
+--- The help card, the shop and the rebirth report each chose their own vertical
+--- centre — 0.5, 0.5 and 0.42 — so three surfaces that open the same way opened
+--- in three places. This is `panel` plus the one position they should have
+--- shared, and it is ABOVE centre: a card on 0.5 puts its lower half over the
+--- bottom third of the screen, which on a phone is the thumbstick, the jump
+--- button and the touch pad.
+---
+--- Only for cards that do NOT dim the screen. A modal with a scrim has taken
+--- the whole screen already and stays centred, because there is nothing behind
+--- it left to sit clear of.
+function UiKit.overlayCard(parent: Instance, size: UDim2): Frame
+	return UiKit.panel(parent, size, UDim2.fromScale(0.5, UI.OverlayY), Vector2.new(0.5, 0.5))
+end
+
 function UiKit.text(parent: Instance, props): TextLabel
 	local l = Instance.new("TextLabel")
 	l.BackgroundTransparency = 1

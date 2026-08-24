@@ -24,7 +24,6 @@
 local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShared"):WaitForChild("Req"))
 local Config = Req("Config")
 local Net = Req("Net")
-local Economy = Req("Economy")
 local DataService = Req("DataService")
 
 local Players = game:GetService("Players")
@@ -39,7 +38,15 @@ function DisclosureService.unlocked(player: Player, id: string): boolean
 	return profile ~= nil and profile.disclosed ~= nil and profile.disclosed[id] == true
 end
 
-local function push(player: Player)
+--- `fresh` is what arrived in THIS pass, and it rides the same push as the
+--- high-water set rather than a second remote: the client has to have the id in
+--- `ids` before it can render the surface the card is announcing, and two
+--- remotes would be two orderings to get right.
+---
+--- It is absent on a join push. A returning player owns most of this list
+--- already, and a card naming eleven things they have had for a week is not an
+--- announcement.
+local function push(player: Player, fresh)
 	local profile = DataService.get(player)
 	if not profile then
 		return
@@ -48,12 +55,12 @@ local function push(player: Player)
 	for id in pairs(profile.disclosed or {}) do
 		table.insert(ids, id)
 	end
-	remote:FireClient(player, { ids = ids })
+	remote:FireClient(player, { ids = ids, fresh = fresh })
 end
 
 --- One pass for one player: write every newly earned row into the high-water.
 --- Returns how many arrived, so the beat knows whether to push.
-function DisclosureService.reconcile(player: Player): number
+function DisclosureService.reconcile(player: Player): (number, { { name: string, help: string } })
 	local profile = DataService.get(player)
 	if not profile then
 		return 0
@@ -63,17 +70,23 @@ function DisclosureService.reconcile(player: Player): number
 		return profile.owned[id] == true
 	end
 	local arrived = 0
+	local fresh = {}
 	for _, row in ipairs(Config.Disclosure) do
 		if not profile.disclosed[row.id] and Config.disclosureEarned(row, has) then
 			profile.disclosed[row.id] = true
 			arrived += 1
 			if row.after then
 				-- the always-on rows announce nothing; an arrival is earned
-				Economy.notify(player, { kind = "claim", title = "NEW: " .. row.name, body = row.help })
+				table.insert(fresh, { name = row.name, help = row.help })
 			end
 		end
 	end
-	return arrived
+	-- COLLECTED, NOT ANNOUNCED ONE BY ONE. This used to send a toast per row,
+	-- into the same side column as a knockout and a loot drop — so an addition
+	-- to the game read as one more line of traffic. It is also a BATCH more
+	-- often than not: buying `walls` earns siege, party and recall in one pass,
+	-- and three toasts in a row is what made it traffic.
+	return arrived, fresh
 end
 
 function DisclosureService.start()
@@ -84,9 +97,9 @@ function DisclosureService.start()
 		while true do
 			task.wait(3)
 			for _, player in ipairs(Players:GetPlayers()) do
-				local ok, arrived = pcall(DisclosureService.reconcile, player)
+				local ok, arrived, fresh = pcall(DisclosureService.reconcile, player)
 				if ok and arrived > 0 then
-					push(player)
+					push(player, #fresh > 0 and fresh or nil)
 				elseif not ok then
 					warn("[Tung] disclosure error: " .. tostring(arrived))
 				end
