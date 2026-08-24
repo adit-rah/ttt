@@ -391,7 +391,17 @@ local function buildUtilityRail(parent: Instance)
 
 	inviteButton = UiKit.tile(railFrame, {
 		name = "Invite", variant = "pill", icon = "personPlus", caption = "+0%",
+		layoutOrder = UI.RailRank.invite,
 	})
+
+	-- PLACEHOLDER (#197). The bag exists so the rail has the shape it is going
+	-- to have; it opens nothing yet, and it is `disabled` rather than hidden so
+	-- that says itself instead of being a live button that does nothing.
+	UiKit.setControlState(UiKit.tile(railFrame, {
+		name = "Inventory", variant = "primary", icon = "inventory", caption = "ITEMS",
+		layoutOrder = UI.RailRank.inventory,
+	}), "disabled")
+
 	buildHelp(railFrame)
 	-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 	-- control does not exist. See refreshInvite.
@@ -731,6 +741,7 @@ function buildHelp(rail)
 	-- is the substitution #183 asks about.
 	local button = UiKit.tile(rail, {
 		name = "Help", variant = "ghost", icon = "info", caption = "HELP",
+		layoutOrder = UI.RailRank.help,
 	})
 	helpPanel = UiKit.overlayCard(overlay,
 		UDim2.fromOffset(Config.UI.HelpCard.Width, Config.UI.HelpCard.TitleHeight))
@@ -865,6 +876,9 @@ function HUD.addRailItem(name: string, icon: string, label: string, visible: () 
 	end
 	local button = UiKit.tile(railFrame, {
 		name = name, variant = "primary", icon = icon, caption = label,
+		-- Named rather than numbered: a caller says which tile it is and
+		-- Config.UI.RailOrder says where that sits.
+		layoutOrder = UI.RailRank[name:lower()],
 	})
 	button.Visible = visible()
 	button.Activated:Connect(onPress)

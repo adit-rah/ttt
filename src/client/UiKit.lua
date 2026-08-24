@@ -495,6 +495,10 @@ UiKit.ICONS = {
 	dash = { bar(5, 6, 12, 12), bar(12, 12, 5, 18), bar(12, 6, 19, 12), bar(19, 12, 12, 18) },
 	-- The shop rail: an awning over a box with a door in it.
 	shop = { bar(3, 6.5, 21, 6.5, { thick = 2 }), rect(5, 10, 14, 11, 1), rect(10, 15, 4, 6, 0.5) },
+	-- A satchel: a squared handle over a body with a clasp punched through it.
+	-- Nothing here draws an arc, so the handle is three bars.
+	inventory = { bar(9, 8, 9, 5), bar(9, 5, 15, 5), bar(15, 5, 15, 8),
+		rect(4, 8, 16, 13, 2), bar(12, 12, 12, 16, { cut = true, thick = 2 }) },
 	-- What the shop sells. The bat runs knob to barrel on the diagonal and is
 	-- the one glyph with a deliberately heavier part — `thick` on the barrel,
 	-- which is still a multiple of the drawing's own weight.
@@ -662,7 +666,7 @@ end
 --- press to find out what it does. On the invite the caption carries the number
 --- the ask is worth.
 ---
---- opts: { name, icon, caption, variant }
+--- opts: { name, icon, caption, variant, layoutOrder }
 function UiKit.tile(parent: Instance, opts): TextButton
 	if not opts.icon or not opts.caption then
 		error(("[Tung] the %q tile needs both an icon and a caption; an icon with no caption is a button nobody can read")
@@ -690,6 +694,9 @@ function UiKit.tile(parent: Instance, opts): TextButton
 		UiKit.stroke(b, ROLE[variant.stroke], 1.5)
 	end
 	b:SetAttribute("Variant", opts.variant)
+	if opts.layoutOrder then
+		b.LayoutOrder = opts.layoutOrder
+	end
 
 	local glyph = UiKit.icon(b, opts.icon, TILE.GlyphSize, ROLE[variant.ink], ROLE[variant.fill])
 	glyph.Position = UDim2.fromOffset(

@@ -1246,6 +1246,14 @@ defects in the same file.
 - **A row's tier is its position in its own Config table, drawn as pips.** Not the item's colour:
   the variant palette is placeholder art, and a screen keyed to it needs redrawing the day that
   art is replaced. Fill-versus-empty is a shape, so it survives the sky too. `[spec]`
+- **The rail's order is `Config.UI.RailOrder`, not the boot sequence.** The tiles were laid out
+  in the order they happened to be built — the invite in `buildUtilityRail`, help right behind it,
+  the shop whenever `ShopUI.start` got round to calling `addRailItem` — so moving a `start()` call
+  moved the rail. Callers name their tile and the table says where it sits. **Help is last**
+  because it is the tile a player reaches for least often and knows the position of least well,
+  and the corner is the easiest thing on a rail to find. `[assert]` no id listed twice, every rank
+  matching its position, help last, and the whole rail fitting the screen. `[spec]` the built
+  tree's `LayoutOrder`s.
 - **A tile is a glyph over a caption, and both are required.** `railItem` returned
   `(button, glyphSlot, caption)` and two of its three callers took only the button, so the rail
   shipped as one drawn icon beside two text buttons, each carrying an empty `GlyphSlot` Frame and

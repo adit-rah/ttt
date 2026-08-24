@@ -1123,6 +1123,17 @@ __MODULES["Config"] = function()
 		-- and 208 was a literal in a builder that nothing could read.
 		TouchPad = { Count = 3 },
 
+		-- invariant: WHAT SITS WHERE ON THE RAIL, left to right. The tiles were laid
+		-- out in the order they happened to be built — the invite in buildUtilityRail,
+		-- help right after it, and the shop whenever ShopUI.start got round to calling
+		-- addRailItem — so the order was a property of the boot sequence rather than a
+		-- decision, and moving a start() call moved the rail.
+		--
+		-- HELP IS LAST because it is the one a player reaches for least often and
+		-- knows the location of least well; the corner is the easiest thing on the
+		-- rail to find. design:D-05.
+		RailOrder = { "invite", "inventory", "shop", "help" },
+
 		-- invariant: WHERE AN OVERLAY CARD SITS, once. The help card, the shop and
 		-- the rebirth report each picked their own vertical centre — 0.5, 0.5 and
 		-- 0.42 — so three cards that open the same way opened in three places.
@@ -1416,6 +1427,12 @@ __MODULES["Config"] = function()
 		-- iterated only the two that declared one. They declare their own now, and
 		-- it is the column's.
 		-- The card is a heading, a run of arrivals, and one control to dismiss it.
+		-- name -> position, so a caller names its tile rather than a number.
+		ui.RailRank = {}
+		for index, id in ipairs(ui.RailOrder) do
+			ui.RailRank[id] = index
+		end
+
 		ui.NewCard.ContentWidth = ui.NewCard.Width - ui.NewCard.Pad * 2
 		ui.NewCard.RowHeight = ui.NewCard.NameHeight + ui.NewCard.BodyHeight
 		-- The first block's name shares its line with the close control, so it is
