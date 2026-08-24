@@ -3873,6 +3873,57 @@ end
 check(UI.PanelAlpha >= 0 and UI.PanelAlpha <= 0.2,
 	("UI.PanelAlpha is %.2f; past 0.2 the card is mostly whatever is behind it"):format(UI.PanelAlpha))
 
+-- ── icons ───────────────────────────────────────────────────────────────────
+--
+-- ONE OPTICAL WEIGHT ACROSS THE SET, expressed as arithmetic rather than as a
+-- claim in a comment. A 2-px stroke on a 20-px glyph and a 4-px on a 40-px are
+-- the same drawing at two sizes; a 2 and a 6 are two people's drawings on one
+-- screen, which is the state this replaced — one drawn glyph beside six letters
+-- and Unicode characters, each at the text face's weight rather than its own.
+
+local ICON = UI.Icon
+
+check(ICON.Small < ICON.Medium and ICON.Medium < ICON.Large,
+	("the icon sizes are %d/%d/%d; three tiers that do not climb are not three tiers")
+		:format(ICON.Small, ICON.Medium, ICON.Large))
+check(ICON.StrokeSmall < ICON.StrokeMedium and ICON.StrokeMedium < ICON.StrokeLarge,
+	("the icon weights are %d/%d/%d; a bigger glyph drawn no heavier reads as a thinner one")
+		:format(ICON.StrokeSmall, ICON.StrokeMedium, ICON.StrokeLarge))
+
+-- The band, and it is narrow on purpose. Anything inside it looks like one
+-- hand; a tier that drifts out is the one glyph on screen that looks borrowed.
+for tier, ratio in pairs({ Small = ICON.RatioSmall, Medium = ICON.RatioMedium, Large = ICON.RatioLarge }) do
+	check(ratio >= 0.07 and ratio <= 0.11,
+		("the %s icon draws at %.3f stroke-to-size, outside the 0.07-0.11 every other tier sits in")
+			:format(tier, ratio))
+end
+
+-- A glyph under about 12 physical pixels is a smudge, and the smallest tier is
+-- the one that decides — it is what a shop row and a compass strip get.
+check(ICON.Small * UI.MinScale >= 12,
+	("the smallest icon is %d design px, which is %.1f physical px at MinScale — under 12 a drawing is a smudge")
+		:format(ICON.Small, ICON.Small * UI.MinScale))
+check(ICON.StrokeSmall * UI.MinScale >= 1,
+	("the lightest icon stroke is %d design px, %.2f physical at MinScale; under one pixel the renderer picks whether it exists")
+		:format(ICON.StrokeSmall, ICON.StrokeSmall * UI.MinScale))
+
+-- THE KEYLINES. A square drawn to the same span as a circle reads heavier, so
+-- the square keyline is the smaller of the two, and both leave the grid a
+-- margin: a glyph touching the edge of its box collides with the next one.
+check(ICON.KeylineSquare < ICON.Keyline,
+	("the square keyline is %d against the circle's %d; a square drawn to a circle's span reads heavier than it is")
+		:format(ICON.KeylineSquare, ICON.Keyline))
+check(ICON.Keyline <= ICON.Grid - 2,
+	("the keyline is %d on a %d grid, leaving no margin — a glyph drawn to the edge of its box touches its neighbour")
+		:format(ICON.Keyline, ICON.Grid))
+
+-- The rail draws one size and no other. UiKit.icon snaps a request to the
+-- nearest declared tier, so a GlyphSize between two tiers would silently round
+-- and the rail would be drawn at a weight nothing else on screen shares.
+check(UI.Rail.GlyphSize == ICON.Large,
+	("the rail draws its glyph at %d and the large tier is %d; a size between tiers rounds to one of them silently")
+		:format(UI.Rail.GlyphSize, ICON.Large))
+
 -- THE TWO FLOORS, IN PHYSICAL PIXELS. A design-pixel minimum means nothing on
 -- its own: it is worth MinScale of itself on the smallest screen that still
 -- gets a full-size layout, and that is the number a thumb and an eye actually

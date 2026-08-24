@@ -138,17 +138,12 @@ local function buildStatusCard(parent: Instance)
 	frame.Name = "Status"
 	frame.LayoutOrder = 1
 
-	local icon = Instance.new("TextLabel")
-	icon.Size = UDim2.fromOffset(CARD.IconSize, CARD.IconSize)
-	icon.Position = UDim2.fromOffset(CARD.Pad, CARD.IconY)
-	icon.BackgroundColor3 = ROLE.currency
-	icon.BackgroundTransparency = 0.15
-	icon.Font = Style.Font.title
-	icon.Text = "T"
-	icon.TextColor3 = ROLE.onCurrency
-	icon.TextScaled = true
-	icon.Parent = frame
-	corner(icon, math.floor(CARD.IconSize / 2))
+	-- The coin, drawn. It was a gold disc with the letter T scaled inside it,
+	-- which put the one thing on this card that is meant to read as an OBJECT at
+	-- the text face's weight, beside a rail glyph drawn at its own.
+	local coin = UiKit.icon(frame, "coin", CARD.IconSize, ROLE.currency, ROLE.surface)
+	coin.Name = "Coin"
+	coin.Position = UDim2.fromOffset(CARD.Pad, CARD.IconY)
 
 	cashLabel = text(frame, {
 		Size = UDim2.fromOffset(CARD.TextWidth, CARD.BalanceHeight),
@@ -357,7 +352,7 @@ local function buildUtilityRail(parent: Instance)
 	local slot
 	inviteButton, slot, inviteCaption = UiKit.railItem(railFrame, "Invite", ROLE.affirm)
 	buildHelp(railFrame)
-	UiKit.personPlus(slot, RAIL.GlyphSize, ROLE.onAffirm, ROLE.affirm)
+	UiKit.icon(slot, "personPlus", RAIL.GlyphSize, ROLE.onAffirm, ROLE.affirm)
 	-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 	-- control does not exist. See refreshInvite.
 	inviteButton.Visible = false

@@ -18,6 +18,9 @@ local Style = Req("Style")
 local ObjectivesUI = {}
 
 local ROLE = UiKit.ROLE
+-- A row is exactly one small glyph tall, so the tick fills its column.
+local GLYPH = Config.UI.Icon.Small
+local ROW_HEIGHT = GLYPH
 local WIDTH = Config.UI.SessionPanel.Width
 
 local panel
@@ -49,17 +52,35 @@ local function render()
 	})
 	y += 18
 
+	-- A marker column, then the name. The state used to be the first character
+	-- of the same string — a drawn tick when done and "2/5" when not — which
+	-- gave a done row and an in-progress row two different left edges.
 	for _, row in ipairs(state.rows) do
+		local colour = row.done and ROLE.affirm or ROLE.emphasis
+		if row.done then
+			local tick = UiKit.icon(panel, "tick", GLYPH, colour, ROLE.surface)
+			tick.Position = UDim2.fromOffset(8, y)
+		else
+			UiKit.text(panel, {
+				Size = UDim2.fromOffset(GLYPH, ROW_HEIGHT),
+				Position = UDim2.fromOffset(8, y),
+				Font = Style.Font.body,
+				Text = ("%d/%d"):format(row.progress, row.count),
+				TextSize = 11,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				TextColor3 = colour,
+			})
+		end
 		UiKit.text(panel, {
-			Size = UDim2.new(1, -16, 0, 16),
-			Position = UDim2.fromOffset(8, y),
+			Size = UDim2.new(1, -(16 + GLYPH + 6), 0, ROW_HEIGHT),
+			Position = UDim2.fromOffset(8 + GLYPH + 6, y),
 			Font = Style.Font.body,
-			Text = ("%s  %s"):format(row.done and "✓" or ("%d/%d"):format(row.progress, row.count), row.name),
+			Text = row.name,
 			TextSize = 12,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			TextColor3 = row.done and ROLE.affirm or ROLE.emphasis,
+			TextColor3 = colour,
 		})
-		y += 17
+		y += ROW_HEIGHT + 2
 	end
 
 	if state.hint then

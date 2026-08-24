@@ -21,6 +21,7 @@ local Req = require(game:GetService("ReplicatedStorage"):WaitForChild("TungShare
 local Config = Req("Config")
 local Net = Req("Net")
 local UiKit = Req("UiKit")
+local Util = Req("Util")
 local HUD = Req("HUD")
 local Style = Req("Style")
 
@@ -30,18 +31,10 @@ local CompassUI = {}
 
 local ROLE = UiKit.ROLE
 local WIDTH, HEIGHT = 260, 20
+local MARK_WIDTH = 26
+-- The strip is exactly one small glyph tall, so a landmark fills it.
+local GLYPH = Config.UI.Icon.Small
 local HALF_FOV = math.rad(100)
-
--- Two-argument arctangent, by hand: the toolchain's math.atan definition is
--- single-argument and the analysis pass is allowed to fail the build.
-local function atan2(y: number, x: number): number
-	if x > 0 then
-		return math.atan(y / x)
-	elseif x < 0 then
-		return math.atan(y / x) + (y >= 0 and math.pi or -math.pi)
-	end
-	return y >= 0 and math.pi / 2 or -math.pi / 2
-end
 
 local strip
 local markers = {}
@@ -51,35 +44,64 @@ local partyIds = {}
 -- disclosure — being robbed is itself the event, like a party invite.
 local thiefIds = {}
 
-local function markerFor(id: string, text: string, color: Color3)
-	local label = markers[id]
-	if not label then
-		label = UiKit.text(strip, {
-			Size = UDim2.fromOffset(26, HEIGHT),
-			Position = UDim2.fromOffset(0, 0),
-			Font = Style.Font.body,
-			Text = text,
-			TextSize = 12,
-			TextColor3 = color,
-		})
-		label.Name = "Mark_" .. id
-		markers[id] = label
+--- One mark on the strip: a drawn glyph for a landmark, a letter for a person.
+---
+--- A PERSON STAYS A LETTER, and that is not an oversight. The four landmarks are
+--- each one thing, so a glyph names them completely; a partymate's mark has to
+--- answer WHICH partymate, and no glyph carries that. The letter is the
+--- information, which is why every map ever drawn labels its pins.
+local function markerFor(id: string, spec, colour: Color3)
+	local mark = markers[id]
+	if not mark then
+		local holder = Instance.new("Frame")
+		holder.Name = "Mark_" .. id
+		holder.Size = UDim2.fromOffset(MARK_WIDTH, HEIGHT)
+		holder.BackgroundTransparency = 1
+		holder.BorderSizePixel = 0
+		holder.Parent = strip
+		mark = { holder = holder }
+		if spec.icon then
+			mark.glyph = UiKit.icon(holder, spec.icon, GLYPH, colour, ROLE.surface)
+			mark.glyph.Position = UDim2.fromOffset(math.floor((MARK_WIDTH - GLYPH) / 2), 0)
+		else
+			mark.label = UiKit.text(holder, {
+				Size = UDim2.fromScale(1, 1),
+				Font = Style.Font.title,
+				Text = spec.text,
+				TextSize = 12,
+				TextColor3 = colour,
+				TextXAlignment = Enum.TextXAlignment.Center,
+			})
+		end
+		markers[id] = mark
 	end
-	label.Text = text
-	return label
+	if mark.label then
+		mark.label.Text = spec.text
+	end
+	return mark
+end
+
+--- An edge-pinned mark is behind you and dims rather than vanishing. A glyph
+--- and a letter recede by different properties, so the dispatch is here.
+local function fadeMark(mark, alpha: number)
+	if mark.label then
+		Style.fade(mark.label, alpha)
+	else
+		UiKit.fadeIcon(mark.glyph, alpha)
+	end
 end
 
 local function targets()
 	local list = {
-		{ id = "core", text = "◆", color = ROLE.alarm, position = Vector3.zero },
-		{ id = "tower", text = "▲", color = ROLE.emphasis,
+		{ id = "core", icon = "core", color = ROLE.alarm, position = Vector3.zero },
+		{ id = "tower", icon = "tower", color = ROLE.emphasis,
 			position = Vector3.new(0, 0, -Config.Tower.EntranceRadius) },
 	}
 	if plotIndex then
 		local placements = Config.plotPlacements(Config.plotCountFor())
 		local placement = placements[plotIndex]
 		if placement then
-			table.insert(list, { id = "home", text = "⌂", color = ROLE.currency,
+			table.insert(list, { id = "home", icon = "home", color = ROLE.currency,
 				position = Vector3.new(
 					math.sin(placement.angle) * placement.radius, 0,
 					math.cos(placement.angle) * placement.radius) })
@@ -97,7 +119,7 @@ local function targets()
 		local thief = Players:GetPlayerByUserId(userId)
 		local root = thief and thief.Character and thief.Character:FindFirstChild("HumanoidRootPart")
 		if root then
-			table.insert(list, { id = "thief" .. userId, text = "!",
+			table.insert(list, { id = "thief" .. userId, icon = "alert",
 				color = ROLE.alarm, position = root.Position })
 		else
 			-- the thief left or died unseen; the mark dies with the body
@@ -123,23 +145,22 @@ local function beat()
 		return
 	end
 	flatLook = flatLook.Unit
-	local heading = atan2(flatLook.X, flatLook.Z)
+	local heading = Util.atan2(flatLook.X, flatLook.Z)
 
 	local live = {}
 	for _, target in ipairs(targets()) do
 		live[target.id] = true
 		local offset = target.position - root.Position
-		local bearing = atan2(offset.X, offset.Z)
-		local diff = atan2(math.sin(bearing - heading), math.cos(bearing - heading))
+		local bearing = Util.atan2(offset.X, offset.Z)
+		local diff = Util.atan2(math.sin(bearing - heading), math.cos(bearing - heading))
 		local x = math.clamp(diff / HALF_FOV, -1, 1)
-		local label = markerFor(target.id, target.text, target.color)
-		label.Position = UDim2.new(0.5 + x * 0.48, -13, 0, 0)
-		-- an edge-pinned marker is behind you; it dims rather than vanishing
-		Style.fade(label, math.abs(x) >= 0.99 and 0.55 or 0)
+		local mark = markerFor(target.id, target, target.color)
+		mark.holder.Position = UDim2.new(0.5 + x * 0.48, -math.floor(MARK_WIDTH / 2), 0, 0)
+		fadeMark(mark, math.abs(x) >= 0.99 and 0.55 or 0)
 	end
-	for id, label in pairs(markers) do
+	for id, mark in pairs(markers) do
 		if not live[id] then
-			label:Destroy()
+			mark.holder:Destroy()
 			markers[id] = nil
 		end
 	end

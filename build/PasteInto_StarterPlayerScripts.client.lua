@@ -817,6 +817,38 @@ __MODULES["Config"] = function()
 		-- over a bright sky is not the panel colour; it is that colour mixed an
 		-- eighth of the way to the sky, and every label on it reads against the mix.
 		PanelAlpha = 0.08,
+
+		-- ── ICONS ────────────────────────────────────────────────────────────────
+		--
+		-- mechanism: THE ONE GRID, THE THREE SIZES AND THE THREE STROKE WEIGHTS.
+		-- Every glyph in UiKit.ICONS is declared in Grid units and drawn at exactly
+		-- one of the three sizes, and the weight is resolved ONCE per drawing and
+		-- shared by every part of it.
+		--
+		-- That last clause is the whole system. Deriving a thickness per part, from
+		-- that part's own length, is what makes a set of icons look like a set of
+		-- drawings by different people — and the screen had three visual languages
+		-- before this table: one drawn glyph, six letters and Unicode characters
+		-- standing in for icons, and a scattering of bare Frames. The letters
+		-- inherited the text face's metrics, so no two of them agreed on how heavy a
+		-- line is or where the baseline was.
+		--
+		-- THE COORDINATES ARE NOT HERE. They are fractions of a drawing and nothing
+		-- else on screen is measured against them, so the verifier has nothing to
+		-- compare them to — the same argument UiKit.personPlus made for its own
+		-- numbers. What IS here is layout: the grid, the sizes and the weights, which
+		-- are held against MinScale, against each other, and against the rail.
+		--
+		-- design:D-05 — the screen is drawn in one system.
+		Icon = {
+			Grid = 24,
+			-- The circle a round glyph fills, and the square a square one fills. A
+			-- square drawn to the same span as a circle reads heavier, so it is smaller.
+			Keyline = 20,
+			KeylineSquare = 18,
+			Small = 20, Medium = 28, Large = 40,
+			StrokeSmall = 2, StrokeMedium = 3, StrokeLarge = 4,
+		},
 		-- What the verifier composites against: the brightest thing that can be
 		-- behind a card. Roblox skies clip near this, and a HUD cannot choose its
 		-- backdrop, so the worst case is the only honest one to measure.
@@ -1156,6 +1188,12 @@ __MODULES["Config"] = function()
 
 		-- ── THE TOP-RIGHT RAIL, and the notification column under it ─────────────
 		local rail = ui.Rail
+		-- The three stroke:size ratios, so "one optical weight across the set" is a
+		-- number the verifier can hold rather than a claim in a comment.
+		ui.Icon.RatioSmall  = ui.Icon.StrokeSmall  / ui.Icon.Small
+		ui.Icon.RatioMedium = ui.Icon.StrokeMedium / ui.Icon.Medium
+		ui.Icon.RatioLarge  = ui.Icon.StrokeLarge  / ui.Icon.Large
+
 		ui.Rail.GlyphX = math.floor((rail.ItemWidth - rail.GlyphSize) / 2)
 		ui.Rail.GlyphY = rail.Pad
 		ui.Rail.BadgeY = rail.Pad + rail.GlyphSize + rail.GlyphGap
@@ -6524,6 +6562,28 @@ __MODULES["Util"] = function()
 		return nil, nil
 	end
 
+	--- Two-argument arctangent, by hand.
+	---
+	--- The toolchain's `math.atan` definition is single-argument, and the analysis
+	--- pass is allowed to fail the build on the two-argument call — so every site
+	--- that needs a bearing writes this out. CompassUI had it first, and UiKit's
+	--- `bar` primitive needs the same thing to turn two grid points into a
+	--- Rotation, which is one copy too many.
+	function Util.atan2(y: number, x: number): number
+		if x > 0 then
+			return math.atan(y / x)
+		elseif x < 0 then
+			return math.atan(y / x) + (y >= 0 and math.pi or -math.pi)
+		end
+		if y == 0 and x == 0 then
+			-- Undefined mathematically. Zero is the answer that keeps a caller drawing
+			-- a zero-length bar at a harmless angle rather than propagating a nan into
+			-- a Rotation, which Roblox accepts silently.
+			return 0
+		end
+		return y >= 0 and math.pi / 2 or -math.pi / 2
+	end
+
 	return Util
 end
 
@@ -6780,6 +6840,7 @@ __MODULES["CompassUI"] = function()
 	local Config = Req("Config")
 	local Net = Req("Net")
 	local UiKit = Req("UiKit")
+	local Util = Req("Util")
 	local HUD = Req("HUD")
 	local Style = Req("Style")
 
@@ -6789,18 +6850,10 @@ __MODULES["CompassUI"] = function()
 
 	local ROLE = UiKit.ROLE
 	local WIDTH, HEIGHT = 260, 20
+	local MARK_WIDTH = 26
+	-- The strip is exactly one small glyph tall, so a landmark fills it.
+	local GLYPH = Config.UI.Icon.Small
 	local HALF_FOV = math.rad(100)
-
-	-- Two-argument arctangent, by hand: the toolchain's math.atan definition is
-	-- single-argument and the analysis pass is allowed to fail the build.
-	local function atan2(y: number, x: number): number
-		if x > 0 then
-			return math.atan(y / x)
-		elseif x < 0 then
-			return math.atan(y / x) + (y >= 0 and math.pi or -math.pi)
-		end
-		return y >= 0 and math.pi / 2 or -math.pi / 2
-	end
 
 	local strip
 	local markers = {}
@@ -6810,35 +6863,64 @@ __MODULES["CompassUI"] = function()
 	-- disclosure — being robbed is itself the event, like a party invite.
 	local thiefIds = {}
 
-	local function markerFor(id: string, text: string, color: Color3)
-		local label = markers[id]
-		if not label then
-			label = UiKit.text(strip, {
-				Size = UDim2.fromOffset(26, HEIGHT),
-				Position = UDim2.fromOffset(0, 0),
-				Font = Style.Font.body,
-				Text = text,
-				TextSize = 12,
-				TextColor3 = color,
-			})
-			label.Name = "Mark_" .. id
-			markers[id] = label
+	--- One mark on the strip: a drawn glyph for a landmark, a letter for a person.
+	---
+	--- A PERSON STAYS A LETTER, and that is not an oversight. The four landmarks are
+	--- each one thing, so a glyph names them completely; a partymate's mark has to
+	--- answer WHICH partymate, and no glyph carries that. The letter is the
+	--- information, which is why every map ever drawn labels its pins.
+	local function markerFor(id: string, spec, colour: Color3)
+		local mark = markers[id]
+		if not mark then
+			local holder = Instance.new("Frame")
+			holder.Name = "Mark_" .. id
+			holder.Size = UDim2.fromOffset(MARK_WIDTH, HEIGHT)
+			holder.BackgroundTransparency = 1
+			holder.BorderSizePixel = 0
+			holder.Parent = strip
+			mark = { holder = holder }
+			if spec.icon then
+				mark.glyph = UiKit.icon(holder, spec.icon, GLYPH, colour, ROLE.surface)
+				mark.glyph.Position = UDim2.fromOffset(math.floor((MARK_WIDTH - GLYPH) / 2), 0)
+			else
+				mark.label = UiKit.text(holder, {
+					Size = UDim2.fromScale(1, 1),
+					Font = Style.Font.title,
+					Text = spec.text,
+					TextSize = 12,
+					TextColor3 = colour,
+					TextXAlignment = Enum.TextXAlignment.Center,
+				})
+			end
+			markers[id] = mark
 		end
-		label.Text = text
-		return label
+		if mark.label then
+			mark.label.Text = spec.text
+		end
+		return mark
+	end
+
+	--- An edge-pinned mark is behind you and dims rather than vanishing. A glyph
+	--- and a letter recede by different properties, so the dispatch is here.
+	local function fadeMark(mark, alpha: number)
+		if mark.label then
+			Style.fade(mark.label, alpha)
+		else
+			UiKit.fadeIcon(mark.glyph, alpha)
+		end
 	end
 
 	local function targets()
 		local list = {
-			{ id = "core", text = "◆", color = ROLE.alarm, position = Vector3.zero },
-			{ id = "tower", text = "▲", color = ROLE.emphasis,
+			{ id = "core", icon = "core", color = ROLE.alarm, position = Vector3.zero },
+			{ id = "tower", icon = "tower", color = ROLE.emphasis,
 				position = Vector3.new(0, 0, -Config.Tower.EntranceRadius) },
 		}
 		if plotIndex then
 			local placements = Config.plotPlacements(Config.plotCountFor())
 			local placement = placements[plotIndex]
 			if placement then
-				table.insert(list, { id = "home", text = "⌂", color = ROLE.currency,
+				table.insert(list, { id = "home", icon = "home", color = ROLE.currency,
 					position = Vector3.new(
 						math.sin(placement.angle) * placement.radius, 0,
 						math.cos(placement.angle) * placement.radius) })
@@ -6856,7 +6938,7 @@ __MODULES["CompassUI"] = function()
 			local thief = Players:GetPlayerByUserId(userId)
 			local root = thief and thief.Character and thief.Character:FindFirstChild("HumanoidRootPart")
 			if root then
-				table.insert(list, { id = "thief" .. userId, text = "!",
+				table.insert(list, { id = "thief" .. userId, icon = "alert",
 					color = ROLE.alarm, position = root.Position })
 			else
 				-- the thief left or died unseen; the mark dies with the body
@@ -6882,23 +6964,22 @@ __MODULES["CompassUI"] = function()
 			return
 		end
 		flatLook = flatLook.Unit
-		local heading = atan2(flatLook.X, flatLook.Z)
+		local heading = Util.atan2(flatLook.X, flatLook.Z)
 
 		local live = {}
 		for _, target in ipairs(targets()) do
 			live[target.id] = true
 			local offset = target.position - root.Position
-			local bearing = atan2(offset.X, offset.Z)
-			local diff = atan2(math.sin(bearing - heading), math.cos(bearing - heading))
+			local bearing = Util.atan2(offset.X, offset.Z)
+			local diff = Util.atan2(math.sin(bearing - heading), math.cos(bearing - heading))
 			local x = math.clamp(diff / HALF_FOV, -1, 1)
-			local label = markerFor(target.id, target.text, target.color)
-			label.Position = UDim2.new(0.5 + x * 0.48, -13, 0, 0)
-			-- an edge-pinned marker is behind you; it dims rather than vanishing
-			Style.fade(label, math.abs(x) >= 0.99 and 0.55 or 0)
+			local mark = markerFor(target.id, target, target.color)
+			mark.holder.Position = UDim2.new(0.5 + x * 0.48, -math.floor(MARK_WIDTH / 2), 0, 0)
+			fadeMark(mark, math.abs(x) >= 0.99 and 0.55 or 0)
 		end
-		for id, label in pairs(markers) do
+		for id, mark in pairs(markers) do
 			if not live[id] then
-				label:Destroy()
+				mark.holder:Destroy()
 				markers[id] = nil
 			end
 		end
@@ -7101,17 +7182,12 @@ __MODULES["HUD"] = function()
 		frame.Name = "Status"
 		frame.LayoutOrder = 1
 
-		local icon = Instance.new("TextLabel")
-		icon.Size = UDim2.fromOffset(CARD.IconSize, CARD.IconSize)
-		icon.Position = UDim2.fromOffset(CARD.Pad, CARD.IconY)
-		icon.BackgroundColor3 = ROLE.currency
-		icon.BackgroundTransparency = 0.15
-		icon.Font = Style.Font.title
-		icon.Text = "T"
-		icon.TextColor3 = ROLE.onCurrency
-		icon.TextScaled = true
-		icon.Parent = frame
-		corner(icon, math.floor(CARD.IconSize / 2))
+		-- The coin, drawn. It was a gold disc with the letter T scaled inside it,
+		-- which put the one thing on this card that is meant to read as an OBJECT at
+		-- the text face's weight, beside a rail glyph drawn at its own.
+		local coin = UiKit.icon(frame, "coin", CARD.IconSize, ROLE.currency, ROLE.surface)
+		coin.Name = "Coin"
+		coin.Position = UDim2.fromOffset(CARD.Pad, CARD.IconY)
 
 		cashLabel = text(frame, {
 			Size = UDim2.fromOffset(CARD.TextWidth, CARD.BalanceHeight),
@@ -7320,7 +7396,7 @@ __MODULES["HUD"] = function()
 		local slot
 		inviteButton, slot, inviteCaption = UiKit.railItem(railFrame, "Invite", ROLE.affirm)
 		buildHelp(railFrame)
-		UiKit.personPlus(slot, RAIL.GlyphSize, ROLE.onAffirm, ROLE.affirm)
+		UiKit.icon(slot, "personPlus", RAIL.GlyphSize, ROLE.onAffirm, ROLE.affirm)
 		-- Not shown optimistically: until CanSendGameInviteAsync has answered, this
 		-- control does not exist. See refreshInvite.
 		inviteButton.Visible = false
@@ -8397,6 +8473,9 @@ __MODULES["ObjectivesUI"] = function()
 	local ObjectivesUI = {}
 
 	local ROLE = UiKit.ROLE
+	-- A row is exactly one small glyph tall, so the tick fills its column.
+	local GLYPH = Config.UI.Icon.Small
+	local ROW_HEIGHT = GLYPH
 	local WIDTH = Config.UI.SessionPanel.Width
 
 	local panel
@@ -8428,17 +8507,35 @@ __MODULES["ObjectivesUI"] = function()
 		})
 		y += 18
 
+		-- A marker column, then the name. The state used to be the first character
+		-- of the same string — a drawn tick when done and "2/5" when not — which
+		-- gave a done row and an in-progress row two different left edges.
 		for _, row in ipairs(state.rows) do
+			local colour = row.done and ROLE.affirm or ROLE.emphasis
+			if row.done then
+				local tick = UiKit.icon(panel, "tick", GLYPH, colour, ROLE.surface)
+				tick.Position = UDim2.fromOffset(8, y)
+			else
+				UiKit.text(panel, {
+					Size = UDim2.fromOffset(GLYPH, ROW_HEIGHT),
+					Position = UDim2.fromOffset(8, y),
+					Font = Style.Font.body,
+					Text = ("%d/%d"):format(row.progress, row.count),
+					TextSize = 11,
+					TextXAlignment = Enum.TextXAlignment.Center,
+					TextColor3 = colour,
+				})
+			end
 			UiKit.text(panel, {
-				Size = UDim2.new(1, -16, 0, 16),
-				Position = UDim2.fromOffset(8, y),
+				Size = UDim2.new(1, -(16 + GLYPH + 6), 0, ROW_HEIGHT),
+				Position = UDim2.fromOffset(8 + GLYPH + 6, y),
 				Font = Style.Font.body,
-				Text = ("%s  %s"):format(row.done and "✓" or ("%d/%d"):format(row.progress, row.count), row.name),
+				Text = row.name,
 				TextSize = 12,
 				TextXAlignment = Enum.TextXAlignment.Left,
-				TextColor3 = row.done and ROLE.affirm or ROLE.emphasis,
+				TextColor3 = colour,
 			})
-			y += 17
+			y += ROW_HEIGHT + 2
 		end
 
 		if state.hint then
@@ -9806,6 +9903,7 @@ __MODULES["UiKit"] = function()
 	local Req = __Req
 	local Config = Req("Config")
 	local Style = Req("Style")
+	local Util = Req("Util")
 
 	local GuiService = game:GetService("GuiService")
 
@@ -9990,72 +10088,208 @@ __MODULES["UiKit"] = function()
 	end
 
 	-- ─────────────────────────────────────────────────────────────────────────────
-	-- the rail, and the one glyph on it
+	-- icons
 	-- ─────────────────────────────────────────────────────────────────────────────
 
-	--- mechanism: a person with a plus, drawn out of rounded rectangles — a head, a
-	--- domed torso clipped at the container's bottom edge, and a plus in a disc over
-	--- its shoulder. design:D-05 for why it is drawn rather than uploaded.
+	--- mechanism: A GLYPH IS A LIST OF PARTS IN GRID UNITS, and the grid is
+	--- Config.UI.Icon.Grid. Four constructors and no fifth — `rect`, `dot`, `bar`
+	--- and `ring` — because every one of them is a Frame with a UICorner, and the
+	--- only thing this game can draw is a Frame with a UICorner.
 	---
-	--- `ink` is the glyph and `cut` is the colour showing THROUGH the plus — pass
-	--- the button's own background for that, and the plus reads as a hole punched in
-	--- the disc rather than as a third colour competing with the first two.
+	--- WHAT MAKES THE SET A SET: `bar` takes two POINTS and derives its own length
+	--- and angle, so no glyph author writes a Rotation, and nothing takes a
+	--- thickness at all. The weight is resolved once per drawing, from the size the
+	--- caller asked for, and shared by every part of that drawing. A thickness
+	--- chosen per part, from that part's own length, is exactly what makes a bat
+	--- and a coin look like two people drew them.
 	---
-	--- Every number is a fraction of `size`. They are here rather than in Config
-	--- because they are the shape of a drawing, not the layout of a card: nothing
-	--- else on screen is measured against them and the verifier has nothing to
-	--- compare them to. The one number that IS layout, how big the glyph is drawn,
-	--- is UI.Rail.GlyphSize and comes in as `size`.
-	function UiKit.personPlus(parent: Instance, size: number, ink: Color3, cut: Color3): Frame
+	--- WHY THE COORDINATES ARE HERE AND THE SIZES ARE IN CONFIG. These numbers are
+	--- the shape of a drawing: nothing else on screen is measured against them and
+	--- the verifier has nothing to compare them to. The grid, the three sizes and
+	--- the three weights ARE layout, and they are in Config where they are held
+	--- against MinScale and against the rail. That split is UiKit.personPlus's own
+	--- argument, generalised — its numbers were already fractions of `size`.
+	local ICON = UI.Icon
+	local G = ICON.Grid
+
+	local function rect(x, y, w, h, radius, rotation)
+		return { kind = "rect", x = x, y = y, w = w, h = h, radius = radius or 0, rotation = rotation }
+	end
+
+	local function dot(cx, cy, d)
+		return { kind = "rect", x = cx - d / 2, y = cy - d / 2, w = d, h = d, radius = d / 2 }
+	end
+
+	--- `opts` may carry `thick`, a MULTIPLE of the glyph's weight for a part that
+	--- is meant to read as heavier than a line — a bat's barrel against its handle.
+	--- It may also carry `cut = true`, which draws the part in the colour behind
+	--- the glyph so it reads as a hole punched through what is under it.
+	local function bar(x1, y1, x2, y2, opts)
+		return { kind = "bar", x1 = x1, y1 = y1, x2 = x2, y2 = y2,
+			thick = opts and opts.thick or 1, cut = opts and opts.cut or false }
+	end
+
+	local function ring(cx, cy, d)
+		return { kind = "ring", x = cx - d / 2, y = cy - d / 2, w = d, h = d }
+	end
+
+	--- Every glyph the game can draw. A name that is not in here is an error, not
+	--- a blank frame: the rail shipped two items whose glyph slot was silently
+	--- empty, and a drawing that fails quietly is how that happens again.
+	---
+	--- `clip` is for a glyph whose parts are meant to run off the edge of the
+	--- picture. The person's torso is a full rounded rectangle with its bottom half
+	--- outside the frame; without the clip it is a pill floating under a head.
+	UiKit.ICONS = {
+		-- the currency, replacing a gold disc with the letter T scaled inside it
+		coin = { ring(12, 12, 20), bar(8, 9, 16, 9), bar(12, 9, 12, 16.5) },
+
+		-- done. Replaces the ✓ that ObjectivesUI printed as text.
+		tick = { bar(5, 12.5, 10, 17.5), bar(10, 17.5, 19, 6.5) },
+
+		-- the compass set, replacing ◆ ▲ ⌂ ! and a partymate's first initial
+		core  = { rect(7, 7, 10, 10, 1, 45) },
+		tower = { rect(6, 17, 12, 5, 1), rect(7.5, 11, 9, 5, 1), rect(9, 5, 6, 5, 1) },
+		home  = { bar(4, 12, 12, 5), bar(12, 5, 20, 12), rect(6.5, 12, 11, 9, 1) },
+		alert = { ring(12, 12, 20), bar(12, 6.5, 12, 13), dot(12, 17, 3) },
+
+		-- the invite. Ported from UiKit.personPlus part for part: the fractions it
+		-- carried were already a 24-unit grid in disguise.
+		personPlus = { clip = true, parts = {
+			dot(9.4, 5.9, 8),
+			rect(2.2, 11.5, 14.4, 11, 7.2),
+			dot(18.5, 18.5, 11),
+			bar(15.7, 18.5, 21.3, 18.5, { cut = true }),
+			bar(18.5, 15.7, 18.5, 21.3, { cut = true }),
+		} },
+	}
+
+	--- Every glyph name, sorted. icon_spec walks this, so a part declared off the
+	--- grid fails in the harness rather than in Studio.
+	function UiKit.iconNames(): { string }
+		local names = {}
+		for name in pairs(UiKit.ICONS) do
+			table.insert(names, name)
+		end
+		table.sort(names)
+		return names
+	end
+
+	--- The stroke weight a glyph drawn at `size` is built out of. Snaps to the
+	--- nearest declared tier rather than interpolating: three weights is the point,
+	--- and a fourth arrived at by arithmetic is the drift this replaces.
+	local function weightFor(size: number): number
+		if size <= (ICON.Small + ICON.Medium) / 2 then
+			return ICON.StrokeSmall
+		elseif size <= (ICON.Medium + ICON.Large) / 2 then
+			return ICON.StrokeMedium
+		end
+		return ICON.StrokeLarge
+	end
+
+	--- Draw the named glyph into `parent`, `size` design px square.
+	---
+	--- `ink` is what it is drawn in. `cut` is what shows THROUGH a part declared
+	--- `cut = true` — pass the surface behind the glyph, and the plus in the invite
+	--- disc reads as a hole rather than as a third colour competing with the first
+	--- two. Defaults to the parent's own background.
+	---
+	--- Errors on an unknown name, loudly, the way `dock` does on an unknown corner.
+	--- A glyph that fell back to an empty frame is the empty-slot defect reached
+	--- through a different door.
+	function UiKit.icon(parent: Instance, name: string, size: number, ink: Color3, cut: Color3?): Frame
+		local glyph = UiKit.ICONS[name]
+		if not glyph then
+			error(("[Tung] unknown icon %q; UiKit.ICONS has no such glyph"):format(tostring(name)), 2)
+		end
+		local parts = glyph.parts or glyph
 		local holder = Instance.new("Frame")
 		holder.Name = "Glyph"
 		holder.Size = UDim2.fromOffset(size, size)
 		holder.BackgroundTransparency = 1
 		holder.BorderSizePixel = 0
-		-- The torso is a full rounded rectangle whose bottom half is meant to be off
-		-- the picture; without this it is a pill floating under a head.
-		holder.ClipsDescendants = true
+		holder.ClipsDescendants = glyph.clip == true
 		holder.Parent = parent
 
-		local function block(name: string, w: number, h: number, x: number, y: number, colour: Color3, radius: number)
-			local part = Instance.new("Frame")
-			part.Name = name
-			part.Size = UDim2.fromOffset(w, h)
-			part.Position = UDim2.fromOffset(x, y)
-			part.BackgroundColor3 = colour
-			part.BorderSizePixel = 0
-			part.Parent = holder
-			if radius > 0 then
-				UiKit.corner(part, radius)
+		local unit = size / G
+		local weight = weightFor(size)
+		local hole = cut or (parent :: any).BackgroundColor3 or ROLE.glyphCut
+
+		for index, part in ipairs(parts) do
+			local f = Instance.new("Frame")
+			-- Named by KIND, because the tree is the only thing a spec can read: the
+			-- mock stores a UDim2 and never resolves it, so "is this part a bar"
+			-- cannot be answered from its size. A non-square rect looks exactly like
+			-- one, which is how the first version of icon_spec reported the person's
+			-- torso as a bar drawn at its own weight.
+			f.Name = ("%s%d"):format(part.kind == "bar" and "Bar" or part.kind == "ring" and "Ring" or "Rect", index)
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.BorderSizePixel = 0
+			f.BackgroundColor3 = part.cut and hole or ink
+
+			if part.kind == "bar" then
+				local dx, dy = (part.x2 - part.x1) * unit, (part.y2 - part.y1) * unit
+				local length = math.sqrt(dx * dx + dy * dy)
+				local thickness = math.max(1, math.round(weight * part.thick))
+				-- Extended by one thickness so the round caps land ON the endpoints
+				-- rather than inside them; a UICorner of half the height is what
+				-- makes them round in the first place.
+				f.Size = UDim2.fromOffset(math.round(length + thickness), thickness)
+				f.Position = UDim2.fromOffset(
+					math.round((part.x1 + part.x2) / 2 * unit),
+					math.round((part.y1 + part.y2) / 2 * unit))
+				f.Rotation = math.deg(Util.atan2(dy, dx))
+				UiKit.corner(f, math.floor(thickness / 2))
+			else
+				f.Size = UDim2.fromOffset(math.round(part.w * unit), math.round(part.h * unit))
+				f.Position = UDim2.fromOffset(
+					math.round((part.x + part.w / 2) * unit),
+					math.round((part.y + part.h / 2) * unit))
+				if part.rotation then
+					f.Rotation = part.rotation
+				end
+				if part.kind == "ring" then
+					-- A ring is a circle that is only its own outline: no fill, and
+					-- the stroke carries the glyph's one weight like every other part.
+					f.BackgroundTransparency = 1
+					UiKit.corner(f, math.round(part.w * unit / 2))
+					local s = Instance.new("UIStroke")
+					s.Color = ink
+					s.Thickness = weight
+					s.Parent = f
+				elseif part.radius > 0 then
+					UiKit.corner(f, math.round(part.radius * unit))
+				end
 			end
-			return part
+			f.Parent = holder
 		end
-
-		-- The person is pushed left of centre to leave the lower right for the disc.
-		local head = math.floor(size * 0.34)
-		local torsoW, torsoH = math.floor(size * 0.60), math.floor(size * 0.46)
-		local centre = math.floor(size * 0.39)
-		block("Head", head, head, centre - math.floor(head / 2), math.floor(size * 0.08),
-			ink, math.floor(head / 2))
-		block("Torso", torsoW, torsoH, centre - math.floor(torsoW / 2), math.floor(size * 0.48),
-			ink, math.floor(torsoW / 2))
-
-		local disc = math.floor(size * 0.46)
-		local discX, discY = size - disc, size - disc
-		block("Plus", disc, disc, discX, discY, ink, math.floor(disc / 2))
-
-		-- The two bars are children of the holder, not of the disc, so they are
-		-- positioned in one coordinate space; the disc is behind them by creation
-		-- order under ZIndexBehavior.Sibling.
-		local barLong, barShort = math.floor(disc * 0.52), math.max(2, math.floor(disc * 0.16))
-		local barX = discX + math.floor((disc - barLong) / 2)
-		local barY = discY + math.floor((disc - barShort) / 2)
-		block("PlusH", barLong, barShort, barX, barY, cut, 0)
-		block("PlusV", barShort, barLong, discX + math.floor((disc - barShort) / 2),
-			discY + math.floor((disc - barLong) / 2), cut, 0)
 
 		return holder
 	end
+
+	--- Fades a drawn glyph, whole.
+	---
+	--- The ring parts carry their drawing in a UIStroke and the rest carry it in a
+	--- BackgroundColor3, so one property does not fade both — and a glyph where the
+	--- outlines stayed hard while the fills receded would read as MORE contrasty
+	--- dimmed than lit, which is Style.fade's argument about text strokes, one
+	--- primitive down.
+	function UiKit.fadeIcon(glyph: Frame, alpha: number)
+		for _, part in ipairs(glyph:GetChildren()) do
+			if part:IsA("Frame") then
+				local stroke = part:FindFirstChildOfClass("UIStroke")
+				if stroke then
+					stroke.Transparency = alpha
+				else
+					part.BackgroundTransparency = alpha
+				end
+			end
+		end
+	end
+
+	-- ─────────────────────────────────────────────────────────────────────────────
+	-- the rail
+	-- ─────────────────────────────────────────────────────────────────────────────
 
 	--- A rail item: a glyph over a caption, the whole thing one hit target.
 	---

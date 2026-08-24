@@ -59,7 +59,7 @@ entry here works today.
 | the mezzanine — deck, edge and hatch guards, ladder | `src/server/FloorService.lua` `buildDeck`, `buildEdgeGuards`, `buildHatchGuards`, `buildLadder` |
 | the world — ground, arena floor, rim and dais, spawn pad, plot pads, edges and totems | `src/server/MapBuilder.lua` `build`, `buildArena`, `buildSpawn`, `buildPlotPad` |
 | particle and light recipes — variant effects, purchase bursts, floating text, swing trails, ceiling fixtures | `src/shared/Fx.lua` `RECIPES`, `burst`, `floatingText`, `trail`, `ceilingLight`. Textures are the engine's own (`rbxasset://textures/particles/*`) and cannot be moderated away. |
-| screen UI — panels, buttons, the rail, the drawn `personPlus` glyph | `src/client/UiKit.lua`. design:D-05 for why the glyph is drawn. |
+| screen UI — panels, buttons, the rail, and every icon in `UiKit.ICONS` | `src/client/UiKit.lua`. Four primitives on a 24-unit grid; design:D-05 for why they are drawn rather than uploaded. |
 
 ---
 

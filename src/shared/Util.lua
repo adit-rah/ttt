@@ -214,4 +214,26 @@ function Util.getRig(model: Instance?): (Humanoid?, BasePart?)
 	return nil, nil
 end
 
+--- Two-argument arctangent, by hand.
+---
+--- The toolchain's `math.atan` definition is single-argument, and the analysis
+--- pass is allowed to fail the build on the two-argument call — so every site
+--- that needs a bearing writes this out. CompassUI had it first, and UiKit's
+--- `bar` primitive needs the same thing to turn two grid points into a
+--- Rotation, which is one copy too many.
+function Util.atan2(y: number, x: number): number
+	if x > 0 then
+		return math.atan(y / x)
+	elseif x < 0 then
+		return math.atan(y / x) + (y >= 0 and math.pi or -math.pi)
+	end
+	if y == 0 and x == 0 then
+		-- Undefined mathematically. Zero is the answer that keeps a caller drawing
+		-- a zero-length bar at a harmless angle rather than propagating a nan into
+		-- a Rotation, which Roblox accepts silently.
+		return 0
+	end
+	return y >= 0 and math.pi / 2 or -math.pi / 2
+end
+
 return Util

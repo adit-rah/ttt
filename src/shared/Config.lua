@@ -785,6 +785,38 @@ Config.UI = {
 	-- over a bright sky is not the panel colour; it is that colour mixed an
 	-- eighth of the way to the sky, and every label on it reads against the mix.
 	PanelAlpha = 0.08,
+
+	-- ── ICONS ────────────────────────────────────────────────────────────────
+	--
+	-- mechanism: THE ONE GRID, THE THREE SIZES AND THE THREE STROKE WEIGHTS.
+	-- Every glyph in UiKit.ICONS is declared in Grid units and drawn at exactly
+	-- one of the three sizes, and the weight is resolved ONCE per drawing and
+	-- shared by every part of it.
+	--
+	-- That last clause is the whole system. Deriving a thickness per part, from
+	-- that part's own length, is what makes a set of icons look like a set of
+	-- drawings by different people — and the screen had three visual languages
+	-- before this table: one drawn glyph, six letters and Unicode characters
+	-- standing in for icons, and a scattering of bare Frames. The letters
+	-- inherited the text face's metrics, so no two of them agreed on how heavy a
+	-- line is or where the baseline was.
+	--
+	-- THE COORDINATES ARE NOT HERE. They are fractions of a drawing and nothing
+	-- else on screen is measured against them, so the verifier has nothing to
+	-- compare them to — the same argument UiKit.personPlus made for its own
+	-- numbers. What IS here is layout: the grid, the sizes and the weights, which
+	-- are held against MinScale, against each other, and against the rail.
+	--
+	-- design:D-05 — the screen is drawn in one system.
+	Icon = {
+		Grid = 24,
+		-- The circle a round glyph fills, and the square a square one fills. A
+		-- square drawn to the same span as a circle reads heavier, so it is smaller.
+		Keyline = 20,
+		KeylineSquare = 18,
+		Small = 20, Medium = 28, Large = 40,
+		StrokeSmall = 2, StrokeMedium = 3, StrokeLarge = 4,
+	},
 	-- What the verifier composites against: the brightest thing that can be
 	-- behind a card. Roblox skies clip near this, and a HUD cannot choose its
 	-- backdrop, so the worst case is the only honest one to measure.
@@ -1124,6 +1156,12 @@ do
 
 	-- ── THE TOP-RIGHT RAIL, and the notification column under it ─────────────
 	local rail = ui.Rail
+	-- The three stroke:size ratios, so "one optical weight across the set" is a
+	-- number the verifier can hold rather than a claim in a comment.
+	ui.Icon.RatioSmall  = ui.Icon.StrokeSmall  / ui.Icon.Small
+	ui.Icon.RatioMedium = ui.Icon.StrokeMedium / ui.Icon.Medium
+	ui.Icon.RatioLarge  = ui.Icon.StrokeLarge  / ui.Icon.Large
+
 	ui.Rail.GlyphX = math.floor((rail.ItemWidth - rail.GlyphSize) / 2)
 	ui.Rail.GlyphY = rail.Pad
 	ui.Rail.BadgeY = rail.Pad + rail.GlyphSize + rail.GlyphGap
